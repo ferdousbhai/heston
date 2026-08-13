@@ -32,5 +32,7 @@ export function publicError(error: unknown): string {
     return 'This action is no longer pending'
   }
   if (error.message.includes('contract is not available')) return error.message
+  if (error.name === 'PortfolioRiskError') return error.message
+  if (error.name === 'BrokerageSubmissionUnknownError') return error.message
   return 'The request could not be completed'
 }

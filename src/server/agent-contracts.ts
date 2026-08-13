@@ -8,7 +8,7 @@ const OptionActionSchema = z.object({
   expiry: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   action: z.enum(['Buy to Open', 'Sell to Open', 'Buy to Close', 'Sell to Close']),
   quantity: z.number().int().min(1).max(100),
-  limitPrice: z.number().positive(),
+  limitPrice: z.number().positive().multipleOf(0.01),
   priceEffect: z.enum(['Debit', 'Credit']),
 })
 
@@ -17,7 +17,7 @@ const EquityActionSchema = z.object({
   symbol: z.string().regex(/^[A-Z.]{1,8}$/),
   action: z.enum(['Buy to Open', 'Sell to Open', 'Buy to Close', 'Sell to Close']),
   quantity: z.number().int().min(1).max(10_000),
-  limitPrice: z.number().positive(),
+  limitPrice: z.number().positive().multipleOf(0.01),
   priceEffect: z.enum(['Debit', 'Credit']),
 })
 
@@ -35,6 +35,17 @@ const AddWatchlistActionSchema = z.object({ kind: z.literal('add_watchlist_symbo
 const RemoveWatchlistActionSchema = z.object({ kind: z.literal('remove_watchlist_symbol'), ...WatchlistFields })
 
 export const BrokerageActionSchema = z.discriminatedUnion('kind', [OptionActionSchema, EquityActionSchema, CancelActionSchema, AddWatchlistActionSchema, RemoveWatchlistActionSchema])
+  .superRefine((action, context) => {
+    if (action.kind !== 'place_option_order' && action.kind !== 'place_equity_order') return
+    const expectedEffect = action.action.startsWith('Buy') ? 'Debit' : 'Credit'
+    if (action.priceEffect !== expectedEffect) {
+      context.addIssue({
+        code: 'custom',
+        message: `${action.action} requires a ${expectedEffect.toLowerCase()}`,
+        path: ['priceEffect'],
+      })
+    }
+  })
 export const AgentPlanSchema = z.object({ message: z.string().min(1).max(2_000), action: BrokerageActionSchema.nullable() })
 export const ChatRequestSchema = z.object({
   message: z.string().trim().min(1).max(4_000),

@@ -96,7 +96,13 @@ export async function tastyRequest(
   headers.set('User-Agent', USER_AGENT)
   if (init.body) headers.set('Content-Type', 'application/json')
   const response = await fetch(`${apiBase(env)}${path}`, { ...init, headers })
-  if (!response.ok) throw new Error(`TastytradeApi:${response.status}:${path.split('?')[0]}`)
+  if (!response.ok) {
+    const error = new Error(`TastytradeApi:${response.status}:${path.split('?')[0]}`)
+    error.name = response.status >= 500 || response.status === 408
+      ? 'TastytradeApiAmbiguousError'
+      : 'TastytradeApiError'
+    throw error
+  }
   if (response.status === 204) return {}
   return response.json()
 }
@@ -104,8 +110,9 @@ export async function tastyRequest(
 export async function resolveAccountNumber(env: AppEnv): Promise<string> {
   if (env.TASTYTRADE_ACCOUNT_NUMBER) return readSecret(env.TASTYTRADE_ACCOUNT_NUMBER, 'TASTYTRADE_ACCOUNT_NUMBER')
   const payload = await tastyRequest(env, '/customers/me/accounts')
-  const first = items(payload)[0]
-  const account = record(first?.account ?? first)
+  const accounts = items(payload)
+  if (accounts.length !== 1) throw new Error('TastytradeAccount:explicit-account-required')
+  const account = record(accounts[0]?.account ?? accounts[0])
   const accountNumber = stringValue(account['account-number'])
   if (!accountNumber) throw new Error('TastytradeAccount:not-found')
   return accountNumber

@@ -4,9 +4,17 @@ import { resolveAccountNumber, tastyRequest } from './tastytrade'
 type JsonRecord = Record<string, unknown>
 
 export interface BrokerageContext {
+  accountNumber: string
   balances: { buyingPower?: number; cash?: number; netLiquidatingValue?: number }
+  availability: { balances: boolean; orders: boolean; positions: boolean; watchlists: boolean }
   orders: Array<{ id: string; status: string; symbol: string; type: string }>
-  positions: Array<{ quantity: number; symbol: string; underlying: string }>
+  positions: Array<{
+    direction: 'Long' | 'Short' | 'Unknown'
+    instrumentType: string
+    quantity: number
+    symbol: string
+    underlying: string
+  }>
   watchlists: Array<{ name: string; symbols: string[] }>
 }
 
@@ -26,7 +34,8 @@ function text(value: unknown, fallback = ''): string {
 }
 
 function number(value: unknown): number | undefined {
-  const parsed = typeof value === 'number' ? value : Number(value)
+  if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return undefined
+  const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : undefined
 }
 
@@ -36,29 +45,46 @@ function firstNumber(row: JsonRecord, names: string[]): number | undefined {
 
 export async function loadBrokerageContext(env: AppEnv): Promise<BrokerageContext> {
   const account = await resolveAccountNumber(env)
-  const [positionResult, balanceResult, orderResult, watchlistResult] = await Promise.allSettled([
+  const [positionResult, balanceResult, orderResult, complexOrderResult, watchlistResult] = await Promise.allSettled([
     tastyRequest(env, `/accounts/${encodeURIComponent(account)}/positions`),
     tastyRequest(env, `/accounts/${encodeURIComponent(account)}/balances`),
-    tastyRequest(env, `/accounts/${encodeURIComponent(account)}/orders/live`),
+    tastyRequest(env, `/accounts/${encodeURIComponent(account)}/orders/live?per-page=200`),
+    tastyRequest(env, `/accounts/${encodeURIComponent(account)}/complex-orders/live`),
     tastyRequest(env, '/watchlists'),
   ])
   const positions = positionResult.status === 'fulfilled' ? items(positionResult.value) : []
-  const orders = orderResult.status === 'fulfilled' ? items(orderResult.value) : []
+  const orders = [
+    ...(orderResult.status === 'fulfilled' ? items(orderResult.value) : []),
+    ...(complexOrderResult.status === 'fulfilled' ? items(complexOrderResult.value) : []),
+  ]
   const watchlists = watchlistResult.status === 'fulfilled' ? items(watchlistResult.value) : []
   const balancePayload = balanceResult.status === 'fulfilled' ? record(balanceResult.value) : {}
   const balances = record(balancePayload.data ?? balancePayload)
+  const cashBalance = firstNumber(balances, ['cash-balance'])
+  const withdrawableCash = firstNumber(balances, ['cash-available-to-withdraw'])
   return {
+    accountNumber: account,
+    availability: {
+      balances: balanceResult.status === 'fulfilled',
+      orders: orderResult.status === 'fulfilled' && complexOrderResult.status === 'fulfilled',
+      positions: positionResult.status === 'fulfilled',
+      watchlists: watchlistResult.status === 'fulfilled',
+    },
     balances: {
       netLiquidatingValue: firstNumber(balances, ['net-liquidating-value', 'net-liquidating-value-snapshot']),
-      cash: firstNumber(balances, ['cash-balance', 'cash-available-to-withdraw']),
+      cash: cashBalance !== undefined && withdrawableCash !== undefined
+        ? Math.min(cashBalance, withdrawableCash)
+        : undefined,
       buyingPower: firstNumber(balances, ['derivative-buying-power', 'equity-buying-power', 'buying-power']),
     },
     positions: positions.slice(0, 100).flatMap((row) => {
       const symbol = text(row.symbol)
       const underlying = text(row['underlying-symbol'], symbol).toUpperCase()
       const quantity = number(row.quantity)
+      const rawDirection = text(row['quantity-direction'])
+      const direction = rawDirection === 'Long' || rawDirection === 'Short' ? rawDirection : 'Unknown'
       return symbol && underlying && quantity !== undefined && quantity !== 0
-        ? [{ symbol, underlying, quantity }]
+        ? [{ symbol, underlying, quantity, direction, instrumentType: text(row['instrument-type'], 'Unknown') }]
         : []
     }),
     orders: orders.slice(0, 100).map((row) => {
@@ -83,23 +109,30 @@ function money(value: number | undefined): string {
 }
 
 export function answerBrokerageReadRequest(message: string, context: BrokerageContext): string | undefined {
+  if (/\b(why|should|size|sizing|kelly|risk|hedge|trade|buy|sell|conviction|recommend)\b/i.test(message)) return undefined
   const wantsAccount = /\b(account|portfolio)\b/i.test(message)
   const sections: string[] = []
   if (wantsAccount || /\b(position|holding)s?\b/i.test(message)) {
-    sections.push(context.positions.length
-      ? `Positions: ${context.positions.map((position) => `${position.quantity} ${position.symbol}`).join(', ')}.`
+    sections.push(!context.availability.positions
+      ? 'Positions: unavailable.'
+      : context.positions.length
+      ? `Positions: ${context.positions.map((position) => `${position.direction === 'Short' ? '-' : ''}${position.quantity} ${position.symbol}`).join(', ')}.`
       : 'Positions: none open.')
   }
   if (wantsAccount || /\b(balance|buying power|cash|net liq)\b/i.test(message)) {
     sections.push(`Net liq ${money(context.balances.netLiquidatingValue)} · buying power ${money(context.balances.buyingPower)} · cash ${money(context.balances.cash)}.`)
   }
   if (wantsAccount || /\b(open|working|live) orders?\b/i.test(message)) {
-    sections.push(context.orders.length
+    sections.push(!context.availability.orders
+      ? 'Working orders: unavailable.'
+      : context.orders.length
       ? `Working orders: ${context.orders.map((order) => `#${order.id} ${order.symbol} (${order.status})`).join(', ')}.`
       : 'Working orders: none.')
   }
   if (/\bwatchlists?\b/i.test(message)) {
-    sections.push(context.watchlists.length
+    sections.push(!context.availability.watchlists
+      ? 'Watchlists: unavailable.'
+      : context.watchlists.length
       ? `Watchlists: ${context.watchlists.map((watchlist) => `${watchlist.name} [${watchlist.symbols.join(', ')}]`).join('; ')}.`
       : 'Watchlists: none.')
   }
