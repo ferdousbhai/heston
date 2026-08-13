@@ -6,16 +6,19 @@ export function TopBar({
   onSignOut,
   onSync,
   phase,
-  source,
   viewerName,
 }: {
   onSignOut?: () => void
   onSync: () => void
   phase: SyncPhase
-  source: string
   viewerName?: string
 }) {
   const offline = phase === 'offline'
+  const syncLabel = offline
+    ? 'Offline — retry sync'
+    : phase === 'syncing' ? 'Syncing market data'
+      : phase === 'error' ? 'Sync failed — retry'
+        : 'Refresh market data'
   return (
     <header className="top-bar">
       <div aria-label="Spice Must Flow" className="brand">
@@ -23,9 +26,8 @@ export function TopBar({
         <small>MUST FLOW</small>
       </div>
       <div className="top-actions">
-        <button className={`sync-pill ${phase}`} onClick={onSync} type="button">
+        <button aria-label={syncLabel} className={`sync-button ${phase}`} onClick={onSync} title={syncLabel} type="button">
           {offline ? <WifiOff size={13} /> : <RefreshCw className={phase === 'syncing' ? 'spin' : ''} size={13} />}
-          <span>{offline ? 'Offline cache' : phase === 'syncing' ? 'Syncing' : source === 'tastytrade' ? 'tastytrade live' : 'Demo market'}</span>
         </button>
         {viewerName && onSignOut && (
           <button aria-label={`Sign out ${viewerName}`} className="viewer-button" onClick={onSignOut} title="Sign out" type="button">

@@ -100,7 +100,6 @@ function AuthenticatedSpiceApp({ onSignOut, viewer }: { onSignOut: () => Promise
             onSignOut={viewer ? () => void onSignOut() : undefined}
             onSync={() => void synchronize()}
             phase={phase}
-            source={source}
             viewerName={viewer?.name}
           />
         )}

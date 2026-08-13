@@ -44,10 +44,9 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .brand > span { font-size: 21px; font-weight: 850; letter-spacing: -.045em; }
 .brand small { margin-top: 5px; color: var(--muted); font-size: 6px; font-weight: 800; letter-spacing: .28em; }
 .top-actions { display: flex; align-items: center; gap: 8px; }
-.sync-pill { min-height: 34px; border: 1px solid var(--hairline); background: rgba(23, 25, 32, .78); backdrop-filter: blur(18px); border-radius: 999px; padding: 0 11px; display: flex; gap: 7px; align-items: center; color: #b9bbc3; font-size: 11px; font-weight: 650; cursor: pointer; }
-.sync-pill.idle svg { color: var(--spice); }
-.sync-pill.error { color: #ffd27b; }
-.sync-pill.offline { color: #a9acb6; }
+.sync-button { width: 34px; height: 34px; border: 1px solid var(--hairline); background: rgba(23, 25, 32, .78); border-radius: 50%; padding: 0; display: grid; place-items: center; color: var(--spice); cursor: pointer; }
+.sync-button.error { color: #ffd27b; }
+.sync-button.offline { color: #a9acb6; }
 .viewer-button { width: 34px; height: 34px; flex: 0 0 34px; border: 0; border-radius: 50%; background: var(--spice); color: #180d04; font-size: 12px; font-weight: 850; cursor: pointer; }
 .spin { animation: spin .8s linear infinite; }
 
@@ -252,7 +251,6 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
   .auth-copy { padding-bottom: 6vh; }
   .auth-copy h1 { font-size: clamp(48px, 16vw, 62px); }
   .auth-copy > p { margin-top: 20px; font-size: 13px; }
-  .sync-pill span { display: none; }
   .price-line { align-items: flex-start; flex-direction: column; }
   .price-line > span { padding: 0; }
   .price-chart { height: 160px; }
