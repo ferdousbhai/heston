@@ -132,9 +132,9 @@ function AuthenticatedSpiceApp({ viewer }: { viewer: Viewer | null }) {
           {snapshotReady && tab === 'agent' && !selected && <MarketState message="Dan needs a loaded market symbol." />}
         </main>
         <nav className="bottom-nav" aria-label="Primary navigation">
-          <button className={tab === 'market' ? 'active' : ''} onClick={() => setTab('market')} type="button"><TrendingUp size={21} /><span>Market</span></button>
-          <button className={tab === 'brief' ? 'active' : ''} onClick={() => setTab('brief')} type="button"><Newspaper size={21} /><span>Brief</span></button>
-          <button className={tab === 'agent' ? 'active' : ''} onClick={() => setTab('agent')} type="button"><Bot size={21} /><span>Dan</span></button>
+          <button aria-pressed={tab === 'market'} className={tab === 'market' ? 'active' : ''} onClick={() => setTab('market')} type="button"><TrendingUp size={21} /><span>Market</span></button>
+          <button aria-pressed={tab === 'brief'} className={tab === 'brief' ? 'active' : ''} onClick={() => setTab('brief')} type="button"><Newspaper size={21} /><span>Brief</span></button>
+          <button aria-pressed={tab === 'agent'} className={tab === 'agent' ? 'active' : ''} onClick={() => setTab('agent')} type="button"><Bot size={21} /><span>Dan</span></button>
         </nav>
       </div>
       {pickerOpen && snapshotReady && <TickerPicker onClose={closePicker} onPick={chooseFromPicker} tickers={tickers} watchlists={watchlists} />}

@@ -26,6 +26,7 @@ test('mobile market, research, picker, and agent flows remain coherent', async (
   await expect(page.getByRole('button', { name: /sync|refresh market data/i })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /sign out/i })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /SPY/ }).first()).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Market' })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByText('$691.24').first()).toBeVisible()
   await expect(page.getByRole('region', { name: 'Upcoming catalysts' })).toBeVisible()
   await expect(page.getByText('Upcoming catalysts')).toHaveCount(0)
@@ -45,8 +46,10 @@ test('mobile market, research, picker, and agent flows remain coherent', async (
   ])
   await page.getByRole('dialog').getByRole('button', { name: /NVDA/ }).first().click()
   await expect(page.getByText('$191.68').first()).toBeVisible()
+  await expect(page.locator('.watch-row', { hasText: 'NVDA' })).toHaveAttribute('aria-pressed', 'true')
 
   await page.getByRole('button', { name: 'Brief' }).click()
+  await expect(page.getByRole('button', { name: 'Brief' })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByText('Market pulse')).toHaveCount(0)
   await expect(page.getByText('Today’s setups')).toHaveCount(0)
   await expect(page.getByText('3 ideas')).toHaveCount(0)
