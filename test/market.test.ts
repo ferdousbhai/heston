@@ -2,13 +2,12 @@ import { describe, expect, it } from 'vitest'
 
 import {
   MarketSnapshotSchema,
-  optionsTemperatureCopy,
   volatilityVerdict,
 } from '../src/domain/market'
 import { demoSnapshot } from '../src/domain/demo'
 import { percentMetric } from '../src/server/tastytrade'
 
-describe('options temperature', () => {
+describe('volatility classification', () => {
   it('treats low rank and percentile as cheap', () => {
     expect(volatilityVerdict({ ivRank: 22, ivPercentile: 27 })).toBe('cheap')
   })
@@ -16,12 +15,6 @@ describe('options temperature', () => {
   it('treats high rank or percentile as rich', () => {
     expect(volatilityVerdict({ ivRank: 75, ivPercentile: 60 })).toBe('rich')
     expect(volatilityVerdict({ ivRank: 50, ivPercentile: 82 })).toBe('rich')
-  })
-
-  it('keeps the explanation tied to the same classification inputs', () => {
-    const ticker = demoSnapshot().tickers.find((candidate) => candidate.symbol === 'SPY')!
-    expect(optionsTemperatureCopy(ticker).title).toContain('cool')
-    expect(optionsTemperatureCopy(ticker).detail).toContain('IV percentile is 23')
   })
 })
 

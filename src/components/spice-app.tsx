@@ -4,6 +4,7 @@ import { Bot, Newspaper, TrendingUp } from 'lucide-react'
 
 import {
   ensureOfflineSnapshot,
+  catalystCollection,
   preferenceCollection,
   researchCollection,
   selectTicker,
@@ -13,7 +14,7 @@ import {
   tickerCollection,
   watchlistCollection,
 } from '../data/collections'
-import { demoResearch, demoTickers, demoWatchlists } from '../domain/demo'
+import { demoCatalysts, demoResearch, demoTickers, demoWatchlists } from '../domain/demo'
 import { type Watchlist } from '../domain/market'
 import { AgentScreen } from './agent-screen'
 import { BriefScreen } from './brief-screen'
@@ -25,11 +26,13 @@ type Tab = 'market' | 'brief' | 'agent'
 
 export function SpiceApp() {
   const { data: storedTickers = [] } = useLiveQuery((query) => query.from({ ticker: tickerCollection }))
+  const { data: storedCatalysts = [] } = useLiveQuery((query) => query.from({ catalyst: catalystCollection }))
   const { data: storedWatchlists = [] } = useLiveQuery((query) => query.from({ watchlist: watchlistCollection }))
   const { data: storedResearch = [] } = useLiveQuery((query) => query.from({ research: researchCollection }))
   const { data: preferences = [] } = useLiveQuery((query) => query.from({ preference: preferenceCollection }))
   const { data: syncStates = [] } = useLiveQuery((query) => query.from({ sync: syncStateCollection }))
   const tickers = storedTickers.length ? storedTickers : demoTickers
+  const catalysts = storedCatalysts.length ? storedCatalysts : demoCatalysts
   const watchlists = storedWatchlists.length ? storedWatchlists : demoWatchlists
   const research = storedResearch[0] ?? demoResearch
   const preference = preferences[0]
@@ -90,7 +93,7 @@ export function SpiceApp() {
           {tab === 'market' && (
             <MarketScreen
               activeWatchlist={activeWatchlist}
-              onAskDan={() => setTab('agent')}
+              catalysts={catalysts}
               onOpenPicker={() => setPickerOpen(true)}
               onSelectTicker={chooseSymbol}
               selected={selected}

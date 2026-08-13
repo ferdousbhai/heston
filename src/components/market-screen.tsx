@@ -1,20 +1,23 @@
-import { ArrowDownRight, ArrowUpRight, ChevronDown, Flame, Search } from 'lucide-react'
+import { ArrowDownRight, ArrowUpRight, ChevronDown, Search } from 'lucide-react'
 
-import { optionsTemperatureCopy, volatilityVerdict, type Ticker, type Watchlist } from '../domain/market'
-import { LiquidityMetric, MetricGauge, Sparkline, VerdictPill } from './market-visuals'
+import { catalystLabel, nextCatalystForSymbol, sortSymbolsByCatalyst, type Catalyst } from '../domain/catalyst'
+import { volatilityVerdict, type Ticker, type Watchlist } from '../domain/market'
+import { LiquidityMetric, MetricGauge, Sparkline } from './market-visuals'
 
 function WatchlistStrip({
   active,
+  catalysts,
   onOpen,
   onSelect,
   tickers,
 }: {
   active: Watchlist
+  catalysts: Catalyst[]
   onOpen: () => void
   onSelect: (symbol: string) => void
   tickers: Ticker[]
 }) {
-  const visible = active.symbols
+  const visible = sortSymbolsByCatalyst(active.symbols, catalysts)
     .map((symbol) => tickers.find((ticker) => ticker.symbol === symbol))
     .filter((ticker): ticker is Ticker => Boolean(ticker))
   return (
@@ -23,12 +26,22 @@ function WatchlistStrip({
         <span>{active.name}</span><ChevronDown size={17} aria-hidden="true" />
       </button>
       <div className="story-row">
-        {visible.map((ticker) => (
-          <button className="story" key={ticker.symbol} onClick={() => onSelect(ticker.symbol)} type="button">
-            <span className={`story-ring ${volatilityVerdict(ticker)}`}><span>{ticker.symbol.slice(0, 2)}</span></span>
-            <span className="story-symbol">{ticker.symbol}</span>
-          </button>
-        ))}
+        {visible.map((ticker) => {
+          const catalyst = nextCatalystForSymbol(ticker.symbol, catalysts)
+          return (
+            <button
+              className="story"
+              key={ticker.symbol}
+              onClick={() => onSelect(ticker.symbol)}
+              title={catalyst ? `${catalyst.title} · ${catalyst.date} · ${catalyst.confidence}` : undefined}
+              type="button"
+            >
+              <span className={`story-ring ${volatilityVerdict(ticker)}`}><span>{ticker.symbol.slice(0, 2)}</span></span>
+              <span className="story-symbol">{ticker.symbol}</span>
+              {catalyst && <span className={`story-catalyst ${catalyst.confidence}`}>{catalystLabel(catalyst)}</span>}
+            </button>
+          )
+        })}
         <button className="story" onClick={onOpen} type="button">
           <span className="story-ring more"><Search size={18} aria-hidden="true" /></span>
           <span className="story-symbol">Browse</span>
@@ -40,26 +53,25 @@ function WatchlistStrip({
 
 export function MarketScreen({
   activeWatchlist,
-  onAskDan,
+  catalysts,
   onOpenPicker,
   onSelectTicker,
   selected,
   tickers,
 }: {
   activeWatchlist: Watchlist
-  onAskDan: () => void
+  catalysts: Catalyst[]
   onOpenPicker: () => void
   onSelectTicker: (symbol: string) => void
   selected: Ticker
   tickers: Ticker[]
 }) {
-  const temperature = optionsTemperatureCopy(selected)
-  const watchTickers = activeWatchlist.symbols
+  const watchTickers = sortSymbolsByCatalyst(activeWatchlist.symbols, catalysts)
     .map((symbol) => tickers.find((ticker) => ticker.symbol === symbol))
     .filter((ticker): ticker is Ticker => Boolean(ticker))
   return (
     <>
-      <WatchlistStrip active={activeWatchlist} onOpen={onOpenPicker} onSelect={onSelectTicker} tickers={tickers} />
+      <WatchlistStrip active={activeWatchlist} catalysts={catalysts} onOpen={onOpenPicker} onSelect={onSelectTicker} tickers={tickers} />
       <section className="ticker-hero">
         <div className="ticker-identity">
           <button className="ticker-switcher" onClick={onOpenPicker} type="button">
@@ -82,20 +94,13 @@ export function MarketScreen({
       </section>
 
       <section className="options-section" aria-labelledby="options-title">
-        <header className="section-header">
-          <h2 id="options-title">Options premium</h2>
-          <VerdictPill ticker={selected} />
-        </header>
+        <h2 className="sr-only" id="options-title">Options metrics</h2>
         <div className="metric-grid">
           <MetricGauge label="IV rank" value={selected.ivRank} hint="Position inside its 52-week range" />
           <MetricGauge label="IV index" value={selected.ivIndex} suffix="%" hint="Current annualized implied volatility" />
           <LiquidityMetric ticker={selected} />
           <MetricGauge label="IV percentile" value={selected.ivPercentile} hint="Share of sessions below current IV" />
         </div>
-        <article className={`temperature-note ${volatilityVerdict(selected)}`}>
-          <div><h3><Flame size={17} aria-hidden="true" />{temperature.title}</h3><p>{temperature.detail}</p></div>
-          <button onClick={onAskDan} type="button">Ask Dan →</button>
-        </article>
       </section>
 
       <section className="watch-table" aria-labelledby="watch-title">
@@ -104,13 +109,16 @@ export function MarketScreen({
           <button className="text-button" onClick={onOpenPicker} type="button">Change</button>
         </header>
         <div className="watch-rows">
-          {watchTickers.map((ticker) => (
-            <button className={ticker.symbol === selected.symbol ? 'watch-row selected' : 'watch-row'} key={ticker.symbol} onClick={() => onSelectTicker(ticker.symbol)} type="button">
-              <span className="symbol-cell"><strong>{ticker.symbol}</strong><small>{volatilityVerdict(ticker) === 'rich' ? 'Hot vol' : volatilityVerdict(ticker) === 'cheap' ? 'Cool vol' : 'Mid vol'}</small></span>
-              <Sparkline ticker={ticker} />
-              <span className="quote-cell"><strong>${ticker.price.toFixed(2)}</strong><small className={ticker.change >= 0 ? 'positive' : 'negative'}>{ticker.change >= 0 ? '+' : ''}{ticker.changePercent.toFixed(2)}%</small></span>
-            </button>
-          ))}
+          {watchTickers.map((ticker) => {
+            const catalyst = nextCatalystForSymbol(ticker.symbol, catalysts)
+            return (
+              <button className={ticker.symbol === selected.symbol ? 'watch-row selected' : 'watch-row'} key={ticker.symbol} onClick={() => onSelectTicker(ticker.symbol)} type="button">
+                <span className="symbol-cell"><strong>{ticker.symbol}</strong><small>{catalyst ? catalystLabel(catalyst) : volatilityVerdict(ticker) === 'rich' ? 'Hot vol' : volatilityVerdict(ticker) === 'cheap' ? 'Cool vol' : 'Mid vol'}</small></span>
+                <Sparkline ticker={ticker} />
+                <span className="quote-cell"><strong>${ticker.price.toFixed(2)}</strong><small className={ticker.change >= 0 ? 'positive' : 'negative'}>{ticker.change >= 0 ? '+' : ''}{ticker.changePercent.toFixed(2)}%</small></span>
+              </button>
+            )
+          })}
         </div>
       </section>
     </>

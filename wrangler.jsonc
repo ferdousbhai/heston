@@ -15,6 +15,16 @@
       "binding": "REDDIT_CLIENT_SECRET",
       "store_id": "a436a6cefedc4acd8bb920cdbc202c1c",
       "secret_name": "reddit-client-secret"
+    },
+    {
+      "binding": "TASTYTRADE_CLIENT_SECRET",
+      "store_id": "a436a6cefedc4acd8bb920cdbc202c1c",
+      "secret_name": "tastytrade-client-secret"
+    },
+    {
+      "binding": "TASTYTRADE_REFRESH_TOKEN",
+      "store_id": "a436a6cefedc4acd8bb920cdbc202c1c",
+      "secret_name": "tastytrade-refresh-token"
     }
   ],
   "d1_databases": [

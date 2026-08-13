@@ -6,6 +6,7 @@ import {
   type Watchlist,
 } from '../domain/market'
 import { type AppEnv, isLiveTastytrade } from './env'
+import { catalystsFromMarketMetrics, earningsDateFromMetric, persistAndLoadCatalysts } from './catalysts'
 import { readSecret } from './secrets'
 
 const USER_AGENT = 'SpiceMustFlow/0.1 (+personal-options-dashboard)'
@@ -147,11 +148,11 @@ function mergeTicker(
     change,
     changePercent,
     sparkline: quote ? [previousClose, price] : fallback?.sparkline ?? [price, price],
-    ivRank: percentMetric(metrics?.['implied-volatility-rank'], fallback?.ivRank ?? 50),
+    ivRank: percentMetric(metrics?.['implied-volatility-index-rank'] ?? metrics?.['implied-volatility-rank'], fallback?.ivRank ?? 50),
     ivPercentile: percentMetric(metrics?.['implied-volatility-percentile'], fallback?.ivPercentile ?? 50),
     ivIndex,
     liquidity: bounded(numberValue(metrics?.['liquidity-rating'], fallback?.liquidity ?? 3), 0, 5),
-    earningsDate: null,
+    earningsDate: earningsDateFromMetric(metrics),
     position,
     updatedAt: quoteUpdatedAt && !Number.isNaN(Date.parse(quoteUpdatedAt)) ? new Date(quoteUpdatedAt).toISOString() : new Date().toISOString(),
   }
@@ -214,6 +215,14 @@ export async function loadMarketSnapshot(env: AppEnv): Promise<MarketSnapshot> {
     quoteBySymbol.get(symbol),
     positionSymbols.includes(symbol),
   ))
+  const metricSymbols = metrics
+    .map((metric) => stringValue(metric.symbol)?.toUpperCase())
+    .filter((symbol): symbol is string => Boolean(symbol))
+  const catalysts = await persistAndLoadCatalysts(
+    env,
+    catalystsFromMarketMetrics(metrics),
+    metricSymbols,
+  )
   const session = sessionResult.status === 'fulfilled' ? record(record(sessionResult.value).data ?? sessionResult.value) : {}
   const rawState = (stringValue(session.state) ?? '').toLowerCase()
   const marketState: MarketSnapshot['marketState'] = rawState === 'open'
@@ -228,6 +237,7 @@ export async function loadMarketSnapshot(env: AppEnv): Promise<MarketSnapshot> {
     marketState,
     watchlists: watchlists.length ? watchlists : demoWatchlists,
     tickers: tickers.length ? tickers : demo.tickers,
+    catalysts,
     research: await loadStoredResearch(env, demo.research),
   })
 }

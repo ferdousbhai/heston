@@ -1,3 +1,4 @@
+import { type Catalyst } from './catalyst'
 import { type MarketSnapshot, type ResearchBrief, type Ticker, type Watchlist } from './market'
 
 const spark = (base: number, deltas: number[]) => deltas.map((delta) => Number((base + delta).toFixed(2)))
@@ -22,6 +23,12 @@ export const demoWatchlists: Watchlist[] = [
   { id: 'public-earnings', kind: 'public', name: 'Upcoming Earnings', symbols: ['NVDA', 'META', 'AAPL'] },
 ]
 
+export const demoCatalysts: Catalyst[] = [
+  { id: 'tastytrade:NVDA:earnings', symbol: 'NVDA', kind: 'earnings', title: 'NVDA earnings', date: '2026-08-26', timing: 'after-hours', confidence: 'estimated', source: 'tastytrade market metrics', sourceUrl: 'https://developer.tastytrade.com/open-api-spec/market-metrics/', updatedAt: DEMO_UPDATED_AT },
+  { id: 'tastytrade:TSLA:earnings', symbol: 'TSLA', kind: 'earnings', title: 'TSLA earnings', date: '2026-10-21', timing: 'after-hours', confidence: 'estimated', source: 'tastytrade market metrics', sourceUrl: 'https://developer.tastytrade.com/open-api-spec/market-metrics/', updatedAt: DEMO_UPDATED_AT },
+  { id: 'tastytrade:AAPL:earnings', symbol: 'AAPL', kind: 'earnings', title: 'AAPL earnings', date: '2026-10-29', timing: 'after-hours', confidence: 'estimated', source: 'tastytrade market metrics', sourceUrl: 'https://developer.tastytrade.com/open-api-spec/market-metrics/', updatedAt: DEMO_UPDATED_AT },
+]
+
 export const demoResearch: ResearchBrief = {
   id: 'brief-2026-08-13', publishedAt: '2026-08-13T13:35:00.000Z',
   title: 'Calm index tape, expensive single-name stories',
@@ -44,5 +51,5 @@ export const demoResearch: ResearchBrief = {
 }
 
 export function demoSnapshot(): MarketSnapshot {
-  return { source: 'demo', syncedAt: DEMO_UPDATED_AT, marketState: 'open', watchlists: demoWatchlists, tickers: demoTickers, research: demoResearch }
+  return { source: 'demo', syncedAt: DEMO_UPDATED_AT, marketState: 'open', watchlists: demoWatchlists, tickers: demoTickers, catalysts: demoCatalysts, research: demoResearch }
 }

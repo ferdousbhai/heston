@@ -7,6 +7,10 @@ test('mobile market, research, picker, and agent flows remain coherent', async (
   await expect(page.locator('.brand')).toHaveText('SPICE.MUST FLOW')
   await expect(page.getByRole('button', { name: /SPY/ }).first()).toBeVisible()
   await expect(page.getByText('$691.24').first()).toBeVisible()
+  await expect(page.locator('.story').first()).toContainText('NVDA')
+  await expect(page.locator('.story').first()).toContainText('EARN 13D')
+  await expect(page.getByText('Options temperature')).toHaveCount(0)
+  await expect(page.getByText('Premium cool')).toHaveCount(0)
 
   await page.getByRole('button', { name: /My Watchlist/ }).click()
   await expect(page.getByRole('dialog', { name: 'Choose a ticker' })).toBeVisible()

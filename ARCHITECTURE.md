@@ -5,8 +5,9 @@
 ```text
 tastytrade REST ──> Cloudflare Worker ──> validated snapshot
                          │                       │
-                         │                       v
-                    D1 research          TanStack DB local cache
+                         ├──> D1 catalysts       v
+                         │                TanStack DB local cache
+                    D1 research                  │
                          │                       │
                   Workers AI daily              v
                      research             reactive mobile UI
@@ -20,15 +21,17 @@ chat ──> Workers AI plan ──> D1 pending action ──> explicit confirma
 ## Module map
 
 - `domain/market.ts`: Zod contracts and pure volatility classification. This is the shared language between server, cache, tests, and UI.
+- `domain/catalyst.ts`: source-aware catalyst contract plus timezone-safe upcoming-event selection and stable watchlist ordering.
 - `domain/demo.ts`: a complete, deterministic offline fixture kept separate from production rules.
 - `data/collections.ts`: persistent TanStack DB collections. It seeds a complete offline experience and reconciles validated cloud snapshots.
-- `components/market-screen.tsx`: price, watchlist, and options-temperature experience.
+- `components/market-screen.tsx`: price, watchlist, and options-metrics experience.
 - `components/spice-app.tsx`: small composition root for navigation, sync state, and product surfaces.
 - `components/brief-screen.tsx`: daily editorial research.
 - `components/agent-screen.tsx`: conversation and confirmation UI.
 - `components/market-visuals.tsx`: reusable chart and metric primitives.
 - `components/ticker-picker.tsx`: private, position, and public-list selection.
 - `server/tastytrade.ts`: OAuth, account/watchlist/position/metric reads, broker transport, and response normalization.
+- `server/catalysts.ts`: tastytrade market-metric normalization and D1 calendar reconciliation.
 - `server/research-sources.ts`: resilient orchestration of bounded research-source collectors.
 - `server/research-reddit.ts`: server-only Reddit OAuth and bounded public-post metadata ingestion.
 - `server/secrets.ts`: the single boundary for resolving Cloudflare Secrets Store bindings.
@@ -50,3 +53,4 @@ chat ──> Workers AI plan ──> D1 pending action ──> explicit confirma
 7. Offline state is a validated cache, visibly marked with source and sync status.
 8. The research model receives bounded official and public-discussion headlines; citation URLs are attached by code, never accepted from model output.
 9. The service worker precaches the app shell only; validated TanStack DB collections are the single offline data cache.
+10. Catalyst rows retain source provenance, confidence, and observed timestamps; a refreshed tastytrade symbol replaces its prior tastytrade-sourced dates without touching future sources.

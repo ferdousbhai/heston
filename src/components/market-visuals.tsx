@@ -1,4 +1,4 @@
-import { volatilityVerdict, type Ticker } from '../domain/market'
+import { type Ticker } from '../domain/market'
 
 export function Sparkline({ ticker, large = false }: { large?: boolean; ticker: Ticker }) {
   const width = large ? 700 : 112
@@ -39,12 +39,6 @@ export function Sparkline({ ticker, large = false }: { large?: boolean; ticker: 
       />
     </svg>
   )
-}
-
-export function VerdictPill({ ticker }: { ticker: Ticker }) {
-  const verdict = volatilityVerdict(ticker)
-  const label = verdict === 'rich' ? 'Premium rich' : verdict === 'cheap' ? 'Premium cool' : 'Premium balanced'
-  return <span className={`verdict verdict-${verdict}`}>{label}</span>
 }
 
 export function MetricGauge({ label, value, suffix = '', hint }: { hint: string; label: string; suffix?: string; value: number }) {

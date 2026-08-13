@@ -1,6 +1,7 @@
 import { createCollection, localStorageCollectionOptions } from '@tanstack/react-db'
 import { z } from 'zod'
 
+import { CatalystSchema } from '../domain/catalyst'
 import {
   MarketSnapshotSchema,
   ResearchBriefSchema,
@@ -56,6 +57,16 @@ export const researchCollection = createCollection(
   }),
 )
 
+export const catalystCollection = createCollection(
+  localStorageCollectionOptions({
+    id: 'spice-catalysts',
+    storageKey: 'spice.catalysts.v1',
+    schema: CatalystSchema,
+    getKey: (catalyst) => catalyst.id,
+    startSync: true,
+  }),
+)
+
 export const syncStateCollection = createCollection(
   localStorageCollectionOptions({
     id: 'spice-sync-state',
@@ -107,6 +118,7 @@ export async function hydrateCollections(snapshot: MarketSnapshot) {
   await Promise.all([
     tickerCollection.preload(),
     watchlistCollection.preload(),
+    catalystCollection.preload(),
     researchCollection.preload(),
     syncStateCollection.preload(),
     preferenceCollection.preload(),
@@ -114,6 +126,7 @@ export async function hydrateCollections(snapshot: MarketSnapshot) {
 
   replaceRows(tickerCollection, snapshot.tickers, (ticker) => ticker.symbol)
   replaceRows(watchlistCollection, snapshot.watchlists, (watchlist) => watchlist.id)
+  replaceRows(catalystCollection, snapshot.catalysts, (catalyst) => catalyst.id)
   replaceRows(researchCollection, [snapshot.research], (brief) => brief.id)
   const syncState: SyncState = {
     id: 'snapshot',
@@ -137,8 +150,12 @@ export async function hydrateCollections(snapshot: MarketSnapshot) {
 }
 
 export async function ensureOfflineSnapshot() {
-  await Promise.all([tickerCollection.preload(), watchlistCollection.preload()])
-  if (tickerCollection.size === 0 || watchlistCollection.size === 0) {
+  await Promise.all([
+    tickerCollection.preload(),
+    watchlistCollection.preload(),
+    catalystCollection.preload(),
+  ])
+  if (tickerCollection.size === 0 || watchlistCollection.size === 0 || catalystCollection.size === 0) {
     await hydrateCollections(demoSnapshot())
   }
 }

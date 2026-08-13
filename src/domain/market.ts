@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { CatalystSchema } from './catalyst'
+
 export const WatchlistKindSchema = z.enum(['private', 'positions', 'public'])
 
 export const WatchlistSchema = z.object({
@@ -52,6 +54,7 @@ export const MarketSnapshotSchema = z.object({
   marketState: z.enum(['open', 'closed', 'pre', 'after', 'unknown']),
   watchlists: z.array(WatchlistSchema),
   tickers: z.array(TickerSchema),
+  catalysts: z.array(CatalystSchema),
   research: ResearchBriefSchema,
 })
 
@@ -66,24 +69,4 @@ export function volatilityVerdict(ticker: Pick<Ticker, 'ivRank' | 'ivPercentile'
   if (ticker.ivRank <= 30 && ticker.ivPercentile <= 35) return 'cheap'
   if (ticker.ivRank >= 70 || ticker.ivPercentile >= 80) return 'rich'
   return 'fair'
-}
-
-export function optionsTemperatureCopy(ticker: Ticker): { title: string; detail: string } {
-  const verdict = volatilityVerdict(ticker)
-  if (verdict === 'cheap') {
-    return {
-      title: 'Premium is relatively cool',
-      detail: `IV rank is ${ticker.ivRank} and IV percentile is ${ticker.ivPercentile}. Premium has spent most of the past year above today’s relative level.`,
-    }
-  }
-  if (verdict === 'rich') {
-    return {
-      title: 'Premium is running hot',
-      detail: `IV rank is ${ticker.ivRank} and IV percentile is ${ticker.ivPercentile}. Demand a clear catalyst or favor defined-risk premium structures.`,
-    }
-  }
-  return {
-    title: 'Premium is near its middle range',
-    detail: `IV rank is ${ticker.ivRank} and IV percentile is ${ticker.ivPercentile}. Structure and catalyst timing matter more than outright volatility.`,
-  }
 }
