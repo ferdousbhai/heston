@@ -31,6 +31,15 @@ export const LiveMarketEventSchema = z.object({
 
 export type LiveMarketEvent = z.infer<typeof LiveMarketEventSchema>
 
+export const MarketFeedStatusSchema = z.object({
+  asOf: z.string().datetime(),
+  detail: z.string().max(160).optional(),
+  state: z.enum(['connecting', 'live', 'reconnecting', 'degraded']),
+  type: z.literal('feed-status'),
+})
+
+export type MarketFeedStatus = z.infer<typeof MarketFeedStatusSchema>
+
 const MAX_OPTION_GREEKS_SYMBOLS = 10
 
 export const OptionStreamerSymbolSchema = z.string()

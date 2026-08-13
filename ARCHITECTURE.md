@@ -3,7 +3,7 @@
 ## Product flow
 
 ```text
-tastytrade REST ──> Cloudflare Worker ──> validated snapshot ──> TanStack DB
+tastytrade REST ──> BrokerGate DO ──> Cloudflare Worker ──> validated snapshot ──> TanStack DB
         │                    │                                          ▲
         │                    ├──> D1 catalysts + research runs          │
         v                    ├──> Workers AI daily brief                │
@@ -25,7 +25,7 @@ Google OAuth ──> Better Auth ──> D1 session ──> exact-owner API boun
 - `domain/market.ts`: Zod contracts and pure volatility classification. This is the shared language between server, cache, tests, and UI.
 - `domain/catalyst.ts`: source-aware catalyst contract plus timezone-safe upcoming-event selection and stable watchlist ordering.
 - `domain/demo.ts`: a complete, deterministic offline fixture kept separate from production rules.
-- `data/collections.ts`: persistent TanStack DB collections. It seeds a complete offline experience and reconciles validated cloud snapshots.
+- `data/collections.ts`: cache-first TanStack DB collections. Bounded snapshots persist locally; a separate in-memory ticker overlay absorbs high-frequency DXLink updates without synchronous disk writes per tick.
 - `data/live-market.ts`: browser WebSocket lifecycle and reconnect policy; validated events update the same ticker collection.
 - `components/market-screen.tsx`: price, watchlist, and options-metrics experience.
 - `components/spice-app.tsx`: small composition root for navigation, sync state, and product surfaces.
@@ -36,6 +36,7 @@ Google OAuth ──> Better Auth ──> D1 session ──> exact-owner API boun
 - `components/auth-gate.tsx`: branded Google entry point, session bootstrap, and offline continuation.
 - `server/auth.ts`: Better Auth construction, Cloudflare D1 sessions, encrypted Google tokens, and exact-owner enforcement.
 - `server/tastytrade.ts`: OAuth, account/watchlist/position/metric reads, broker transport, and response normalization.
+- `server/broker-gate.ts`: single-account Durable Object permit queue that paces tastytrade REST traffic across Worker isolates.
 - `server/market-feed.ts`: account-scoped Durable Object that owns DXLink auth, union subscriptions, normalized fanout, and reconnects.
 - `server/market-feed-contracts.ts`: shared symbol and live-event validation boundary.
 - `server/catalysts.ts`: tastytrade earnings normalization and D1 calendar reconciliation.
@@ -54,7 +55,9 @@ Google OAuth ──> Better Auth ──> D1 session ──> exact-owner API boun
 - `server/dan-agent.ts`: durable Pi/Grok conversation loop and the composition root for context, read tools, direct cancellation/watchlist tools, and confirmation-gated order placement.
 - `server/agent-planner.ts`: credential-free demo order parsing; its output remains untrusted.
 - `server/agent.ts`: expiring order-confirmation storage and atomic state transitions.
+- `server/brokerage-reconciliation.ts`: exact history matching for quarantined, ambiguous order submissions; it never retries a broker mutation.
 - `server/brokerage.ts`: exact option resolution, tastytrade dry-run, and final dispatch.
+- `server/scheduled-jobs.ts`: durable per-New-York-day cron claims, completion/failure receipts, and truthful Cron failure propagation.
 - `server/http.ts`: owner-session authorization, same-origin write checks, and safe error responses.
 
 ## Invariants
@@ -65,10 +68,12 @@ Google OAuth ──> Better Auth ──> D1 session ──> exact-owner API boun
 4. Account reads are normalized from tastytrade and can answer immediately. Only order placement produces a pending action; an explicitly requested cancellation or private-watchlist mutation uses its narrow direct tool.
 5. Confirmation tokens are random, stored only as SHA-256 digests, expire after five minutes, and are claimed atomically.
 6. Order placement resolves the exact tastytrade option symbol and passes a broker dry-run before submission.
-7. Offline state is a validated local cache. Synchronization is automatic and does not require a visible manual sync control.
+7. Offline state is a validated local cache. The persisted snapshot renders before network revalidation, live ticks remain in memory, and synchronization retries on reconnect and foregrounding without a manual sync control.
 8. The research model receives bounded official and public-discussion headlines; citation URLs are attached by code, never accepted from model output.
 9. The service worker precaches the app shell only, excludes all `/api/` paths (including the OAuth callback), and uses validated TanStack DB collections as the single offline data cache.
 10. Only earnings and material scheduled agent findings are first-class catalysts. Catalyst rows retain source provenance, confidence, and observed timestamps, and a refreshed tastytrade symbol replaces its prior tastytrade-sourced dates without touching other sources.
 11. The browser never receives a tastytrade access token or quote token. One Durable Object maintains the union of active client symbols and closes DXLink when no clients remain.
 12. X findings must target a watched symbol, fall within the validated future horizon, pass the catalyst schema, and use a direct X post URL present in xAI citation metadata.
 13. Dan receives account state on every turn, but watchlists, deeper history, broader metrics, option chains, catalysts, and research are fetched only through bounded read-only tools. Tool output is provenance-tagged and never contains the tastytrade account number.
+14. Kelly sizing is advice, not an authorization boundary. Dan exposes assumptions and recommends conservative sizing; an explicit user override is labeled as such and may proceed only through the unchanged confirmation and deterministic portfolio-risk guard.
+15. A broker POST with an uncertain receipt is never retried. Further trade drafts stay quarantined until an exact, unique recent-history match is found or complete history proves absence after the reconciliation window.

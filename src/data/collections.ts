@@ -1,4 +1,4 @@
-import { createCollection, localStorageCollectionOptions } from '@tanstack/react-db'
+import { createCollection, localOnlyCollectionOptions, localStorageCollectionOptions } from '@tanstack/react-db'
 import { z } from 'zod'
 
 import { CatalystSchema } from '../domain/catalyst'
@@ -18,6 +18,7 @@ import {
   TickerSchema,
   WatchlistSchema,
   type MarketSnapshot,
+  type Ticker,
 } from '../domain/market'
 import { demoSnapshot } from '../domain/demo'
 
@@ -47,13 +48,25 @@ function snapshotStorageKey(name: SnapshotCollectionName, version = OFFLINE_SNAP
   return `spice.${name}.v${version}`
 }
 
-export const tickerCollection = createCollection(
+const persistedTickerCollection = createCollection(
   localStorageCollectionOptions({
-    id: 'spice-tickers',
+    id: 'spice-persisted-tickers',
     storageKey: snapshotStorageKey('tickers'),
     schema: TickerSchema,
     getKey: (ticker) => ticker.symbol,
     startSync: true,
+  }),
+)
+
+/**
+ * The persisted snapshot makes startup cache-first. DXLink ticks stay in this in-memory overlay so
+ * mobile browsers are not forced through a synchronous localStorage write for every market event.
+ */
+export const tickerCollection = createCollection(
+  localOnlyCollectionOptions<typeof TickerSchema, string>({
+    id: 'spice-live-tickers',
+    schema: TickerSchema,
+    getKey: (ticker) => ticker.symbol,
   }),
 )
 
@@ -153,8 +166,33 @@ async function replaceRows<T extends object, TKey extends string>(
   await Promise.all(mutations.map((mutation) => mutation.isPersisted.promise))
 }
 
+async function replaceLiveTickers(rows: readonly Ticker[], preserveNewerMarketFields = false): Promise<void> {
+  const mutations: PersistedMutation[] = []
+  const incoming = new Set(rows.map((ticker) => ticker.symbol))
+  for (const key of tickerCollection.keys()) {
+    if (!incoming.has(key)) mutations.push(tickerCollection.delete(key))
+  }
+  for (const ticker of rows) {
+    if (!tickerCollection.get(ticker.symbol)) {
+      mutations.push(tickerCollection.insert(ticker))
+      continue
+    }
+    mutations.push(tickerCollection.update(ticker.symbol, (draft) => {
+      const sparkline = reconcileCandleSeries(draft.sparkline, ticker.sparkline)
+      if (preserveNewerMarketFields && Date.parse(draft.updatedAt) > Date.parse(ticker.updatedAt)) {
+        const { change, changePercent, price, updatedAt } = draft
+        Object.assign(draft, ticker, { change, changePercent, price, sparkline, updatedAt })
+        return
+      }
+      Object.assign(draft, ticker, { sparkline })
+    }))
+  }
+  await Promise.all(mutations.map((mutation) => mutation.isPersisted.promise))
+}
+
 export async function hydrateCollections(snapshot: MarketSnapshot) {
   await Promise.all([
+    persistedTickerCollection.preload(),
     tickerCollection.preload(),
     watchlistCollection.preload(),
     catalystCollection.preload(),
@@ -164,15 +202,8 @@ export async function hydrateCollections(snapshot: MarketSnapshot) {
   ])
 
   await Promise.all([
-    replaceRows(tickerCollection, snapshot.tickers, (ticker) => ticker.symbol, (draft, incoming) => {
-      const sparkline = reconcileCandleSeries(draft.sparkline, incoming.sparkline)
-      if (Date.parse(draft.updatedAt) > Date.parse(incoming.updatedAt)) {
-        const { change, changePercent, price, updatedAt } = draft
-        Object.assign(draft, incoming, { change, changePercent, price, sparkline, updatedAt })
-        return
-      }
-      Object.assign(draft, incoming, { sparkline })
-    }),
+    replaceRows(persistedTickerCollection, snapshot.tickers, (ticker) => ticker.symbol),
+    replaceLiveTickers(snapshot.tickers, true),
     replaceRows(watchlistCollection, snapshot.watchlists, (watchlist) => watchlist.id),
     replaceRows(catalystCollection, snapshot.catalysts, (catalyst) => catalyst.id),
     replaceRows(researchCollection, [snapshot.research], (brief) => brief.id),
@@ -206,6 +237,7 @@ export async function ensureOfflineSnapshot({
   demoRuntime: boolean
 }) {
   await Promise.all([
+    persistedTickerCollection.preload(),
     tickerCollection.preload(),
     watchlistCollection.preload(),
     catalystCollection.preload(),
@@ -213,12 +245,27 @@ export async function ensureOfflineSnapshot({
     syncStateCollection.preload(),
   ])
   const current = syncStateCollection.get('snapshot')
-  if (isSnapshotInitialized(current, demoRuntime)) return current
+  if (isSnapshotInitialized(current, demoRuntime)) {
+    const persisted = [...persistedTickerCollection.keys()]
+      .flatMap((key) => persistedTickerCollection.get(key) ?? [])
+    await replaceLiveTickers(persisted)
+    return current
+  }
 
   if (!demoRuntime) return undefined
 
   await hydrateCollections(demoSnapshot())
   return syncStateCollection.get('snapshot')
+}
+
+/** Best-effort protection against browser storage eviction; denial does not block offline use. */
+export async function requestPersistentLocalStorage(): Promise<boolean> {
+  if (typeof navigator === 'undefined' || !navigator.storage?.persist) return false
+  try {
+    return await navigator.storage.persist()
+  } catch {
+    return false
+  }
 }
 
 export async function syncFromCloud(signal?: AbortSignal): Promise<MarketSnapshot> {

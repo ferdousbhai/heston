@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   candleSubscription,
   isSameOriginWebSocketRequest,
+  MarketFeedStatusSchema,
   type OptionGreeksEvent,
   OptionGreeksRequestRegistry,
   optionGreeksFromRow,
@@ -32,6 +33,15 @@ afterEach(() => {
 })
 
 describe('market feed subscription boundary', () => {
+  it('validates explicit relay lifecycle frames separately from market data', () => {
+    expect(MarketFeedStatusSchema.parse({
+      asOf: '2026-08-14T14:00:00.000Z', state: 'live', type: 'feed-status',
+    }).state).toBe('live')
+    expect(MarketFeedStatusSchema.safeParse({
+      asOf: '2026-08-14T14:00:00.000Z', state: 'healthy', type: 'feed-status',
+    }).success).toBe(false)
+  })
+
   it('normalizes, deduplicates, bounds, and rejects invalid symbols', () => {
     const url = new URL('https://spice.test/api/stream?symbols=spy,NVDA,spy,../secret,BRK.B')
     expect(parseRequestedSymbols(url)).toEqual(['SPY', 'NVDA', 'BRK.B'])

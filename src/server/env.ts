@@ -1,5 +1,13 @@
 import { type OptionGreeksReadResult } from './market-feed-contracts'
 
+export interface BrokerGateRpcStub {
+  acquire(): Promise<void>
+}
+
+export interface BrokerGateNamespace {
+  getByName(name: string): BrokerGateRpcStub
+}
+
 export interface MarketFeedRpcStub {
   fetch(request: Request): Promise<Response>
   readOptionGreeks(streamerSymbols: readonly string[]): Promise<OptionGreeksReadResult>
@@ -17,6 +25,7 @@ export interface AppEnv {
   APP_MODE?: string
   AUTH_BASE_URL?: string
   BETTER_AUTH_SECRET?: SecretsStoreSecret
+  BROKER_GATE?: BrokerGateNamespace
   DB?: D1Database
   DanAgent?: DurableObjectNamespace
   GOOGLE_CLIENT_ID?: SecretsStoreSecret

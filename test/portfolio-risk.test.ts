@@ -135,6 +135,7 @@ describe('Dan doctrine', () => {
   it('keeps survival, Safe Haven, Kelly, patience, liquidity, and epistemic humility in the system layer', () => {
     expect(DAN_SYSTEM_PROMPT).toContain('60% of the sampled high-water value')
     expect(DAN_SYSTEM_PROMPT).toContain('Kelly is a ceiling')
+    expect(DAN_SYSTEM_PROMPT).toContain('may relay an exact user-directed order without endorsement')
     expect(DAN_SYSTEM_PROMPT).toContain('known-odds dice illustration')
     expect(DAN_SYSTEM_PROMPT).toContain('A safe haven is a payoff')
     expect(DAN_SYSTEM_PROMPT).toContain('positively convex, bounded-loss exposure')

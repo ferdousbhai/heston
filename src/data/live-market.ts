@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 
 import { applyLiveMarketEvent } from './collections'
+import { MarketFeedStatusSchema } from '../server/market-feed-contracts'
 
 export function useLiveMarket(symbols: readonly string[], enabled: boolean): void {
   const key = [...new Set(symbols)].sort().join(',')
@@ -18,10 +19,17 @@ export function useLiveMarket(symbols: readonly string[], enabled: boolean): voi
       const url = new URL('/api/stream', `${protocol}//${window.location.host}`)
       url.searchParams.set('symbols', key)
       socket = new WebSocket(url)
-      socket.addEventListener('open', () => { attempts = 0 })
       socket.addEventListener('message', (event) => {
         if (typeof event.data !== 'string') return
-        try { applyLiveMarketEvent(JSON.parse(event.data)) } catch { /* Ignore malformed relay frames. */ }
+        try {
+          const payload: unknown = JSON.parse(event.data)
+          const status = MarketFeedStatusSchema.safeParse(payload)
+          if (status.success) {
+            if (status.data.state === 'live') attempts = 0
+            return
+          }
+          applyLiveMarketEvent(payload)
+        } catch { /* Ignore malformed relay frames. */ }
       })
       socket.addEventListener('close', () => {
         if (stopped) return

@@ -7,6 +7,7 @@ import {
   DXLINK_SNAPSHOT_BEGIN,
   candleSubscription,
   type LiveMarketEvent,
+  type MarketFeedStatus,
   type OptionGreeksReadResult,
   OptionGreeksReadResultSchema,
   OptionGreeksRequestRegistry,
@@ -118,6 +119,7 @@ export class MarketFeed extends DurableObject<AppEnv> {
   private candleFromTime = Date.now() - 7 * 24 * 60 * 60 * 1_000
   private candles = new Map<string, CandlePoint[]>()
   private readonly greekRequests = new OptionGreeksRequestRegistry()
+  private feedState: MarketFeedStatus['state'] = 'connecting'
 
   constructor(ctx: DurableObjectState, env: AppEnv) {
     super(ctx, env)
@@ -134,6 +136,7 @@ export class MarketFeed extends DurableObject<AppEnv> {
     const [client, server] = Object.values(pair)
     this.ctx.acceptWebSocket(server)
     server.serializeAttachment({ symbols } satisfies SocketAttachment)
+    this.sendStatus(server, this.feedState)
     await this.reconcile()
     this.replayCandles(server, symbols)
     return new Response(null, { status: 101, webSocket: client })
@@ -245,6 +248,7 @@ export class MarketFeed extends DurableObject<AppEnv> {
   }
 
   private async openUpstream(): Promise<void> {
+    this.broadcastStatus('connecting')
     const [credentials, candleFromTime] = await Promise.all([
       loadQuoteToken(this.env),
       loadEquityCandleFromTime(this.env).catch(() => this.candleFromTime),
@@ -295,12 +299,19 @@ export class MarketFeed extends DurableObject<AppEnv> {
       }, 30_000)
       return
     }
+    if (message.type === 'AUTH_STATE') {
+      await this.failProtocol(socket, `Authorization ${String(message.state ?? 'failed')}`)
+      return
+    }
     if (message.type === 'CHANNEL_OPENED') {
       const channel = finite(message.channel)
       const type = (Object.entries(CHANNELS).find(([, value]) => value === channel)?.[0]) as FeedType | undefined
       if (!type || !channel) return
       this.openedChannels.add(channel)
-      if (this.openedChannels.size === Object.keys(CHANNELS).length) this.clearSetupTimeout()
+      if (this.openedChannels.size === Object.keys(CHANNELS).length) {
+        this.clearSetupTimeout()
+        this.broadcastStatus('live')
+      }
       if (!await this.sendToUpstream(socket, {
         type: 'FEED_SETUP', channel, acceptAggregationPeriod: 0.25,
         acceptDataFormat: 'COMPACT', acceptEventFields: { [type]: FIELDS[type] },
@@ -309,7 +320,9 @@ export class MarketFeed extends DurableObject<AppEnv> {
       return
     }
     if (message.type === 'FEED_DATA' && Array.isArray(message.data)) this.broadcastFeedData(message.data)
-    if (message.type === 'ERROR') console.error('MarketFeedProtocolError', String(message.message ?? 'UnknownError').slice(0, 160))
+    if (message.type === 'ERROR' || message.type === 'CHANNEL_CLOSED') {
+      await this.failProtocol(socket, String(message.message ?? message.type).slice(0, 160))
+    }
   }
 
   private async syncSubscriptions(socket: WebSocket): Promise<void> {
@@ -401,7 +414,10 @@ export class MarketFeed extends DurableObject<AppEnv> {
     this.clearSetupTimeout()
     if (this.keepalive) clearInterval(this.keepalive)
     this.keepalive = undefined
-    if (this.hasDemand()) await this.scheduleReconnect()
+    if (this.hasDemand()) {
+      this.broadcastStatus('reconnecting')
+      await this.scheduleReconnect()
+    }
     else await this.ctx.storage.deleteAlarm()
   }
 
@@ -420,6 +436,32 @@ export class MarketFeed extends DurableObject<AppEnv> {
     this.clearSetupTimeout()
     try { socket?.close(code, reason) } catch { /* Already closed. */ }
     await this.ctx.storage.deleteAlarm()
+  }
+
+  private async failProtocol(socket: WebSocket, detail: string): Promise<void> {
+    if (socket !== this.upstream) return
+    this.logError('MarketFeedProtocolError', detail)
+    this.broadcastStatus('degraded', detail)
+    try { socket.close(1011, 'Upstream protocol failure') } catch { /* Already closed. */ }
+    await this.handleUpstreamClose(socket)
+  }
+
+  private broadcastStatus(state: MarketFeedStatus['state'], detail?: string): void {
+    this.feedState = state
+    for (const socket of this.ctx.getWebSockets()) this.sendStatus(socket, state, detail)
+  }
+
+  private sendStatus(socket: WebSocket, state: MarketFeedStatus['state'], detail?: string): void {
+    try {
+      socket.send(JSON.stringify({
+        asOf: new Date().toISOString(),
+        ...(detail ? { detail: detail.slice(0, 160) } : {}),
+        state,
+        type: 'feed-status',
+      } satisfies MarketFeedStatus))
+    } catch {
+      try { socket.close(1011, 'Status delivery failed') } catch { /* Already closed. */ }
+    }
   }
 
   private async sendToUpstream(socket: WebSocket, frame: JsonRecord): Promise<boolean> {

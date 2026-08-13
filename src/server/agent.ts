@@ -5,6 +5,7 @@ import {
   type ConfirmRequest,
 } from './agent-contracts'
 import { BrokerageSubmissionUnknownError, executeOrderPlacement } from './brokerage'
+import { reconcileUnknownBrokerageAction } from './brokerage-reconciliation'
 import { type AppEnv, isLiveTastytrade } from './env'
 import { assertPortfolioActionAllowed, PortfolioRiskError } from './portfolio-risk'
 import { resolveEquityOptionContract } from './option-contract'
@@ -37,6 +38,7 @@ export async function preparePendingAction(env: AppEnv, untrustedAction: unknown
   if (isLiveTastytrade(env) && !env.DB) throw new PortfolioRiskError("Dan's action store is unavailable.")
   let marketPreview: string | undefined
   if (env.DB && isLiveTastytrade(env)) {
+    await reconcileUnknownBrokerageAction(env)
     const optionContract = action.kind === 'place_option_order'
       ? await resolveEquityOptionContract(env, action)
       : undefined

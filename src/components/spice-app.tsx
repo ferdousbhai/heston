@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLiveQuery } from '@tanstack/react-db'
 import { Bot, Newspaper, TrendingUp } from 'lucide-react'
 
@@ -8,6 +8,7 @@ import {
   isSnapshotInitialized,
   preferenceCollection,
   researchCollection,
+  requestPersistentLocalStorage,
   selectTicker,
   selectLiveMarketSymbols,
   selectWatchlist,
@@ -50,6 +51,8 @@ function AuthenticatedSpiceApp({ viewer }: { viewer: Viewer | null }) {
   const [tab, setTab] = useState<Tab>('market')
   const [pickerOpen, setPickerOpen] = useState(false)
   const [bootstrapComplete, setBootstrapComplete] = useState(false)
+  const lastSyncAt = useRef(0)
+  const syncInFlight = useRef<Promise<void> | undefined>(undefined)
   const closePicker = useCallback(() => setPickerOpen(false), [])
   const openPicker = useCallback(() => setPickerOpen(true), [])
   const activeWatchlist = watchlists.find((watchlist) => watchlist.id === preference?.selectedWatchlistId)
@@ -63,11 +66,16 @@ function AuthenticatedSpiceApp({ viewer }: { viewer: Viewer | null }) {
 
   const synchronize = useCallback(async (signal?: AbortSignal): Promise<void> => {
     if (!navigator.onLine) return
-    try {
-      await syncFromCloud(signal)
-    } catch {
-      // Keep the local snapshot; the next load, online event, or account mutation retries automatically.
-    }
+    if (syncInFlight.current) return syncInFlight.current
+    const task = syncFromCloud(signal).then(() => {
+      lastSyncAt.current = Date.now()
+    }).catch(() => {
+      // Keep the local snapshot; focus, reconnect, or an account mutation retries automatically.
+    }).finally(() => {
+      if (syncInFlight.current === task) syncInFlight.current = undefined
+    })
+    syncInFlight.current = task
+    return task
   }, [])
 
   useEffect(() => {
@@ -75,16 +83,26 @@ function AuthenticatedSpiceApp({ viewer }: { viewer: Viewer | null }) {
 
     void (async () => {
       await ensureOfflineSnapshot({ demoRuntime: DEMO_RUNTIME })
+      void requestPersistentLocalStorage()
       if (!controller.signal.aborted) await synchronize(controller.signal)
       if (!controller.signal.aborted) setBootstrapComplete(true)
     })().catch(() => {
       if (!controller.signal.aborted) setBootstrapComplete(true)
     })
     const online = () => void synchronize(controller.signal)
+    const refreshVisible = () => {
+      if (document.visibilityState === 'visible' && Date.now() - lastSyncAt.current >= 5 * 60_000) {
+        void synchronize(controller.signal)
+      }
+    }
     window.addEventListener('online', online)
+    window.addEventListener('focus', refreshVisible)
+    document.addEventListener('visibilitychange', refreshVisible)
     return () => {
       controller.abort()
       window.removeEventListener('online', online)
+      window.removeEventListener('focus', refreshVisible)
+      document.removeEventListener('visibilitychange', refreshVisible)
     }
   }, [synchronize])
 

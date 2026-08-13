@@ -115,6 +115,7 @@ function safeEndpoint(path: string): string {
 }
 
 async function authorizedRequest(env: AppEnv, path: string, init: RequestInit, token: string): Promise<Response> {
+  await env.BROKER_GATE?.getByName('primary-account').acquire()
   const headers = new Headers(init.headers)
   headers.set('Accept', 'application/json')
   const apiVersion = tastytradeApiVersion(path)

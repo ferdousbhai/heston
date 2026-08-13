@@ -4,9 +4,11 @@ import { routeAgentRequest } from 'agents'
 import { type AppEnv } from './server/env'
 import { authorizePersonalRequest, canonicalHostRedirect } from './server/http'
 import { generateDailyResearch, shouldRunDailyResearch } from './server/research'
+import { runScheduledJob } from './server/scheduled-jobs'
 import { runXCatalystResearch, shouldRunXCatalystResearch } from './server/x-catalysts'
 
 export { DanAgent } from './server/dan-agent'
+export { BrokerGate } from './server/broker-gate'
 export { MarketFeed } from './server/market-feed'
 
 export default {
@@ -24,12 +26,12 @@ export default {
   scheduled(controller: ScheduledController, env: AppEnv, context: ExecutionContext) {
     const scheduledAt = new Date(controller.scheduledTime)
     const tasks: Promise<unknown>[] = []
-    if (shouldRunDailyResearch(scheduledAt)) tasks.push(generateDailyResearch(env, scheduledAt).catch((error: unknown) => {
-      console.error('DailyResearchFailed', error instanceof Error ? error.message : 'UnknownError')
-    }))
-    if (shouldRunXCatalystResearch(scheduledAt)) tasks.push(runXCatalystResearch(env, scheduledAt).catch((error: unknown) => {
-      console.error('XCatalystResearchFailed', error instanceof Error ? error.message : 'UnknownError')
-    }))
+    if (shouldRunDailyResearch(scheduledAt)) {
+      tasks.push(runScheduledJob(env, 'daily-research', scheduledAt, () => generateDailyResearch(env, scheduledAt)))
+    }
+    if (shouldRunXCatalystResearch(scheduledAt)) {
+      tasks.push(runScheduledJob(env, 'x-catalysts', scheduledAt, () => runXCatalystResearch(env, scheduledAt)))
+    }
     if (tasks.length) context.waitUntil(Promise.all(tasks).then(() => undefined))
   },
 }

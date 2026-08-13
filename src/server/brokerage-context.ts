@@ -1,4 +1,5 @@
 import { type Ticker } from '../domain/market'
+import { newYorkClock } from '../domain/market-clock'
 import { type AppEnv } from './env'
 import { resolveAccountNumber, tastyRequest } from './tastytrade'
 import {
@@ -36,6 +37,52 @@ export interface BrokerageContext {
     positionsTruncated: boolean
     tradesTruncated: boolean
   }
+}
+
+type BrokeragePosition = BrokerageContext['positions'][number]
+
+function optionExpiry(position: BrokeragePosition): string | undefined {
+  if (position.expiresAt) return position.expiresAt
+  if (!position.instrumentType.toLowerCase().includes('option')) return undefined
+  const compact = position.symbol.replaceAll(' ', '')
+  const match = compact.match(/(\d{6})[CP]\d{8}$/)
+  if (!match) return undefined
+  const year = 2000 + Number(match[1]!.slice(0, 2))
+  const month = Number(match[1]!.slice(2, 4))
+  const day = Number(match[1]!.slice(4, 6))
+  const expiry = new Date(Date.UTC(year, month - 1, day, 20))
+  return expiry.getUTCFullYear() === year && expiry.getUTCMonth() === month - 1 && expiry.getUTCDate() === day
+    ? expiry.toISOString()
+    : undefined
+}
+
+/** Keep near-expiry exercise and assignment risk visible without turning advice into a hard veto. */
+export function buildExpiryAwareness(positions: readonly BrokeragePosition[], now = new Date()) {
+  const nowMs = now.getTime()
+  if (!Number.isFinite(nowMs)) throw new Error('Expiry awareness requires a valid date.')
+  const currentMarketDate = Date.parse(`${newYorkClock(now).localDate}T00:00:00.000Z`)
+  const risks = positions.flatMap((position) => {
+    const expiresAt = optionExpiry(position)
+    if (!expiresAt) return []
+    const expiryMarketDate = Date.parse(`${expiresAt.slice(0, 10)}T00:00:00.000Z`)
+    const daysUntilExpiry = Math.round((expiryMarketDate - currentMarketDate) / 86_400_000)
+    if (daysUntilExpiry > 30) return []
+    const urgency = daysUntilExpiry < 0 ? 'expired'
+      : daysUntilExpiry === 0 ? 'expiry-day'
+        : daysUntilExpiry <= 3 ? 'within-3-days'
+          : daysUntilExpiry <= 7 ? 'within-7-days'
+            : 'within-30-days'
+    return [{
+      daysUntilExpiry,
+      direction: position.direction,
+      expiresAt,
+      quantity: position.quantity,
+      symbol: position.symbol,
+      underlying: position.underlying,
+      urgency,
+    }]
+  })
+  return risks.sort((left, right) => left.daysUntilExpiry - right.daysUntilExpiry).slice(0, 20)
 }
 
 type AgentMarketTicker = Pick<Ticker,
@@ -267,6 +314,7 @@ export function buildAgentRuntimeContext(
     })),
     orders: context.orders,
     recentTrades: context.recentTrades,
+    expiryAwareness: buildExpiryAwareness(context.positions),
     ...(unavailable.length ? { unavailable } : {}),
   }
 }

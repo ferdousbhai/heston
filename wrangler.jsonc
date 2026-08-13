@@ -17,13 +17,15 @@
   },
   "durable_objects": {
     "bindings": [
+      { "name": "BROKER_GATE", "class_name": "BrokerGate" },
       { "name": "MARKET_FEED", "class_name": "MarketFeed" },
       { "name": "DanAgent", "class_name": "DanAgent" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["MarketFeed"] },
-    { "tag": "v2", "new_sqlite_classes": ["DanAgent"] }
+    { "tag": "v2", "new_sqlite_classes": ["DanAgent"] },
+    { "tag": "v3", "new_sqlite_classes": ["BrokerGate"] }
   ],
   "ai": { "binding": "AI" },
   "secrets_store_secrets": [
