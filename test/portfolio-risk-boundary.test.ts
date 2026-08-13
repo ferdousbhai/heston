@@ -38,11 +38,10 @@ describe('brokerage dispatch portfolio guard', () => {
       if (url.includes('/complex-orders/live')) return Response.json({ data: { items: [] } })
       if (url.includes('/orders/live')) return Response.json({ data: { items: [] } })
       if (url.includes('/option-chains/')) return Response.json({ data: { items: [{
+        symbol: 'SPY   260918C00700000', 'instrument-type': 'Equity Option', active: true,
         'underlying-symbol': 'SPY', 'root-symbol': 'SPY', 'option-chain-type': 'Standard',
-        'shares-per-contract': 100,
-        expirations: [{ 'expiration-date': '2026-09-18', strikes: [{
-          'strike-price': '700', call: 'SPY   260918C00700000', put: 'SPY   260918P00700000',
-        }] }],
+        'shares-per-contract': 100, 'expiration-date': '2026-09-18', 'strike-price': '700',
+        'option-type': 'C', 'is-closing-only': false,
       }] } })
       throw new Error(`Unexpected request: ${method} ${url}`)
     }))

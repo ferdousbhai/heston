@@ -3,13 +3,48 @@ import { type AppEnv } from './env'
 import { tastyRequest } from './tastytrade'
 
 type JsonRecord = Record<string, unknown>
+type OptionAction = Extract<BrokerageAction, { kind: 'place_option_order' }>
 
 function record(value: unknown): JsonRecord {
   return typeof value === 'object' && value !== null ? value as JsonRecord : {}
 }
 
-function rows(value: unknown): JsonRecord[] {
-  return Array.isArray(value) ? value.map(record) : []
+function chainRows(payload: unknown): JsonRecord[] {
+  const body = record(payload)
+  const data = record(body.data)
+  if (!Array.isArray(data.items)) throw new Error('Requested option contract is not available. The option chain response was incomplete.')
+  return data.items.map(record)
+}
+
+function text(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function number(value: unknown): number | undefined {
+  if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return undefined
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+function unavailable(detail: string): Error {
+  return new Error(`Requested option contract is not available. ${detail}`)
+}
+
+function shortList(values: string[]): string {
+  const unique = [...new Set(values)].sort()
+  return unique.length ? unique.slice(0, 8).join(', ') : 'none'
+}
+
+function nearestStrikes(rows: JsonRecord[], requestedStrike: number): string {
+  const strikes = [...new Set(rows.flatMap((row) => {
+    const strike = number(row['strike-price'])
+    return strike === undefined ? [] : [strike]
+  }))]
+  return strikes
+    .sort((left, right) => Math.abs(left - requestedStrike) - Math.abs(right - requestedStrike))
+    .slice(0, 8)
+    .sort((left, right) => left - right)
+    .join(', ') || 'none'
 }
 
 export interface EquityOptionContract {
@@ -17,60 +52,43 @@ export interface EquityOptionContract {
   symbol: string
 }
 
-export async function resolveEquityOptionContract(
-  env: AppEnv,
-  action: Extract<BrokerageAction, { kind: 'place_option_order' }>,
-): Promise<EquityOptionContract> {
-  const payload = await tastyRequest(env, `/option-chains/${encodeURIComponent(action.underlying)}/nested`)
-  const body = record(payload)
-  const data = record(body.data)
+/** Resolve one exact, standard, active contract from tastytrade's detailed option instruments. */
+export function equityOptionContractFromChain(payload: unknown, action: OptionAction): EquityOptionContract {
+  const rows = chainRows(payload)
+  const standardRows = rows.filter((row) => (
+    text(row['instrument-type']) === 'Equity Option'
+    && text(row['underlying-symbol']).toUpperCase() === action.underlying
+    && text(row['root-symbol']).toUpperCase() === action.underlying
+    && text(row['option-chain-type']) === 'Standard'
+  ))
+  const expirationRows = standardRows.filter((row) => text(row['expiration-date']) === action.expiry)
+  if (!expirationRows.length) {
+    throw unavailable(`Available standard expirations: ${shortList(standardRows.map((row) => text(row['expiration-date'])).filter(Boolean))}.`)
+  }
+  const sideRows = expirationRows.filter((row) => text(row['option-type']) === action.optionType)
+  const strikeRows = sideRows.filter((row) => number(row['strike-price']) === action.strike)
+  if (!strikeRows.length) {
+    throw unavailable(`Nearest ${action.optionType === 'C' ? 'call' : 'put'} strikes: ${nearestStrikes(sideRows, action.strike)}.`)
+  }
+  if (action.action.endsWith('to Open') && strikeRows.every((row) => row['is-closing-only'] === true)) {
+    throw unavailable('The matching contract is closing-only.')
+  }
   const matches = new Map<string, EquityOptionContract>()
-  for (const chain of rows(data.items)) {
-    const underlying = typeof chain['underlying-symbol'] === 'string' ? chain['underlying-symbol'].trim().toUpperCase() : ''
-    const root = typeof chain['root-symbol'] === 'string' ? chain['root-symbol'].trim().toUpperCase() : ''
-    const deliverables = chain.deliverables
-    if (chain['option-chain-type'] !== 'Standard'
-      || underlying !== action.underlying
-      || root !== action.underlying
-      || (deliverables !== undefined && deliverables !== null
-        && (!Array.isArray(deliverables) || deliverables.length > 0))) continue
-    const sharesPerContract = Number(chain['shares-per-contract'])
-    if (!Number.isFinite(sharesPerContract) || sharesPerContract <= 0) continue
-    for (const expiration of rows(chain.expirations)) {
-      if (expiration['expiration-date'] !== action.expiry) continue
-      for (const strike of rows(expiration.strikes)) {
-        if (Number(strike['strike-price']) !== action.strike) continue
-        const symbol = action.optionType === 'C' ? strike.call : strike.put
-        if (typeof symbol === 'string' && symbol) {
-          matches.set(`${symbol}:${sharesPerContract}`, { symbol, sharesPerContract })
-        }
-      }
-    }
+  for (const row of strikeRows) {
+    const symbol = text(row.symbol)
+    const sharesPerContract = number(row['shares-per-contract'])
+    if (row.active !== true || !symbol || sharesPerContract === undefined || sharesPerContract <= 0) continue
+    matches.set(symbol, { symbol, sharesPerContract })
   }
   if (matches.size === 1) return [...matches.values()][0]!
   if (matches.size > 1) throw new Error('Requested option contract is ambiguous')
-  console.warn('OptionContractUnavailable', JSON.stringify({
-    requested: { underlying: action.underlying, expiry: action.expiry, strike: action.strike, optionType: action.optionType },
-    chains: rows(data.items).map((chain) => {
-      const expirations = rows(chain.expirations)
-      const requestedExpiration = expirations.find((expiration) => expiration['expiration-date'] === action.expiry)
-      const deliverables = chain.deliverables
-      return {
-        underlying: chain['underlying-symbol'],
-        root: chain['root-symbol'],
-        chainType: chain['option-chain-type'],
-        sharesPerContract: chain['shares-per-contract'],
-        deliverables: Array.isArray(deliverables)
-          ? `array:${deliverables.length}`
-          : deliverables && typeof deliverables === 'object'
-            ? `object:${Object.keys(deliverables).sort().join(',')}`
-            : String(deliverables),
-        expirationCount: expirations.length,
-        requestedExpiryExists: Boolean(requestedExpiration),
-        requestedStrikeExists: rows(requestedExpiration?.strikes)
-          .some((strike) => Number(strike['strike-price']) === action.strike),
-      }
-    }),
-  }))
-  throw new Error('Requested option contract is not available')
+  throw unavailable('The matching contract is inactive or its multiplier could not be verified.')
+}
+
+export async function resolveEquityOptionContract(
+  env: AppEnv,
+  action: OptionAction,
+): Promise<EquityOptionContract> {
+  const payload = await tastyRequest(env, `/option-chains/${encodeURIComponent(action.underlying)}`)
+  return equityOptionContractFromChain(payload, action)
 }
