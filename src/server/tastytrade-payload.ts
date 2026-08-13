@@ -22,3 +22,13 @@ export function accountBalanceRecord(payload: unknown, accountNumber: string): J
   }
   return matchesAccount(data, accountNumber) ? data : undefined
 }
+
+const TERMINAL_ORDER_STATUSES = new Set(['cancelled', 'expired', 'filled', 'rejected', 'removed'])
+
+/** Treat incomplete or unfamiliar order states as working; exclude only verified terminal rows. */
+export function isWorkingOrderRecord(row: JsonRecord): boolean {
+  const terminalAt = row['terminal-at']
+  if (typeof terminalAt === 'string' && terminalAt.trim()) return false
+  const status = typeof row.status === 'string' ? row.status.trim().toLowerCase() : ''
+  return !TERMINAL_ORDER_STATUSES.has(status)
+}

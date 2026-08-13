@@ -1,6 +1,6 @@
 import { type AppEnv } from './env'
 import { resolveAccountNumber, tastyRequest } from './tastytrade'
-import { accountBalanceRecord } from './tastytrade-payload'
+import { accountBalanceRecord, isWorkingOrderRecord } from './tastytrade-payload'
 
 type JsonRecord = Record<string, unknown>
 
@@ -57,7 +57,7 @@ export async function loadBrokerageContext(env: AppEnv): Promise<BrokerageContex
   const orders = [
     ...(orderResult.status === 'fulfilled' ? items(orderResult.value) : []),
     ...(complexOrderResult.status === 'fulfilled' ? items(complexOrderResult.value) : []),
-  ]
+  ].filter(isWorkingOrderRecord)
   const watchlists = watchlistResult.status === 'fulfilled' ? items(watchlistResult.value) : []
   const balances = balanceResult.status === 'fulfilled'
     ? accountBalanceRecord(balanceResult.value, account)

@@ -4,7 +4,7 @@ import { type BrokerageContext } from './brokerage-context'
 import { type AppEnv } from './env'
 import { resolveEquityOptionContract, type EquityOptionContract } from './option-contract'
 import { resolveAccountNumber, tastyRequest } from './tastytrade'
-import { accountBalanceRecord } from './tastytrade-payload'
+import { accountBalanceRecord, isWorkingOrderRecord } from './tastytrade-payload'
 
 type JsonRecord = Record<string, unknown>
 
@@ -113,8 +113,8 @@ async function loadRiskAccount(env: AppEnv, accountNumber: string): Promise<Risk
     netLiquidatingValue,
     cash,
     positions: positionRows(positionPayload),
-    liveOrderCount: strictItems(orderPayload, 'every ordinary live order').length
-      + strictItems(complexOrderPayload, 'every complex live order').length,
+    liveOrderCount: strictItems(orderPayload, 'every ordinary live order').filter(isWorkingOrderRecord).length
+      + strictItems(complexOrderPayload, 'every complex live order').filter(isWorkingOrderRecord).length,
   }
 }
 
