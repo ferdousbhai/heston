@@ -6,8 +6,8 @@ export const Route = createFileRoute('/disclosures')({
   component: DisclosuresPage,
   head: () => ({
     meta: [
-      { title: 'Risk disclosures — Spice' },
-      { name: 'description', content: 'Important market-data, options-trading, and automated-analysis disclosures for Spice.' },
+      { title: 'Risk disclosures — Spice Must Flow' },
+      { name: 'description', content: 'Important market-data, options-trading, and automated-analysis disclosures for Spice Must Flow.' },
     ],
   }),
 })
@@ -21,7 +21,7 @@ function DisclosuresPage() {
       </section>
       <section>
         <h2>Not a broker or adviser</h2>
-        <p>Spice is a software tool. It is not a broker-dealer, investment adviser, exchange, tax adviser, or fiduciary. Research, scores, summaries, risk estimates, trade ideas, and agent responses are informational and may not be suitable for your circumstances.</p>
+        <p>Spice Must Flow is a software tool. It is not a broker-dealer, investment adviser, exchange, tax adviser, or fiduciary. Research, scores, summaries, risk estimates, trade ideas, and agent responses are informational and may not be suitable for your circumstances.</p>
       </section>
       <section>
         <h2>Data and models have limits</h2>
@@ -29,7 +29,7 @@ function DisclosuresPage() {
       </section>
       <section>
         <h2>Confirmations are safeguards, not guarantees</h2>
-        <p>Spice requires explicit confirmation before order placement and may apply risk boundaries. Cancellations and watchlist changes do not require that extra step when explicitly requested. Those controls reduce accidental actions but do not make a trade safe, profitable, appropriate, or certain to execute. Network and provider failures can leave outcomes uncertain; reconcile directly with the broker before retrying.</p>
+        <p>Spice Must Flow requires explicit confirmation before order placement and may apply risk boundaries. Cancellations and watchlist changes do not require that extra step when explicitly requested. Those controls reduce accidental actions but do not make a trade safe, profitable, appropriate, or certain to execute. Network and provider failures can leave outcomes uncertain; reconcile directly with the broker before retrying.</p>
       </section>
       <section>
         <h2>Your responsibility</h2>

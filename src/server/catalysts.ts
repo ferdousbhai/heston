@@ -116,11 +116,7 @@ export async function persistAndLoadCatalysts(
        WHERE event_date >= ?
        ORDER BY event_date ASC, symbol ASC`,
     ).bind(marketDate(now)).all()
-    const rows = (result.results ?? []).filter((row) => {
-      const kind = record(row).kind
-      return kind !== 'dividend-ex' && kind !== 'dividend-pay'
-    })
-    return CatalystSchema.array().parse(rows)
+    return CatalystSchema.array().parse(result.results ?? [])
   } catch (error) {
     console.error('CatalystStoreFailed', error instanceof Error ? error.message : 'UnknownError')
     return [...observed]

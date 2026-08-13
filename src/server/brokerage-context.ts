@@ -12,12 +12,7 @@ import {
 
 type JsonRecord = Record<string, unknown>
 
-type BrokerageBalances = Partial<AccountBalances> & {
-  /** Conservative compatibility value used only by the server-side portfolio guard. */
-  cash?: number
-  /** Compatibility value for existing callers; model context uses the named buying-power fields. */
-  buyingPower?: number
-}
+type BrokerageBalances = Partial<AccountBalances>
 
 export interface BrokerageContext {
   accountNumber: string
@@ -27,10 +22,9 @@ export interface BrokerageContext {
   orders: WorkingOrder[]
   positions: Array<{
     averageOpenPrice?: number
-    direction: 'Long' | 'Short' | 'Unknown'
+    direction: 'Long' | 'Short'
     expiresAt?: string
     instrumentType: string
-    markPrice?: number
     quantity: number
     symbol: string
     underlying: string
@@ -86,10 +80,6 @@ function number(value: unknown): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined
 }
 
-function firstNumber(row: JsonRecord, names: readonly string[]): number | undefined {
-  return names.map((name) => number(row[name])).find((value) => value !== undefined)
-}
-
 function positionFromRecord(row: JsonRecord): BrokerageContext['positions'][number] | undefined {
   const symbol = text(row.symbol)
   const underlying = text(row['underlying-symbol'])?.toUpperCase()
@@ -105,7 +95,6 @@ function positionFromRecord(row: JsonRecord): BrokerageContext['positions'][numb
   }
   if (quantity === 0) return undefined
   const averageOpenPrice = number(row['average-open-price'])
-  const markPrice = firstNumber(row, ['mark-price', 'mark'])
   const rawExpiry = text(row['expires-at'])
   const expiresAt = rawExpiry && Number.isFinite(Date.parse(rawExpiry)) ? rawExpiry : undefined
   return {
@@ -115,7 +104,6 @@ function positionFromRecord(row: JsonRecord): BrokerageContext['positions'][numb
     symbol,
     underlying,
     ...(averageOpenPrice !== undefined ? { averageOpenPrice } : {}),
-    ...(markPrice !== undefined ? { markPrice } : {}),
     ...(expiresAt ? { expiresAt } : {}),
   }
 }
@@ -198,11 +186,7 @@ export async function loadBrokerageContext(env: AppEnv): Promise<BrokerageContex
   const exactBalances = balanceResult.status === 'fulfilled'
     ? accountBalancesFromPayload(balanceResult.value, account)
     : undefined
-  const balances: BrokerageBalances = exactBalances ? {
-    ...exactBalances,
-    cash: Math.min(exactBalances.cashBalance, exactBalances.cashAvailableToWithdraw),
-    buyingPower: exactBalances.derivativeBuyingPower,
-  } : {}
+  const balances: BrokerageBalances = exactBalances ?? {}
   return {
     accountNumber: account,
     asOf: new Date().toISOString(),
@@ -285,32 +269,4 @@ export function buildAgentRuntimeContext(
     recentTrades: context.recentTrades,
     ...(unavailable.length ? { unavailable } : {}),
   }
-}
-
-function money(value: number | undefined): string {
-  return value === undefined ? 'unavailable' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
-}
-
-export function answerBrokerageReadRequest(message: string, context: BrokerageContext): string | undefined {
-  if (/\b(why|should|size|sizing|kelly|risk|hedge|trade|buy|sell|conviction|recommend)\b/i.test(message)) return undefined
-  const wantsAccount = /\b(account|portfolio)\b/i.test(message)
-  const sections: string[] = []
-  if (wantsAccount || /\b(position|holding)s?\b/i.test(message)) {
-    sections.push(!context.availability.positions
-      ? 'Positions: unavailable.'
-      : context.positions.length
-      ? `Positions: ${context.positions.map((position) => `${position.direction === 'Short' ? '-' : ''}${position.quantity} ${position.symbol}`).join(', ')}.`
-      : 'Positions: none open.')
-  }
-  if (wantsAccount || /\b(balance|buying power|available (?:funds|to trade)|cash|net liq)\b/i.test(message)) {
-    sections.push(`Net liq ${money(context.balances.netLiquidatingValue)} · available funds ${money(context.balances.availableTradingFunds)} · derivative buying power ${money(context.balances.derivativeBuyingPower)} · equity buying power ${money(context.balances.equityBuyingPower)} · cash balance ${money(context.balances.cashBalance)}.`)
-  }
-  if (wantsAccount || /\b(open|working|live) orders?\b/i.test(message)) {
-    sections.push(!context.availability.orders
-      ? 'Working orders: unavailable.'
-      : context.orders.length
-      ? `Working orders: ${context.orders.map((order) => `#${order.id} ${order.legs.map((leg) => `${leg.action} ${leg.quantity} ${leg.symbol}`).join(' + ')} (${order.status})`).join(', ')}.`
-      : 'Working orders: none.')
-  }
-  return sections.length ? sections.join('\n') : undefined
 }

@@ -26,11 +26,11 @@ Server routes in `src/routes/api.*.ts` are deliberately thin validation and HTTP
 
 ## Cloudflare setup
 
-1. `wrangler.jsonc` already binds the deployed `spice` D1 database. For a separate Cloudflare account, create a replacement database and update that binding's `database_id`.
+1. `wrangler.jsonc` already binds the deployed `spice-production` D1 database. For a separate Cloudflare account, create a replacement database and update that binding's `database_id`.
 2. Apply migrations:
 
    ```sh
-   npx wrangler d1 migrations apply spice --remote
+   npx wrangler d1 migrations apply spice-production --remote
    ```
 
 3. Create the missing entries in the account's shared Cloudflare Secrets Store. Each command prompts for the value and writes it directly to Cloudflare; do not pass values on the command line:

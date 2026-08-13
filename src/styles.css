@@ -5,7 +5,6 @@
   --surface-2: #171920;
   --text: #f5f5f7;
   --muted: #8e919c;
-  --muted-2: #62656e;
   --hairline: rgba(255, 255, 255, .09);
   --spice: #ffab4a;
   --paprika: #ff5d47;
@@ -83,7 +82,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .site-header nav a:hover, .site-header nav a[aria-current="page"] { color: var(--spice); }
 .site-content { display: grid; grid-template-columns: minmax(240px, .72fr) minmax(0, 1.28fr); gap: clamp(48px, 9vw, 128px); padding: clamp(72px, 10vw, 138px) 0 96px; }
 .site-title { align-self: start; position: sticky; top: 46px; }
-.site-title > p:first-child { margin: 0 0 24px; color: var(--spice); font: 760 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .13em; }
 .site-title h1 { max-width: 520px; margin: 0; font-size: clamp(48px, 7vw, 88px); line-height: .88; letter-spacing: -.072em; }
 .site-title > p:last-child { max-width: 430px; margin: 28px 0 0; color: #a9abb3; font-size: 14px; line-height: 1.65; }
 .site-prose { min-width: 0; }

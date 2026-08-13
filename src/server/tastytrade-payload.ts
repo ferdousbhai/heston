@@ -10,14 +10,6 @@ export interface AccountBalances {
   netLiquidatingValue: number
 }
 
-export interface CompletedTrade {
-  filledAt?: string
-  legs: Array<{ action: string; averageFillPrice?: number; quantity: number; symbol: string }>
-  netPrice?: number
-  orderId: string
-  priceEffect?: string
-}
-
 export interface RecentTrade {
   action: string
   executedAt: string
@@ -201,60 +193,4 @@ export function tradeTransactionRecord(row: JsonRecord): RecentTrade {
     throw new Error('TastytradePayload:invalid-trade-transaction')
   }
   return { action, executedAt, instrumentType, orderId, price, quantity, symbol, underlying }
-}
-
-/** Reduce a filled tastytrade order to execution facts useful to the model. */
-export function completedTradeRecord(row: JsonRecord): CompletedTrade | undefined {
-  if (text(row.status)?.toLowerCase() !== 'filled') return undefined
-  const orderId = id(row.id)
-  if (!orderId || !Array.isArray(row.legs) || !row.legs.length) {
-    throw new Error('TastytradePayload:invalid-completed-trade')
-  }
-  const fillTimes: string[] = []
-  const legs = row.legs.slice(0, 8).map((value) => {
-    const leg = record(value)
-    const action = text(leg?.action)
-    const symbol = text(leg?.symbol)
-    if (!leg || !action || !symbol || (Object.hasOwn(leg, 'fills') && !Array.isArray(leg.fills))) {
-      throw new Error('TastytradePayload:invalid-completed-trade')
-    }
-    const fills = Array.isArray(leg.fills) ? leg.fills : []
-    let filledQuantity = 0
-    let pricedQuantity = 0
-    let fillValue = 0
-    for (const value of fills) {
-      const fill = record(value)
-      const quantity = number(fill?.quantity)
-      const price = number(fill?.['fill-price'])
-      const filledAt = text(fill?.['filled-at'])
-      if (!fill || quantity === undefined || quantity <= 0) {
-        throw new Error('TastytradePayload:invalid-completed-trade')
-      }
-      if (filledAt) fillTimes.push(filledAt)
-      filledQuantity += quantity
-      if (price !== undefined) {
-        pricedQuantity += quantity
-        fillValue += quantity * price
-      }
-    }
-    const quantity = filledQuantity || number(leg.quantity)
-    if (quantity === undefined || quantity <= 0) throw new Error('TastytradePayload:invalid-completed-trade')
-    return {
-      action,
-      symbol,
-      quantity,
-      ...(pricedQuantity ? { averageFillPrice: Math.round((fillValue / pricedQuantity) * 1e6) / 1e6 } : {}),
-    }
-  })
-  const terminalAt = text(row['terminal-at'])
-  const filledAt = fillTimes.sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? terminalAt
-  const netPrice = number(row.price)
-  const priceEffect = text(row['price-effect'])
-  return {
-    legs,
-    orderId,
-    ...(filledAt ? { filledAt } : {}),
-    ...(netPrice !== undefined ? { netPrice } : {}),
-    ...(priceEffect ? { priceEffect } : {}),
-  }
 }

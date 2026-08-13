@@ -186,7 +186,13 @@ function RuntimeFooter({ state }: { state: DanAgentState | undefined }) {
   )
 }
 
-export function AgentScreen({ selected }: { selected: Ticker }) {
+export function AgentScreen({
+  onAccountMutation,
+  selected,
+}: {
+  onAccountMutation?: () => void | Promise<void>
+  selected: Ticker
+}) {
   const [connected, setConnected] = useState(false)
   const [input, setInput] = useState('')
   const [provisional, setProvisional] = useState<ProvisionalTurn | null>(null)
@@ -222,11 +228,12 @@ export function AgentScreen({ selected }: { selected: Ticker }) {
     } else if (event.type === 'dan:tool_execution_start') {
       setProvisional((current) => current ? { ...current, tools: current.tools.map((tool) => tool.id === event.toolCallId ? { ...tool, input: event.input } : tool) } : current)
     } else if (event.type === 'dan:tool_execution_end') {
+      if (!event.error && event.toolName === 'manage_watchlist') void onAccountMutation?.()
       setProvisional((current) => current ? { ...current, tools: current.tools.map((tool) => tool.id === event.toolCallId ? { ...tool, durationMs: event.durationMs, error: event.error, output: event.output, status: event.error ? 'error' : 'complete' } : tool) } : current)
     } else if (event.type === 'dan:turn_end' || event.type === 'dan:agent_end') {
       setProvisional(null)
     }
-  }, [])
+  }, [onAccountMutation])
 
   const agent = useAgent<DanAgentState>({
     agent: 'DanAgent',

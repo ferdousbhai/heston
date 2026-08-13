@@ -61,33 +61,32 @@ function AuthenticatedSpiceApp({ viewer }: { viewer: Viewer | null }) {
   const streamSymbols = selectLiveMarketSymbols(selected?.symbol, activeWatchlist?.symbols ?? [], loadedSymbols)
   useLiveMarket(streamSymbols, snapshotReady && syncState?.source === 'tastytrade')
 
+  const synchronize = useCallback(async (signal?: AbortSignal): Promise<void> => {
+    if (!navigator.onLine) return
+    try {
+      await syncFromCloud(signal)
+    } catch {
+      // Keep the local snapshot; the next load, online event, or account mutation retries automatically.
+    }
+  }, [])
+
   useEffect(() => {
     const controller = new AbortController()
-    const synchronize = async (): Promise<void> => {
-      if (!navigator.onLine) return
-      try {
-        await syncFromCloud(controller.signal)
-      } catch {
-        // Keep the local snapshot; the next load or online event retries automatically.
-      }
-    }
 
     void (async () => {
-      let storage: Storage | undefined
-      try { storage = window.localStorage } catch { /* Continue without legacy migration. */ }
-      await ensureOfflineSnapshot({ demoRuntime: DEMO_RUNTIME, storage })
-      if (!controller.signal.aborted) await synchronize()
+      await ensureOfflineSnapshot({ demoRuntime: DEMO_RUNTIME })
+      if (!controller.signal.aborted) await synchronize(controller.signal)
       if (!controller.signal.aborted) setBootstrapComplete(true)
     })().catch(() => {
       if (!controller.signal.aborted) setBootstrapComplete(true)
     })
-    const online = () => void synchronize()
+    const online = () => void synchronize(controller.signal)
     window.addEventListener('online', online)
     return () => {
       controller.abort()
       window.removeEventListener('online', online)
     }
-  }, [])
+  }, [synchronize])
 
   const chooseSymbol = (symbol: string) => {
     selectTicker(symbol)
@@ -129,7 +128,7 @@ function AuthenticatedSpiceApp({ viewer }: { viewer: Viewer | null }) {
           )}
           {snapshotReady && tab === 'brief' && research && <BriefScreen brief={research} onSymbol={chooseSymbol} />}
           {snapshotReady && tab === 'brief' && !research && <MarketState message="No research brief is available." />}
-          {snapshotReady && tab === 'agent' && selected && <AgentScreen selected={selected} />}
+          {snapshotReady && tab === 'agent' && selected && <AgentScreen onAccountMutation={synchronize} selected={selected} />}
           {snapshotReady && tab === 'agent' && !selected && <MarketState message="Dan needs a loaded market symbol." />}
         </main>
         <nav className="bottom-nav" aria-label="Primary navigation">

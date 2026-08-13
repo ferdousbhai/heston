@@ -27,6 +27,7 @@ describe('brokerage dispatch portfolio guard', () => {
       const method = init?.method ?? 'GET'
       calls.push({ method, url })
       if (url.endsWith('/oauth/token')) return Response.json({ access_token: 'token', expires_in: 900 })
+      if (url.endsWith('/customers/me/accounts')) return Response.json({ data: { items: [{ account: { 'account-number': 'TEST123' } }] } })
       if (url.includes('/positions')) return Response.json({ data: { items: [{
         symbol: 'SPY   260918C00700000', 'instrument-type': 'Equity Option',
         'quantity-direction': 'Short', quantity: '1',
@@ -47,7 +48,6 @@ describe('brokerage dispatch portfolio guard', () => {
     }))
     const env: AppEnv = {
       DB: highWaterDb(100_000),
-      TASTYTRADE_ACCOUNT_NUMBER: secret('TEST123'),
       TASTYTRADE_CLIENT_SECRET: secret('client'),
       TASTYTRADE_REFRESH_TOKEN: secret('refresh'),
     }
@@ -69,6 +69,7 @@ describe('brokerage dispatch portfolio guard', () => {
       const method = init?.method ?? 'GET'
       calls.push({ method, url })
       if (url.endsWith('/oauth/token')) return Response.json({ access_token: 'token', expires_in: 900 })
+      if (url.endsWith('/customers/me/accounts')) return Response.json({ data: { items: [{ account: { 'account-number': 'TEST123' } }] } })
       if (url.includes('/positions')) return Response.json({ data: { items: [] } })
       if (url.includes('/balances')) return Response.json({ data: {
         'net-liquidating-value': '100000', 'cash-balance': '65000',
@@ -82,7 +83,6 @@ describe('brokerage dispatch portfolio guard', () => {
     }))
     const env: AppEnv = {
       DB: highWaterDb(100_000),
-      TASTYTRADE_ACCOUNT_NUMBER: secret('TEST123'),
       TASTYTRADE_CLIENT_SECRET: secret('client'),
       TASTYTRADE_REFRESH_TOKEN: secret('refresh'),
     }
@@ -103,6 +103,7 @@ describe('brokerage dispatch portfolio guard', () => {
       const method = init?.method ?? 'GET'
       calls.push({ method, url })
       if (url.endsWith('/oauth/token')) return Response.json({ access_token: 'token', expires_in: 900 })
+      if (url.endsWith('/customers/me/accounts')) return Response.json({ data: { items: [{ account: { 'account-number': 'TEST123' } }] } })
       if (url.includes('/positions')) {
         return Response.json({ data: { items: [{
           symbol: 'SPY', 'instrument-type': 'Equity', 'quantity-direction': 'Long', quantity: '1',
@@ -118,7 +119,6 @@ describe('brokerage dispatch portfolio guard', () => {
     }))
     const env: AppEnv = {
       DB: highWaterDb(100_000),
-      TASTYTRADE_ACCOUNT_NUMBER: secret('TEST123'),
       TASTYTRADE_CLIENT_SECRET: secret('client'),
       TASTYTRADE_REFRESH_TOKEN: secret('refresh'),
     }

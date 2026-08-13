@@ -27,14 +27,13 @@ export function SitePage({
       </header>
       <main className="site-content" id="page-content">
         <header className="site-title">
-          <p>TRYSPICE.XYZ</p>
           <h1>{title}</h1>
           <p>{intro}</p>
         </header>
         <div className="site-prose">{children}</div>
       </main>
       <footer className="site-footer">
-        <span>© 2026 Spice</span>
+        <span>© 2026 Spice Must Flow</span>
         <a href="mailto:support@tryspice.xyz">support@tryspice.xyz</a>
       </footer>
     </div>

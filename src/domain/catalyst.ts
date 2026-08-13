@@ -51,11 +51,6 @@ function epochDay(date: string): number {
   return Math.floor(Date.UTC(year, month - 1, day) / 86_400_000)
 }
 
-function isLegacyDividend(catalyst: Catalyst): boolean {
-  const kind = catalyst.kind as string
-  return kind === 'dividend-ex' || kind === 'dividend-pay'
-}
-
 export function daysUntilCatalyst(catalyst: Catalyst, now = new Date()): number {
   return epochDay(catalyst.date) - epochDay(marketDate(now))
 }
@@ -67,9 +62,7 @@ export function nextCatalystForSymbol(
 ): Catalyst | undefined {
   const today = marketDate(now)
   return catalysts
-    .filter((catalyst) => (
-      !isLegacyDividend(catalyst) && catalyst.symbol === symbol && catalyst.date >= today
-    ))
+    .filter((catalyst) => catalyst.symbol === symbol && catalyst.date >= today)
     .sort((left, right) => (
       left.date.localeCompare(right.date)
       || KIND_PRIORITY[left.kind] - KIND_PRIORITY[right.kind]

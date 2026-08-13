@@ -142,7 +142,6 @@ export async function tastyRequest(
 }
 
 export async function resolveAccountNumber(env: AppEnv): Promise<string> {
-  if (env.TASTYTRADE_ACCOUNT_NUMBER) return readSecret(env.TASTYTRADE_ACCOUNT_NUMBER, 'TASTYTRADE_ACCOUNT_NUMBER')
   const payload = await tastyRequest(env, '/customers/me/accounts')
   const accounts = items(payload)
   if (accounts.length !== 1) throw new Error('TastytradeAccount:explicit-account-required')

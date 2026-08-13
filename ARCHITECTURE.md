@@ -38,7 +38,7 @@ Google OAuth ──> Better Auth ──> D1 session ──> exact-owner API boun
 - `server/tastytrade.ts`: OAuth, account/watchlist/position/metric reads, broker transport, and response normalization.
 - `server/market-feed.ts`: account-scoped Durable Object that owns DXLink auth, union subscriptions, normalized fanout, and reconnects.
 - `server/market-feed-contracts.ts`: shared symbol and live-event validation boundary.
-- `server/catalysts.ts`: tastytrade earnings normalization, legacy dividend rejection, and D1 calendar reconciliation.
+- `server/catalysts.ts`: tastytrade earnings normalization and D1 calendar reconciliation.
 - `server/x-catalysts.ts`: Grok 4.6 native X search, citation allowlisting, schedule guard, D1 persistence, and run telemetry.
 - `server/research-sources.ts`: resilient orchestration of bounded research-source collectors.
 - `server/research-reddit.ts`: server-only Reddit OAuth and bounded public-post metadata ingestion.
@@ -68,7 +68,7 @@ Google OAuth ──> Better Auth ──> D1 session ──> exact-owner API boun
 7. Offline state is a validated local cache. Synchronization is automatic and does not require a visible manual sync control.
 8. The research model receives bounded official and public-discussion headlines; citation URLs are attached by code, never accepted from model output.
 9. The service worker precaches the app shell only, excludes all `/api/` paths (including the OAuth callback), and uses validated TanStack DB collections as the single offline data cache.
-10. Only earnings and material scheduled agent findings are first-class catalysts; legacy dividend rows are ignored at read boundaries and removed by migration. Catalyst rows retain source provenance, confidence, and observed timestamps, and a refreshed tastytrade symbol replaces its prior tastytrade-sourced dates without touching other sources.
+10. Only earnings and material scheduled agent findings are first-class catalysts. Catalyst rows retain source provenance, confidence, and observed timestamps, and a refreshed tastytrade symbol replaces its prior tastytrade-sourced dates without touching other sources.
 11. The browser never receives a tastytrade access token or quote token. One Durable Object maintains the union of active client symbols and closes DXLink when no clients remain.
 12. X findings must target a watched symbol, fall within the validated future horizon, pass the catalyst schema, and use a direct X post URL present in xAI citation metadata.
 13. Dan receives account state on every turn, but watchlists, deeper history, broader metrics, option chains, catalysts, and research are fetched only through bounded read-only tools. Tool output is provenance-tagged and never contains the tastytrade account number.

@@ -55,7 +55,7 @@ export type DanAgentEvent =
   | { type: 'dan:text_delta'; delta: string }
   | { type: 'dan:tool_call_delta'; delta: string; toolCallId: string }
   | { type: 'dan:tool_call_start'; toolCallId: string; toolName: string }
-  | { type: 'dan:tool_execution_end'; durationMs: number; error?: string; output?: string; toolCallId: string }
+  | { type: 'dan:tool_execution_end'; durationMs: number; error?: string; output?: string; toolCallId: string; toolName: string }
   | { type: 'dan:tool_execution_start'; input: Record<string, unknown>; toolCallId: string; toolName: string }
   | { type: 'dan:turn_end' }
   | { type: 'dan:turn_start' }

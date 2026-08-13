@@ -3,15 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { authorizePersonalRequest, canonicalHostRedirect, publicError } from '../src/server/http'
 
 describe('canonical host redirect', () => {
-  it('preserves the path and query while moving legacy hosts to tryspice.xyz', () => {
-    const response = canonicalHostRedirect(new Request('https://spice.ferdousbd.workers.dev/privacy?from=old'))
+  it('preserves the path and query when redirecting www to the canonical host', () => {
+    const response = canonicalHostRedirect(new Request('https://www.tryspice.xyz/privacy?from=www'))
     expect(response?.status).toBe(308)
-    expect(response?.headers.get('location')).toBe('https://tryspice.xyz/privacy?from=old')
-  })
-
-  it('redirects www but leaves the canonical host untouched', () => {
-    expect(canonicalHostRedirect(new Request('https://www.tryspice.xyz/'))?.headers.get('location'))
-      .toBe('https://tryspice.xyz/')
+    expect(response?.headers.get('location')).toBe('https://tryspice.xyz/privacy?from=www')
     expect(canonicalHostRedirect(new Request('https://tryspice.xyz/'))).toBeUndefined()
   })
 })

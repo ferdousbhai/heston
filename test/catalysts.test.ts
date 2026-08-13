@@ -68,36 +68,6 @@ describe('tastytrade catalyst normalization', () => {
     }, NOW)).toBeNull()
   })
 
-  it('ignores legacy dividend rows before strict D1 parsing', async () => {
-    const earnings = {
-      id: 'tastytrade:NVDA:earnings',
-      symbol: 'NVDA',
-      kind: 'earnings',
-      title: 'NVDA earnings',
-      date: '2026-08-26',
-      timing: 'after-hours',
-      confidence: 'estimated',
-      source: 'tastytrade market metrics',
-      sourceUrl: 'https://developer.tastytrade.com/open-api-spec/market-metrics/',
-      updatedAt: NOW.toISOString(),
-    }
-    const database = {
-      batch: vi.fn(),
-      prepare: vi.fn(() => ({
-        bind: () => ({
-          all: async () => ({
-            results: [
-              { ...earnings, id: 'tastytrade:NVDA:dividend-ex', kind: 'dividend-ex' },
-              earnings,
-            ],
-          }),
-        }),
-      })),
-    } as unknown as D1Database
-
-    await expect(persistAndLoadCatalysts({ DB: database }, [], [], NOW)).resolves.toEqual([earnings])
-    expect(database.batch).not.toHaveBeenCalled()
-  })
 })
 
 describe('catalyst ordering', () => {
@@ -124,17 +94,6 @@ describe('catalyst ordering', () => {
 
   it('ignores catalysts that have passed', () => {
     expect(nextCatalystForSymbol('NVDA', [catalyst('NVDA', '2026-08-12')], NOW)).toBeUndefined()
-  })
-
-  it('ignores legacy dividend rows hydrated by an older local cache', () => {
-    const legacyDividend = {
-      ...catalyst('AAPL', '2026-08-15'),
-      id: 'tastytrade:AAPL:dividend-ex',
-      kind: 'dividend-ex',
-    } as unknown as Catalyst
-
-    expect(nextCatalystForSymbol('AAPL', [legacyDividend, catalyst('AAPL', '2026-08-20')], NOW)?.date)
-      .toBe('2026-08-20')
   })
 
   it('builds a 30-day catalyst rail with positions before private watchlists', () => {

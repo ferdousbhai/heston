@@ -2,11 +2,11 @@ import { getOwnerSession } from './auth'
 import { type AppEnv } from './env'
 
 const CANONICAL_ORIGIN = 'https://tryspice.xyz'
-const LEGACY_HOSTS = new Set(['spice.ferdousbd.workers.dev', 'www.tryspice.xyz'])
+const NON_CANONICAL_HOSTS = new Set(['www.tryspice.xyz'])
 
 export function canonicalHostRedirect(request: Request): Response | undefined {
   const url = new URL(request.url)
-  if (!LEGACY_HOSTS.has(url.hostname)) return undefined
+  if (!NON_CANONICAL_HOSTS.has(url.hostname)) return undefined
   return Response.redirect(`${CANONICAL_ORIGIN}${url.pathname}${url.search}`, 308)
 }
 

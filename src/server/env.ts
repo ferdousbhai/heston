@@ -24,7 +24,6 @@ export interface AppEnv {
   MARKET_FEED?: MarketFeedNamespace
   REDDIT_CLIENT_ID?: SecretsStoreSecret
   REDDIT_CLIENT_SECRET?: SecretsStoreSecret
-  TASTYTRADE_ACCOUNT_NUMBER?: SecretsStoreSecret
   TASTYTRADE_API_BASE?: string
   TASTYTRADE_CLIENT_SECRET?: SecretsStoreSecret
   TASTYTRADE_REFRESH_TOKEN?: SecretsStoreSecret

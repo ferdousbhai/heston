@@ -28,3 +28,20 @@ export function updateCandleSeries(
   next.sort((left, right) => left.time - right.time || left.sequence - right.sequence)
   return next.slice(Math.max(0, next.length - limit))
 }
+
+/** Keep the richer intraday series unless the incoming data starts a newer session. */
+export function reconcileCandleSeries(
+  current: readonly CandlePoint[],
+  incoming: readonly CandlePoint[],
+  limit = MAX_INTRADAY_CANDLES,
+): CandlePoint[] {
+  if (!current.length) return incoming.slice(-limit)
+  if (!incoming.length) return current.slice(-limit)
+
+  const currentLatest = current[current.length - 1]!
+  const incomingFirst = incoming[0]!
+  const incomingLatest = incoming[incoming.length - 1]!
+  if (incomingLatest.time <= currentLatest.time) return current.slice(-limit)
+  if (incomingFirst.time > currentLatest.time + INTRADAY_SESSION_GAP) return incoming.slice(-limit)
+  return (incoming.length >= current.length ? incoming : current).slice(-limit)
+}

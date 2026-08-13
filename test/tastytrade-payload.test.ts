@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest'
 import {
   accountBalanceRecord,
   accountBalancesFromPayload,
-  completedTradeRecord,
   isWorkingOrderRecord,
   tradeTransactionRecord,
   workingOrderRecords,
@@ -85,33 +84,6 @@ describe('tastytrade live order payloads', () => {
     ])
     expect(() => workingOrderRecords({ id: 'broken', status: 'Live' })).toThrow('invalid-complex-order')
   })
-
-  it('reduces completed orders to bounded execution facts', () => {
-    expect(completedTradeRecord({
-      id: '9001',
-      status: 'Filled',
-      price: '1.20',
-      'price-effect': 'Debit',
-      'terminal-at': '2026-08-13T12:00:00Z',
-      legs: [{
-        action: 'Buy to Open',
-        quantity: '2',
-        symbol: 'SPY option',
-        fills: [
-          { quantity: '1', 'fill-price': '1.10', 'filled-at': '2026-08-13T11:59:00Z' },
-          { quantity: '1', 'fill-price': '1.30', 'filled-at': '2026-08-13T12:00:00Z' },
-        ],
-      }],
-    })).toEqual({
-      filledAt: '2026-08-13T12:00:00Z',
-      legs: [{ action: 'Buy to Open', averageFillPrice: 1.2, quantity: 2, symbol: 'SPY option' }],
-      netPrice: 1.2,
-      orderId: '9001',
-      priceEffect: 'Debit',
-    })
-    expect(completedTradeRecord({ status: 'Cancelled', legs: [] })).toBeUndefined()
-  })
-
   it('normalizes canonical Trade transactions and rejects incomplete trade rows', () => {
     expect(tradeTransactionRecord({
       'transaction-type': 'Trade',

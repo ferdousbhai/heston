@@ -15,7 +15,7 @@ export const Route = createFileRoute('/api/viewer')({
           const session = await getOwnerSession(request, workerEnv)
           return jsonNoStore({
             authRequired: true,
-            user: session ? { image: session.user.image ?? null, name: session.user.name } : null,
+            user: session ? { name: session.user.name } : null,
           })
         } catch (error) {
           console.error('ViewerAuthUnavailable', error instanceof Error ? error.message : 'UnknownError')

@@ -4,6 +4,7 @@
   "compatibility_date": "2026-08-13",
   "compatibility_flags": ["nodejs_compat"],
   "main": "./src/server.ts",
+  "workers_dev": false,
   "routes": [
     { "pattern": "tryspice.xyz", "custom_domain": true },
     { "pattern": "www.tryspice.xyz", "custom_domain": true }
@@ -75,8 +76,8 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "spice",
-      "database_id": "156976db-742c-4407-8ec0-57c38add05c4",
+      "database_name": "spice-production",
+      "database_id": "e45e35cc-bd01-4e29-8940-b5d2ef5e840c",
       "migrations_dir": "migrations"
     }
   ],

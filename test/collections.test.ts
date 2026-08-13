@@ -4,7 +4,6 @@ import {
   applyLiveMarketEvent,
   hydrateCollections,
   isSnapshotInitialized,
-  legacySnapshotFromStorage,
   MAX_LIVE_MARKET_SYMBOLS,
   OFFLINE_SNAPSHOT_VERSION,
   selectLiveMarketSymbols,
@@ -12,30 +11,6 @@ import {
   type SyncState,
 } from '../src/data/collections'
 import { demoSnapshot } from '../src/domain/demo'
-
-function stored(rows: readonly unknown[], keys: readonly string[]): string {
-  return JSON.stringify(Object.fromEntries(rows.map((row, index) => [
-    `s:${keys[index]}`,
-    { data: row, versionKey: `version-${index}` },
-  ])))
-}
-
-function legacyStorage(source: 'demo' | 'tastytrade' = 'tastytrade') {
-  const snapshot = demoSnapshot()
-  const values = new Map<string, string>([
-    ['spice.sync-state.v1', stored([{
-      id: 'snapshot', marketState: snapshot.marketState, source, syncedAt: snapshot.syncedAt,
-    }], ['snapshot'])],
-    ['spice.tickers.v1', stored(snapshot.tickers.map((ticker) => ({
-      ...ticker,
-      sparkline: ticker.sparkline.map((point) => point.close),
-    })), snapshot.tickers.map((ticker) => ticker.symbol))],
-    ['spice.watchlists.v1', stored(snapshot.watchlists, snapshot.watchlists.map((watchlist) => watchlist.id))],
-    ['spice.catalysts.v1', stored([], [])],
-    ['spice.research.v1', stored([snapshot.research], [snapshot.research.id])],
-  ])
-  return { getItem: (key: string) => values.get(key) ?? null }
-}
 
 describe('offline snapshot boundary', () => {
   it('treats a version marker, not collection row counts, as initialization', () => {
@@ -51,30 +26,6 @@ describe('offline snapshot boundary', () => {
     expect(isSnapshotInitialized({ ...liveState, source: 'demo' }, false)).toBe(false)
     expect(isSnapshotInitialized({ ...liveState, source: 'demo' }, true)).toBe(true)
     expect(isSnapshotInitialized(undefined, true)).toBe(false)
-  })
-
-  it('migrates a coherent live v1 snapshot, including a valid empty catalyst collection', () => {
-    const migrated = legacySnapshotFromStorage(legacyStorage(), false)
-
-    expect(migrated?.source).toBe('tastytrade')
-    expect(migrated?.catalysts).toEqual([])
-    expect(migrated?.tickers[0]?.sparkline[0]).toEqual(expect.objectContaining({
-      sequence: 0,
-      close: expect.any(Number),
-      time: expect.any(Number),
-    }))
-  })
-
-  it('never migrates demo data into a live runtime', () => {
-    expect(legacySnapshotFromStorage(legacyStorage('demo'), false)).toBeUndefined()
-    expect(legacySnapshotFromStorage(legacyStorage('demo'), true)?.source).toBe('demo')
-  })
-
-  it('does not mark an incomplete legacy snapshot as initialized', () => {
-    const storage = legacyStorage()
-    expect(legacySnapshotFromStorage({
-      getItem: (key) => key === 'spice.research.v1' ? null : storage.getItem(key),
-    }, false)).toBeUndefined()
   })
 })
 
@@ -107,5 +58,58 @@ describe('live market subscriptions', () => {
       type: 'market', symbol: original.symbol, price: 1, timestamp: original.updatedAt,
     })
     expect(tickerCollection.get(original.symbol)?.price).toBe(original.price + 10)
+  })
+
+  it('does not let an older cloud snapshot overwrite newer live market fields', async () => {
+    const snapshot = demoSnapshot()
+    const original = snapshot.tickers[0]!
+    await hydrateCollections({ ...snapshot, tickers: [original] })
+    const timestamp = new Date(Date.parse(original.updatedAt) + 60_000).toISOString()
+    applyLiveMarketEvent({
+      type: 'market', symbol: original.symbol, price: original.price + 10, timestamp,
+    })
+
+    await hydrateCollections({ ...snapshot, tickers: [{ ...original, name: 'Updated name' }] })
+
+    expect(tickerCollection.get(original.symbol)).toMatchObject({
+      name: 'Updated name',
+      price: original.price + 10,
+      updatedAt: timestamp,
+    })
+  })
+
+  it('does not replace a richer live candle series with a newer two-point broker fallback', async () => {
+    const snapshot = demoSnapshot()
+    const original = snapshot.tickers[0]!
+    const baseTime = Date.parse(original.updatedAt)
+    const fallback = [
+      { time: baseTime - 5 * 60_000, sequence: 0, close: original.price - original.change },
+      { time: baseTime, sequence: 0, close: original.price },
+    ]
+    await hydrateCollections({ ...snapshot, tickers: [{ ...original, sparkline: fallback }] })
+    const liveCandles = Array.from({ length: 6 }, (_, index) => ({
+      time: baseTime - (5 - index) * 60_000,
+      sequence: index + 1,
+      close: original.price + index,
+    }))
+    applyLiveMarketEvent({
+      type: 'market', symbol: original.symbol, candleSnapshot: liveCandles, timestamp: original.updatedAt,
+    })
+
+    const refreshedAt = new Date(baseTime + 60_000).toISOString()
+    await hydrateCollections({
+      ...snapshot,
+      tickers: [{
+        ...original,
+        updatedAt: refreshedAt,
+        sparkline: [
+          { time: baseTime - 4 * 60_000, sequence: 0, close: original.price - original.change },
+          { time: baseTime + 60_000, sequence: 0, close: original.price + 1 },
+        ],
+      }],
+    })
+
+    expect(tickerCollection.get(original.symbol)?.sparkline).toEqual(liveCandles)
+    expect(tickerCollection.get(original.symbol)?.updatedAt).toBe(refreshedAt)
   })
 })

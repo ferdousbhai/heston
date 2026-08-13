@@ -2,7 +2,7 @@ import { createCollection, localStorageCollectionOptions } from '@tanstack/react
 import { z } from 'zod'
 
 import { CatalystSchema } from '../domain/catalyst'
-import { updateCandleSeries, type CandlePoint } from '../domain/candle'
+import { reconcileCandleSeries, updateCandleSeries, type CandlePoint } from '../domain/candle'
 import {
   DXLINK_REMOVE_EVENT,
   DXLINK_SNAPSHOT_BEGIN,
@@ -21,7 +21,7 @@ import {
 } from '../domain/market'
 import { demoSnapshot } from '../domain/demo'
 
-export const OFFLINE_SNAPSHOT_VERSION = 2
+export const OFFLINE_SNAPSHOT_VERSION = 1
 export const MAX_LIVE_MARKET_SYMBOLS = 100
 
 const SyncStateSchema = z.object({
@@ -31,15 +31,6 @@ const SyncStateSchema = z.object({
   source: z.enum(['demo', 'tastytrade']),
   syncedAt: z.string(),
 })
-
-const LegacySyncStateSchema = SyncStateSchema.omit({ schemaVersion: true })
-const LegacyTickerSchema = TickerSchema.omit({ sparkline: true }).extend({
-  sparkline: z.array(z.number().finite().nonnegative()).min(1),
-})
-const StoredCollectionSchema = z.record(z.string(), z.object({
-  data: z.unknown(),
-  versionKey: z.string(),
-}))
 
 const PreferenceSchema = z.object({
   id: z.literal('primary'),
@@ -125,76 +116,6 @@ type MutableCollection<T extends object, TKey extends string> = {
 }
 
 type PersistedMutation = { isPersisted: { promise: Promise<unknown> } }
-type StorageReader = Pick<Storage, 'getItem'>
-
-function storedRows(storage: StorageReader, key: string): unknown[] | undefined {
-  try {
-    const serialized = storage.getItem(key)
-    if (serialized === null) return undefined
-    const parsed = StoredCollectionSchema.safeParse(JSON.parse(serialized))
-    return parsed.success ? Object.values(parsed.data).map((item) => item.data) : undefined
-  } catch {
-    return undefined
-  }
-}
-
-function parsedStoredRows<T>(
-  storage: StorageReader,
-  key: string,
-  schema: z.ZodType<T>,
-): T[] | undefined {
-  const rows = storedRows(storage, key)
-  if (!rows) return undefined
-  const parsed = z.array(schema).safeParse(rows)
-  return parsed.success ? parsed.data : undefined
-}
-
-function migrateLegacyTicker(ticker: z.infer<typeof LegacyTickerSchema>): z.infer<typeof TickerSchema> | undefined {
-  const endTime = Date.parse(ticker.updatedAt)
-  const historySpan = (ticker.sparkline.length - 1) * 5 * 60 * 1_000
-  if (!Number.isFinite(endTime) || endTime < historySpan) return undefined
-  return {
-    ...ticker,
-    sparkline: ticker.sparkline.map((close, index) => ({
-      close,
-      sequence: 0,
-      time: endTime - (ticker.sparkline.length - index - 1) * 5 * 60 * 1_000,
-    })),
-  }
-}
-
-/** Convert the last coherent v1 snapshot without coupling the app to an empty-row heuristic. */
-export function legacySnapshotFromStorage(
-  storage: StorageReader,
-  demoRuntime: boolean,
-): MarketSnapshot | undefined {
-  const syncStates = parsedStoredRows(storage, snapshotStorageKey('sync-state', 1), LegacySyncStateSchema)
-  const state = syncStates?.find((candidate) => candidate.id === 'snapshot')
-  if (!state || (!demoRuntime && state.source === 'demo')) return undefined
-
-  const legacyTickers = parsedStoredRows(storage, snapshotStorageKey('tickers', 1), LegacyTickerSchema)
-  const migratedLegacyTickers = legacyTickers?.map(migrateLegacyTicker)
-  const currentTickers = parsedStoredRows(storage, snapshotStorageKey('tickers'), TickerSchema)
-  const tickers = migratedLegacyTickers?.every((ticker): ticker is z.infer<typeof TickerSchema> => ticker !== undefined)
-    ? migratedLegacyTickers
-    : currentTickers
-  const watchlists = parsedStoredRows(storage, snapshotStorageKey('watchlists', 1), WatchlistSchema)
-  const catalysts = parsedStoredRows(storage, snapshotStorageKey('catalysts', 1), CatalystSchema)
-  const research = parsedStoredRows(storage, snapshotStorageKey('research', 1), ResearchBriefSchema)
-  if (!tickers || !watchlists || !catalysts || research?.length !== 1) return undefined
-
-  const snapshot = MarketSnapshotSchema.safeParse({
-    catalysts,
-    marketState: state.marketState,
-    research: research[0],
-    source: state.source,
-    syncedAt: state.syncedAt,
-    tickers,
-    watchlists,
-  })
-  return snapshot.success ? snapshot.data : undefined
-}
-
 export function isSnapshotInitialized(state: SyncState | undefined, demoRuntime: boolean): boolean {
   return Boolean(state && (demoRuntime || state.source === 'tastytrade'))
 }
@@ -214,6 +135,7 @@ async function replaceRows<T extends object, TKey extends string>(
   collection: MutableCollection<T, TKey>,
   rows: readonly T[],
   getKey: (row: T) => TKey,
+  merge: (draft: T, row: T) => void = (draft, row) => Object.assign(draft, row),
 ): Promise<void> {
   const mutations: PersistedMutation[] = []
   const incoming = new Set(rows.map(getKey))
@@ -223,7 +145,7 @@ async function replaceRows<T extends object, TKey extends string>(
   for (const row of rows) {
     const key = getKey(row)
     if (collection.get(key)) {
-      mutations.push(collection.update(key, (draft) => Object.assign(draft, row)))
+      mutations.push(collection.update(key, (draft) => merge(draft, row)))
     } else {
       mutations.push(collection.insert(row))
     }
@@ -242,7 +164,15 @@ export async function hydrateCollections(snapshot: MarketSnapshot) {
   ])
 
   await Promise.all([
-    replaceRows(tickerCollection, snapshot.tickers, (ticker) => ticker.symbol),
+    replaceRows(tickerCollection, snapshot.tickers, (ticker) => ticker.symbol, (draft, incoming) => {
+      const sparkline = reconcileCandleSeries(draft.sparkline, incoming.sparkline)
+      if (Date.parse(draft.updatedAt) > Date.parse(incoming.updatedAt)) {
+        const { change, changePercent, price, updatedAt } = draft
+        Object.assign(draft, incoming, { change, changePercent, price, sparkline, updatedAt })
+        return
+      }
+      Object.assign(draft, incoming, { sparkline })
+    }),
     replaceRows(watchlistCollection, snapshot.watchlists, (watchlist) => watchlist.id),
     replaceRows(catalystCollection, snapshot.catalysts, (catalyst) => catalyst.id),
     replaceRows(researchCollection, [snapshot.research], (brief) => brief.id),
@@ -272,10 +202,8 @@ export async function hydrateCollections(snapshot: MarketSnapshot) {
 
 export async function ensureOfflineSnapshot({
   demoRuntime,
-  storage,
 }: {
   demoRuntime: boolean
-  storage?: StorageReader
 }) {
   await Promise.all([
     tickerCollection.preload(),
@@ -287,11 +215,6 @@ export async function ensureOfflineSnapshot({
   const current = syncStateCollection.get('snapshot')
   if (isSnapshotInitialized(current, demoRuntime)) return current
 
-  const legacy = storage ? legacySnapshotFromStorage(storage, demoRuntime) : undefined
-  if (legacy) {
-    await hydrateCollections(legacy)
-    return syncStateCollection.get('snapshot')
-  }
   if (!demoRuntime) return undefined
 
   await hydrateCollections(demoSnapshot())

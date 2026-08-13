@@ -47,7 +47,7 @@ function configureAuth(
         create: {
           before: async (user) => {
             if (!isAuthorizedEmail(user.email)) {
-              throw new APIError('FORBIDDEN', { message: 'This Google account is not invited to Spice.' })
+              throw new APIError('FORBIDDEN', { message: 'This Google account is not invited to Spice Must Flow.' })
             }
             return { data: user }
           },

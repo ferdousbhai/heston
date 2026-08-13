@@ -60,8 +60,6 @@ describe('always-on brokerage context', () => {
     const runtime = buildAgentRuntimeContext(context, [])
 
     expect(context.balances).toMatchObject({
-      cash: 65_000,
-      buyingPower: 80_000,
       cashBalance: 70_000,
       cashAvailableToWithdraw: 65_000,
       availableTradingFunds: 61_000,
@@ -71,8 +69,9 @@ describe('always-on brokerage context', () => {
       netLiquidatingValue: 100_000,
     })
     expect(context.positions[0]).toMatchObject({
-      averageOpenPrice: 1.1, markPrice: 1.25, expiresAt: '2026-09-18T20:00:00Z',
+      averageOpenPrice: 1.1, expiresAt: '2026-09-18T20:00:00Z',
     })
+    expect(context.positions[0]).not.toHaveProperty('markPrice')
     expect(context.orders[0]?.legs).toHaveLength(2)
     expect(context.recentTrades[0]).toMatchObject({ orderId: '101', symbol: 'SPY option' })
     expect(context.asOf).toMatch(/^\d{4}-\d{2}-\d{2}T/)

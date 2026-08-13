@@ -17,7 +17,7 @@ function d1WithResults(results: unknown[]) {
 }
 
 describe('Dan research read tools', () => {
-  it('queries bounded symbols and excludes dividends from catalyst results', async () => {
+  it('queries bounded symbols for catalyst results', async () => {
     const catalyst = {
       id: 'tastytrade:NVDA:earnings', symbol: 'NVDA', kind: 'earnings', title: 'NVDA earnings',
       date: '2026-08-26', timing: 'after-hours', confidence: 'estimated',
@@ -28,7 +28,7 @@ describe('Dan research read tools', () => {
     const result = await readCatalysts(db.env, ['NVDA', 'NVDA'], 30, new Date('2026-08-13T12:00:00.000Z'))
 
     expect(result).toMatchObject({ catalysts: [catalyst], horizonDays: 30, symbols: ['NVDA'], truncated: false })
-    expect(db.prepare).toHaveBeenCalledWith(expect.stringContaining("kind NOT IN ('dividend-ex', 'dividend-pay')"))
+    expect(db.prepare).toHaveBeenCalledWith(expect.stringContaining('event_date BETWEEN ? AND ?'))
     expect(db.bind).toHaveBeenCalledWith('NVDA', '2026-08-13', '2026-09-12', 101)
   })
 

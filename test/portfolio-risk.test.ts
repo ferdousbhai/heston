@@ -7,7 +7,6 @@ import {
 } from '../src/domain/portfolio-risk'
 import { OrderPlacementSchema, type OrderPlacement } from '../src/server/agent-contracts'
 import {
-  answerBrokerageReadRequest,
   buildAgentRuntimeContext,
   type BrokerageContext,
 } from '../src/server/brokerage-context'
@@ -148,24 +147,6 @@ describe('Dan doctrine', () => {
     expect(DAN_SYSTEM_PROMPT).toContain('not evidence that volatility is underpriced')
   })
 
-  it('sends analytical portfolio questions to Dan instead of the factual read shortcut', () => {
-    const account: BrokerageContext = {
-      accountNumber: 'TEST123',
-      asOf: '2026-08-13T12:00:00.000Z',
-      source: 'tastytrade',
-      completeness: { ordersTruncated: false, positionsTruncated: false, tradesTruncated: false },
-      availability: { balances: true, orders: true, positions: true, trades: true },
-      balances: {
-        netLiquidatingValue: 100_000, cash: 65_000, buyingPower: 65_000,
-        cashBalance: 65_000, cashAvailableToWithdraw: 65_000, availableTradingFunds: 65_000,
-        equityBuyingPower: 130_000, derivativeBuyingPower: 65_000, dayTradingBuyingPower: 260_000,
-      },
-      positions: [], orders: [], recentTrades: [],
-    }
-    expect(answerBrokerageReadRequest('How should I size this with Kelly against my portfolio?', account)).toBeUndefined()
-    expect(answerBrokerageReadRequest('Show my portfolio', account)).toContain('Net liq')
-  })
-
   it('builds compact model context with balances and market metrics for open-position tickers', () => {
     const account: BrokerageContext = {
       accountNumber: 'SECRET123',
@@ -174,7 +155,7 @@ describe('Dan doctrine', () => {
       completeness: { ordersTruncated: false, positionsTruncated: false, tradesTruncated: false },
       availability: { balances: true, orders: true, positions: true, trades: true },
       balances: {
-        netLiquidatingValue: 100_000, cash: 65_000, buyingPower: 80_000,
+        netLiquidatingValue: 100_000,
         cashBalance: 70_000, cashAvailableToWithdraw: 65_000, availableTradingFunds: 62_000,
         equityBuyingPower: 160_000, derivativeBuyingPower: 80_000, dayTradingBuyingPower: 320_000,
       },

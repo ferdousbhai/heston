@@ -412,6 +412,7 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
               error: event.isError ? output : undefined,
               output: event.isError ? undefined : output,
               toolCallId: event.toolCallId,
+              toolName: event.toolName,
               type: 'dan:tool_execution_end',
             })
             break

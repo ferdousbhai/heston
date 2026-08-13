@@ -6,8 +6,8 @@ export const Route = createFileRoute('/support')({
   component: SupportPage,
   head: () => ({
     meta: [
-      { title: 'Support — Spice' },
-      { name: 'description', content: 'Get help with Spice, account access, privacy, or legal questions.' },
+      { title: 'Support — Spice Must Flow' },
+      { name: 'description', content: 'Get help with Spice Must Flow, account access, privacy, or legal questions.' },
     ],
   }),
 })
@@ -32,7 +32,7 @@ function SupportPage() {
       </section>
       <aside className="site-callout">
         <strong>Before trading</strong>
-        <p>Spice is an analysis and workflow tool, not an investment adviser or broker. Review the <Link to="/disclosures">risk disclosures</Link> before relying on market data or drafting an order.</p>
+        <p>Spice Must Flow is an analysis and workflow tool, not an investment adviser or broker. Review the <Link to="/disclosures">risk disclosures</Link> before relying on market data or drafting an order.</p>
       </aside>
     </SitePage>
   )

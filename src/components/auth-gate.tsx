@@ -4,7 +4,6 @@ import { Link } from '@tanstack/react-router'
 import { authClient } from '../data/auth-client'
 
 export type Viewer = {
-  image: string | null
   name: string
 }
 

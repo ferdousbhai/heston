@@ -244,10 +244,13 @@ export async function assertPortfolioActionAllowed(
 
 export async function buildPortfolioPolicyContext(env: AppEnv, account: BrokerageContext): Promise<PortfolioPolicyContext> {
   const netLiquidatingValue = account.balances.netLiquidatingValue
-  const cash = account.balances.cash
-  if (!account.availability.balances || netLiquidatingValue === undefined || cash === undefined || netLiquidatingValue <= 0) {
+  const cashBalance = account.balances.cashBalance
+  const withdrawableCash = account.balances.cashAvailableToWithdraw
+  if (!account.availability.balances || netLiquidatingValue === undefined
+    || cashBalance === undefined || withdrawableCash === undefined || netLiquidatingValue <= 0) {
     return { maxDrawdownPercent: 40, status: 'unavailable' }
   }
+  const cash = Math.min(cashBalance, withdrawableCash)
   try {
     const highWaterValue = await recordPortfolioHighWater(env, account.accountNumber, netLiquidatingValue)
     const budget = survivalBudget(highWaterValue, cash)

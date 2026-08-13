@@ -45,7 +45,7 @@ function endDate(start: string, horizonDays: number): string {
   return date.toISOString().slice(0, 10)
 }
 
-/** Read only option-relevant catalysts; dividends are deliberately not included. */
+/** Read only option-relevant catalysts. */
 export async function readCatalysts(
   env: AppEnv,
   requestedSymbols: readonly string[],
@@ -68,7 +68,6 @@ export async function readCatalysts(
      FROM catalysts
      WHERE symbol IN (${symbols.map(() => '?').join(', ')})
        AND event_date BETWEEN ? AND ?
-       AND kind NOT IN ('dividend-ex', 'dividend-pay')
      ORDER BY event_date ASC, symbol ASC
      LIMIT ?`,
   ).bind(...symbols, start, endDate(start, boundedHorizon), MAX_CATALYSTS + 1).all()

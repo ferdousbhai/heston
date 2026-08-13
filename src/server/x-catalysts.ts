@@ -165,7 +165,7 @@ export async function discoverXCatalysts(
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 55_000)
   try {
-    const response = await fetcher('https://gateway.ai.cloudflare.com/v1/0af9e0921b880657d84a6c07307f8aef/ask-dan/grok/v1/responses', {
+    const response = await fetcher('https://gateway.ai.cloudflare.com/v1/0af9e0921b880657d84a6c07307f8aef/spice/grok/v1/responses', {
       method: 'POST', signal: controller.signal,
       headers: {
         Authorization: `Bearer ${apiKey}`,
