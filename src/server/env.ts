@@ -1,15 +1,27 @@
+import { type OptionGreeksReadResult } from './market-feed-contracts'
+
+export interface MarketFeedRpcStub {
+  fetch(request: Request): Promise<Response>
+  readOptionGreeks(streamerSymbols: readonly string[]): Promise<OptionGreeksReadResult>
+}
+
+export interface MarketFeedNamespace {
+  get(id: DurableObjectId): MarketFeedRpcStub
+  getByName(name: string): MarketFeedRpcStub
+  idFromName(name: string): DurableObjectId
+}
+
 export interface AppEnv {
   AI?: Ai
   AI_GATEWAY_TOKEN?: SecretsStoreSecret
   APP_MODE?: string
   AUTH_BASE_URL?: string
-  AUTH_OWNER_EMAIL?: SecretsStoreSecret
   BETTER_AUTH_SECRET?: SecretsStoreSecret
   DB?: D1Database
   DanAgent?: DurableObjectNamespace
   GOOGLE_CLIENT_ID?: SecretsStoreSecret
   GOOGLE_CLIENT_SECRET?: SecretsStoreSecret
-  MARKET_FEED?: DurableObjectNamespace
+  MARKET_FEED?: MarketFeedNamespace
   REDDIT_CLIENT_ID?: SecretsStoreSecret
   REDDIT_CLIENT_SECRET?: SecretsStoreSecret
   TASTYTRADE_ACCOUNT_NUMBER?: SecretsStoreSecret

@@ -29,7 +29,7 @@ describe('tastytrade catalyst normalization', () => {
     expect(boundParameterCounts).toEqual([100, 2, 1])
   })
 
-  it('extracts upcoming earnings timing, confidence, and dividend dates', () => {
+  it('extracts upcoming earnings and ignores dividend fields', () => {
     const catalysts = catalystsFromMarketMetrics([{
       symbol: 'NVDA',
       'updated-at': '2026-08-13T15:00:00Z',
@@ -47,8 +47,6 @@ describe('tastytrade catalyst normalization', () => {
 
     expect(catalysts).toMatchObject([
       { id: 'tastytrade:NVDA:earnings', date: '2026-08-26', timing: 'after-hours', confidence: 'estimated' },
-      { id: 'tastytrade:NVDA:dividend-ex', date: '2026-09-10', timing: 'pre-market', confidence: 'confirmed' },
-      { id: 'tastytrade:NVDA:dividend-pay', date: '2026-10-02', confidence: 'confirmed' },
     ])
     expect(earningsDateFromMetric({ earnings: { visible: true, 'expected-report-date': '2026-08-26' } }, NOW)).toBe('2026-08-26')
   })
@@ -56,8 +54,7 @@ describe('tastytrade catalyst normalization', () => {
   it('does not surface hidden or malformed dates', () => {
     expect(catalystsFromMarketMetrics([{
       symbol: 'AAPL',
-      earnings: { visible: false, 'expected-report-date': '2026-10-29' },
-      'dividend-ex-date': '2026-02-31',
+      earnings: { visible: false, 'expected-report-date': '2026-02-31' },
     }], NOW)).toEqual([])
   })
 
@@ -69,6 +66,37 @@ describe('tastytrade catalyst normalization', () => {
     expect(earningsDateFromMetric({
       earnings: { visible: true, 'expected-report-date': '2026-07-30' },
     }, NOW)).toBeNull()
+  })
+
+  it('ignores legacy dividend rows before strict D1 parsing', async () => {
+    const earnings = {
+      id: 'tastytrade:NVDA:earnings',
+      symbol: 'NVDA',
+      kind: 'earnings',
+      title: 'NVDA earnings',
+      date: '2026-08-26',
+      timing: 'after-hours',
+      confidence: 'estimated',
+      source: 'tastytrade market metrics',
+      sourceUrl: 'https://developer.tastytrade.com/open-api-spec/market-metrics/',
+      updatedAt: NOW.toISOString(),
+    }
+    const database = {
+      batch: vi.fn(),
+      prepare: vi.fn(() => ({
+        bind: () => ({
+          all: async () => ({
+            results: [
+              { ...earnings, id: 'tastytrade:NVDA:dividend-ex', kind: 'dividend-ex' },
+              earnings,
+            ],
+          }),
+        }),
+      })),
+    } as unknown as D1Database
+
+    await expect(persistAndLoadCatalysts({ DB: database }, [], [], NOW)).resolves.toEqual([earnings])
+    expect(database.batch).not.toHaveBeenCalled()
   })
 })
 
@@ -98,6 +126,17 @@ describe('catalyst ordering', () => {
     expect(nextCatalystForSymbol('NVDA', [catalyst('NVDA', '2026-08-12')], NOW)).toBeUndefined()
   })
 
+  it('ignores legacy dividend rows hydrated by an older local cache', () => {
+    const legacyDividend = {
+      ...catalyst('AAPL', '2026-08-15'),
+      id: 'tastytrade:AAPL:dividend-ex',
+      kind: 'dividend-ex',
+    } as unknown as Catalyst
+
+    expect(nextCatalystForSymbol('AAPL', [legacyDividend, catalyst('AAPL', '2026-08-20')], NOW)?.date)
+      .toBe('2026-08-20')
+  })
+
   it('builds a 30-day catalyst rail with positions before private watchlists', () => {
     const rows = [
       catalyst('AAPL', '2026-08-20'),
@@ -112,35 +151,5 @@ describe('catalyst ordering', () => {
       rows,
       NOW,
     )).toEqual(['AAPL', 'NVDA', 'META'])
-  })
-
-  it('includes earnings but excludes dividend dates from the catalyst rail', () => {
-    const dividend = (symbol: string, kind: 'dividend-ex' | 'dividend-pay'): Catalyst => ({
-      ...catalyst(symbol, '2026-08-20'),
-      id: `tastytrade:${symbol}:${kind}`,
-      kind,
-    })
-
-    expect(upcomingInterestedSymbols(
-      ['NVDA'],
-      ['AAPL', 'MSFT'],
-      [catalyst('NVDA', '2026-08-26'), dividend('AAPL', 'dividend-pay'), dividend('MSFT', 'dividend-ex')],
-      NOW,
-    )).toEqual(['NVDA'])
-  })
-
-  it('uses an upcoming earning even when a dividend date comes first', () => {
-    const exDividend: Catalyst = {
-      ...catalyst('AAPL', '2026-08-15'),
-      id: 'tastytrade:AAPL:dividend-ex',
-      kind: 'dividend-ex',
-    }
-
-    expect(upcomingInterestedSymbols(
-      [],
-      ['AAPL'],
-      [exDividend, catalyst('AAPL', '2026-08-20')],
-      NOW,
-    )).toEqual(['AAPL'])
   })
 })

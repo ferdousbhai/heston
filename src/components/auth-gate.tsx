@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { Link } from '@tanstack/react-router'
 
 import { authClient } from '../data/auth-client'
 
@@ -100,7 +101,15 @@ function AuthScreen({ checking = false, error }: { checking?: boolean; error?: s
           </>
         )}
       </section>
-      <footer className="auth-footer"><span>Private workspace</span><span>One authorized account</span></footer>
+      <footer className="auth-footer">
+        <span>Private workspace</span>
+        <nav aria-label="Legal and support">
+          <Link to="/support">Support</Link>
+          <Link to="/terms">Terms</Link>
+          <Link to="/privacy">Privacy</Link>
+          <Link to="/disclosures">Disclosures</Link>
+        </nav>
+      </footer>
     </main>
   )
 }

@@ -1,7 +1,50 @@
 type JsonRecord = Record<string, unknown>
 
-function record(value: unknown): JsonRecord {
-  return typeof value === 'object' && value !== null ? value as JsonRecord : {}
+export interface AccountBalances {
+  availableTradingFunds: number
+  cashAvailableToWithdraw: number
+  cashBalance: number
+  dayTradingBuyingPower: number
+  derivativeBuyingPower: number
+  equityBuyingPower: number
+  netLiquidatingValue: number
+}
+
+export interface CompletedTrade {
+  filledAt?: string
+  legs: Array<{ action: string; averageFillPrice?: number; quantity: number; symbol: string }>
+  netPrice?: number
+  orderId: string
+  priceEffect?: string
+}
+
+export interface RecentTrade {
+  action: string
+  executedAt: string
+  instrumentType: string
+  orderId: string
+  price: number
+  quantity: number
+  symbol: string
+  underlying: string
+}
+
+export interface WorkingOrder {
+  complexOrderId?: string
+  id: string
+  legs: Array<{ action: string; instrumentType: string; quantity: number; symbol: string }>
+  price?: number
+  priceEffect?: string
+  status: string
+  symbol: string
+  timeInForce?: string
+  type: string
+}
+
+function record(value: unknown): JsonRecord | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as JsonRecord
+    : undefined
 }
 
 function matchesAccount(row: JsonRecord, accountNumber: string): boolean {
@@ -12,15 +55,15 @@ function matchesAccount(row: JsonRecord, accountNumber: string): boolean {
 /** Normalize both tastytrade balance envelopes without guessing among multiple accounts. */
 export function accountBalanceRecord(payload: unknown, accountNumber: string): JsonRecord | undefined {
   const body = record(payload)
-  const rawData = body.data ?? payload
+  const rawData = body?.data ?? payload
   const data = record(rawData)
-  const items = Array.isArray(rawData) ? rawData : data.items
+  const items = Array.isArray(rawData) ? rawData : data?.items
   if (Array.isArray(items)) {
     if (items.length !== 1) return undefined
     const row = record(items[0])
-    return matchesAccount(row, accountNumber) ? row : undefined
+    return row && matchesAccount(row, accountNumber) ? row : undefined
   }
-  return matchesAccount(data, accountNumber) ? data : undefined
+  return data && matchesAccount(data, accountNumber) ? data : undefined
 }
 
 const TERMINAL_ORDER_STATUSES = new Set(['cancelled', 'expired', 'filled', 'rejected', 'removed'])
@@ -31,4 +74,187 @@ export function isWorkingOrderRecord(row: JsonRecord): boolean {
   if (typeof terminalAt === 'string' && terminalAt.trim()) return false
   const status = typeof row.status === 'string' ? row.status.trim().toLowerCase() : ''
   return !TERMINAL_ORDER_STATUSES.has(status)
+}
+
+function text(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function number(value: unknown): number | undefined {
+  if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return undefined
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+function id(value: unknown): string | undefined {
+  if (typeof value !== 'string' && typeof value !== 'number') return undefined
+  const parsed = String(value).trim()
+  return parsed && parsed.length <= 80 ? parsed : undefined
+}
+
+function requiredNumber(row: JsonRecord, field: string): number {
+  const parsed = number(row[field])
+  if (parsed === undefined) throw new Error(`TastytradePayload:invalid-${field}`)
+  return parsed
+}
+
+/** Extract the complete compact balance set needed by Dan; partial records are unavailable. */
+export function accountBalancesFromPayload(payload: unknown, accountNumber: string): AccountBalances | undefined {
+  const row = accountBalanceRecord(payload, accountNumber)
+  if (!row) return undefined
+  try {
+    return {
+      availableTradingFunds: requiredNumber(row, 'available-trading-funds'),
+      cashAvailableToWithdraw: requiredNumber(row, 'cash-available-to-withdraw'),
+      cashBalance: requiredNumber(row, 'cash-balance'),
+      dayTradingBuyingPower: requiredNumber(row, 'day-trading-buying-power'),
+      derivativeBuyingPower: requiredNumber(row, 'derivative-buying-power'),
+      equityBuyingPower: requiredNumber(row, 'equity-buying-power'),
+      netLiquidatingValue: number(row['net-liquidating-value'])
+        ?? requiredNumber(row, 'net-liquidating-value-snapshot'),
+    }
+  } catch {
+    return undefined
+  }
+}
+
+function workingOrderLeg(value: unknown) {
+  const row = record(value)
+  const action = text(row?.action)
+  const instrumentType = text(row?.['instrument-type'])
+  const quantity = number(row?.quantity)
+  const symbol = text(row?.symbol)
+  if (!row || !action || !instrumentType || quantity === undefined || quantity <= 0 || !symbol) {
+    throw new Error('TastytradePayload:invalid-order-leg')
+  }
+  return { action, instrumentType, quantity, symbol }
+}
+
+function workingOrder(row: JsonRecord, complexOrderId?: string): WorkingOrder {
+  const orderId = id(row.id)
+  const status = text(row.status)
+  const type = text(row['order-type'])
+  if (!orderId || !status || !type || !Array.isArray(row.legs) || !row.legs.length) {
+    throw new Error('TastytradePayload:invalid-working-order')
+  }
+  const legs = row.legs.map(workingOrderLeg)
+  const price = number(row.price)
+  const priceEffect = text(row['price-effect'])
+  const timeInForce = text(row['time-in-force'])
+  return {
+    id: orderId,
+    legs,
+    status,
+    symbol: legs[0]!.symbol,
+    type,
+    ...(complexOrderId ? { complexOrderId } : {}),
+    ...(price !== undefined ? { price } : {}),
+    ...(priceEffect ? { priceEffect } : {}),
+    ...(timeInForce ? { timeInForce } : {}),
+  }
+}
+
+/** Normalize either an ordinary order or the active children of a complex order. */
+export function workingOrderRecords(row: JsonRecord): WorkingOrder[] {
+  if (!isWorkingOrderRecord(row)) return []
+  if (Array.isArray(row.legs)) return [workingOrder(row)]
+
+  const complexOrderId = id(row.id)
+  if (!complexOrderId) throw new Error('TastytradePayload:invalid-complex-order')
+  if (Object.hasOwn(row, 'orders') && !Array.isArray(row.orders)) {
+    throw new Error('TastytradePayload:invalid-complex-order')
+  }
+  const nested: JsonRecord[] = (Array.isArray(row.orders) ? row.orders : []).map((value) => {
+    const order = record(value)
+    if (!order) throw new Error('TastytradePayload:invalid-complex-order')
+    return order
+  })
+  if (Object.hasOwn(row, 'trigger-order')) {
+    const trigger = record(row['trigger-order'])
+    if (!trigger) throw new Error('TastytradePayload:invalid-complex-order')
+    nested.push(trigger)
+  }
+  if (!nested.length) throw new Error('TastytradePayload:invalid-complex-order')
+  return nested.filter(isWorkingOrderRecord).map((order) => workingOrder(order, complexOrderId))
+}
+
+/** Normalize one canonical Trade transaction without fees or descriptive broker text. */
+export function tradeTransactionRecord(row: JsonRecord): RecentTrade {
+  const action = text(row.action)
+  const executedAt = text(row['executed-at']) ?? text(row['transaction-date'])
+  const instrumentType = text(row['instrument-type'])
+  const orderId = id(row['order-id'])
+  const price = number(row.price)
+  const quantity = number(row.quantity)
+  const symbol = text(row.symbol)
+  const underlying = text(row['underlying-symbol'])
+  if (text(row['transaction-type']) !== 'Trade'
+    || !action
+    || !executedAt
+    || !instrumentType
+    || !orderId
+    || price === undefined
+    || quantity === undefined
+    || quantity <= 0
+    || !symbol
+    || !underlying) {
+    throw new Error('TastytradePayload:invalid-trade-transaction')
+  }
+  return { action, executedAt, instrumentType, orderId, price, quantity, symbol, underlying }
+}
+
+/** Reduce a filled tastytrade order to execution facts useful to the model. */
+export function completedTradeRecord(row: JsonRecord): CompletedTrade | undefined {
+  if (text(row.status)?.toLowerCase() !== 'filled') return undefined
+  const orderId = id(row.id)
+  if (!orderId || !Array.isArray(row.legs) || !row.legs.length) {
+    throw new Error('TastytradePayload:invalid-completed-trade')
+  }
+  const fillTimes: string[] = []
+  const legs = row.legs.slice(0, 8).map((value) => {
+    const leg = record(value)
+    const action = text(leg?.action)
+    const symbol = text(leg?.symbol)
+    if (!leg || !action || !symbol || (Object.hasOwn(leg, 'fills') && !Array.isArray(leg.fills))) {
+      throw new Error('TastytradePayload:invalid-completed-trade')
+    }
+    const fills = Array.isArray(leg.fills) ? leg.fills : []
+    let filledQuantity = 0
+    let pricedQuantity = 0
+    let fillValue = 0
+    for (const value of fills) {
+      const fill = record(value)
+      const quantity = number(fill?.quantity)
+      const price = number(fill?.['fill-price'])
+      const filledAt = text(fill?.['filled-at'])
+      if (!fill || quantity === undefined || quantity <= 0) {
+        throw new Error('TastytradePayload:invalid-completed-trade')
+      }
+      if (filledAt) fillTimes.push(filledAt)
+      filledQuantity += quantity
+      if (price !== undefined) {
+        pricedQuantity += quantity
+        fillValue += quantity * price
+      }
+    }
+    const quantity = filledQuantity || number(leg.quantity)
+    if (quantity === undefined || quantity <= 0) throw new Error('TastytradePayload:invalid-completed-trade')
+    return {
+      action,
+      symbol,
+      quantity,
+      ...(pricedQuantity ? { averageFillPrice: Math.round((fillValue / pricedQuantity) * 1e6) / 1e6 } : {}),
+    }
+  })
+  const terminalAt = text(row['terminal-at'])
+  const filledAt = fillTimes.sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? terminalAt
+  const netPrice = number(row.price)
+  const priceEffect = text(row['price-effect'])
+  return {
+    legs,
+    orderId,
+    ...(filledAt ? { filledAt } : {}),
+    ...(netPrice !== undefined ? { netPrice } : {}),
+    ...(priceEffect ? { priceEffect } : {}),
+  }
 }

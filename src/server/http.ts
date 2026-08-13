@@ -1,6 +1,15 @@
 import { getOwnerSession } from './auth'
 import { type AppEnv } from './env'
 
+const CANONICAL_ORIGIN = 'https://tryspice.xyz'
+const LEGACY_HOSTS = new Set(['spice.ferdousbd.workers.dev', 'www.tryspice.xyz'])
+
+export function canonicalHostRedirect(request: Request): Response | undefined {
+  const url = new URL(request.url)
+  if (!LEGACY_HOSTS.has(url.hostname)) return undefined
+  return Response.redirect(`${CANONICAL_ORIGIN}${url.pathname}${url.search}`, 308)
+}
+
 export function jsonNoStore(value: unknown, init: ResponseInit = {}): Response {
   const headers = new Headers(init.headers)
   headers.set('Cache-Control', 'no-store')
@@ -34,5 +43,6 @@ export function publicError(error: unknown): string {
   if (error.message.includes('contract is not available')) return error.message
   if (error.name === 'PortfolioRiskError') return error.message
   if (error.name === 'BrokerageSubmissionUnknownError') return error.message
+  if (error.name === 'TastytradeOrderWarningError') return error.message
   return 'The request could not be completed'
 }

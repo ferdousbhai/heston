@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { CatalystSchema } from './catalyst'
+import { CandlePointSchema } from './candle'
 
 export const WatchlistKindSchema = z.enum(['private', 'positions', 'public'])
 
@@ -17,7 +18,7 @@ export const TickerSchema = z.object({
   price: z.number(),
   change: z.number(),
   changePercent: z.number(),
-  sparkline: z.array(z.number()).min(2),
+  sparkline: z.array(CandlePointSchema).min(1),
   ivRank: z.number().min(0).max(100),
   ivPercentile: z.number().min(0).max(100),
   ivIndex: z.number().min(0),
@@ -43,7 +44,6 @@ export const ResearchBriefSchema = z.object({
   summary: z.string(),
   regime: z.string(),
   regimeDetail: z.string(),
-  pulse: z.array(z.object({ label: z.string(), value: z.string(), tone: z.enum(['up', 'down', 'neutral']) })),
   ideas: z.array(ResearchIdeaSchema),
   sources: z.array(z.object({ label: z.string(), url: z.string().url() })),
 })

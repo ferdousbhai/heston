@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { canonicalXPostUrl, parseXCatalystResponse, shouldRunXCatalystResearch } from '../src/server/x-catalysts'
+import { canonicalXPostUrl, catalystResearchSymbols, discoverXCatalysts, parseXCatalystResponse, shouldRunXCatalystResearch } from '../src/server/x-catalysts'
 
 const NOW = new Date('2026-08-13T22:30:00.000Z')
 
@@ -14,6 +14,22 @@ function response(findings: unknown[], citations: string[]) {
 }
 
 describe('Grok X catalyst boundary', () => {
+  it('does not cap Grok native X Search tool calls', async () => {
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body)) as Record<string, unknown>
+      expect(request).not.toHaveProperty('max_tool_calls')
+      return Response.json(response([], []))
+    })
+
+    const secret = (value: string) => ({ get: async () => value }) as SecretsStoreSecret
+    await discoverXCatalysts({
+      AI_GATEWAY_TOKEN: secret('gateway-token'),
+      XAI_API_KEY: secret('xai-key'),
+    }, ['AAPL'], NOW, fetcher as typeof fetch)
+
+    expect(fetcher).toHaveBeenCalledOnce()
+  })
+
   it('accepts only future watched catalysts backed by returned X citations', () => {
     const cited = 'https://x.com/nvidia/status/1234567890'
     const result = parseXCatalystResponse(response([
@@ -29,9 +45,24 @@ describe('Grok X catalyst boundary', () => {
     expect(result.rejected).toBe(2)
   })
 
+  it('rejects earnings because tastytrade owns that catalyst source', () => {
+    const cited = 'https://x.com/nvidia/status/1234567890'
+    expect(() => parseXCatalystResponse(response([
+      { symbol: 'NVDA', kind: 'earnings', title: 'NVDA earnings', date: '2026-09-01', timing: 'after-hours', confidence: 'confirmed', sourceUrl: cited },
+    ], [cited]), ['NVDA'], NOW)).toThrow()
+  })
+
   it('canonicalizes only direct X status URLs and schedules at 18:30 New York', () => {
     expect(canonicalXPostUrl('https://twitter.com/nvidia/status/123?ref=home')).toBe('https://x.com/nvidia/status/123')
     expect(canonicalXPostUrl('https://x.com/nvidia')).toBeUndefined()
     expect(shouldRunXCatalystResearch(NOW)).toBe(true)
+  })
+
+  it('researches positions first, then private watchlists, and excludes public lists', () => {
+    expect(catalystResearchSymbols([
+      { kind: 'private', symbols: ['AAPL', 'NVDA'] },
+      { kind: 'positions', symbols: ['SPY', 'NVDA'] },
+      { kind: 'public', symbols: ['TSLA'] },
+    ])).toEqual(['SPY', 'NVDA', 'AAPL'])
   })
 })

@@ -5,8 +5,12 @@ import {
   kellyFraction,
   survivalBudget,
 } from '../src/domain/portfolio-risk'
-import { BrokerageActionSchema, type BrokerageAction } from '../src/server/agent-contracts'
-import { answerBrokerageReadRequest, type BrokerageContext } from '../src/server/brokerage-context'
+import { OrderPlacementSchema, type OrderPlacement } from '../src/server/agent-contracts'
+import {
+  answerBrokerageReadRequest,
+  buildAgentRuntimeContext,
+  type BrokerageContext,
+} from '../src/server/brokerage-context'
 import { DAN_SYSTEM_PROMPT } from '../src/server/dan-doctrine'
 import { assessPortfolioAction } from '../src/server/portfolio-risk'
 
@@ -42,7 +46,7 @@ describe('Kelly and survival math', () => {
 
 describe('portfolio action boundary', () => {
   it('allows a bounded debit only within the remaining hard-loss budget', () => {
-    const action: Extract<BrokerageAction, { kind: 'place_option_order' }> = {
+    const action: Extract<OrderPlacement, { kind: 'place_option_order' }> = {
       kind: 'place_option_order', underlying: 'SPY', optionType: 'C', strike: 700,
       expiry: '2026-09-18', action: 'Buy to Open', quantity: 1, limitPrice: 10,
       priceEffect: 'Debit',
@@ -58,7 +62,7 @@ describe('portfolio action boundary', () => {
   })
 
   it('rejects naked openings and portfolios whose downside is not contractually bounded', () => {
-    const naked: Extract<BrokerageAction, { kind: 'place_option_order' }> = {
+    const naked: Extract<OrderPlacement, { kind: 'place_option_order' }> = {
       kind: 'place_option_order', underlying: 'SPY', optionType: 'C', strike: 700,
       expiry: '2026-09-18', action: 'Sell to Open', quantity: 1, limitPrice: 5,
       priceEffect: 'Credit',
@@ -78,7 +82,7 @@ describe('portfolio action boundary', () => {
   })
 
   it('allows only a verified, quantity-bounded close', () => {
-    const close: Extract<BrokerageAction, { kind: 'place_equity_order' }> = {
+    const close: Extract<OrderPlacement, { kind: 'place_equity_order' }> = {
       kind: 'place_equity_order', symbol: 'SPY', action: 'Sell to Close', quantity: 10,
       limitPrice: 700, priceEffect: 'Credit',
     }
@@ -86,8 +90,42 @@ describe('portfolio action boundary', () => {
     expect(assessPortfolioAction({ ...close, quantity: 11 }, longOnlyAccount, 100_000).allowed).toBe(false)
   })
 
+  it('does not remove long collateral or protection while short exposure remains', () => {
+    const accountWithShort = {
+      ...longOnlyAccount,
+      positions: [
+        ...longOnlyAccount.positions,
+        { direction: 'Short' as const, instrumentType: 'Equity Option', quantity: 1, symbol: 'SPY short call' },
+        { direction: 'Long' as const, instrumentType: 'Equity Option', quantity: 1, symbol: 'SPY long call' },
+      ],
+    }
+    const sellShares: Extract<OrderPlacement, { kind: 'place_equity_order' }> = {
+      kind: 'place_equity_order', symbol: 'SPY', action: 'Sell to Close', quantity: 10,
+      limitPrice: 700, priceEffect: 'Credit',
+    }
+    const sellLongOption: Extract<OrderPlacement, { kind: 'place_option_order' }> = {
+      kind: 'place_option_order', underlying: 'SPY', optionType: 'C', strike: 710,
+      expiry: '2026-09-18', action: 'Sell to Close', quantity: 1,
+      limitPrice: 4, priceEffect: 'Credit',
+    }
+    const buyBackShort = {
+      ...sellLongOption,
+      action: 'Buy to Close' as const,
+      priceEffect: 'Debit' as const,
+      strike: 700,
+    }
+
+    expect(assessPortfolioAction(sellShares, accountWithShort, 100_000).allowed).toBe(false)
+    expect(assessPortfolioAction(sellLongOption, accountWithShort, 100_000, {
+      symbol: 'SPY long call', sharesPerContract: 100,
+    }).allowed).toBe(false)
+    expect(assessPortfolioAction(buyBackShort, accountWithShort, 100_000, {
+      symbol: 'SPY short call', sharesPerContract: 100,
+    }).allowed).toBe(true)
+  })
+
   it('rejects action and price-effect mismatches at the untrusted model boundary', () => {
-    expect(BrokerageActionSchema.safeParse({
+    expect(OrderPlacementSchema.safeParse({
       kind: 'place_equity_order', symbol: 'SPY', action: 'Buy to Open', quantity: 1,
       limitPrice: 700, priceEffect: 'Credit',
     }).success).toBe(false)
@@ -100,6 +138,8 @@ describe('Dan doctrine', () => {
     expect(DAN_SYSTEM_PROMPT).toContain('Kelly is a ceiling')
     expect(DAN_SYSTEM_PROMPT).toContain('known-odds dice illustration')
     expect(DAN_SYSTEM_PROMPT).toContain('A safe haven is a payoff')
+    expect(DAN_SYSTEM_PROMPT).toContain('positively convex, bounded-loss exposure')
+    expect(DAN_SYSTEM_PROMPT).toContain('wrong without threatening survival')
     expect(DAN_SYSTEM_PROMPT).toContain('dealer balance sheets')
     expect(DAN_SYSTEM_PROMPT).toContain('95% of the time you do not know')
     expect(DAN_SYSTEM_PROMPT).toContain('Wait without embarrassment')
@@ -111,11 +151,85 @@ describe('Dan doctrine', () => {
   it('sends analytical portfolio questions to Dan instead of the factual read shortcut', () => {
     const account: BrokerageContext = {
       accountNumber: 'TEST123',
-      availability: { balances: true, orders: true, positions: true, watchlists: true },
-      balances: { netLiquidatingValue: 100_000, cash: 65_000, buyingPower: 65_000 },
-      positions: [], orders: [], watchlists: [],
+      asOf: '2026-08-13T12:00:00.000Z',
+      source: 'tastytrade',
+      completeness: { ordersTruncated: false, positionsTruncated: false, tradesTruncated: false },
+      availability: { balances: true, orders: true, positions: true, trades: true },
+      balances: {
+        netLiquidatingValue: 100_000, cash: 65_000, buyingPower: 65_000,
+        cashBalance: 65_000, cashAvailableToWithdraw: 65_000, availableTradingFunds: 65_000,
+        equityBuyingPower: 130_000, derivativeBuyingPower: 65_000, dayTradingBuyingPower: 260_000,
+      },
+      positions: [], orders: [], recentTrades: [],
     }
     expect(answerBrokerageReadRequest('How should I size this with Kelly against my portfolio?', account)).toBeUndefined()
     expect(answerBrokerageReadRequest('Show my portfolio', account)).toContain('Net liq')
+  })
+
+  it('builds compact model context with balances and market metrics for open-position tickers', () => {
+    const account: BrokerageContext = {
+      accountNumber: 'SECRET123',
+      asOf: '2026-08-13T12:00:00.000Z',
+      source: 'tastytrade',
+      completeness: { ordersTruncated: false, positionsTruncated: false, tradesTruncated: false },
+      availability: { balances: true, orders: true, positions: true, trades: true },
+      balances: {
+        netLiquidatingValue: 100_000, cash: 65_000, buyingPower: 80_000,
+        cashBalance: 70_000, cashAvailableToWithdraw: 65_000, availableTradingFunds: 62_000,
+        equityBuyingPower: 160_000, derivativeBuyingPower: 80_000, dayTradingBuyingPower: 320_000,
+      },
+      positions: [{
+        direction: 'Long', instrumentType: 'Equity Option', quantity: 2,
+        symbol: 'SPY option', underlying: 'SPY',
+      }],
+      orders: [],
+      recentTrades: [{
+        action: 'Buy to Open', executedAt: '2026-08-12T15:00:00Z',
+        instrumentType: 'Equity Option', orderId: '9001', price: 1.2,
+        quantity: 2, symbol: 'SPY option', underlying: 'SPY',
+      }],
+    }
+    const context = buildAgentRuntimeContext(account, [{
+      symbol: 'SPY', price: 700, changePercent: 1.2, ivIndex: 18,
+      ivRank: 25, ivPercentile: 30, liquidity: 5, earningsDate: null,
+    }], {
+      symbol: 'NVDA', price: 180, changePercent: -0.5, ivIndex: 40,
+      ivRank: 60, ivPercentile: 65, liquidity: 4, earningsDate: '2026-08-26',
+    })
+
+    expect(context).toMatchObject({
+      asOf: '2026-08-13T12:00:00.000Z',
+      source: 'tastytrade',
+      completeness: { ordersTruncated: false, positionsTruncated: false, tradesTruncated: false },
+      balances: {
+        availableTradingFunds: 62_000,
+        cashAvailableToWithdraw: 65_000,
+        cashBalance: 70_000,
+        dayTradingBuyingPower: 320_000,
+        derivativeBuyingPower: 80_000,
+        equityBuyingPower: 160_000,
+        netLiquidatingValue: 100_000,
+      },
+      marketMetrics: {
+        SPY: { price: 700, ivIndex: 18, ivRank: 25, ivPercentile: 30, liquidity: 5 },
+        NVDA: { price: 180, ivIndex: 40, ivRank: 60, ivPercentile: 65, liquidity: 4 },
+      },
+      orders: [],
+      recentTrades: [{ orderId: '9001', symbol: 'SPY option' }],
+    })
+    expect(JSON.stringify(context)).not.toContain('SECRET123')
+    expect(context).toHaveProperty('balances')
+    expect(JSON.stringify(context)).not.toContain('"cash":')
+    expect(JSON.stringify(context)).not.toContain('"buyingPower":')
+  })
+
+  it('keeps selected-symbol metrics available without brokerage data', () => {
+    expect(buildAgentRuntimeContext(undefined, [], {
+      symbol: 'SPY', price: 700, changePercent: 1.2, ivIndex: 18,
+      ivRank: 25, ivPercentile: 30, liquidity: 5, earningsDate: null,
+    })).toMatchObject({
+      selectedSymbol: 'SPY',
+      marketMetrics: { SPY: { price: 700, ivRank: 25 } },
+    })
   })
 })

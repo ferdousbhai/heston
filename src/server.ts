@@ -2,7 +2,7 @@ import handler from '@tanstack/react-start/server-entry'
 import { routeAgentRequest } from 'agents'
 
 import { type AppEnv } from './server/env'
-import { authorizePersonalRequest } from './server/http'
+import { authorizePersonalRequest, canonicalHostRedirect } from './server/http'
 import { generateDailyResearch, shouldRunDailyResearch } from './server/research'
 import { runXCatalystResearch, shouldRunXCatalystResearch } from './server/x-catalysts'
 
@@ -11,6 +11,8 @@ export { MarketFeed } from './server/market-feed'
 
 export default {
   async fetch(request: Request, env: AppEnv) {
+    const canonicalRedirect = canonicalHostRedirect(request)
+    if (canonicalRedirect) return canonicalRedirect
     if (new URL(request.url).pathname.startsWith('/agents/')) {
       const unauthorized = await authorizePersonalRequest(request, env, true)
       if (unauthorized) return unauthorized

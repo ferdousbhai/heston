@@ -10,7 +10,10 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as ApiChatRouteImport } from './routes/api.chat'
+import { Route as DisclosuresRouteImport } from './routes/disclosures'
+import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as SupportRouteImport } from './routes/support'
+import { Route as TermsRouteImport } from './routes/terms'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
 import { Route as ApiSnapshotRouteImport } from './routes/api.snapshot'
 import { Route as ApiStreamRouteImport } from './routes/api.stream'
@@ -24,9 +27,24 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiChatRoute = ApiChatRouteImport.update({
-  id: '/api/chat',
-  path: '/api/chat',
+const DisclosuresRoute = DisclosuresRouteImport.update({
+  id: '/disclosures',
+  path: '/disclosures',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SupportRoute = SupportRouteImport.update({
+  id: '/support',
+  path: '/support',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TermsRoute = TermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
@@ -67,7 +85,10 @@ const ApiCatalystsRefreshRoute = ApiCatalystsRefreshRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/api/chat': typeof ApiChatRoute
+  '/disclosures': typeof DisclosuresRoute
+  '/privacy': typeof PrivacyRoute
+  '/support': typeof SupportRoute
+  '/terms': typeof TermsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
@@ -78,7 +99,10 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/api/chat': typeof ApiChatRoute
+  '/disclosures': typeof DisclosuresRoute
+  '/privacy': typeof PrivacyRoute
+  '/support': typeof SupportRoute
+  '/terms': typeof TermsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
@@ -90,7 +114,10 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/api/chat': typeof ApiChatRoute
+  '/disclosures': typeof DisclosuresRoute
+  '/privacy': typeof PrivacyRoute
+  '/support': typeof SupportRoute
+  '/terms': typeof TermsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
@@ -103,7 +130,10 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/api/chat'
+    | '/disclosures'
+    | '/privacy'
+    | '/support'
+    | '/terms'
     | '/api/health'
     | '/api/snapshot'
     | '/api/stream'
@@ -114,7 +144,10 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/api/chat'
+    | '/disclosures'
+    | '/privacy'
+    | '/support'
+    | '/terms'
     | '/api/health'
     | '/api/snapshot'
     | '/api/stream'
@@ -125,7 +158,10 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
-    | '/api/chat'
+    | '/disclosures'
+    | '/privacy'
+    | '/support'
+    | '/terms'
     | '/api/health'
     | '/api/snapshot'
     | '/api/stream'
@@ -137,7 +173,10 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  ApiChatRoute: typeof ApiChatRoute
+  DisclosuresRoute: typeof DisclosuresRoute
+  PrivacyRoute: typeof PrivacyRoute
+  SupportRoute: typeof SupportRoute
+  TermsRoute: typeof TermsRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiSnapshotRoute: typeof ApiSnapshotRoute
   ApiStreamRoute: typeof ApiStreamRoute
@@ -156,11 +195,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/chat': {
-      id: '/api/chat'
-      path: '/api/chat'
-      fullPath: '/api/chat'
-      preLoaderRoute: typeof ApiChatRouteImport
+    '/disclosures': {
+      id: '/disclosures'
+      path: '/disclosures'
+      fullPath: '/disclosures'
+      preLoaderRoute: typeof DisclosuresRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/support': {
+      id: '/support'
+      path: '/support'
+      fullPath: '/support'
+      preLoaderRoute: typeof SupportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/health': {
@@ -217,7 +277,10 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  ApiChatRoute: ApiChatRoute,
+  DisclosuresRoute: DisclosuresRoute,
+  PrivacyRoute: PrivacyRoute,
+  SupportRoute: SupportRoute,
+  TermsRoute: TermsRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiSnapshotRoute: ApiSnapshotRoute,
   ApiStreamRoute: ApiStreamRoute,

@@ -1,4 +1,5 @@
 import { type ResearchSourceItem } from './research-contracts'
+import { readBoundedJson } from './bounded-response'
 
 export interface RedditCredentials {
   clientId: string
@@ -34,16 +35,22 @@ export async function collectRedditSources(
     body: 'grant_type=client_credentials',
     signal: AbortSignal.timeout(8_000),
   })
-  if (!tokenResponse.ok) throw new Error(`Reddit OAuth returned ${tokenResponse.status}`)
-  const token = record(await tokenResponse.json()).access_token
+  if (!tokenResponse.ok) {
+    await tokenResponse.body?.cancel()
+    throw new Error(`Reddit OAuth returned ${tokenResponse.status}`)
+  }
+  const token = record(await readBoundedJson(tokenResponse, 256_000, 'RedditOAuth')).access_token
   if (typeof token !== 'string' || !token) throw new Error('Reddit OAuth returned no access token')
 
   const listingResponse = await fetcher('https://oauth.reddit.com/r/options+wallstreetbets+stocks/hot?limit=18&raw_json=1', {
     headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'SpiceMustFlow/0.1 personal-options-research' },
     signal: AbortSignal.timeout(8_000),
   })
-  if (!listingResponse.ok) throw new Error(`Reddit listing returned ${listingResponse.status}`)
-  const listing = record(await listingResponse.json())
+  if (!listingResponse.ok) {
+    await listingResponse.body?.cancel()
+    throw new Error(`Reddit listing returned ${listingResponse.status}`)
+  }
+  const listing = record(await readBoundedJson(listingResponse, 2_000_000, 'RedditListing'))
   const children = record(listing.data).children
   if (!Array.isArray(children)) return []
 

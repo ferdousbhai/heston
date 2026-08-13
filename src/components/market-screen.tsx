@@ -1,16 +1,18 @@
 import { ArrowDownRight, ArrowUpRight, ChevronDown } from 'lucide-react'
 
-import { catalystLabel, nextCatalystForSymbol, nextStoryCatalystForSymbol, sortSymbolsByCatalyst, upcomingInterestedSymbols, type Catalyst } from '../domain/catalyst'
+import { catalystLabel, nextCatalystForSymbol, sortSymbolsByCatalyst, upcomingInterestedSymbols, type Catalyst } from '../domain/catalyst'
 import { volatilityVerdict, type Ticker, type Watchlist } from '../domain/market'
 import { LiquidityMetric, MetricGauge, Sparkline } from './market-visuals'
 
 function CatalystStories({
   catalysts,
+  now,
   onSelect,
   tickers,
   watchlists,
 }: {
   catalysts: Catalyst[]
+  now: Date
   onSelect: (symbol: string) => void
   tickers: Ticker[]
   watchlists: Watchlist[]
@@ -19,17 +21,14 @@ function CatalystStories({
   const privateSymbols = watchlists
     .filter((watchlist) => watchlist.kind === 'private')
     .flatMap((watchlist) => watchlist.symbols)
-  const visible = upcomingInterestedSymbols(positionSymbols, privateSymbols, catalysts)
+  const visible = upcomingInterestedSymbols(positionSymbols, privateSymbols, catalysts, now)
     .map((symbol) => tickers.find((ticker) => ticker.symbol === symbol))
     .filter((ticker): ticker is Ticker => Boolean(ticker))
   return (
-    <section className="stories" aria-label="Catalysts in the next 30 days">
-      <div className="stories-title" aria-hidden="true">
-        <span>30 days</span>
-      </div>
+    <section className="stories" aria-label="Upcoming catalysts">
       <div className="story-row">
         {visible.map((ticker) => {
-          const catalyst = nextStoryCatalystForSymbol(ticker.symbol, catalysts)
+          const catalyst = nextCatalystForSymbol(ticker.symbol, catalysts, now)
           return (
             <button
               className="story"
@@ -40,11 +39,11 @@ function CatalystStories({
             >
               <span className={`story-ring ${volatilityVerdict(ticker)}`}><span>{ticker.symbol.slice(0, 2)}</span></span>
               <span className="story-symbol">{ticker.symbol}</span>
-              {catalyst && <span className={`story-catalyst ${catalyst.confidence}`}>{catalystLabel(catalyst)}</span>}
+              {catalyst && <span className={`story-catalyst ${catalyst.confidence}`}>{catalystLabel(catalyst, now)}</span>}
             </button>
           )
         })}
-        {!visible.length && <p className="story-empty">Nothing scheduled in the next 30 days.</p>}
+        {!visible.length && <p className="story-empty">Nothing scheduled.</p>}
       </div>
     </section>
   )
@@ -53,6 +52,7 @@ function CatalystStories({
 export function MarketScreen({
   activeWatchlist,
   catalysts,
+  catalystNow,
   onOpenPicker,
   onSelectTicker,
   selected,
@@ -61,18 +61,20 @@ export function MarketScreen({
 }: {
   activeWatchlist: Watchlist
   catalysts: Catalyst[]
+  catalystNow?: Date
   onOpenPicker: () => void
   onSelectTicker: (symbol: string) => void
   selected: Ticker
   tickers: Ticker[]
   watchlists: Watchlist[]
 }) {
-  const watchTickers = sortSymbolsByCatalyst(activeWatchlist.symbols, catalysts)
+  const now = catalystNow ?? new Date()
+  const watchTickers = sortSymbolsByCatalyst(activeWatchlist.symbols, catalysts, now)
     .map((symbol) => tickers.find((ticker) => ticker.symbol === symbol))
     .filter((ticker): ticker is Ticker => Boolean(ticker))
   return (
     <>
-      <CatalystStories catalysts={catalysts} onSelect={onSelectTicker} tickers={tickers} watchlists={watchlists} />
+      <CatalystStories catalysts={catalysts} now={now} onSelect={onSelectTicker} tickers={tickers} watchlists={watchlists} />
       <section className="ticker-hero">
         <div className="ticker-identity">
           <button className="ticker-switcher" onClick={onOpenPicker} type="button">
@@ -88,10 +90,6 @@ export function MarketScreen({
           </span>
         </div>
         <Sparkline ticker={selected} large />
-        <div className="chart-periods" aria-label="Chart period">
-          <button className="active" type="button">1D</button><button disabled type="button">1W</button>
-          <button disabled type="button">1M</button><button disabled type="button">3M</button><button disabled type="button">1Y</button>
-        </div>
       </section>
 
       <section className="options-section" aria-labelledby="options-title">
@@ -111,10 +109,10 @@ export function MarketScreen({
         </header>
         <div className="watch-rows">
           {watchTickers.map((ticker) => {
-            const catalyst = nextCatalystForSymbol(ticker.symbol, catalysts)
+            const catalyst = nextCatalystForSymbol(ticker.symbol, catalysts, now)
             return (
               <button className={ticker.symbol === selected.symbol ? 'watch-row selected' : 'watch-row'} key={ticker.symbol} onClick={() => onSelectTicker(ticker.symbol)} type="button">
-                <span className="symbol-cell"><strong>{ticker.symbol}</strong><small>{catalyst ? catalystLabel(catalyst) : volatilityVerdict(ticker) === 'rich' ? 'Hot vol' : volatilityVerdict(ticker) === 'cheap' ? 'Cool vol' : 'Mid vol'}</small></span>
+                <span className="symbol-cell"><strong>{ticker.symbol}</strong><small>{catalyst ? catalystLabel(catalyst, now) : volatilityVerdict(ticker) === 'rich' ? 'Hot vol' : volatilityVerdict(ticker) === 'cheap' ? 'Cool vol' : 'Mid vol'}</small></span>
                 <Sparkline ticker={ticker} />
                 <span className="quote-cell"><strong>${ticker.price.toFixed(2)}</strong><small className={ticker.change >= 0 ? 'positive' : 'negative'}>{ticker.change >= 0 ? '+' : ''}{ticker.changePercent.toFixed(2)}%</small></span>
               </button>

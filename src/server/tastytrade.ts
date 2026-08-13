@@ -1,4 +1,5 @@
-import { demoSnapshot, demoTickers, demoWatchlists } from '../domain/demo'
+import { demoSnapshot } from '../domain/demo'
+import { type CandlePoint } from '../domain/candle'
 import {
   MarketSnapshotSchema,
   type MarketSnapshot,
@@ -6,15 +7,18 @@ import {
   type Watchlist,
 } from '../domain/market'
 import { type AppEnv, isLiveTastytrade } from './env'
+import { readBoundedJson } from './bounded-response'
 import { catalystsFromMarketMetrics, earningsDateFromMetric, persistAndLoadCatalysts } from './catalysts'
 import { readSecret } from './secrets'
 import { tastytradeApiVersion } from './tastytrade-version'
 
 const USER_AGENT = 'Spice/0.1'
+const MAX_TASTYTRADE_RESPONSE_BYTES = 16 * 1024 * 1024
 
 type JsonRecord = Record<string, unknown>
 
 let cachedAccess: { expiresAt: number; token: string } | undefined
+let accessRefresh: Promise<string> | undefined
 
 function record(value: unknown): JsonRecord {
   return typeof value === 'object' && value !== null ? value as JsonRecord : {}
@@ -31,9 +35,10 @@ function items(value: unknown): JsonRecord[] {
   return stringValue(body.symbol) ? [body] : []
 }
 
-function numberValue(value: unknown, fallback = 0): number {
-  const parsed = typeof value === 'number' ? value : Number(value)
-  return Number.isFinite(parsed) ? parsed : fallback
+function numberValue(value: unknown): number | undefined {
+  if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return undefined
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : undefined
 }
 
 function stringValue(value: unknown): string | undefined {
@@ -45,17 +50,16 @@ function bounded(value: number, min: number, max: number): number {
 }
 
 /** tastytrade volatility metrics are decimal ratios; the UI contract uses percentage points. */
-export function percentMetric(value: unknown, fallback: number, max = 100): number {
-  if (value === undefined || value === null || value === '') return fallback
-  return bounded(numberValue(value) * 100, 0, max)
+export function percentMetric(value: unknown, max = 100): number | undefined {
+  const parsed = numberValue(value)
+  return parsed === undefined ? undefined : bounded(parsed * 100, 0, max)
 }
 
 function apiBase(env: AppEnv) {
   return env.TASTYTRADE_API_BASE || 'https://api.tastyworks.com'
 }
 
-async function accessToken(env: AppEnv): Promise<string> {
-  if (cachedAccess && Date.now() < cachedAccess.expiresAt) return cachedAccess.token
+async function refreshAccessToken(env: AppEnv): Promise<string> {
   const [clientSecret, refreshToken] = await Promise.all([
     readSecret(env.TASTYTRADE_CLIENT_SECRET, 'TASTYTRADE_CLIENT_SECRET'),
     readSecret(env.TASTYTRADE_REFRESH_TOKEN, 'TASTYTRADE_REFRESH_TOKEN'),
@@ -72,22 +76,34 @@ async function accessToken(env: AppEnv): Promise<string> {
       client_secret: clientSecret,
       refresh_token: refreshToken,
     }),
+    signal: AbortSignal.timeout(20_000),
   })
-  if (!response.ok) throw new Error(`TastytradeAuth:${response.status}`)
-  const payload = record(await response.json())
+  if (!response.ok) {
+    await response.body?.cancel()
+    throw new Error(`TastytradeAuth:${response.status}`)
+  }
+  const payload = record(await readBoundedJson(response, 256_000, 'TastytradeAuth'))
   const token = stringValue(payload.access_token)
   if (!token) throw new Error('TastytradeAuth:missing-token')
-  const expiresIn = Math.max(60, numberValue(payload.expires_in, 900) - 30)
-  cachedAccess = { token, expiresAt: Date.now() + expiresIn * 1_000 }
+  const lifetimeMs = Math.max(1_000, (numberValue(payload.expires_in) ?? 900) * 1_000)
+  const skewMs = Math.min(30_000, Math.max(1_000, lifetimeMs * 0.1))
+  cachedAccess = { token, expiresAt: Date.now() + lifetimeMs - skewMs }
   return token
 }
 
-export async function tastyRequest(
-  env: AppEnv,
-  path: string,
-  init: RequestInit = {},
-): Promise<unknown> {
-  const token = await accessToken(env)
+async function accessToken(env: AppEnv): Promise<string> {
+  if (cachedAccess && Date.now() < cachedAccess.expiresAt) return cachedAccess.token
+  accessRefresh ??= refreshAccessToken(env).finally(() => {
+    accessRefresh = undefined
+  })
+  return accessRefresh
+}
+
+function safeEndpoint(path: string): string {
+  return path.split('?')[0]!.replace(/\/accounts\/[^/]+/g, '/accounts/[redacted]')
+}
+
+async function authorizedRequest(env: AppEnv, path: string, init: RequestInit, token: string): Promise<Response> {
   const headers = new Headers(init.headers)
   headers.set('Accept', 'application/json')
   const apiVersion = tastytradeApiVersion(path)
@@ -95,16 +111,34 @@ export async function tastyRequest(
   headers.set('Authorization', `Bearer ${token}`)
   headers.set('User-Agent', USER_AGENT)
   if (init.body) headers.set('Content-Type', 'application/json')
-  const response = await fetch(`${apiBase(env)}${path}`, { ...init, headers })
+  const timeout = AbortSignal.timeout(20_000)
+  const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout
+  return fetch(`${apiBase(env)}${path}`, { ...init, headers, signal })
+}
+
+export async function tastyRequest(
+  env: AppEnv,
+  path: string,
+  init: RequestInit = {},
+): Promise<unknown> {
+  let token = await accessToken(env)
+  let response = await authorizedRequest(env, path, init, token)
+  const method = (init.method ?? 'GET').toUpperCase()
+  if (response.status === 401 && (method === 'GET' || method === 'HEAD')) {
+    if (cachedAccess?.token === token) cachedAccess = undefined
+    token = await accessToken(env)
+    response = await authorizedRequest(env, path, init, token)
+  }
   if (!response.ok) {
-    const error = new Error(`TastytradeApi:${response.status}:${path.split('?')[0]}`)
+    await response.body?.cancel()
+    const error = new Error(`TastytradeApi:${response.status}:${safeEndpoint(path)}`)
     error.name = response.status >= 500 || response.status === 408
       ? 'TastytradeApiAmbiguousError'
       : 'TastytradeApiError'
     throw error
   }
   if (response.status === 204) return {}
-  return response.json()
+  return readBoundedJson(response, MAX_TASTYTRADE_RESPONSE_BYTES, 'TastytradeApi')
 }
 
 export async function resolveAccountNumber(env: AppEnv): Promise<string> {
@@ -127,50 +161,102 @@ export async function loadQuoteToken(env: AppEnv): Promise<{ token: string; url:
   return { token, url }
 }
 
-function watchlistRows(payload: unknown, kind: Watchlist['kind'], prefix: string): Watchlist[] {
-  return items(payload).flatMap((row, index) => {
-    const name = stringValue(row.name) ?? `${kind === 'public' ? 'Public' : 'Watchlist'} ${index + 1}`
-    const entries = Array.isArray(row['watchlist-entries']) ? row['watchlist-entries'].map(record) : []
-    const symbols = [...new Set(entries
-      .map((entry) => stringValue(entry.symbol)?.toUpperCase())
-      .filter((symbol): symbol is string => Boolean(symbol && /^[A-Z.]{1,8}$/.test(symbol))))]
-    return symbols.length ? [{ id: `${prefix}-${index}-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, kind, name, symbols }] : []
+const CANDLE_FALLBACK_LOOKBACK = 7 * 24 * 60 * 60 * 1_000
+
+export function equityCandleFromTime(payload: unknown, now = Date.now()): number {
+  const body = record(payload)
+  const session = record(body.data ?? body)
+  const currentOpen = Date.parse(stringValue(session['open-at']) ?? '')
+  const previous = record(session['previous-session'])
+  const previousOpen = Date.parse(stringValue(previous['open-at']) ?? '')
+  if (Number.isFinite(currentOpen) && currentOpen <= now) return currentOpen
+  if (Number.isFinite(previousOpen) && previousOpen <= now) return previousOpen
+  return now - CANDLE_FALLBACK_LOOKBACK
+}
+
+export async function loadEquityCandleFromTime(env: AppEnv): Promise<number> {
+  return equityCandleFromTime(await tastyRequest(env, '/market-time/equities/sessions/current'))
+}
+
+function strictRows(payload: unknown, label: string): JsonRecord[] {
+  const body = record(payload)
+  const data = record(body.data)
+  const candidate = Array.isArray(payload) ? payload : Array.isArray(body.data) ? body.data : data.items ?? body.items
+  if (!Array.isArray(candidate)) throw new Error(`${label}:invalid-response`)
+  return candidate.map((value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label}:invalid-response`)
+    return value as JsonRecord
   })
 }
 
-function mergeTicker(
+function watchlistRows(payload: unknown, kind: Watchlist['kind'], prefix: string): Watchlist[] {
+  return strictRows(payload, 'TastytradeWatchlists').map((row, index) => {
+    const name = stringValue(row.name)
+    if (!name || !Array.isArray(row['watchlist-entries'])) throw new Error('TastytradeWatchlists:invalid-response')
+    const entries = row['watchlist-entries'].map((value) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('TastytradeWatchlists:invalid-response')
+      return value as JsonRecord
+    })
+    const symbols = [...new Set(entries
+      .map((entry) => stringValue(entry.symbol)?.toUpperCase())
+      .filter((symbol): symbol is string => Boolean(symbol && /^[A-Z.]{1,8}$/.test(symbol))))]
+    return { id: `${prefix}-${index}-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, kind, name, symbols }
+  })
+}
+
+export function liveTickerFromRecords(
   symbol: string,
   metrics: JsonRecord | undefined,
   quote: JsonRecord | undefined,
   position: boolean,
-): Ticker {
-  const fallback = demoTickers.find((ticker) => ticker.symbol === symbol)
-  const price = numberValue(
-    quote?.mark ?? quote?.['mark-price'] ?? quote?.last ?? quote?.['last-price'] ?? quote?.close,
-    fallback?.price ?? 0,
-  )
-  const previousClose = numberValue(quote?.prevClose ?? quote?.['previous-close'] ?? quote?.previousClose, price)
-  const change = numberValue(quote?.change, price - previousClose)
-  const changePercent = numberValue(
-    quote?.['change-percent'] ?? quote?.changePercent,
-    previousClose ? (change / previousClose) * 100 : 0,
-  )
-  const ivIndex = percentMetric(metrics?.['implied-volatility-index'], fallback?.ivIndex ?? 0, 500)
+): Ticker | undefined {
+  if (!metrics || !quote) return undefined
+  const price = numberValue(quote.mark ?? quote['mark-price'] ?? quote.last ?? quote['last-price'] ?? quote.close)
+  const previousClose = numberValue(quote.prevClose ?? quote['previous-close'] ?? quote.previousClose)
+  const explicitChange = numberValue(quote.change)
+  const explicitChangePercent = numberValue(quote['change-percent'] ?? quote.changePercent)
+  const ivIndex = percentMetric(metrics['implied-volatility-index'], 500)
+  const ivRank = percentMetric(metrics['implied-volatility-index-rank'] ?? metrics['implied-volatility-rank'])
+  const ivPercentile = percentMetric(metrics['implied-volatility-percentile'])
+  const liquidityValue = numberValue(metrics['liquidity-rating'])
   const quoteUpdatedAt = stringValue(quote?.updatedAt ?? quote?.['updated-at'])
+  const quoteTime = Date.parse(quoteUpdatedAt ?? '')
+  if (price === undefined || price <= 0 || previousClose === undefined || previousClose <= 0
+    || ivIndex === undefined || ivRank === undefined || ivPercentile === undefined
+    || liquidityValue === undefined || !Number.isFinite(quoteTime)) return undefined
+  const change = explicitChange ?? price - previousClose
+  const changePercent = explicitChangePercent ?? (change / previousClose) * 100
+  const sparkline: CandlePoint[] = [
+    { time: quoteTime - 5 * 60 * 1_000, sequence: 0, close: previousClose },
+    { time: quoteTime, sequence: 0, close: price },
+  ]
   return {
     symbol,
-    name: stringValue(quote?.description) ?? fallback?.name ?? symbol,
+    name: stringValue(quote.description) ?? symbol,
     price,
     change,
     changePercent,
-    sparkline: quote ? [previousClose, price] : fallback?.sparkline ?? [price, price],
-    ivRank: percentMetric(metrics?.['implied-volatility-index-rank'] ?? metrics?.['implied-volatility-rank'], fallback?.ivRank ?? 50),
-    ivPercentile: percentMetric(metrics?.['implied-volatility-percentile'], fallback?.ivPercentile ?? 50),
+    sparkline,
+    ivRank,
+    ivPercentile,
     ivIndex,
-    liquidity: bounded(numberValue(metrics?.['liquidity-rating'], fallback?.liquidity ?? 3), 0, 5),
+    liquidity: bounded(liquidityValue, 0, 5),
     earningsDate: earningsDateFromMetric(metrics),
     position,
-    updatedAt: quoteUpdatedAt && !Number.isNaN(Date.parse(quoteUpdatedAt)) ? new Date(quoteUpdatedAt).toISOString() : new Date().toISOString(),
+    updatedAt: new Date(quoteTime).toISOString(),
+  }
+}
+
+function emptyResearch(now: string): MarketSnapshot['research'] {
+  return {
+    id: `research-unavailable-${now.slice(0, 10)}`,
+    publishedAt: now,
+    title: 'No market brief yet',
+    summary: 'The next verified daily market brief has not been published.',
+    regime: 'Waiting for research',
+    regimeDetail: 'No stored live brief',
+    ideas: [],
+    sources: [],
   }
 }
 
@@ -186,51 +272,86 @@ async function loadStoredResearch(env: AppEnv, fallback: MarketSnapshot['researc
   }
 }
 
-export async function loadMarketSnapshot(env: AppEnv): Promise<MarketSnapshot> {
+type MarketSnapshotOptions = {
+  includeWatchlists?: boolean
+  symbols?: readonly string[]
+}
+
+export function selectSnapshotSymbols(
+  positionSymbols: readonly string[],
+  requestedSymbols: readonly string[],
+  privateLists: readonly Watchlist[],
+  publicLists: readonly Watchlist[],
+): string[] {
+  return [...new Set([
+    ...positionSymbols,
+    ...requestedSymbols,
+    ...privateLists.flatMap((watchlist) => watchlist.symbols),
+    ...publicLists.flatMap((watchlist) => watchlist.symbols),
+  ])].slice(0, 100)
+}
+
+export async function loadMarketSnapshot(
+  env: AppEnv,
+  options: MarketSnapshotOptions = {},
+): Promise<MarketSnapshot> {
   const demo = demoSnapshot()
   if (!isLiveTastytrade(env)) {
     return { ...demo, research: await loadStoredResearch(env, demo.research) }
   }
 
   const accountNumber = await resolveAccountNumber(env)
+  const includeWatchlists = options.includeWatchlists !== false
   const [privateResult, publicResult, positionResult, sessionResult] = await Promise.allSettled([
-    tastyRequest(env, '/watchlists'),
-    tastyRequest(env, '/public-watchlists'),
+    includeWatchlists ? tastyRequest(env, '/watchlists') : Promise.resolve(undefined),
+    includeWatchlists ? tastyRequest(env, '/public-watchlists') : Promise.resolve(undefined),
     tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/positions`),
     tastyRequest(env, '/market-time/equities/sessions/current'),
   ])
-  const privateLists = privateResult.status === 'fulfilled'
-    ? watchlistRows(privateResult.value, 'private', 'private')
+  if (includeWatchlists && privateResult.status !== 'fulfilled') throw new Error('TastytradeSnapshot:private-watchlists-unavailable')
+  if (positionResult.status !== 'fulfilled') throw new Error('TastytradeSnapshot:positions-unavailable')
+  const privateLists = includeWatchlists
+    ? watchlistRows(privateResult.status === 'fulfilled' ? privateResult.value : [], 'private', 'private')
     : []
-  const publicLists = publicResult.status === 'fulfilled'
+  const publicLists = includeWatchlists && publicResult.status === 'fulfilled'
     ? watchlistRows(publicResult.value, 'public', 'public').slice(0, 8)
     : []
-  const positions = positionResult.status === 'fulfilled' ? items(positionResult.value) : []
+  const positions = strictRows(positionResult.value, 'TastytradePositions')
   const positionSymbols = [...new Set(positions
-    .filter((position) => numberValue(position.quantity) !== 0)
+    .filter((position) => (numberValue(position.quantity) ?? 0) !== 0)
     .map((position) => stringValue(position['underlying-symbol']) ?? stringValue(position.symbol))
     .filter((symbol): symbol is string => Boolean(symbol)))]
   const positionList: Watchlist = {
     id: 'positions', kind: 'positions', name: 'Active Positions', symbols: positionSymbols,
   }
   const watchlists = [...privateLists, positionList, ...publicLists]
-  const symbols = [...new Set(watchlists.flatMap((watchlist) => watchlist.symbols))].slice(0, 100)
+  const requestedSymbols = (options.symbols ?? [])
+    .map((symbol) => symbol.trim().toUpperCase())
+    .filter((symbol) => /^[A-Z.]{1,8}$/.test(symbol))
+  const symbols = selectSnapshotSymbols(positionSymbols, requestedSymbols, privateLists, publicLists)
   const metricQuery = symbols.map(encodeURIComponent).join(',')
   const marketDataQuery = symbols.map((symbol) => `equity=${encodeURIComponent(symbol)}`).join('&')
   const [metricsResult, marketDataResult] = await Promise.allSettled([
-    tastyRequest(env, `/market-metrics?symbols=${metricQuery}`),
-    tastyRequest(env, `/market-data/by-type?${marketDataQuery}`),
+    symbols.length ? tastyRequest(env, `/market-metrics?symbols=${metricQuery}`) : Promise.resolve([]),
+    symbols.length ? tastyRequest(env, `/market-data/by-type?${marketDataQuery}`) : Promise.resolve([]),
   ])
-  const metrics = metricsResult.status === 'fulfilled' ? items(metricsResult.value) : []
-  const quotes = marketDataResult.status === 'fulfilled' ? items(marketDataResult.value) : []
+  if (symbols.length && (metricsResult.status !== 'fulfilled' || marketDataResult.status !== 'fulfilled')) {
+    throw new Error('TastytradeSnapshot:market-data-unavailable')
+  }
+  const metrics = symbols.length ? strictRows(metricsResult.status === 'fulfilled' ? metricsResult.value : [], 'TastytradeMetrics') : []
+  const quotes = symbols.length ? strictRows(marketDataResult.status === 'fulfilled' ? marketDataResult.value : [], 'TastytradeMarketData') : []
   const metricBySymbol = new Map(metrics.map((row) => [stringValue(row.symbol), row]))
   const quoteBySymbol = new Map(quotes.map((row) => [stringValue(row.symbol), row]))
-  const tickers = symbols.map((symbol) => mergeTicker(
-    symbol,
-    metricBySymbol.get(symbol),
-    quoteBySymbol.get(symbol),
-    positionSymbols.includes(symbol),
-  ))
+  const tickers = symbols.flatMap((symbol) => {
+    const ticker = liveTickerFromRecords(
+      symbol,
+      metricBySymbol.get(symbol),
+      quoteBySymbol.get(symbol),
+      positionSymbols.includes(symbol),
+    )
+    return ticker ? [ticker] : []
+  })
+  if (symbols.length && tickers.length === 0) throw new Error('TastytradeSnapshot:no-complete-tickers')
   const metricSymbols = metrics
     .map((metric) => stringValue(metric.symbol)?.toUpperCase())
     .filter((symbol): symbol is string => Boolean(symbol))
@@ -247,13 +368,14 @@ export async function loadMarketSnapshot(env: AppEnv): Promise<MarketSnapshot> {
       : rawState.includes('after') || rawState.includes('extended') ? 'after'
         : rawState === 'closed' ? 'closed' : 'unknown'
 
+  const syncedAt = new Date().toISOString()
   return MarketSnapshotSchema.parse({
     source: 'tastytrade',
-    syncedAt: new Date().toISOString(),
+    syncedAt,
     marketState,
-    watchlists: watchlists.length ? watchlists : demoWatchlists,
-    tickers: tickers.length ? tickers : demo.tickers,
+    watchlists,
+    tickers,
     catalysts,
-    research: await loadStoredResearch(env, demo.research),
+    research: await loadStoredResearch(env, emptyResearch(syncedAt)),
   })
 }

@@ -1,13 +1,14 @@
-import { type Ticker } from '../domain/market'
+import { formatMarketMetric, type Ticker } from '../domain/market'
 
 export function Sparkline({ ticker, large = false }: { large?: boolean; ticker: Ticker }) {
   const width = large ? 700 : 112
   const height = large ? 230 : 42
-  const min = Math.min(...ticker.sparkline)
-  const max = Math.max(...ticker.sparkline)
+  const closes = ticker.sparkline.map((point) => point.close)
+  const min = Math.min(...closes)
+  const max = Math.max(...closes)
   const range = Math.max(max - min, 0.01)
-  const points = ticker.sparkline.map((value, index) => {
-    const x = (index / (ticker.sparkline.length - 1)) * width
+  const points = closes.map((value, index) => {
+    const x = closes.length === 1 ? width / 2 : (index / (closes.length - 1)) * width
     const y = height - ((value - min) / range) * (height * 0.78) - height * 0.1
     return `${x.toFixed(1)},${y.toFixed(1)}`
   }).join(' ')
@@ -46,7 +47,7 @@ export function MetricGauge({ label, value, suffix = '', hint }: { hint: string;
   return (
     <article className="metric-item">
       <div className="metric-heading">{label}</div>
-      <div className="metric-value">{Number.isInteger(value) ? value : value.toFixed(1)}{suffix}</div>
+      <div className="metric-value">{formatMarketMetric(value)}{suffix}</div>
       <div className="gauge-track" aria-hidden="true"><span style={{ width: `${bounded}%` }} /></div>
       <p>{hint}</p>
     </article>
@@ -57,8 +58,8 @@ export function LiquidityMetric({ ticker }: { ticker: Ticker }) {
   return (
     <article className="metric-item">
       <div className="metric-heading">Liquidity</div>
-      <div className="metric-value">{ticker.liquidity}<small>/5</small></div>
-      <div className="liquidity-dots" aria-label={`${ticker.liquidity} out of 5 liquidity`}>
+      <div className="metric-value">{formatMarketMetric(ticker.liquidity)}<small>/5</small></div>
+      <div className="liquidity-dots" aria-label={`${formatMarketMetric(ticker.liquidity)} out of 5 liquidity`}>
         {[1, 2, 3, 4, 5].map((value) => <i className={value <= ticker.liquidity ? 'filled' : ''} key={value} />)}
       </div>
       <p>Broker liquidity score</p>

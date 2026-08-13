@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-const OptionActionSchema = z.object({
+export const OptionActionSchema = z.object({
   kind: z.literal('place_option_order'),
   underlying: z.string().regex(/^[A-Z.]{1,8}$/),
   optionType: z.enum(['C', 'P']),
@@ -12,7 +12,7 @@ const OptionActionSchema = z.object({
   priceEffect: z.enum(['Debit', 'Credit']),
 })
 
-const EquityActionSchema = z.object({
+export const EquityActionSchema = z.object({
   kind: z.literal('place_equity_order'),
   symbol: z.string().regex(/^[A-Z.]{1,8}$/),
   action: z.enum(['Buy to Open', 'Sell to Open', 'Buy to Close', 'Sell to Close']),
@@ -21,22 +21,25 @@ const EquityActionSchema = z.object({
   priceEffect: z.enum(['Debit', 'Credit']),
 })
 
-const CancelActionSchema = z.object({
+export const CancelActionSchema = z.object({
   kind: z.literal('cancel_order'),
   orderId: z.string().regex(/^\d{1,40}$/),
 })
 
 const WatchlistFields = {
   watchlistName: z.string().trim().min(1).max(64).refine((name) => !name.includes('/')),
-  symbol: z.string().regex(/^[A-Z.]{1,8}$/),
+  symbols: z.array(z.string().regex(/^[A-Z.]{1,8}$/)).min(1).max(50),
 } as const
 
-const AddWatchlistActionSchema = z.object({ kind: z.literal('add_watchlist_symbol'), ...WatchlistFields })
-const RemoveWatchlistActionSchema = z.object({ kind: z.literal('remove_watchlist_symbol'), ...WatchlistFields })
+export const AddWatchlistActionSchema = z.object({ kind: z.literal('add_watchlist_symbols'), ...WatchlistFields })
+export const RemoveWatchlistActionSchema = z.object({ kind: z.literal('remove_watchlist_symbols'), ...WatchlistFields })
+export const DeleteWatchlistActionSchema = z.object({
+  kind: z.literal('delete_watchlist'),
+  watchlistName: WatchlistFields.watchlistName,
+})
 
-export const BrokerageActionSchema = z.discriminatedUnion('kind', [OptionActionSchema, EquityActionSchema, CancelActionSchema, AddWatchlistActionSchema, RemoveWatchlistActionSchema])
+export const OrderPlacementSchema = z.discriminatedUnion('kind', [OptionActionSchema, EquityActionSchema])
   .superRefine((action, context) => {
-    if (action.kind !== 'place_option_order' && action.kind !== 'place_equity_order') return
     const expectedEffect = action.action.startsWith('Buy') ? 'Debit' : 'Credit'
     if (action.priceEffect !== expectedEffect) {
       context.addIssue({
@@ -46,7 +49,15 @@ export const BrokerageActionSchema = z.discriminatedUnion('kind', [OptionActionS
       })
     }
   })
-export const AgentPlanSchema = z.object({ message: z.string().min(1).max(2_000), action: BrokerageActionSchema.nullable() })
+
+export const DirectAccountActionSchema = z.discriminatedUnion('kind', [
+  CancelActionSchema,
+  AddWatchlistActionSchema,
+  RemoveWatchlistActionSchema,
+  DeleteWatchlistActionSchema,
+])
+
+export const AgentPlanSchema = z.object({ message: z.string().min(1).max(2_000), action: OrderPlacementSchema.nullable() })
 export const ChatRequestSchema = z.object({
   message: z.string().trim().min(1).max(4_000),
   selectedSymbol: z.string().regex(/^[A-Z.]{1,8}$/).optional(),
@@ -56,14 +67,12 @@ export const ConfirmRequestSchema = z.object({
   token: z.string().min(20).max(200),
 })
 
-export type BrokerageAction = z.infer<typeof BrokerageActionSchema>
+export type DirectAccountAction = z.infer<typeof DirectAccountActionSchema>
+export type OrderPlacement = z.infer<typeof OrderPlacementSchema>
 export type ChatRequest = z.infer<typeof ChatRequestSchema>
 export type ConfirmRequest = z.infer<typeof ConfirmRequestSchema>
 
-export function previewAction(action: BrokerageAction): string {
-  if (action.kind === 'cancel_order') return `Cancel working order #${action.orderId}`
-  if (action.kind === 'add_watchlist_symbol') return `Add ${action.symbol} to tastytrade watchlist “${action.watchlistName}”`
-  if (action.kind === 'remove_watchlist_symbol') return `Remove ${action.symbol} from tastytrade watchlist “${action.watchlistName}”`
+export function previewAction(action: OrderPlacement): string {
   if (action.kind === 'place_equity_order') return `${action.action} ${action.quantity} ${action.symbol} @ $${action.limitPrice.toFixed(2)} limit`
   return `${action.action} ${action.quantity} ${action.underlying} ${action.expiry} ${action.strike}${action.optionType} @ $${action.limitPrice.toFixed(2)} ${action.priceEffect.toLowerCase()}`
 }

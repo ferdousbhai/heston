@@ -1,5 +1,5 @@
 import { survivalBudget } from '../domain/portfolio-risk'
-import { type BrokerageAction } from './agent-contracts'
+import { type OrderPlacement } from './agent-contracts'
 import { type BrokerageContext } from './brokerage-context'
 import { type AppEnv } from './env'
 import { resolveEquityOptionContract, type EquityOptionContract } from './option-contract'
@@ -52,12 +52,33 @@ function record(value: unknown): JsonRecord {
 }
 
 function strictItems(value: unknown, label: string): JsonRecord[] {
-  if (Array.isArray(value)) return value.map(record)
   const body = record(value)
   const data = record(body.data)
-  const candidate = data.items ?? body.items
+  const candidate = Array.isArray(value) ? value : data.items ?? body.items
   if (!Array.isArray(candidate)) throw new PortfolioRiskError(`Dan's portfolio guard could not verify ${label}.`)
-  return candidate.map(record)
+  return candidate.map((item) => {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+      throw new PortfolioRiskError(`Dan's portfolio guard could not verify ${label}.`)
+    }
+    return item as JsonRecord
+  })
+}
+
+function paginationTotal(value: unknown): number | undefined {
+  const body = record(value)
+  const data = record(body.data)
+  const pagination = record(body.pagination ?? data.pagination)
+  const total = finiteNumber(pagination['total-items'])
+  return total !== undefined && Number.isSafeInteger(total) && total >= 0 ? total : undefined
+}
+
+function completeOrderRows(value: unknown, label: string, pageLimit: number): JsonRecord[] {
+  const rows = strictItems(value, label)
+  const total = paginationTotal(value)
+  if ((total !== undefined && total > rows.length) || (total === undefined && rows.length >= pageLimit)) {
+    throw new PortfolioRiskError(`Dan's portfolio guard could not verify ${label}.`)
+  }
+  return rows
 }
 
 function finiteNumber(value: unknown): number | undefined {
@@ -71,7 +92,7 @@ function balanceValue(balances: JsonRecord, names: string[]): number | undefined
 }
 
 function positionRows(payload: unknown): RiskPosition[] {
-  return strictItems(payload, 'every open position').flatMap((row) => {
+  return completeOrderRows(payload, 'every open position', 200).flatMap((row) => {
     const symbol = typeof row.symbol === 'string' ? row.symbol.trim() : ''
     const instrumentType = typeof row['instrument-type'] === 'string' ? row['instrument-type'].trim() : ''
     const direction = row['quantity-direction']
@@ -90,10 +111,10 @@ async function loadRiskAccount(env: AppEnv, accountNumber: string): Promise<Risk
   let complexOrderPayload: unknown
   try {
     [positionPayload, balancePayload, orderPayload, complexOrderPayload] = await Promise.all([
-      tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/positions`),
+      tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/positions?per-page=200`),
       tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/balances`),
       tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/orders/live?per-page=200`),
-      tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/complex-orders/live`),
+      tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/complex-orders/live?per-page=200`),
     ])
   } catch {
     throw new PortfolioRiskError("Dan's portfolio guard could not refresh the complete tastytrade account.")
@@ -113,8 +134,8 @@ async function loadRiskAccount(env: AppEnv, accountNumber: string): Promise<Risk
     netLiquidatingValue,
     cash,
     positions: positionRows(positionPayload),
-    liveOrderCount: strictItems(orderPayload, 'every ordinary live order').filter(isWorkingOrderRecord).length
-      + strictItems(complexOrderPayload, 'every complex live order').filter(isWorkingOrderRecord).length,
+    liveOrderCount: completeOrderRows(orderPayload, 'every ordinary live order', 200).filter(isWorkingOrderRecord).length
+      + completeOrderRows(complexOrderPayload, 'every complex live order', 200).filter(isWorkingOrderRecord).length,
   }
 }
 
@@ -145,7 +166,7 @@ function unsupportedOpeningPosition(position: RiskPosition): boolean {
 }
 
 function closingPosition(
-  action: Extract<BrokerageAction, { kind: 'place_option_order' | 'place_equity_order' }>,
+  action: OrderPlacement,
   account: RiskAccount,
   optionContract?: EquityOptionContract,
 ): RiskPosition | undefined {
@@ -159,7 +180,7 @@ function closingPosition(
 }
 
 export function assessPortfolioAction(
-  action: Extract<BrokerageAction, { kind: 'place_option_order' | 'place_equity_order' }>,
+  action: OrderPlacement,
   account: RiskAccount,
   highWaterValue: number,
   optionContract?: EquityOptionContract,
@@ -172,6 +193,9 @@ export function assessPortfolioAction(
   if (isClose) {
     if (!closingPosition(action, account, optionContract)) {
       return { ...budget, maxLoss: 0, allowed: false, reason: 'The requested close is larger than the verified matching position.' }
+    }
+    if (action.action === 'Sell to Close' && account.positions.some(unsupportedOpeningPosition)) {
+      return { ...budget, maxLoss: 0, allowed: false, reason: 'Dan will not remove long collateral or protection while unsupported short exposure remains.' }
     }
     return { ...budget, maxLoss: 0, allowed: true }
   }
@@ -202,12 +226,9 @@ function money(value: number): string {
 
 export async function assertPortfolioActionAllowed(
   env: AppEnv,
-  action: BrokerageAction,
+  action: OrderPlacement,
   resolved: { accountNumber?: string; optionContract?: EquityOptionContract } = {},
 ): Promise<PortfolioActionAssessment> {
-  if (action.kind === 'cancel_order' || action.kind === 'add_watchlist_symbol' || action.kind === 'remove_watchlist_symbol') {
-    return { allowed: true, floor: 0, maxLoss: 0, remainingLossBudget: 0 }
-  }
   const accountNumber = resolved.accountNumber ?? await resolveAccountNumber(env)
   const [account, optionContract] = await Promise.all([
     loadRiskAccount(env, accountNumber),

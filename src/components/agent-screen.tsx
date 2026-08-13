@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { useAgent } from 'agents/react'
-import { Bot, Check, ChevronRight, CircleStop, Clock3, Send, ShieldCheck, Sparkles, Trash2, Wrench, X } from 'lucide-react'
+import { Bot, Check, ChevronRight, CircleStop, Clock3, Send, ShieldCheck, Trash2, Wrench, X } from 'lucide-react'
 
 import {
   isDanAgentEvent,
@@ -9,7 +9,7 @@ import {
   type DanAgentState,
   type PendingAction,
 } from '../domain/agent-chat'
-import { formatMarketMetric, volatilityVerdict, type Ticker } from '../domain/market'
+import { volatilityVerdict, type Ticker } from '../domain/market'
 
 type ProvisionalTool = AgentToolCall & { rawInput: string }
 type ProvisionalTurn = { reasoning: string; text: string; tools: ProvisionalTool[] }
@@ -127,13 +127,13 @@ function ActionCard({
   }
   return (
     <div className="action-card">
-      <div className="action-label"><ShieldCheck size={15} aria-hidden="true" /><span>Brokerage confirmation</span></div>
+      <div className="action-label"><ShieldCheck size={15} aria-hidden="true" /><span>Order confirmation</span></div>
       <strong>{action.preview}</strong>
       <small>Short-lived draft · validated again before dispatch</small>
       {error && <small className="action-error" role="alert">{error}</small>}
       <div className="action-buttons">
         <button disabled={working} onClick={() => resolve('deny')} type="button">Discard</button>
-        <button disabled={working} onClick={() => resolve('confirm')} type="button">{working ? 'Working…' : 'Confirm action'}</button>
+        <button disabled={working} onClick={() => resolve('confirm')} type="button">{working ? 'Working…' : 'Place order'}</button>
       </div>
     </div>
   )
@@ -206,7 +206,7 @@ export function AgentScreen({ selected }: { selected: Ticker }) {
     } else if (event.type === 'dan:tool_call_start') {
       setProvisional((current) => ({
         reasoning: current?.reasoning ?? '', text: current?.text ?? '',
-        tools: [...(current?.tools ?? []), { id: event.toolCallId, input: {}, label: event.toolName === 'prepare_brokerage_action' ? 'Preparing brokerage action' : event.toolName, name: event.toolName, rawInput: '', status: 'running' }],
+        tools: [...(current?.tools ?? []), { id: event.toolCallId, input: {}, label: event.toolName === 'prepare_brokerage_action' ? 'Preparing order' : event.toolName, name: event.toolName, rawInput: '', status: 'running' }],
       }))
     } else if (event.type === 'dan:tool_call_delta') {
       setProvisional((current) => current ? {
@@ -240,7 +240,11 @@ export function AgentScreen({ selected }: { selected: Ticker }) {
   const running = state?.status === 'running'
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    scrollRef.current?.scrollTo({
+      top: scrollRef.current.scrollHeight,
+      behavior: reducedMotion ? 'auto' : 'smooth',
+    })
   }, [provisional, state?.messages])
 
   const send = (text: string) => {
@@ -275,7 +279,6 @@ export function AgentScreen({ selected }: { selected: Ticker }) {
       </header>
 
       <div className="chat-scroll" ref={scrollRef} aria-live="polite">
-        <div className="context-chip"><Sparkles size={13} /> Live context · {selected.symbol} · IV rank {formatMarketMetric(selected.ivRank)}</div>
         {(state?.messages ?? []).map((message) => <TranscriptMessage key={message.id} message={message} onResolved={resolved} />)}
         {running && provisional && (
           <article className="agent-message assistant provisional">
@@ -298,7 +301,7 @@ export function AgentScreen({ selected }: { selected: Ticker }) {
             ? <button className="stop-button" onClick={() => agent.send(JSON.stringify({ type: 'cancel' }))} type="button" aria-label="Stop agent"><CircleStop size={18} /></button>
             : <button disabled={!input.trim() || !connected} type="submit" aria-label="Send message"><Send size={17} /></button>}
         </form>
-        <div className="composer-hints"><span><Clock3 size={11} /> durable history</span><span><ShieldCheck size={11} /> writes require approval</span></div>
+        <div className="composer-hints"><span><Clock3 size={11} /> durable history</span><span><ShieldCheck size={11} /> orders require confirmation</span></div>
         <RuntimeFooter state={state} />
       </div>
     </div>

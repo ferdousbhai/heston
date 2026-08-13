@@ -1,5 +1,6 @@
 import { type ResearchSourceItem } from './research-contracts'
 import { collectRedditSources, type RedditCredentials } from './research-reddit'
+import { readBoundedText } from './bounded-response'
 
 export { type ResearchSourceItem } from './research-contracts'
 
@@ -73,9 +74,11 @@ async function fetchFeed(feed: FeedDefinition, fetcher: typeof fetch): Promise<R
     headers: { Accept: 'application/atom+xml, application/rss+xml, application/xml, text/xml' },
     signal: AbortSignal.timeout(8_000),
   })
-  if (!response.ok) throw new Error(`${feed.name} feed returned ${response.status}`)
-  const body = await response.text()
-  if (body.length > MAX_FEED_BYTES) throw new Error(`${feed.name} feed exceeded the size limit`)
+  if (!response.ok) {
+    await response.body?.cancel()
+    throw new Error(`${feed.name} feed returned ${response.status}`)
+  }
+  const body = await readBoundedText(response, MAX_FEED_BYTES, `${feed.name}Feed`)
   return parseResearchFeed(body, feed)
 }
 

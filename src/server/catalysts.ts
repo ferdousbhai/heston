@@ -40,7 +40,7 @@ function earningsTiming(value: unknown): Catalyst['timing'] {
   return 'unknown'
 }
 
-/** Normalize only the upcoming corporate dates returned by tastytrade market metrics. */
+/** Normalize only upcoming earnings returned by tastytrade market metrics. */
 export function catalystsFromMarketMetrics(metrics: readonly JsonRecord[], now = new Date()): Catalyst[] {
   const observedAt = now.toISOString()
   const today = marketDate(now)
@@ -66,39 +66,6 @@ export function catalystsFromMarketMetrics(metrics: readonly JsonRecord[], now =
       }))
     }
 
-    const dividendUpdatedAt = iso(metric['dividend-updated-at'] ?? metric['updated-at'], observedAt)
-    const candidateExDate = date(metric['dividend-ex-date'] ?? metric['dividend-next-date'])
-    const exDate = candidateExDate && candidateExDate >= today ? candidateExDate : undefined
-    if (exDate) {
-      rows.push(CatalystSchema.parse({
-        id: `tastytrade:${symbol}:dividend-ex`,
-        symbol,
-        kind: 'dividend-ex',
-        title: `${symbol} ex-dividend`,
-        date: exDate,
-        timing: 'pre-market',
-        confidence: metric['dividend-ex-date'] ? 'confirmed' : 'estimated',
-        source: 'tastytrade market metrics',
-        sourceUrl: TASTYTRADE_METRICS_URL,
-        updatedAt: dividendUpdatedAt,
-      }))
-    }
-    const candidatePayDate = date(metric['dividend-pay-date'])
-    const payDate = candidatePayDate && candidatePayDate >= today ? candidatePayDate : undefined
-    if (payDate) {
-      rows.push(CatalystSchema.parse({
-        id: `tastytrade:${symbol}:dividend-pay`,
-        symbol,
-        kind: 'dividend-pay',
-        title: `${symbol} dividend payment`,
-        date: payDate,
-        timing: 'unknown',
-        confidence: 'confirmed',
-        source: 'tastytrade market metrics',
-        sourceUrl: TASTYTRADE_METRICS_URL,
-        updatedAt: dividendUpdatedAt,
-      }))
-    }
     return rows
   })
 }
@@ -149,7 +116,11 @@ export async function persistAndLoadCatalysts(
        WHERE event_date >= ?
        ORDER BY event_date ASC, symbol ASC`,
     ).bind(marketDate(now)).all()
-    return CatalystSchema.array().parse(result.results ?? [])
+    const rows = (result.results ?? []).filter((row) => {
+      const kind = record(row).kind
+      return kind !== 'dividend-ex' && kind !== 'dividend-pay'
+    })
+    return CatalystSchema.array().parse(rows)
   } catch (error) {
     console.error('CatalystStoreFailed', error instanceof Error ? error.message : 'UnknownError')
     return [...observed]

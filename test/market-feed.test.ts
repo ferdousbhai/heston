@@ -1,6 +1,35 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { isSameOriginWebSocketRequest, parseRequestedSymbols } from '../src/server/market-feed-contracts'
+import {
+  candleSubscription,
+  isSameOriginWebSocketRequest,
+  type OptionGreeksEvent,
+  OptionGreeksRequestRegistry,
+  optionGreeksFromRow,
+  parseOptionStreamerSymbols,
+  parseRequestedSymbols,
+} from '../src/server/market-feed-contracts'
+
+function greek(streamerSymbol: string, delta = 0.5): OptionGreeksEvent {
+  return {
+    delta,
+    eventAt: '2026-08-13T14:00:00.000Z',
+    gamma: 0.03,
+    impliedVolatility: 0.42,
+    impliedVolatilityUnit: 'decimal_ratio',
+    optionPrice: 3.2,
+    receivedAt: '2026-08-13T14:00:00.100Z',
+    rho: 0.02,
+    source: 'tastytrade-dxlink',
+    streamerSymbol,
+    theta: -0.04,
+    vega: 0.12,
+  }
+}
+
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 describe('market feed subscription boundary', () => {
   it('normalizes, deduplicates, bounds, and rejects invalid symbols', () => {
@@ -15,5 +44,90 @@ describe('market feed subscription boundary', () => {
     expect(isSameOriginWebSocketRequest(new Request('https://spice.test/api/stream', {
       headers: { Origin: 'https://evil.test' },
     }))).toBe(false)
+  })
+
+  it('requests bounded regular-session candle history', () => {
+    expect(candleSubscription('NVDA', 1_765_000_000_000)).toEqual({
+      type: 'Candle',
+      symbol: 'NVDA{=5m,tho=true}',
+      fromTime: 1_765_000_000_000,
+    })
+  })
+
+  it('parses complete finite Greeks with explicit event, receipt, source, and IV units', () => {
+    expect(optionGreeksFromRow({
+      eventSymbol: '.NVDA260814C250',
+      time: 1_786_629_600_000,
+      price: 3.2,
+      volatility: 0.42,
+      delta: 0.5,
+      gamma: 0.03,
+      theta: -0.04,
+      rho: 0.02,
+      vega: 0.12,
+    }, new Date('2026-08-13T14:00:00.100Z'))).toEqual(greek('.NVDA260814C250'))
+    expect(optionGreeksFromRow({
+      eventSymbol: '.NVDA260814C250',
+      time: 1_786_629_600_000,
+      price: 3.2,
+      volatility: Number.NaN,
+      delta: 0.5,
+      gamma: 0.03,
+      theta: -0.04,
+      rho: 0.02,
+      vega: 0.12,
+    })).toBeUndefined()
+  })
+
+  it('bounds and validates exact option streamer symbols at the DO boundary', () => {
+    expect(parseOptionStreamerSymbols(['.NVDA260814C250', '.NVDA260814C250'])).toEqual(['.NVDA260814C250'])
+    expect(() => parseOptionStreamerSymbols(['NVDA260814C250'])).toThrow()
+    expect(() => parseOptionStreamerSymbols(Array.from({ length: 11 }, (_, index) => `.NVDA260814C${index}`))).toThrow()
+  })
+
+  it('waits for every requested symbol and preserves request order', async () => {
+    const registry = new OptionGreeksRequestRegistry()
+    const lease = registry.register(['.NVDA260814C250', '.NVDA260814P250'], 1_000)
+    let completed = false
+    lease.promise.then(() => { completed = true }).catch(() => undefined)
+    registry.accept(greek('.NVDA260814P250', -0.5))
+    await Promise.resolve()
+    expect(completed).toBe(false)
+    registry.accept(greek('.NVDA260814C250'))
+    await expect(lease.promise).resolves.toEqual([
+      greek('.NVDA260814C250'),
+      greek('.NVDA260814P250', -0.5),
+    ])
+    lease.release()
+    expect(registry.demandSymbols()).toEqual(new Set())
+  })
+
+  it('shares observations across concurrent waiters and cleans refcounts independently', async () => {
+    const registry = new OptionGreeksRequestRegistry()
+    const pair = registry.register(['.NVDA260814C250', '.NVDA260814P250'], 1_000)
+    const callOnly = registry.register(['.NVDA260814C250'], 1_000)
+    expect(registry.demandSymbols()).toEqual(new Set(['.NVDA260814C250', '.NVDA260814P250']))
+    registry.accept(greek('.NVDA260814C250'))
+    await expect(callOnly.promise).resolves.toEqual([greek('.NVDA260814C250')])
+    callOnly.release()
+    expect(registry.demandSymbols()).toEqual(new Set(['.NVDA260814C250', '.NVDA260814P250']))
+    registry.accept(greek('.NVDA260814P250', -0.5))
+    await expect(pair.promise).resolves.toHaveLength(2)
+    pair.release()
+    expect(registry.activeRequestCount).toBe(0)
+    expect(registry.demandSymbols()).toEqual(new Set())
+  })
+
+  it('times out with the missing symbols and releases all demand', async () => {
+    vi.useFakeTimers()
+    const registry = new OptionGreeksRequestRegistry()
+    const lease = registry.register(['.NVDA260814C250', '.NVDA260814P250'], 25)
+    registry.accept(greek('.NVDA260814C250'))
+    const rejection = expect(lease.promise).rejects.toThrow('.NVDA260814P250')
+    await vi.advanceTimersByTimeAsync(25)
+    await rejection
+    lease.release()
+    expect(registry.activeRequestCount).toBe(0)
+    expect(registry.demandSymbols()).toEqual(new Set())
   })
 })

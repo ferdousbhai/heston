@@ -1,8 +1,17 @@
 import { type Catalyst } from './catalyst'
+import { type CandlePoint } from './candle'
 import { type MarketSnapshot, type ResearchBrief, type Ticker, type Watchlist } from './market'
 
-const spark = (base: number, deltas: number[]) => deltas.map((delta) => Number((base + delta).toFixed(2)))
 const DEMO_UPDATED_AT = '2026-08-13T13:31:00.000Z'
+const FIVE_MINUTES = 5 * 60 * 1_000
+const spark = (base: number, deltas: number[]): CandlePoint[] => {
+  const end = Date.parse(DEMO_UPDATED_AT)
+  return deltas.map((delta, index) => ({
+    time: end - (deltas.length - index - 1) * FIVE_MINUTES,
+    sequence: 0,
+    close: Number((base + delta).toFixed(2)),
+  }))
+}
 
 export const demoTickers: Ticker[] = [
   { symbol: 'SPY', name: 'SPDR S&P 500 ETF', price: 691.24, change: 3.82, changePercent: 0.56, sparkline: spark(685, [0, 1.2, 0.4, 2.5, 1.7, 3.8, 4.5, 3.9, 5.2, 6.24]), ivRank: 18, ivPercentile: 23, ivIndex: 14.8, liquidity: 5, earningsDate: null, position: true, updatedAt: DEMO_UPDATED_AT },
@@ -34,11 +43,6 @@ export const demoResearch: ResearchBrief = {
   title: 'Calm index tape, expensive single-name stories',
   summary: 'Index volatility remains subdued while event premium concentrates in semiconductors and high-beta growth. Keep broad-market convexity on the shopping list; make single-name longs earn their carry.',
   regime: 'Selective long vol', regimeDetail: 'Cheap index protection · rich event volatility',
-  pulse: [
-    { label: 'SPY IV rank', value: '18', tone: 'down' },
-    { label: 'NVDA IV rank', value: '72', tone: 'up' },
-    { label: 'SPY IV percentile', value: '23', tone: 'down' },
-  ],
   ideas: [
     { symbol: 'SPY', direction: 'bullish', setup: 'Defined-risk call spread', horizon: '45–75 DTE', thesis: 'Low index IV keeps upside convexity inexpensive while participation broadens.', risk: 'A volatility shock can steepen skew before delta offsets the mark-to-market loss.' },
     { symbol: 'NVDA', direction: 'neutral', setup: 'Wait or sell defined risk', horizon: 'Through earnings', thesis: 'Event demand has pushed IV rank above 70; avoid paying peak narrative premium.', risk: 'A larger-than-implied gap can overwhelm short premium even when volatility is rich.' },

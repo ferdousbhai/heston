@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { executeBrokerageAction } from '../src/server/brokerage'
+import { executeOrderPlacement } from '../src/server/brokerage'
 import { type AppEnv } from '../src/server/env'
 
 function secret(value: string): SecretsStoreSecret {
@@ -52,12 +52,83 @@ describe('brokerage dispatch portfolio guard', () => {
       TASTYTRADE_REFRESH_TOKEN: secret('refresh'),
     }
 
-    await expect(executeBrokerageAction(env, {
+    await expect(executeOrderPlacement(env, {
       kind: 'place_option_order', underlying: 'SPY', optionType: 'C', strike: 700,
       expiry: '2026-09-18', action: 'Buy to Open', quantity: 1, limitPrice: 5,
       priceEffect: 'Debit',
     })).rejects.toThrow('Existing short, futures, or unsupported exposure')
 
+    expect(calls.some((call) => call.url.includes('/orders/dry-run'))).toBe(false)
+    expect(calls.some((call) => call.method === 'POST' && /\/accounts\/[^/]+\/orders$/.test(call.url))).toBe(false)
+  })
+
+  it('fails before dry-run when the live-order response is incomplete', async () => {
+    const calls: Array<{ method: string; url: string }> = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const method = init?.method ?? 'GET'
+      calls.push({ method, url })
+      if (url.endsWith('/oauth/token')) return Response.json({ access_token: 'token', expires_in: 900 })
+      if (url.includes('/positions')) return Response.json({ data: { items: [] } })
+      if (url.includes('/balances')) return Response.json({ data: {
+        'net-liquidating-value': '100000', 'cash-balance': '65000',
+        'cash-available-to-withdraw': '65000',
+      } })
+      if (url.includes('/complex-orders/live')) return Response.json({ data: { items: [] } })
+      if (url.includes('/orders/live')) {
+        return Response.json({ data: { items: [] }, pagination: { 'total-items': 1 } })
+      }
+      throw new Error(`Unexpected request: ${method} ${url}`)
+    }))
+    const env: AppEnv = {
+      DB: highWaterDb(100_000),
+      TASTYTRADE_ACCOUNT_NUMBER: secret('TEST123'),
+      TASTYTRADE_CLIENT_SECRET: secret('client'),
+      TASTYTRADE_REFRESH_TOKEN: secret('refresh'),
+    }
+
+    await expect(executeOrderPlacement(env, {
+      kind: 'place_equity_order', symbol: 'SPY', action: 'Buy to Open', quantity: 1,
+      limitPrice: 700, priceEffect: 'Debit',
+    })).rejects.toThrow('could not verify every ordinary live order')
+
+    expect(calls.some((call) => call.url.includes('/orders/dry-run'))).toBe(false)
+    expect(calls.some((call) => call.method === 'POST' && /\/accounts\/[^/]+\/orders$/.test(call.url))).toBe(false)
+  })
+
+  it('fails before dry-run when the open-position response is incomplete', async () => {
+    const calls: Array<{ method: string; url: string }> = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const method = init?.method ?? 'GET'
+      calls.push({ method, url })
+      if (url.endsWith('/oauth/token')) return Response.json({ access_token: 'token', expires_in: 900 })
+      if (url.includes('/positions')) {
+        return Response.json({ data: { items: [{
+          symbol: 'SPY', 'instrument-type': 'Equity', 'quantity-direction': 'Long', quantity: '1',
+        }] }, pagination: { 'total-items': 2 } })
+      }
+      if (url.includes('/balances')) return Response.json({ data: {
+        'net-liquidating-value': '100000', 'cash-balance': '65000',
+        'cash-available-to-withdraw': '65000',
+      } })
+      if (url.includes('/complex-orders/live')) return Response.json({ data: { items: [] } })
+      if (url.includes('/orders/live')) return Response.json({ data: { items: [] } })
+      throw new Error(`Unexpected request: ${method} ${url}`)
+    }))
+    const env: AppEnv = {
+      DB: highWaterDb(100_000),
+      TASTYTRADE_ACCOUNT_NUMBER: secret('TEST123'),
+      TASTYTRADE_CLIENT_SECRET: secret('client'),
+      TASTYTRADE_REFRESH_TOKEN: secret('refresh'),
+    }
+
+    await expect(executeOrderPlacement(env, {
+      kind: 'place_equity_order', symbol: 'SPY', action: 'Buy to Open', quantity: 1,
+      limitPrice: 700, priceEffect: 'Debit',
+    })).rejects.toThrow('could not verify every open position')
+
+    expect(calls.some((call) => call.url.includes('/positions?per-page=200'))).toBe(true)
     expect(calls.some((call) => call.url.includes('/orders/dry-run'))).toBe(false)
     expect(calls.some((call) => call.method === 'POST' && /\/accounts\/[^/]+\/orders$/.test(call.url))).toBe(false)
   })

@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 import { CatalystKindSchema, CatalystSchema, marketDate, type Catalyst } from '../domain/catalyst'
 import { type AppEnv, isLiveTastytrade } from './env'
+import { readBoundedJson } from './bounded-response'
 import { readSecret } from './secrets'
 import { loadMarketSnapshot } from './tastytrade'
 
@@ -10,9 +11,17 @@ const SOURCE = 'Grok 4.6 X research'
 const MAX_RESPONSE_BYTES = 2_000_000
 const MAX_SYMBOLS = 40
 
+export function catalystResearchSymbols(watchlists: readonly { kind: string; symbols: readonly string[] }[]): string[] {
+  const positions = watchlists.filter((watchlist) => watchlist.kind === 'positions')
+  const privateLists = watchlists.filter((watchlist) => watchlist.kind === 'private')
+  return [...new Set([...positions, ...privateLists]
+    .flatMap((watchlist) => watchlist.symbols.map((symbol) => symbol.toUpperCase())))]
+    .slice(0, MAX_SYMBOLS)
+}
+
 const FindingSchema = z.object({
   symbol: z.string(),
-  kind: CatalystKindSchema.exclude(['earnings', 'dividend-ex', 'dividend-pay']),
+  kind: CatalystKindSchema.exclude(['earnings']),
   title: z.string().trim().min(1).max(160),
   date: z.string(),
   timing: z.enum(['pre-market', 'intraday', 'after-hours', 'unknown']),
@@ -140,17 +149,6 @@ function responseSchema() {
   }
 }
 
-async function readBoundedResponse(response: Response): Promise<unknown> {
-  const length = Number(response.headers.get('Content-Length'))
-  if (Number.isFinite(length) && length > MAX_RESPONSE_BYTES) {
-    await response.body?.cancel()
-    throw new Error('XCatalystProvider:response-too-large')
-  }
-  const text = await response.text()
-  if (new TextEncoder().encode(text).byteLength > MAX_RESPONSE_BYTES) throw new Error('XCatalystProvider:response-too-large')
-  return JSON.parse(text)
-}
-
 export async function discoverXCatalysts(
   env: AppEnv,
   symbols: readonly string[],
@@ -182,7 +180,6 @@ export async function discoverXCatalysts(
           { role: 'user', content: `Search X for scheduled catalysts from ${today} through ${addDays(today, 180)} for only these tickers: ${watched.join(', ')}. Each sourceUrl must be the direct cited X status URL. Deduplicate equivalent events.` },
         ],
         tools: [{ type: 'x_search', from_date: addDays(today, -3), to_date: today }],
-        max_tool_calls: 12,
         text: { format: { type: 'json_schema', name: 'spice_upcoming_catalysts', strict: true, schema: responseSchema() } },
       }),
     })
@@ -190,7 +187,7 @@ export async function discoverXCatalysts(
       await response.body?.cancel()
       throw new Error(`XCatalystProvider:${response.status}`)
     }
-    return parseXCatalystResponse(await readBoundedResponse(response), watched, now)
+    return parseXCatalystResponse(await readBoundedJson(response, MAX_RESPONSE_BYTES, 'XCatalystProvider'), watched, now)
   } finally {
     clearTimeout(timeout)
   }
@@ -234,7 +231,7 @@ export function shouldRunXCatalystResearch(date: Date): boolean {
 export async function runXCatalystResearch(env: AppEnv, now = new Date()): Promise<{ accepted: number; rejected: number }> {
   if (!isLiveTastytrade(env)) throw new Error('XCatalystResearch:live-mode-required')
   const snapshot = await loadMarketSnapshot(env)
-  const symbols = [...new Set(snapshot.watchlists.flatMap((watchlist) => watchlist.symbols))].slice(0, MAX_SYMBOLS)
+  const symbols = catalystResearchSymbols(snapshot.watchlists)
   const run = { id: crypto.randomUUID(), startedAt: now.toISOString(), symbols: symbols.length }
   await recordRun(env, { ...run, status: 'running' })
   try {

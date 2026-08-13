@@ -6,13 +6,13 @@ export function BriefScreen({ brief, onSymbol }: { brief: ResearchBrief; onSymbo
   return (
     <div className="brief-screen">
       <section className="brief-cover">
-        <div className="brief-orb" aria-hidden="true" />
-        <span className="brief-issue">THE SPICE MUST FLOW · {new Date(brief.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()}</span>
+        <span className="brief-issue">SPICE · {new Date(brief.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase()}</span>
         <h1>{brief.title}</h1>
         <p>{brief.summary}</p>
         <div className="regime-summary"><span>Current regime</span><strong>{brief.regime}</strong><small>{brief.regimeDetail}</small></div>
       </section>
-      <section className="ideas-section">
+      <section className="ideas-section" aria-labelledby="ideas-title">
+        <h2 className="sr-only" id="ideas-title">Trade ideas</h2>
         <div className="idea-stack">
           {brief.ideas.map((idea) => (
             <article className="idea-card" key={`${idea.symbol}-${idea.setup}`}>
@@ -24,14 +24,16 @@ export function BriefScreen({ brief, onSymbol }: { brief: ResearchBrief; onSymbo
           ))}
         </div>
         {brief.sources.length > 0 && (
-          <div className="source-list">
-            <span className="source-label">Sources</span>
-            {brief.sources.map((source) => (
-              <a href={source.url} key={source.url} rel="noreferrer" target="_blank">
-                <span>{source.label}</span><ArrowUpRight size={14} aria-hidden="true" />
-              </a>
-            ))}
-          </div>
+          <details className="source-list">
+            <summary><span>Sources</span><small>{brief.sources.length}</small></summary>
+            <div className="source-links">
+              {brief.sources.map((source) => (
+                <a href={source.url} key={source.url} rel="noreferrer" target="_blank">
+                  <span>{source.label}</span><ArrowUpRight size={14} aria-hidden="true" />
+                </a>
+              ))}
+            </div>
+          </details>
         )}
         <p className="disclaimer">Research context only, not investment advice. Options involve risk and can lose their full value.</p>
       </section>

@@ -1,41 +1,83 @@
 import { type Ticker } from '../domain/market'
 import { type AppEnv } from './env'
 import { resolveAccountNumber, tastyRequest } from './tastytrade'
-import { accountBalanceRecord, isWorkingOrderRecord } from './tastytrade-payload'
+import {
+  accountBalancesFromPayload,
+  type AccountBalances,
+  type RecentTrade,
+  tradeTransactionRecord,
+  type WorkingOrder,
+  workingOrderRecords,
+} from './tastytrade-payload'
 
 type JsonRecord = Record<string, unknown>
 
-type AgentMarketTicker = Pick<Ticker,
-  'changePercent' | 'earningsDate' | 'ivIndex' | 'ivPercentile' | 'ivRank' | 'liquidity' | 'price' | 'symbol'>
+type BrokerageBalances = Partial<AccountBalances> & {
+  /** Conservative compatibility value used only by the server-side portfolio guard. */
+  cash?: number
+  /** Compatibility value for existing callers; model context uses the named buying-power fields. */
+  buyingPower?: number
+}
 
 export interface BrokerageContext {
   accountNumber: string
-  balances: { buyingPower?: number; cash?: number; netLiquidatingValue?: number }
-  availability: { balances: boolean; orders: boolean; positions: boolean; watchlists: boolean }
-  orders: Array<{ id: string; status: string; symbol: string; type: string }>
+  asOf: string
+  balances: BrokerageBalances
+  availability: { balances: boolean; orders: boolean; positions: boolean; trades: boolean }
+  orders: WorkingOrder[]
   positions: Array<{
+    averageOpenPrice?: number
     direction: 'Long' | 'Short' | 'Unknown'
+    expiresAt?: string
     instrumentType: string
+    markPrice?: number
     quantity: number
     symbol: string
     underlying: string
   }>
-  watchlists: Array<{ name: string; symbols: string[] }>
+  recentTrades: RecentTrade[]
+  source: 'tastytrade'
+  completeness: {
+    ordersTruncated: boolean
+    positionsTruncated: boolean
+    tradesTruncated: boolean
+  }
 }
 
-function record(value: unknown): JsonRecord {
-  return typeof value === 'object' && value !== null ? value as JsonRecord : {}
+type AgentMarketTicker = Pick<Ticker,
+  'changePercent' | 'earningsDate' | 'ivIndex' | 'ivPercentile' | 'ivRank' | 'liquidity' | 'price' | 'symbol'>
+
+function record(value: unknown): JsonRecord | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as JsonRecord
+    : undefined
 }
 
-function items(value: unknown): JsonRecord[] {
+function strictItems(value: unknown): JsonRecord[] {
   const body = record(value)
-  const data = record(body.data)
-  const candidate = Array.isArray(value) ? value : data.items ?? body.items
-  return Array.isArray(candidate) ? candidate.map(record) : []
+  const rawData = body?.data ?? value
+  const data = record(rawData)
+  const candidate = Array.isArray(rawData) ? rawData : data?.items ?? body?.items
+  if (!Array.isArray(candidate)) throw new Error('TastytradeAccount:invalid-collection')
+  return candidate.map((item) => {
+    const row = record(item)
+    if (!row) throw new Error('TastytradeAccount:invalid-collection')
+    return row
+  })
 }
 
-function text(value: unknown, fallback = ''): string {
-  return typeof value === 'string' ? value.trim() : fallback
+function paginationTotal(value: unknown): number | undefined {
+  const body = record(value)
+  const data = record(body?.data)
+  const pagination = record(body?.pagination) ?? record(data?.pagination)
+  const raw = pagination?.['total-items']
+  if (raw === undefined || raw === null) return undefined
+  const parsed = number(raw)
+  return parsed !== undefined && Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined
+}
+
+function text(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
 function number(value: unknown): number | undefined {
@@ -44,70 +86,142 @@ function number(value: unknown): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined
 }
 
-function firstNumber(row: JsonRecord, names: string[]): number | undefined {
+function firstNumber(row: JsonRecord, names: readonly string[]): number | undefined {
   return names.map((name) => number(row[name])).find((value) => value !== undefined)
+}
+
+function positionFromRecord(row: JsonRecord): BrokerageContext['positions'][number] | undefined {
+  const symbol = text(row.symbol)
+  const underlying = text(row['underlying-symbol'])?.toUpperCase()
+  const quantity = number(row.quantity)
+  const direction = text(row['quantity-direction'])
+  const instrumentType = text(row['instrument-type'])
+  if (!symbol
+    || !underlying
+    || quantity === undefined
+    || (direction !== 'Long' && direction !== 'Short')
+    || !instrumentType) {
+    throw new Error('TastytradeAccount:invalid-position')
+  }
+  if (quantity === 0) return undefined
+  const averageOpenPrice = number(row['average-open-price'])
+  const markPrice = firstNumber(row, ['mark-price', 'mark'])
+  const rawExpiry = text(row['expires-at'])
+  const expiresAt = rawExpiry && Number.isFinite(Date.parse(rawExpiry)) ? rawExpiry : undefined
+  return {
+    direction,
+    instrumentType,
+    quantity,
+    symbol,
+    underlying,
+    ...(averageOpenPrice !== undefined ? { averageOpenPrice } : {}),
+    ...(markPrice !== undefined ? { markPrice } : {}),
+    ...(expiresAt ? { expiresAt } : {}),
+  }
+}
+
+function parsedPositions(result: PromiseSettledResult<unknown>) {
+  if (result.status !== 'fulfilled') return { available: false, positions: [] }
+  try {
+    const rows = strictItems(result.value)
+    const total = paginationTotal(result.value)
+    if ((total !== undefined && total > rows.length) || (total === undefined && rows.length >= 200)) {
+      return { available: false, positions: [], truncated: true }
+    }
+    const positions = rows.flatMap((row) => {
+      const position = positionFromRecord(row)
+      return position ? [position] : []
+    })
+    if (rows.length > 100) return { available: false, positions: [], truncated: true }
+    return { available: true, positions, truncated: false }
+  } catch {
+    return { available: false, positions: [] }
+  }
+}
+
+function parsedOrders(
+  orderResult: PromiseSettledResult<unknown>,
+  complexOrderResult: PromiseSettledResult<unknown>,
+) {
+  if (orderResult.status !== 'fulfilled' || complexOrderResult.status !== 'fulfilled') {
+    return { available: false, orders: [] }
+  }
+  try {
+    const ordinary = strictItems(orderResult.value)
+    const complex = strictItems(complexOrderResult.value)
+    const ordinaryTotal = paginationTotal(orderResult.value)
+    const complexTotal = paginationTotal(complexOrderResult.value)
+    if ((ordinaryTotal !== undefined && ordinaryTotal > ordinary.length)
+      || (complexTotal !== undefined && complexTotal > complex.length)
+      || (ordinaryTotal === undefined && ordinary.length >= 200)
+      || (complexTotal === undefined && complex.length >= 200)) {
+      return { available: false, orders: [], truncated: true }
+    }
+    const normalized = [
+      ...ordinary,
+      ...complex,
+    ].flatMap(workingOrderRecords)
+    const byId = new Map(normalized.map((order) => [order.id, order]))
+    const orders = [...byId.values()]
+    if (orders.length > 100) return { available: false, orders: [], truncated: true }
+    return { available: true, orders, truncated: false }
+  } catch {
+    return { available: false, orders: [] }
+  }
+}
+
+function parsedTrades(result: PromiseSettledResult<unknown>) {
+  if (result.status !== 'fulfilled') return { available: false, trades: [] }
+  try {
+    const rows = strictItems(result.value)
+    const total = paginationTotal(result.value)
+    const truncated = rows.length >= 25 || (total !== undefined && total > rows.length)
+    return { available: true, trades: rows.map(tradeTransactionRecord).slice(0, 25), truncated }
+  } catch {
+    return { available: false, trades: [] }
+  }
 }
 
 export async function loadBrokerageContext(env: AppEnv): Promise<BrokerageContext> {
   const account = await resolveAccountNumber(env)
-  const [positionResult, balanceResult, orderResult, complexOrderResult, watchlistResult] = await Promise.allSettled([
-    tastyRequest(env, `/accounts/${encodeURIComponent(account)}/positions`),
+  const recentStartDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1_000).toISOString().slice(0, 10)
+  const [positionResult, balanceResult, orderResult, complexOrderResult, tradeResult] = await Promise.allSettled([
+    tastyRequest(env, `/accounts/${encodeURIComponent(account)}/positions?per-page=200`),
     tastyRequest(env, `/accounts/${encodeURIComponent(account)}/balances`),
     tastyRequest(env, `/accounts/${encodeURIComponent(account)}/orders/live?per-page=200`),
-    tastyRequest(env, `/accounts/${encodeURIComponent(account)}/complex-orders/live`),
-    tastyRequest(env, '/watchlists'),
+    tastyRequest(env, `/accounts/${encodeURIComponent(account)}/complex-orders/live?per-page=200`),
+    tastyRequest(env, `/accounts/${encodeURIComponent(account)}/transactions?type=Trade&sort=Desc&per-page=25&start-date=${recentStartDate}`),
   ])
-  const positions = positionResult.status === 'fulfilled' ? items(positionResult.value) : []
-  const orders = [
-    ...(orderResult.status === 'fulfilled' ? items(orderResult.value) : []),
-    ...(complexOrderResult.status === 'fulfilled' ? items(complexOrderResult.value) : []),
-  ].filter(isWorkingOrderRecord)
-  const watchlists = watchlistResult.status === 'fulfilled' ? items(watchlistResult.value) : []
-  const balances = balanceResult.status === 'fulfilled'
-    ? accountBalanceRecord(balanceResult.value, account)
+  const positionSection = parsedPositions(positionResult)
+  const orderSection = parsedOrders(orderResult, complexOrderResult)
+  const tradeSection = parsedTrades(tradeResult)
+  const exactBalances = balanceResult.status === 'fulfilled'
+    ? accountBalancesFromPayload(balanceResult.value, account)
     : undefined
-  const balanceRow = balances ?? {}
-  const cashBalance = firstNumber(balanceRow, ['cash-balance'])
-  const withdrawableCash = firstNumber(balanceRow, ['cash-available-to-withdraw'])
+  const balances: BrokerageBalances = exactBalances ? {
+    ...exactBalances,
+    cash: Math.min(exactBalances.cashBalance, exactBalances.cashAvailableToWithdraw),
+    buyingPower: exactBalances.derivativeBuyingPower,
+  } : {}
   return {
     accountNumber: account,
+    asOf: new Date().toISOString(),
+    source: 'tastytrade',
+    completeness: {
+      ordersTruncated: Boolean(orderSection.truncated),
+      positionsTruncated: Boolean(positionSection.truncated),
+      tradesTruncated: Boolean(tradeSection.truncated),
+    },
     availability: {
-      balances: balances !== undefined,
-      orders: orderResult.status === 'fulfilled' && complexOrderResult.status === 'fulfilled',
-      positions: positionResult.status === 'fulfilled',
-      watchlists: watchlistResult.status === 'fulfilled',
+      balances: exactBalances !== undefined,
+      orders: orderSection.available,
+      positions: positionSection.available,
+      trades: tradeSection.available,
     },
-    balances: {
-      netLiquidatingValue: firstNumber(balanceRow, ['net-liquidating-value', 'net-liquidating-value-snapshot']),
-      cash: cashBalance !== undefined && withdrawableCash !== undefined
-        ? Math.min(cashBalance, withdrawableCash)
-        : undefined,
-      buyingPower: firstNumber(balanceRow, ['derivative-buying-power', 'equity-buying-power', 'buying-power']),
-    },
-    positions: positions.slice(0, 100).flatMap((row) => {
-      const symbol = text(row.symbol)
-      const underlying = text(row['underlying-symbol'], symbol).toUpperCase()
-      const quantity = number(row.quantity)
-      const rawDirection = text(row['quantity-direction'])
-      const direction = rawDirection === 'Long' || rawDirection === 'Short' ? rawDirection : 'Unknown'
-      return symbol && underlying && quantity !== undefined && quantity !== 0
-        ? [{ symbol, underlying, quantity, direction, instrumentType: text(row['instrument-type'], 'Unknown') }]
-        : []
-    }),
-    orders: orders.slice(0, 100).map((row) => {
-      const legs = Array.isArray(row.legs) ? row.legs.map(record) : []
-      return {
-        id: String(row.id ?? ''),
-        status: text(row.status, 'Unknown'),
-        type: text(row['order-type'], 'Order'),
-        symbol: text(legs[0]?.symbol ?? row.symbol, 'Unknown'),
-      }
-    }).filter((order) => order.id),
-    watchlists: watchlists.slice(0, 50).map((row) => ({
-      name: text(row.name, 'Watchlist'),
-      symbols: (Array.isArray(row['watchlist-entries']) ? row['watchlist-entries'].map(record) : [])
-        .map((entry) => text(entry.symbol).toUpperCase()).filter(Boolean).slice(0, 100),
-    })),
+    balances,
+    positions: positionSection.positions,
+    orders: orderSection.orders,
+    recentTrades: tradeSection.trades,
   }
 }
 
@@ -145,13 +259,30 @@ export function buildAgentRuntimeContext(
 
   return {
     ...marketContext,
+    asOf: context.asOf,
+    source: context.source,
+    completeness: context.completeness,
     balances: {
-      buyingPower: context.balances.buyingPower,
+      availableTradingFunds: context.balances.availableTradingFunds,
+      cashAvailableToWithdraw: context.balances.cashAvailableToWithdraw,
+      cashBalance: context.balances.cashBalance,
+      dayTradingBuyingPower: context.balances.dayTradingBuyingPower,
+      derivativeBuyingPower: context.balances.derivativeBuyingPower,
+      equityBuyingPower: context.balances.equityBuyingPower,
       netLiquidatingValue: context.balances.netLiquidatingValue,
     },
-    positions: context.positions,
+    // tastytrade deprecates REST position marks for P/L; exact live quotes belong in a market-data tool.
+    positions: context.positions.map((position) => ({
+      ...(position.averageOpenPrice === undefined ? {} : { averageOpenPrice: position.averageOpenPrice }),
+      direction: position.direction,
+      ...(position.expiresAt === undefined ? {} : { expiresAt: position.expiresAt }),
+      instrumentType: position.instrumentType,
+      quantity: position.quantity,
+      symbol: position.symbol,
+      underlying: position.underlying,
+    })),
     orders: context.orders,
-    watchlists: context.watchlists,
+    recentTrades: context.recentTrades,
     ...(unavailable.length ? { unavailable } : {}),
   }
 }
@@ -171,22 +302,15 @@ export function answerBrokerageReadRequest(message: string, context: BrokerageCo
       ? `Positions: ${context.positions.map((position) => `${position.direction === 'Short' ? '-' : ''}${position.quantity} ${position.symbol}`).join(', ')}.`
       : 'Positions: none open.')
   }
-  if (wantsAccount || /\b(balance|buying power|cash|net liq)\b/i.test(message)) {
-    sections.push(`Net liq ${money(context.balances.netLiquidatingValue)} · buying power ${money(context.balances.buyingPower)} · cash ${money(context.balances.cash)}.`)
+  if (wantsAccount || /\b(balance|buying power|available (?:funds|to trade)|cash|net liq)\b/i.test(message)) {
+    sections.push(`Net liq ${money(context.balances.netLiquidatingValue)} · available funds ${money(context.balances.availableTradingFunds)} · derivative buying power ${money(context.balances.derivativeBuyingPower)} · equity buying power ${money(context.balances.equityBuyingPower)} · cash balance ${money(context.balances.cashBalance)}.`)
   }
   if (wantsAccount || /\b(open|working|live) orders?\b/i.test(message)) {
     sections.push(!context.availability.orders
       ? 'Working orders: unavailable.'
       : context.orders.length
-      ? `Working orders: ${context.orders.map((order) => `#${order.id} ${order.symbol} (${order.status})`).join(', ')}.`
+      ? `Working orders: ${context.orders.map((order) => `#${order.id} ${order.legs.map((leg) => `${leg.action} ${leg.quantity} ${leg.symbol}`).join(' + ')} (${order.status})`).join(', ')}.`
       : 'Working orders: none.')
-  }
-  if (/\bwatchlists?\b/i.test(message)) {
-    sections.push(!context.availability.watchlists
-      ? 'Watchlists: unavailable.'
-      : context.watchlists.length
-      ? `Watchlists: ${context.watchlists.map((watchlist) => `${watchlist.name} [${watchlist.symbols.join(', ')}]`).join('; ')}.`
-      : 'Watchlists: none.')
   }
   return sections.length ? sections.join('\n') : undefined
 }

@@ -1,12 +1,23 @@
 import { describe, expect, it } from 'vitest'
 
-import { accountBalanceRecord, isWorkingOrderRecord } from '../src/server/tastytrade-payload'
+import {
+  accountBalanceRecord,
+  accountBalancesFromPayload,
+  completedTradeRecord,
+  isWorkingOrderRecord,
+  tradeTransactionRecord,
+  workingOrderRecords,
+} from '../src/server/tastytrade-payload'
 
 const balance = {
   'account-number': 'A1',
   'net-liquidating-value': '100000',
   'cash-balance': '65000',
   'cash-available-to-withdraw': '65000',
+  'available-trading-funds': '64000',
+  'equity-buying-power': '128000',
+  'derivative-buying-power': '64000',
+  'day-trading-buying-power': '256000',
 }
 
 describe('tastytrade balance payloads', () => {
@@ -19,6 +30,19 @@ describe('tastytrade balance payloads', () => {
     expect(accountBalanceRecord({ data: { items: [balance, balance] } }, 'A1')).toBeUndefined()
     expect(accountBalanceRecord({ data: { items: [balance] } }, 'A2')).toBeUndefined()
   })
+
+  it('requires and accurately names the complete agent balance snapshot', () => {
+    expect(accountBalancesFromPayload({ data: balance }, 'A1')).toEqual({
+      availableTradingFunds: 64_000,
+      cashAvailableToWithdraw: 65_000,
+      cashBalance: 65_000,
+      dayTradingBuyingPower: 256_000,
+      derivativeBuyingPower: 64_000,
+      equityBuyingPower: 128_000,
+      netLiquidatingValue: 100_000,
+    })
+    expect(accountBalancesFromPayload({ data: { ...balance, 'available-trading-funds': 'NaN' } }, 'A1')).toBeUndefined()
+  })
 })
 
 describe('tastytrade live order payloads', () => {
@@ -28,5 +52,87 @@ describe('tastytrade live order payloads', () => {
     expect(isWorkingOrderRecord({})).toBe(true)
     expect(isWorkingOrderRecord({ status: 'Filled' })).toBe(false)
     expect(isWorkingOrderRecord({ status: 'Cancelled', 'terminal-at': '2026-08-13T12:00:00Z' })).toBe(false)
+  })
+
+  it('preserves complete compact legs and execution fields for ordinary and complex orders', () => {
+    const ordinary = {
+      id: '100',
+      status: 'Live',
+      'order-type': 'Limit',
+      price: '1.25',
+      'price-effect': 'Debit',
+      'time-in-force': 'GTC',
+      legs: [
+        { action: 'Buy to Open', quantity: '1', symbol: 'SPY call', 'instrument-type': 'Equity Option' },
+        { action: 'Sell to Open', quantity: '1', symbol: 'SPY call short', 'instrument-type': 'Equity Option' },
+      ],
+    }
+    expect(workingOrderRecords(ordinary)).toEqual([{
+      id: '100',
+      status: 'Live',
+      type: 'Limit',
+      price: 1.25,
+      priceEffect: 'Debit',
+      timeInForce: 'GTC',
+      symbol: 'SPY call',
+      legs: [
+        { action: 'Buy to Open', quantity: 1, symbol: 'SPY call', instrumentType: 'Equity Option' },
+        { action: 'Sell to Open', quantity: 1, symbol: 'SPY call short', instrumentType: 'Equity Option' },
+      ],
+    }])
+    expect(workingOrderRecords({ id: 'complex-1', orders: [ordinary] })).toEqual([
+      expect.objectContaining({ id: '100', complexOrderId: 'complex-1' }),
+    ])
+    expect(() => workingOrderRecords({ id: 'broken', status: 'Live' })).toThrow('invalid-complex-order')
+  })
+
+  it('reduces completed orders to bounded execution facts', () => {
+    expect(completedTradeRecord({
+      id: '9001',
+      status: 'Filled',
+      price: '1.20',
+      'price-effect': 'Debit',
+      'terminal-at': '2026-08-13T12:00:00Z',
+      legs: [{
+        action: 'Buy to Open',
+        quantity: '2',
+        symbol: 'SPY option',
+        fills: [
+          { quantity: '1', 'fill-price': '1.10', 'filled-at': '2026-08-13T11:59:00Z' },
+          { quantity: '1', 'fill-price': '1.30', 'filled-at': '2026-08-13T12:00:00Z' },
+        ],
+      }],
+    })).toEqual({
+      filledAt: '2026-08-13T12:00:00Z',
+      legs: [{ action: 'Buy to Open', averageFillPrice: 1.2, quantity: 2, symbol: 'SPY option' }],
+      netPrice: 1.2,
+      orderId: '9001',
+      priceEffect: 'Debit',
+    })
+    expect(completedTradeRecord({ status: 'Cancelled', legs: [] })).toBeUndefined()
+  })
+
+  it('normalizes canonical Trade transactions and rejects incomplete trade rows', () => {
+    expect(tradeTransactionRecord({
+      'transaction-type': 'Trade',
+      'executed-at': '2026-08-13T12:00:00Z',
+      'order-id': 9001,
+      action: 'Buy to Open',
+      quantity: '2',
+      price: '1.20',
+      symbol: 'SPY option',
+      'underlying-symbol': 'SPY',
+      'instrument-type': 'Equity Option',
+    })).toEqual({
+      action: 'Buy to Open',
+      executedAt: '2026-08-13T12:00:00Z',
+      instrumentType: 'Equity Option',
+      orderId: '9001',
+      price: 1.2,
+      quantity: 2,
+      symbol: 'SPY option',
+      underlying: 'SPY',
+    })
+    expect(() => tradeTransactionRecord({ 'transaction-type': 'Trade' })).toThrow('invalid-trade-transaction')
   })
 })

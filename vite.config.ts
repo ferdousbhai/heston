@@ -29,7 +29,7 @@ const config = defineConfig(({ command }) => ({
       manifest: {
         name: 'Spice Must Flow — Options intelligence',
         short_name: 'Spice Must Flow',
-        description: 'Local-first options intelligence and tastytrade companion.',
+        description: 'Private options intelligence, market research, and confirmation-gated order placement.',
         theme_color: '#08090c',
         background_color: '#08090c',
         display: 'standalone',

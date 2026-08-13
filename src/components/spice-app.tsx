@@ -1,20 +1,21 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useLiveQuery } from '@tanstack/react-db'
 import { Bot, Newspaper, TrendingUp } from 'lucide-react'
 
 import {
   ensureOfflineSnapshot,
   catalystCollection,
+  isSnapshotInitialized,
   preferenceCollection,
   researchCollection,
   selectTicker,
+  selectLiveMarketSymbols,
   selectWatchlist,
   syncFromCloud,
   syncStateCollection,
   tickerCollection,
   watchlistCollection,
 } from '../data/collections'
-import { demoCatalysts, demoResearch, demoTickers, demoWatchlists } from '../domain/demo'
 import { type Watchlist } from '../domain/market'
 import { useLiveMarket } from '../data/live-market'
 import { AgentScreen } from './agent-screen'
@@ -25,6 +26,7 @@ import { TickerPicker } from './ticker-picker'
 import { TopBar } from './top-bar'
 
 type Tab = 'market' | 'brief' | 'agent'
+const DEMO_RUNTIME = import.meta.env.DEV
 
 export function SpiceApp() {
   return <AuthGate>{(viewer) => <AuthenticatedSpiceApp viewer={viewer} />}</AuthGate>
@@ -37,74 +39,98 @@ function AuthenticatedSpiceApp({ viewer }: { viewer: Viewer | null }) {
   const { data: storedResearch = [] } = useLiveQuery((query) => query.from({ research: researchCollection }))
   const { data: preferences = [] } = useLiveQuery((query) => query.from({ preference: preferenceCollection }))
   const { data: syncStates = [] } = useLiveQuery((query) => query.from({ sync: syncStateCollection }))
-  const tickers = storedTickers.length ? storedTickers : demoTickers
-  const catalysts = storedCatalysts.length ? storedCatalysts : demoCatalysts
-  const watchlists = storedWatchlists.length ? storedWatchlists : demoWatchlists
-  const research = storedResearch[0] ?? demoResearch
+  const syncState = syncStates.find((candidate) => candidate.id === 'snapshot')
+  const snapshotReady = isSnapshotInitialized(syncState, DEMO_RUNTIME)
+  const tickers = snapshotReady ? storedTickers : []
+  const catalysts = snapshotReady ? storedCatalysts : []
+  const watchlists = snapshotReady ? storedWatchlists : []
+  const research = snapshotReady ? storedResearch[0] : undefined
+  const catalystNow = syncState?.source === 'demo' ? new Date(syncState.syncedAt) : undefined
   const preference = preferences[0]
   const [tab, setTab] = useState<Tab>('market')
   const [pickerOpen, setPickerOpen] = useState(false)
-  const fallbackWatchlist = watchlists[0] ?? demoWatchlists[0]!
-  const activeWatchlist = watchlists.find((watchlist) => watchlist.id === preference?.selectedWatchlistId) ?? fallbackWatchlist
+  const [bootstrapComplete, setBootstrapComplete] = useState(false)
+  const closePicker = useCallback(() => setPickerOpen(false), [])
+  const openPicker = useCallback(() => setPickerOpen(true), [])
+  const activeWatchlist = watchlists.find((watchlist) => watchlist.id === preference?.selectedWatchlistId)
+    ?? watchlists[0]
   const selected = tickers.find((ticker) => ticker.symbol === preference?.selectedSymbol)
-    ?? tickers.find((ticker) => activeWatchlist.symbols.includes(ticker.symbol))
-    ?? tickers[0] ?? demoTickers[0]!
-  const source = syncStates[0]?.source ?? 'demo'
-  useLiveMarket([...activeWatchlist.symbols, selected.symbol], source === 'tastytrade')
-
-  const synchronize = useMemo(() => async () => {
-    if (typeof navigator !== 'undefined' && !navigator.onLine) return
-    try {
-      await syncFromCloud()
-    } catch {
-      // Keep the local snapshot; the next load or online event retries automatically.
-    }
-  }, [])
+    ?? tickers.find((ticker) => activeWatchlist?.symbols.includes(ticker.symbol))
+    ?? tickers[0]
+  const loadedSymbols = new Set(tickers.map((ticker) => ticker.symbol))
+  const streamSymbols = selectLiveMarketSymbols(selected?.symbol, activeWatchlist?.symbols ?? [], loadedSymbols)
+  useLiveMarket(streamSymbols, snapshotReady && syncState?.source === 'tastytrade')
 
   useEffect(() => {
-    let cancelled = false
-    void ensureOfflineSnapshot().then(() => { if (!cancelled) return synchronize() })
+    const controller = new AbortController()
+    const synchronize = async (): Promise<void> => {
+      if (!navigator.onLine) return
+      try {
+        await syncFromCloud(controller.signal)
+      } catch {
+        // Keep the local snapshot; the next load or online event retries automatically.
+      }
+    }
+
+    void (async () => {
+      let storage: Storage | undefined
+      try { storage = window.localStorage } catch { /* Continue without legacy migration. */ }
+      await ensureOfflineSnapshot({ demoRuntime: DEMO_RUNTIME, storage })
+      if (!controller.signal.aborted) await synchronize()
+      if (!controller.signal.aborted) setBootstrapComplete(true)
+    })().catch(() => {
+      if (!controller.signal.aborted) setBootstrapComplete(true)
+    })
     const online = () => void synchronize()
     window.addEventListener('online', online)
     return () => {
-      cancelled = true
+      controller.abort()
       window.removeEventListener('online', online)
     }
-  }, [synchronize])
+  }, [])
 
   const chooseSymbol = (symbol: string) => {
     selectTicker(symbol)
     setTab('market')
-    setPickerOpen(false)
+    closePicker()
   }
   const chooseFromPicker = (watchlist: Watchlist, symbol: string) => {
     selectWatchlist(watchlist.id, symbol)
-    setPickerOpen(false)
+    closePicker()
   }
 
   return (
     <div className="app-viewport">
       <a className="skip-link" href="#main-content">Skip to content</a>
-      <div className="app-shell">
+      <div className="app-shell" aria-hidden={pickerOpen || undefined} inert={pickerOpen}>
         {tab !== 'agent' && (
           <TopBar
             viewerName={viewer?.name}
           />
         )}
         <main id="main-content" className={tab === 'agent' ? 'main-content agent-main' : 'main-content'}>
-          {tab === 'market' && (
+          {!snapshotReady && (
+            <MarketState message={bootstrapComplete ? 'Market data is unavailable.' : 'Loading market data…'} />
+          )}
+          {snapshotReady && tab === 'market' && selected && activeWatchlist && (
             <MarketScreen
               activeWatchlist={activeWatchlist}
               catalysts={catalysts}
-              onOpenPicker={() => setPickerOpen(true)}
+              catalystNow={catalystNow}
+              onOpenPicker={openPicker}
               onSelectTicker={chooseSymbol}
               selected={selected}
               tickers={tickers}
               watchlists={watchlists}
             />
           )}
-          {tab === 'brief' && <BriefScreen brief={research} onSymbol={chooseSymbol} />}
-          {tab === 'agent' && <AgentScreen selected={selected} />}
+          {snapshotReady && tab === 'market' && (!selected || !activeWatchlist) && (
+            <MarketState message="No market symbols are available." />
+          )}
+          {snapshotReady && tab === 'brief' && research && <BriefScreen brief={research} onSymbol={chooseSymbol} />}
+          {snapshotReady && tab === 'brief' && !research && <MarketState message="No research brief is available." />}
+          {snapshotReady && tab === 'agent' && selected && <AgentScreen selected={selected} />}
+          {snapshotReady && tab === 'agent' && !selected && <MarketState message="Dan needs a loaded market symbol." />}
         </main>
         <nav className="bottom-nav" aria-label="Primary navigation">
           <button className={tab === 'market' ? 'active' : ''} onClick={() => setTab('market')} type="button"><TrendingUp size={21} /><span>Market</span></button>
@@ -112,7 +138,11 @@ function AuthenticatedSpiceApp({ viewer }: { viewer: Viewer | null }) {
           <button className={tab === 'agent' ? 'active' : ''} onClick={() => setTab('agent')} type="button"><Bot size={21} /><span>Dan</span></button>
         </nav>
       </div>
-      {pickerOpen && <TickerPicker onClose={() => setPickerOpen(false)} onPick={chooseFromPicker} tickers={tickers} watchlists={watchlists} />}
+      {pickerOpen && snapshotReady && <TickerPicker onClose={closePicker} onPick={chooseFromPicker} tickers={tickers} watchlists={watchlists} />}
     </div>
   )
+}
+
+function MarketState({ message }: { message: string }) {
+  return <section aria-live="polite" className="market-state"><p>{message}</p></section>
 }
