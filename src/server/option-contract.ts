@@ -70,18 +70,24 @@ export function equityOptionContractFromChain(payload: unknown, action: OptionAc
   if (!strikeRows.length) {
     throw unavailable(`Nearest ${action.optionType === 'C' ? 'call' : 'put'} strikes: ${nearestStrikes(sideRows, action.strike)}.`)
   }
-  if (action.action.endsWith('to Open') && strikeRows.every((row) => row['is-closing-only'] === true)) {
-    throw unavailable('The matching contract is closing-only.')
-  }
-  const matches = new Map<string, EquityOptionContract>()
+  const isOpening = action.action.endsWith('to Open')
+  const candidates: EquityOptionContract[] = []
   for (const row of strikeRows) {
     const symbol = text(row.symbol)
     const sharesPerContract = number(row['shares-per-contract'])
-    if (row.active !== true || !symbol || sharesPerContract === undefined || sharesPerContract <= 0) continue
-    matches.set(symbol, { symbol, sharesPerContract })
+    if (row.active !== true
+      || (isOpening && row['is-closing-only'] !== false)
+      || !symbol
+      || sharesPerContract === undefined
+      || !Number.isSafeInteger(sharesPerContract)
+      || sharesPerContract <= 0) continue
+    candidates.push({ symbol, sharesPerContract })
   }
-  if (matches.size === 1) return [...matches.values()][0]!
-  if (matches.size > 1) throw new Error('Requested option contract is ambiguous')
+  if (candidates.length === 1) return candidates[0]!
+  if (candidates.length > 1) throw new Error('Requested option contract is ambiguous')
+  if (isOpening && strikeRows.some((row) => row.active === true && row['is-closing-only'] !== false)) {
+    throw unavailable('The matching contract is closing-only or its opening status could not be verified.')
+  }
   throw unavailable('The matching contract is inactive or its multiplier could not be verified.')
 }
 

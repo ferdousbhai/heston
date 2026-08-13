@@ -55,7 +55,20 @@ describe('equity option contract resolution', () => {
       option({ 'is-closing-only': true }),
     ]), action)).toThrow('closing-only')
     expect(() => equityOptionContractFromChain(payload([
+      option({ 'is-closing-only': undefined }),
+    ]), action)).toThrow('opening status could not be verified')
+    expect(() => equityOptionContractFromChain(payload([
+      option({ 'is-closing-only': true }),
+      option({ active: false, symbol: 'NVDA2 260814C00250000' }),
+    ]), action)).toThrow('closing-only')
+    expect(() => equityOptionContractFromChain(payload([
       option(), option({ symbol: 'NVDA2 260814C00250000' }),
+    ]), action)).toThrow('ambiguous')
+    expect(() => equityOptionContractFromChain(payload([
+      option({ 'shares-per-contract': 0.5 }),
+    ]), action)).toThrow('multiplier could not be verified')
+    expect(() => equityOptionContractFromChain(payload([
+      option(), option({ 'shares-per-contract': 10 }),
     ]), action)).toThrow('ambiguous')
   })
 
