@@ -4,6 +4,7 @@ import { type BrokerageContext } from './brokerage-context'
 import { type AppEnv } from './env'
 import { resolveEquityOptionContract, type EquityOptionContract } from './option-contract'
 import { resolveAccountNumber, tastyRequest } from './tastytrade'
+import { accountBalanceRecord } from './tastytrade-payload'
 
 type JsonRecord = Record<string, unknown>
 
@@ -97,25 +98,13 @@ async function loadRiskAccount(env: AppEnv, accountNumber: string): Promise<Risk
   } catch {
     throw new PortfolioRiskError("Dan's portfolio guard could not refresh the complete tastytrade account.")
   }
-  const body = record(balancePayload)
-  const balances = record(body.data ?? body)
+  const balances = accountBalanceRecord(balancePayload, accountNumber)
+  if (!balances) throw new PortfolioRiskError("Dan's portfolio guard could not verify one account balance record.")
   const netLiquidatingValue = balanceValue(balances, ['net-liquidating-value', 'net-liquidating-value-snapshot'])
   const cashBalance = balanceValue(balances, ['cash-balance'])
   const withdrawableCash = balanceValue(balances, ['cash-available-to-withdraw'])
   if (netLiquidatingValue === undefined || netLiquidatingValue <= 0
     || cashBalance === undefined || withdrawableCash === undefined) {
-    const rawData = body.data
-    const dataRecord = record(rawData)
-    console.warn('PortfolioBalanceFieldsUnavailable', JSON.stringify({
-      topLevelKeys: Object.keys(body).sort(),
-      dataKind: Array.isArray(rawData) ? 'array' : rawData === null ? 'null' : typeof rawData,
-      dataKeys: Object.keys(dataRecord).sort(),
-      dataItemCount: Array.isArray(dataRecord.items) ? dataRecord.items.length : undefined,
-      keys: Object.keys(balances).filter((key) => /cash|liquid|withdraw/i.test(key)).sort(),
-      hasNetLiquidatingValue: netLiquidatingValue !== undefined,
-      hasCashBalance: cashBalance !== undefined,
-      hasWithdrawableCash: withdrawableCash !== undefined,
-    }))
     throw new PortfolioRiskError("Dan's portfolio guard could not verify net liquidation value and unencumbered cash.")
   }
   const cash = Math.min(cashBalance, withdrawableCash)

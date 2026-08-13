@@ -1,5 +1,6 @@
 import { type AppEnv } from './env'
 import { resolveAccountNumber, tastyRequest } from './tastytrade'
+import { accountBalanceRecord } from './tastytrade-payload'
 
 type JsonRecord = Record<string, unknown>
 
@@ -58,24 +59,26 @@ export async function loadBrokerageContext(env: AppEnv): Promise<BrokerageContex
     ...(complexOrderResult.status === 'fulfilled' ? items(complexOrderResult.value) : []),
   ]
   const watchlists = watchlistResult.status === 'fulfilled' ? items(watchlistResult.value) : []
-  const balancePayload = balanceResult.status === 'fulfilled' ? record(balanceResult.value) : {}
-  const balances = record(balancePayload.data ?? balancePayload)
-  const cashBalance = firstNumber(balances, ['cash-balance'])
-  const withdrawableCash = firstNumber(balances, ['cash-available-to-withdraw'])
+  const balances = balanceResult.status === 'fulfilled'
+    ? accountBalanceRecord(balanceResult.value, account)
+    : undefined
+  const balanceRow = balances ?? {}
+  const cashBalance = firstNumber(balanceRow, ['cash-balance'])
+  const withdrawableCash = firstNumber(balanceRow, ['cash-available-to-withdraw'])
   return {
     accountNumber: account,
     availability: {
-      balances: balanceResult.status === 'fulfilled',
+      balances: balances !== undefined,
       orders: orderResult.status === 'fulfilled' && complexOrderResult.status === 'fulfilled',
       positions: positionResult.status === 'fulfilled',
       watchlists: watchlistResult.status === 'fulfilled',
     },
     balances: {
-      netLiquidatingValue: firstNumber(balances, ['net-liquidating-value', 'net-liquidating-value-snapshot']),
+      netLiquidatingValue: firstNumber(balanceRow, ['net-liquidating-value', 'net-liquidating-value-snapshot']),
       cash: cashBalance !== undefined && withdrawableCash !== undefined
         ? Math.min(cashBalance, withdrawableCash)
         : undefined,
-      buyingPower: firstNumber(balances, ['derivative-buying-power', 'equity-buying-power', 'buying-power']),
+      buyingPower: firstNumber(balanceRow, ['derivative-buying-power', 'equity-buying-power', 'buying-power']),
     },
     positions: positions.slice(0, 100).flatMap((row) => {
       const symbol = text(row.symbol)
