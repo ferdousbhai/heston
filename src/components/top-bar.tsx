@@ -19,7 +19,7 @@ export function TopBar({
   return (
     <header className="top-bar">
       <div aria-label="Spice Must Flow" className="brand">
-        <span>SPICE<i>.</i></span>
+        <span>SPICE</span>
         <small>MUST FLOW</small>
       </div>
       <div className="top-actions">

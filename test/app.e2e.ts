@@ -16,7 +16,7 @@ test('mobile market, research, picker, and agent flows remain coherent', async (
   await page.goto('/')
   await expect(page).toHaveTitle(/Spice Must Flow/)
   await expect(page.locator('.brand')).toHaveAccessibleName('Spice Must Flow')
-  await expect(page.locator('.brand')).toHaveText('SPICE.MUST FLOW')
+  await expect(page.locator('.brand')).toHaveText('SPICEMUST FLOW')
   await expect(page.getByRole('button', { name: /SPY/ }).first()).toBeVisible()
   await expect(page.getByText('$691.24').first()).toBeVisible()
   await expect(page.getByRole('region', { name: 'Catalysts in the next 30 days' })).toBeVisible()

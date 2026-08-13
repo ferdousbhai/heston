@@ -83,7 +83,7 @@ function AuthScreen({ checking = false, error }: { checking?: boolean; error?: s
       <div className="auth-grain" />
       <header className="auth-brand" aria-label="Spice Must Flow">
         <img alt="" src="/spice-mark.svg" />
-        <span>SPICE<i>.</i><small>MUST FLOW</small></span>
+        <span>SPICE<small>MUST FLOW</small></span>
       </header>
       <section className="auth-copy" aria-busy={checking || submitting}>
         <h1>Your market.<br /><em>In motion.</em></h1>
