@@ -44,10 +44,7 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .brand > span { font-size: 21px; font-weight: 850; letter-spacing: -.045em; }
 .brand small { margin-top: 5px; color: var(--muted); font-size: 6px; font-weight: 800; letter-spacing: .28em; }
 .top-actions { display: flex; align-items: center; gap: 8px; }
-.sync-button { width: 34px; height: 34px; border: 1px solid var(--hairline); background: rgba(23, 25, 32, .78); border-radius: 50%; padding: 0; display: grid; place-items: center; color: var(--spice); cursor: pointer; }
-.sync-button.error { color: #ffd27b; }
-.sync-button.offline { color: #a9acb6; }
-.viewer-button { width: 34px; height: 34px; flex: 0 0 34px; border: 0; border-radius: 50%; background: var(--spice); color: #180d04; font-size: 12px; font-weight: 850; cursor: pointer; }
+.viewer-avatar { width: 34px; height: 34px; flex: 0 0 34px; border-radius: 50%; display: grid; place-items: center; background: var(--spice); color: #180d04; font-size: 12px; font-weight: 850; }
 .spin { animation: spin .8s linear infinite; }
 
 .auth-shell { min-height: 100svh; position: relative; overflow: hidden; isolation: isolate; padding: calc(22px + env(safe-area-inset-top)) 22px calc(18px + env(safe-area-inset-bottom)); display: grid; grid-template-rows: auto 1fr auto; background: radial-gradient(circle at 72% 29%, rgba(255, 93, 71, .2), transparent 25rem), linear-gradient(155deg, #170c08 0, #08090c 47%, #07080a 100%); }

@@ -22,15 +22,15 @@ import { AuthGate, type Viewer } from './auth-gate'
 import { BriefScreen } from './brief-screen'
 import { MarketScreen } from './market-screen'
 import { TickerPicker } from './ticker-picker'
-import { TopBar, type SyncPhase } from './top-bar'
+import { TopBar } from './top-bar'
 
 type Tab = 'market' | 'brief' | 'agent'
 
 export function SpiceApp() {
-  return <AuthGate>{(viewer, signOut) => <AuthenticatedSpiceApp onSignOut={signOut} viewer={viewer} />}</AuthGate>
+  return <AuthGate>{(viewer) => <AuthenticatedSpiceApp viewer={viewer} />}</AuthGate>
 }
 
-function AuthenticatedSpiceApp({ onSignOut, viewer }: { onSignOut: () => Promise<void>; viewer: Viewer | null }) {
+function AuthenticatedSpiceApp({ viewer }: { viewer: Viewer | null }) {
   const { data: storedTickers = [] } = useLiveQuery((query) => query.from({ ticker: tickerCollection }))
   const { data: storedCatalysts = [] } = useLiveQuery((query) => query.from({ catalyst: catalystCollection }))
   const { data: storedWatchlists = [] } = useLiveQuery((query) => query.from({ watchlist: watchlistCollection }))
@@ -44,7 +44,6 @@ function AuthenticatedSpiceApp({ onSignOut, viewer }: { onSignOut: () => Promise
   const preference = preferences[0]
   const [tab, setTab] = useState<Tab>('market')
   const [pickerOpen, setPickerOpen] = useState(false)
-  const [phase, setPhase] = useState<SyncPhase>('idle')
   const fallbackWatchlist = watchlists[0] ?? demoWatchlists[0]!
   const activeWatchlist = watchlists.find((watchlist) => watchlist.id === preference?.selectedWatchlistId) ?? fallbackWatchlist
   const selected = tickers.find((ticker) => ticker.symbol === preference?.selectedSymbol)
@@ -54,16 +53,11 @@ function AuthenticatedSpiceApp({ onSignOut, viewer }: { onSignOut: () => Promise
   useLiveMarket([...activeWatchlist.symbols, selected.symbol], source === 'tastytrade')
 
   const synchronize = useMemo(() => async () => {
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      setPhase('offline')
-      return
-    }
-    setPhase('syncing')
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return
     try {
       await syncFromCloud()
-      setPhase('idle')
     } catch {
-      setPhase(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'error')
+      // Keep the local snapshot; the next load or online event retries automatically.
     }
   }, [])
 
@@ -71,13 +65,10 @@ function AuthenticatedSpiceApp({ onSignOut, viewer }: { onSignOut: () => Promise
     let cancelled = false
     void ensureOfflineSnapshot().then(() => { if (!cancelled) return synchronize() })
     const online = () => void synchronize()
-    const offline = () => setPhase('offline')
     window.addEventListener('online', online)
-    window.addEventListener('offline', offline)
     return () => {
       cancelled = true
       window.removeEventListener('online', online)
-      window.removeEventListener('offline', offline)
     }
   }, [synchronize])
 
@@ -97,9 +88,6 @@ function AuthenticatedSpiceApp({ onSignOut, viewer }: { onSignOut: () => Promise
       <div className="app-shell">
         {tab !== 'agent' && (
           <TopBar
-            onSignOut={viewer ? () => void onSignOut() : undefined}
-            onSync={() => void synchronize()}
-            phase={phase}
             viewerName={viewer?.name}
           />
         )}

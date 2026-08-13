@@ -18,7 +18,7 @@ type AuthState =
   | { message: string; phase: 'error' }
   | { phase: 'guest' }
 
-export function AuthGate({ children }: { children: (viewer: Viewer | null, signOut: () => Promise<void>) => ReactNode }) {
+export function AuthGate({ children }: { children: (viewer: Viewer | null) => ReactNode }) {
   const [state, setState] = useState<AuthState>({ phase: 'checking' })
 
   useEffect(() => {
@@ -42,15 +42,10 @@ export function AuthGate({ children }: { children: (viewer: Viewer | null, signO
     return () => controller.abort()
   }, [])
 
-  const signOut = async () => {
-    await authClient.signOut()
-    window.location.assign('/')
-  }
-
   if (state.phase === 'checking') return <AuthScreen checking />
   if (state.phase === 'guest') return <AuthScreen />
   if (state.phase === 'error') return <AuthScreen error={state.message} />
-  return children(state.user, signOut)
+  return children(state.user)
 }
 
 function GoogleMark() {
