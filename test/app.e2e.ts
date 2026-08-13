@@ -37,7 +37,9 @@ test('mobile market, research, picker, and agent flows remain coherent', async (
   await expect(page.getByText('$191.68').first()).toBeVisible()
 
   await page.getByRole('button', { name: 'Brief' }).click()
-  await expect(page.getByRole('heading', { name: 'Today’s setups' })).toBeVisible()
+  await expect(page.getByText('Market pulse')).toHaveCount(0)
+  await expect(page.getByText('Today’s setups')).toHaveCount(0)
+  await expect(page.getByText('3 ideas')).toHaveCount(0)
   await expect(page.getByText('Selective long vol')).toBeVisible()
 
   await page.getByRole('button', { name: 'Dan' }).click()

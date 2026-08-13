@@ -12,14 +12,7 @@ export function BriefScreen({ brief, onSymbol }: { brief: ResearchBrief; onSymbo
         <p>{brief.summary}</p>
         <div className="regime-summary"><span>Current regime</span><strong>{brief.regime}</strong><small>{brief.regimeDetail}</small></div>
       </section>
-      <section className="pulse-section">
-        <h2>Market pulse</h2>
-        <div className="pulse-grid">
-          {brief.pulse.map((pulse) => <article key={pulse.label}><span>{pulse.label}</span><strong className={`tone-${pulse.tone}`}>{pulse.value}</strong></article>)}
-        </div>
-      </section>
       <section className="ideas-section">
-        <header className="section-header"><h2>Today’s setups</h2><span className="idea-count">{brief.ideas.length} ideas</span></header>
         <div className="idea-stack">
           {brief.ideas.map((idea) => (
             <article className="idea-card" key={`${idea.symbol}-${idea.setup}`}>
@@ -32,7 +25,7 @@ export function BriefScreen({ brief, onSymbol }: { brief: ResearchBrief; onSymbo
         </div>
         {brief.sources.length > 0 && (
           <div className="source-list">
-            <h2>Sources</h2>
+            <span className="source-label">Sources</span>
             {brief.sources.map((source) => (
               <a href={source.url} key={source.url} rel="noreferrer" target="_blank">
                 <span>{source.label}</span><ArrowUpRight size={14} aria-hidden="true" />

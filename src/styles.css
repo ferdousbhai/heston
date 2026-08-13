@@ -173,9 +173,9 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .risk-line strong { color: #d1d2d6; font-size: 9px; }
 .disclaimer { color: #5f626b; font-size: 9px; line-height: 1.5; text-align: center; margin: 18px 12px 0; }
 .chart-periods button:disabled { cursor: default; opacity: .35; }
-.source-list { display: grid; margin-top: 28px; border-top: 1px solid var(--hairline); }
-.source-list h2 { margin: 16px 0 8px; font-size: 17px; letter-spacing: -.03em; }
-.source-list a { min-height: 40px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border-bottom: 1px solid var(--hairline); color: #9a9ca3; font-size: 11px; line-height: 1.35; text-decoration: none; }
+.source-list { margin-top: 20px; padding-top: 10px; border-top: 1px solid var(--hairline); display: flex; align-items: center; flex-wrap: wrap; gap: 2px 14px; }
+.source-label { color: #656871; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.source-list a { min-height: 32px; display: inline-flex; align-items: center; gap: 4px; color: #9a9ca3; font-size: 10px; line-height: 1.35; text-decoration: none; }
 .source-list a span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .source-list a:hover, .source-list a:focus-visible { color: var(--text); }
 
