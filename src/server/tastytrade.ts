@@ -8,9 +8,9 @@ import {
 import { type AppEnv, isLiveTastytrade } from './env'
 import { catalystsFromMarketMetrics, earningsDateFromMetric, persistAndLoadCatalysts } from './catalysts'
 import { readSecret } from './secrets'
+import { tastytradeApiVersion } from './tastytrade-version'
 
 const USER_AGENT = 'Spice/0.1'
-const API_VERSION = '20260427'
 
 type JsonRecord = Record<string, unknown>
 
@@ -64,7 +64,6 @@ async function accessToken(env: AppEnv): Promise<string> {
     method: 'POST',
     headers: {
       Accept: 'application/json',
-      'Accept-Version': API_VERSION,
       'Content-Type': 'application/json',
       'User-Agent': USER_AGENT,
     },
@@ -91,7 +90,8 @@ export async function tastyRequest(
   const token = await accessToken(env)
   const headers = new Headers(init.headers)
   headers.set('Accept', 'application/json')
-  headers.set('Accept-Version', API_VERSION)
+  const apiVersion = tastytradeApiVersion(path)
+  if (apiVersion && !headers.has('Accept-Version')) headers.set('Accept-Version', apiVersion)
   headers.set('Authorization', `Bearer ${token}`)
   headers.set('User-Agent', USER_AGENT)
   if (init.body) headers.set('Content-Type', 'application/json')
