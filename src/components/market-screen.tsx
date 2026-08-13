@@ -1,6 +1,6 @@
 import { ArrowDownRight, ArrowUpRight, ChevronDown } from 'lucide-react'
 
-import { catalystLabel, nextCatalystForSymbol, sortSymbolsByCatalyst, upcomingInterestedSymbols, type Catalyst } from '../domain/catalyst'
+import { catalystLabel, nextCatalystForSymbol, nextStoryCatalystForSymbol, sortSymbolsByCatalyst, upcomingInterestedSymbols, type Catalyst } from '../domain/catalyst'
 import { volatilityVerdict, type Ticker, type Watchlist } from '../domain/market'
 import { LiquidityMetric, MetricGauge, Sparkline } from './market-visuals'
 
@@ -23,14 +23,13 @@ function CatalystStories({
     .map((symbol) => tickers.find((ticker) => ticker.symbol === symbol))
     .filter((ticker): ticker is Ticker => Boolean(ticker))
   return (
-    <section className="stories" aria-labelledby="catalyst-stories-title">
-      <header className="stories-title">
-        <h2 id="catalyst-stories-title">Upcoming catalysts</h2>
+    <section className="stories" aria-label="Catalysts in the next 30 days">
+      <div className="stories-title" aria-hidden="true">
         <span>30 days</span>
-      </header>
+      </div>
       <div className="story-row">
         {visible.map((ticker) => {
-          const catalyst = nextCatalystForSymbol(ticker.symbol, catalysts)
+          const catalyst = nextStoryCatalystForSymbol(ticker.symbol, catalysts)
           return (
             <button
               className="story"

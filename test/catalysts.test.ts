@@ -113,4 +113,34 @@ describe('catalyst ordering', () => {
       NOW,
     )).toEqual(['AAPL', 'NVDA', 'META'])
   })
+
+  it('includes earnings but excludes dividend dates from the catalyst rail', () => {
+    const dividend = (symbol: string, kind: 'dividend-ex' | 'dividend-pay'): Catalyst => ({
+      ...catalyst(symbol, '2026-08-20'),
+      id: `tastytrade:${symbol}:${kind}`,
+      kind,
+    })
+
+    expect(upcomingInterestedSymbols(
+      ['NVDA'],
+      ['AAPL', 'MSFT'],
+      [catalyst('NVDA', '2026-08-26'), dividend('AAPL', 'dividend-pay'), dividend('MSFT', 'dividend-ex')],
+      NOW,
+    )).toEqual(['NVDA'])
+  })
+
+  it('uses an upcoming earning even when a dividend date comes first', () => {
+    const exDividend: Catalyst = {
+      ...catalyst('AAPL', '2026-08-15'),
+      id: 'tastytrade:AAPL:dividend-ex',
+      kind: 'dividend-ex',
+    }
+
+    expect(upcomingInterestedSymbols(
+      [],
+      ['AAPL'],
+      [exDividend, catalyst('AAPL', '2026-08-20')],
+      NOW,
+    )).toEqual(['AAPL'])
+  })
 })

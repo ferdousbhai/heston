@@ -78,8 +78,7 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .auth-footer { display: flex; justify-content: space-between; gap: 18px; padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, .1); color: #686b73; font-size: 9px; }
 
 .stories { padding: 12px 0 12px; border-bottom: 1px solid var(--hairline); }
-.stories-title { padding: 0 20px 10px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.stories-title h2 { margin: 0; font-size: 15px; font-weight: 750; letter-spacing: -.02em; }
+.stories-title { padding: 0 20px 10px; display: flex; justify-content: flex-end; }
 .stories-title span { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
 .story-row { display: flex; gap: 15px; overflow-x: auto; scrollbar-width: none; padding: 0 20px 4px; }
 .story-row::-webkit-scrollbar { display: none; }

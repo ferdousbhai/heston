@@ -34,6 +34,10 @@ const KIND_PRIORITY: Record<Catalyst['kind'], number> = {
   'dividend-pay': 8,
 }
 
+const STORY_CATALYST_KINDS = new Set<Catalyst['kind']>([
+  'earnings', 'investor-event', 'product-event', 'regulatory', 'clinical', 'conference', 'shareholder',
+])
+
 function dateParts(date: Date, timeZone = 'America/New_York') {
   return Object.fromEntries(new Intl.DateTimeFormat('en-US', {
     timeZone,
@@ -70,6 +74,18 @@ export function nextCatalystForSymbol(
       || KIND_PRIORITY[left.kind] - KIND_PRIORITY[right.kind]
       || left.id.localeCompare(right.id)
     ))[0]
+}
+
+export function nextStoryCatalystForSymbol(
+  symbol: string,
+  catalysts: readonly Catalyst[],
+  now = new Date(),
+): Catalyst | undefined {
+  return nextCatalystForSymbol(
+    symbol,
+    catalysts.filter((catalyst) => STORY_CATALYST_KINDS.has(catalyst.kind)),
+    now,
+  )
 }
 
 export function catalystLabel(catalyst: Catalyst, now = new Date()): string {
@@ -112,13 +128,13 @@ export function upcomingInterestedSymbols(
   const positions = [...new Set(positionSymbols)]
   const positionSet = new Set(positions)
   const privateOnly = [...new Set(privateWatchlistSymbols)].filter((symbol) => !positionSet.has(symbol))
-  const upcoming = (symbols: readonly string[]) => sortSymbolsByCatalyst(symbols, catalysts, now)
-    .filter((symbol) => {
-      const catalyst = nextCatalystForSymbol(symbol, catalysts, now)
-      if (!catalyst) return false
-      const days = daysUntilCatalyst(catalyst, now)
-      return days >= 0 && days <= horizonDays
-    })
+  const upcoming = (symbols: readonly string[]) => symbols
+    .map((symbol, index) => ({ catalyst: nextStoryCatalystForSymbol(symbol, catalysts, now), index, symbol }))
+    .filter((item): item is typeof item & { catalyst: Catalyst } => Boolean(
+      item.catalyst && daysUntilCatalyst(item.catalyst, now) <= horizonDays,
+    ))
+    .sort((left, right) => left.catalyst.date.localeCompare(right.catalyst.date) || left.index - right.index)
+    .map(({ symbol }) => symbol)
 
   return [...upcoming(positions), ...upcoming(privateOnly)]
 }
