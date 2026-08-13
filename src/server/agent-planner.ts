@@ -1,6 +1,7 @@
 import { type Ticker } from '../domain/market'
 import { AgentPlanSchema, type ChatRequest } from './agent-contracts'
 import { type AppEnv, isLiveTastytrade } from './env'
+import { type BrokerageContext } from './brokerage-context'
 
 type AiTextResult = { response?: string }
 
@@ -41,12 +42,12 @@ function demoPlan(message: string, ticker: Ticker | undefined) {
   return AgentPlanSchema.parse({ message: 'I can compare option premium, inspect your positions, draft a defined-risk order, or cancel a working order. Any brokerage write pauses for your confirmation.', action: null })
 }
 
-export async function planAgentReply(env: AppEnv, input: ChatRequest, ticker: Ticker | undefined) {
+export async function planAgentReply(env: AppEnv, input: ChatRequest, ticker: Ticker | undefined, account?: BrokerageContext) {
   if (!env.AI || !isLiveTastytrade(env)) return demoPlan(input.message, ticker)
   const result = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
     messages: [
-      { role: 'system', content: 'You are Dan, a terse and skeptical options trading assistant. Use only the supplied account and market context. Explain volatility with IV rank, IV percentile, IV index, liquidity, catalyst, and downside. Never invent an account fact. Only create an action when every required field is explicit in the user request. Never claim execution; actions are drafts requiring confirmation. Return JSON only.' },
-      { role: 'user', content: `Selected ticker context: ${JSON.stringify(tickerContext(ticker))}. User: ${input.message}. Return {message, action}. action is null or one of place_option_order, place_equity_order, cancel_order with the exact documented fields.` },
+      { role: 'system', content: 'You are Dan, a terse and skeptical options trading assistant. Use only the supplied account and market context. Explain volatility with IV rank, IV percentile, IV index, liquidity, catalyst, and downside. Never invent an account fact. Only create an action when every required field is explicit in the user request. Never claim execution; every brokerage or watchlist write is a draft requiring confirmation. Return JSON only.' },
+      { role: 'user', content: `Selected ticker context: ${JSON.stringify(tickerContext(ticker))}. Account context: ${JSON.stringify(account)}. User: ${input.message}. Return {message, action}. action is null or exactly one of place_option_order, place_equity_order, cancel_order, add_watchlist_symbol, remove_watchlist_symbol with all schema fields. Watchlist actions require watchlistName and symbol.` },
     ],
     response_format: { type: 'json_schema', json_schema: { type: 'object', properties: { message: { type: 'string' }, action: { type: ['object', 'null'] } }, required: ['message', 'action'] } },
     max_tokens: 900,

@@ -2,7 +2,7 @@
 
 Spice Must Flow is a mobile-first options intelligence app: Apple Stocks-style market scanning, editorial daily research, local-first TanStack DB state, tastytrade account context, and a confirmation-gated trading agent.
 
-The daily issue combines live tastytrade option metrics with bounded Federal Reserve, SEC, and authenticated Reddit feeds. Workers AI may synthesize the evidence, but the application attaches source links itself so generated URLs are never trusted.
+The daily issue combines live tastytrade option metrics with bounded Federal Reserve, SEC, and authenticated Reddit feeds. A separate Grok 4.6 workflow searches X every weekday for scheduled catalysts. Only direct X status URLs returned in provider citation metadata are accepted into the calendar.
 
 ## Run it
 
@@ -11,7 +11,7 @@ npm install
 npm run dev
 ```
 
-The repository defaults to `APP_MODE=demo`, so the complete interface works without credentials. Demo confirmations never call a brokerage.
+Production runs with `APP_MODE=live`. The Vite development server explicitly overrides that value to `demo` and removes remote Secret Store bindings, so the complete local interface works without credentials. Demo confirmations never call a brokerage.
 
 ## Architecture
 
@@ -40,6 +40,8 @@ Server routes in `src/routes/api.*.ts` are deliberately thin validation and HTTP
    npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name tastytrade-client-secret --scopes workers --remote
    npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name tastytrade-refresh-token --scopes workers --remote
    npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name tastytrade-account-number --scopes workers --remote
+   npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name xai --scopes workers --remote
+   npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name account-ai-gateway --scopes workers --remote
    ```
 
    The existing `reddit-client-id` and `reddit-client-secret` entries are reused by name. Secret values cannot be read back by Spice, Wrangler, or this repository.
@@ -49,17 +51,17 @@ Server routes in `src/routes/api.*.ts` are deliberately thin validation and HTTP
    ```sh
    npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name spice-access-team-domain --scopes workers --remote
    npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name spice-access-aud --scopes workers --remote
-   npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name spice-access-email --scopes workers --remote
+   npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name spice-access-owner-email --scopes workers --remote
    ```
 
    Live API routes verify the Access JWT signature, issuer, application audience, and your exact email. A forwarded identity header alone is deliberately insufficient.
-5. Change `APP_MODE` to `live`, then deploy with `npm run deploy`.
+5. Deploy with `npm run deploy`. `wrangler.jsonc` is already configured for live mode, the account-scoped market-feed Durable Object, and the New York-time guarded cron windows.
 
-`wrangler.jsonc` binds the shared Reddit and tastytrade Secret Store handles. Add the three Access handles after creating them, then change `APP_MODE` to `live`. There is intentionally no `.env`, `.env.example`, or `.dev.vars` workflow in this project; local development stays in demo mode and never needs production credentials.
+`wrangler.jsonc` binds the shared Reddit, xAI, AI Gateway, tastytrade, and Access Secret Store handles. There is intentionally no `.env`, `.env.example`, or `.dev.vars` workflow in this project; local development stays in demo mode and never needs production credentials.
 
 Cloudflare reference: [Secrets Store bindings](https://developers.cloudflare.com/secrets-store/integrations/workers/).
 
-The two UTC cron invocations cover both US daylight and standard time. The scheduled handler runs only when the local New York time is exactly 09:30 on a weekday.
+Paired UTC cron windows cover both US daylight and standard time. The scheduled handler runs the daily brief only at 09:30 New York and the X catalyst workflow only at 18:30 New York on weekdays.
 
 ## Checks
 
@@ -71,6 +73,8 @@ npm run test:e2e
 
 No live order is submitted directly from chat. Dan creates a bounded draft stored in D1 with a hashed, one-time, five-minute token. Confirmation atomically claims it, resolves the exact option instrument, runs tastytrade’s dry-run endpoint, and only then submits.
 
-The live options metrics use the fields actually supplied by tastytrade’s REST API: IV rank, IV percentile, IV index, and liquidity rating. The app never fills unsupported live fields with demo estimates. The compact live price trace is previous close to current price; full candle history belongs behind a future DXLink stream rather than a fabricated chart.
+The live options metrics use the fields actually supplied by tastytrade’s REST API: IV rank, IV percentile, IV index, and liquidity rating. The app never fills unsupported live fields with demo estimates. One account-scoped Durable Object owns the secret-bearing tastytrade DXLink connection. Authenticated browser sessions subscribe to that relay, which unions requested symbols, streams normalized Quote, Trade, and five-minute Candle events into TanStack DB, and closes the upstream socket when the last client disconnects.
 
 Upcoming earnings and dividend dates are normalized from tastytrade market metrics into the D1 `catalysts` table with source, update time, confidence, and market timing. TanStack DB keeps the validated calendar available offline, and watchlists order symbols by their nearest upcoming catalyst while preserving their original order for symbols without one.
+
+Dan loads bounded positions, balances, working orders, and private watchlists as factual account context. It can draft add/remove watchlist mutations in addition to orders and cancellations; every tastytrade write uses the same expiring confirmation state machine.

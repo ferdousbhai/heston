@@ -48,10 +48,10 @@ function ActionCard({
     <div className="action-card">
       <div className="action-label"><ShieldCheck size={16} aria-hidden="true" /><span>Brokerage confirmation</span></div>
       <strong>{action.preview}</strong>
-      <small>Expires in 5 minutes · tastytrade dry-run runs before submission</small>
+      <small>Expires in 5 minutes · orders are dry-run before submission</small>
       <div className="action-buttons">
         <button disabled={working} onClick={() => resolve('deny')} type="button">Discard</button>
-        <button disabled={working} onClick={() => resolve('confirm')} type="button">{working ? 'Working…' : 'Confirm order'}</button>
+        <button disabled={working} onClick={() => resolve('confirm')} type="button">{working ? 'Working…' : 'Confirm action'}</button>
       </div>
     </div>
   )
@@ -61,7 +61,7 @@ export function AgentScreen({ selected }: { selected: Ticker }) {
   const [messages, setMessages] = useState<ChatMessage[]>([{
     id: 'welcome',
     role: 'assistant',
-    text: `I’m looking at ${selected.symbol}. Ask me why its options look cheap or rich, compare a structure, inspect positions, or draft an order. Brokerage writes always stop for confirmation.`,
+    text: `I’m looking at ${selected.symbol}. Ask me about option premium, account state, watchlists, or draft an order. Every tastytrade write stops for confirmation.`,
   }])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)

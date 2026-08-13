@@ -9,6 +9,7 @@ import { planAgentReply } from './agent-planner'
 import { executeBrokerageAction } from './brokerage'
 import { type AppEnv, isLiveTastytrade } from './env'
 import { loadMarketSnapshot } from './tastytrade'
+import { answerBrokerageReadRequest, loadBrokerageContext } from './brokerage-context'
 
 type PendingAction = { expiresAt: string; id: string; preview: string; token: string }
 export type AgentReply = { message: string; pendingAction?: PendingAction }
@@ -46,7 +47,10 @@ async function storePendingAction(env: AppEnv, action: BrokerageAction): Promise
 export async function chatWithAgent(env: AppEnv, input: ChatRequest): Promise<AgentReply> {
   const snapshot = await loadMarketSnapshot(env)
   const ticker = snapshot.tickers.find((candidate) => candidate.symbol === input.selectedSymbol)
-  const plan = await planAgentReply(env, input, ticker)
+  const account = isLiveTastytrade(env) ? await loadBrokerageContext(env) : undefined
+  const factualReply = account ? answerBrokerageReadRequest(input.message, account) : undefined
+  if (factualReply) return { message: factualReply }
+  const plan = await planAgentReply(env, input, ticker, account)
   return plan.action
     ? { message: plan.message, pendingAction: await storePendingAction(env, plan.action) }
     : { message: plan.message }
@@ -59,7 +63,7 @@ export async function resolvePendingAction(
 ): Promise<{ detail: string; status: 'denied' | 'executed' }> {
   if (actionId.startsWith('demo-') || !isLiveTastytrade(env)) {
     return input.decision === 'deny'
-      ? { status: 'denied', detail: 'Demo order discarded' }
+      ? { status: 'denied', detail: 'Demo action discarded' }
       : { status: 'executed', detail: 'Demo confirmed — no brokerage request was sent' }
   }
   if (!env.DB) throw new Error('Brokerage action store is unavailable')
@@ -77,7 +81,7 @@ export async function resolvePendingAction(
       "UPDATE brokerage_actions SET status = 'denied', resolved_at = ? WHERE id = ? AND status = 'pending'",
     ).bind(new Date().toISOString(), actionId).run()
     if (result.meta.changes !== 1) throw new Error('This action was already resolved')
-    return { status: 'denied', detail: 'Order draft discarded' }
+    return { status: 'denied', detail: 'Action draft discarded' }
   }
   const claimed = await env.DB.prepare(
     "UPDATE brokerage_actions SET status = 'executing', resolved_at = ? WHERE id = ? AND status = 'pending'",

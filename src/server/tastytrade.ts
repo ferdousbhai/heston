@@ -9,7 +9,7 @@ import { type AppEnv, isLiveTastytrade } from './env'
 import { catalystsFromMarketMetrics, earningsDateFromMetric, persistAndLoadCatalysts } from './catalysts'
 import { readSecret } from './secrets'
 
-const USER_AGENT = 'SpiceMustFlow/0.1 (+personal-options-dashboard)'
+const USER_AGENT = 'Spice/0.1'
 const API_VERSION = '20260427'
 
 type JsonRecord = Record<string, unknown>
@@ -109,6 +109,15 @@ export async function resolveAccountNumber(env: AppEnv): Promise<string> {
   const accountNumber = stringValue(account['account-number'])
   if (!accountNumber) throw new Error('TastytradeAccount:not-found')
   return accountNumber
+}
+
+export async function loadQuoteToken(env: AppEnv): Promise<{ token: string; url: string }> {
+  const payload = record(await tastyRequest(env, '/api-quote-tokens'))
+  const data = record(payload.data ?? payload)
+  const token = stringValue(data.token)
+  const url = stringValue(data['dxlink-url'])
+  if (!token || !url || !url.startsWith('wss://')) throw new Error('TastytradeQuoteToken:invalid')
+  return { token, url }
 }
 
 function watchlistRows(payload: unknown, kind: Watchlist['kind'], prefix: string): Watchlist[] {

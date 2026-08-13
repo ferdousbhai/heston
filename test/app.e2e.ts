@@ -32,7 +32,7 @@ test('mobile market, research, picker, and agent flows remain coherent', async (
   await page.getByRole('button', { name: 'Send message' }).click()
   await expect(page.getByText('Brokerage confirmation')).toBeVisible()
   await page.getByRole('button', { name: 'Discard' }).click()
-  await expect(page.getByText('Demo order discarded')).toBeVisible()
+  await expect(page.getByText('Demo action discarded')).toBeVisible()
 
   await context.setOffline(true)
   await page.evaluate(() => window.dispatchEvent(new Event('offline')))

@@ -16,6 +16,7 @@ import {
 } from '../data/collections'
 import { demoCatalysts, demoResearch, demoTickers, demoWatchlists } from '../domain/demo'
 import { type Watchlist } from '../domain/market'
+import { useLiveMarket } from '../data/live-market'
 import { AgentScreen } from './agent-screen'
 import { BriefScreen } from './brief-screen'
 import { MarketScreen } from './market-screen'
@@ -45,6 +46,7 @@ export function SpiceApp() {
     ?? tickers.find((ticker) => activeWatchlist.symbols.includes(ticker.symbol))
     ?? tickers[0] ?? demoTickers[0]!
   const source = syncStates[0]?.source ?? 'demo'
+  useLiveMarket([...activeWatchlist.symbols, selected.symbol], source === 'tastytrade')
 
   const synchronize = useMemo(() => async () => {
     if (typeof navigator !== 'undefined' && !navigator.onLine) {

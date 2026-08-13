@@ -24,6 +24,15 @@ describe('brokerage input boundary', () => {
     expect(ConfirmRequestSchema.safeParse({ decision: 'confirm', token: 'a'.repeat(32) }).success).toBe(true)
   })
 
+  it('accepts bounded tastytrade watchlist mutations', () => {
+    expect(BrokerageActionSchema.parse({
+      kind: 'add_watchlist_symbol', watchlistName: 'Long vol', symbol: 'NVDA',
+    }).kind).toBe('add_watchlist_symbol')
+    expect(BrokerageActionSchema.safeParse({
+      kind: 'remove_watchlist_symbol', watchlistName: '../private', symbol: 'NVDA',
+    }).success).toBe(false)
+  })
+
   it('bounds chat input before model invocation', () => {
     expect(ChatRequestSchema.safeParse({ message: 'Why is SPY vol cheap?', selectedSymbol: 'SPY' }).success).toBe(true)
     expect(ChatRequestSchema.safeParse({ message: 'x'.repeat(4_001) }).success).toBe(false)

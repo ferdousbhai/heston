@@ -1,6 +1,9 @@
 import { z } from 'zod'
 
-export const CatalystKindSchema = z.enum(['earnings', 'dividend-ex', 'dividend-pay'])
+export const CatalystKindSchema = z.enum([
+  'earnings', 'dividend-ex', 'dividend-pay', 'investor-event', 'product-event',
+  'regulatory', 'clinical', 'conference', 'shareholder',
+])
 export const CatalystConfidenceSchema = z.enum(['confirmed', 'estimated'])
 export const CatalystTimingSchema = z.enum(['pre-market', 'intraday', 'after-hours', 'unknown'])
 
@@ -21,8 +24,14 @@ export type Catalyst = z.infer<typeof CatalystSchema>
 
 const KIND_PRIORITY: Record<Catalyst['kind'], number> = {
   earnings: 0,
-  'dividend-ex': 1,
-  'dividend-pay': 2,
+  regulatory: 1,
+  clinical: 2,
+  'investor-event': 3,
+  'product-event': 4,
+  conference: 5,
+  shareholder: 6,
+  'dividend-ex': 7,
+  'dividend-pay': 8,
 }
 
 function dateParts(date: Date, timeZone = 'America/New_York') {
@@ -65,7 +74,11 @@ export function nextCatalystForSymbol(
 
 export function catalystLabel(catalyst: Catalyst, now = new Date()): string {
   const days = daysUntilCatalyst(catalyst, now)
-  const event = catalyst.kind === 'earnings' ? 'EARN' : catalyst.kind === 'dividend-ex' ? 'EX-DIV' : 'PAY'
+  const event = ({
+    earnings: 'EARN', 'dividend-ex': 'EX-DIV', 'dividend-pay': 'PAY',
+    'investor-event': 'INVESTOR', 'product-event': 'PRODUCT', regulatory: 'REG',
+    clinical: 'CLINICAL', conference: 'CONF', shareholder: 'VOTE',
+  } satisfies Record<Catalyst['kind'], string>)[catalyst.kind]
   if (days === 0) return `${event} TODAY`
   return `${event} ${days}D`
 }

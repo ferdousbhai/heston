@@ -2,6 +2,7 @@ import { createCollection, localStorageCollectionOptions } from '@tanstack/react
 import { z } from 'zod'
 
 import { CatalystSchema } from '../domain/catalyst'
+import { LiveMarketEventSchema, type LiveMarketEvent } from '../server/market-feed-contracts'
 import {
   MarketSnapshotSchema,
   ResearchBriefSchema,
@@ -185,5 +186,25 @@ export function selectWatchlist(id: string, fallbackSymbol?: string) {
   preferenceCollection.update('primary', (draft) => {
     draft.selectedWatchlistId = id
     if (fallbackSymbol) draft.selectedSymbol = fallbackSymbol
+  })
+}
+
+export function applyLiveMarketEvent(untrusted: unknown): void {
+  const parsed = LiveMarketEventSchema.safeParse(untrusted)
+  if (!parsed.success || !tickerCollection.get(parsed.data.symbol)) return
+  const event: LiveMarketEvent = parsed.data
+  tickerCollection.update(event.symbol, (ticker) => {
+    const price = event.price ?? event.candleClose
+    if (price !== undefined) ticker.price = price
+    if (event.change !== undefined) {
+      ticker.change = event.change
+      const previousClose = ticker.price - event.change
+      if (previousClose > 0) ticker.changePercent = (event.change / previousClose) * 100
+    }
+    if (event.candleClose !== undefined) {
+      const points = [...ticker.sparkline, event.candleClose]
+      ticker.sparkline = points.slice(Math.max(0, points.length - 48))
+    }
+    ticker.updatedAt = event.timestamp
   })
 }

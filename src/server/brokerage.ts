@@ -26,6 +26,25 @@ async function optionInstrumentSymbol(env: AppEnv, action: Extract<BrokerageActi
 
 export async function executeBrokerageAction(env: AppEnv, untrustedAction: unknown): Promise<{ detail: string; orderId?: string }> {
   const action = BrokerageActionSchema.parse(untrustedAction)
+  if (action.kind === 'add_watchlist_symbol' || action.kind === 'remove_watchlist_symbol') {
+    const path = `/watchlists/${encodeURIComponent(action.watchlistName)}`
+    const fetched = await tastyRequest(env, path)
+    const body = typeof fetched === 'object' && fetched !== null ? fetched as Record<string, unknown> : {}
+    const data = typeof body.data === 'object' && body.data !== null ? body.data as Record<string, unknown> : body
+    const entries = rows(data['watchlist-entries'])
+    const hasSymbol = entries.some((entry) => String(entry.symbol ?? '').toUpperCase() === action.symbol)
+    const nextEntries = action.kind === 'add_watchlist_symbol'
+      ? hasSymbol ? entries : [...entries, { symbol: action.symbol, 'instrument-type': 'Equity' }]
+      : entries.filter((entry) => String(entry.symbol ?? '').toUpperCase() !== action.symbol)
+    const payload = {
+      name: typeof data.name === 'string' ? data.name : action.watchlistName,
+      'watchlist-entries': nextEntries,
+      'group-name': typeof data['group-name'] === 'string' ? data['group-name'] : 'default',
+      'order-index': typeof data['order-index'] === 'number' ? data['order-index'] : 9999,
+    }
+    await tastyRequest(env, path, { method: 'PUT', body: JSON.stringify(payload) })
+    return { detail: `${action.symbol} ${action.kind === 'add_watchlist_symbol' ? 'added to' : 'removed from'} ${action.watchlistName}` }
+  }
   const account = await resolveAccountNumber(env)
   if (action.kind === 'cancel_order') {
     await tastyRequest(env, `/accounts/${encodeURIComponent(account)}/orders/${action.orderId}`, { method: 'DELETE' })

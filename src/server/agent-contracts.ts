@@ -26,7 +26,15 @@ const CancelActionSchema = z.object({
   orderId: z.string().regex(/^\d{1,40}$/),
 })
 
-export const BrokerageActionSchema = z.discriminatedUnion('kind', [OptionActionSchema, EquityActionSchema, CancelActionSchema])
+const WatchlistFields = {
+  watchlistName: z.string().trim().min(1).max(64).refine((name) => !name.includes('/')),
+  symbol: z.string().regex(/^[A-Z.]{1,8}$/),
+} as const
+
+const AddWatchlistActionSchema = z.object({ kind: z.literal('add_watchlist_symbol'), ...WatchlistFields })
+const RemoveWatchlistActionSchema = z.object({ kind: z.literal('remove_watchlist_symbol'), ...WatchlistFields })
+
+export const BrokerageActionSchema = z.discriminatedUnion('kind', [OptionActionSchema, EquityActionSchema, CancelActionSchema, AddWatchlistActionSchema, RemoveWatchlistActionSchema])
 export const AgentPlanSchema = z.object({ message: z.string().min(1).max(2_000), action: BrokerageActionSchema.nullable() })
 export const ChatRequestSchema = z.object({
   message: z.string().trim().min(1).max(4_000),
@@ -43,6 +51,8 @@ export type ConfirmRequest = z.infer<typeof ConfirmRequestSchema>
 
 export function previewAction(action: BrokerageAction): string {
   if (action.kind === 'cancel_order') return `Cancel working order #${action.orderId}`
+  if (action.kind === 'add_watchlist_symbol') return `Add ${action.symbol} to tastytrade watchlist “${action.watchlistName}”`
+  if (action.kind === 'remove_watchlist_symbol') return `Remove ${action.symbol} from tastytrade watchlist “${action.watchlistName}”`
   if (action.kind === 'place_equity_order') return `${action.action} ${action.quantity} ${action.symbol} @ $${action.limitPrice.toFixed(2)} limit`
   return `${action.action} ${action.quantity} ${action.underlying} ${action.expiry} ${action.strike}${action.optionType} @ $${action.limitPrice.toFixed(2)} ${action.priceEffect.toLowerCase()}`
 }
