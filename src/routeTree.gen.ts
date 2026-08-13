@@ -14,7 +14,9 @@ import { Route as ApiChatRouteImport } from './routes/api.chat'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
 import { Route as ApiSnapshotRouteImport } from './routes/api.snapshot'
 import { Route as ApiStreamRouteImport } from './routes/api.stream'
+import { Route as ApiViewerRouteImport } from './routes/api.viewer'
 import { Route as ApiActionsActionIdRouteImport } from './routes/api.actions.$actionId'
+import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
 import { Route as ApiCatalystsRefreshRouteImport } from './routes/api.catalysts.refresh'
 
 const IndexRoute = IndexRouteImport.update({
@@ -42,9 +44,19 @@ const ApiStreamRoute = ApiStreamRouteImport.update({
   path: '/api/stream',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiViewerRoute = ApiViewerRouteImport.update({
+  id: '/api/viewer',
+  path: '/api/viewer',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiActionsActionIdRoute = ApiActionsActionIdRouteImport.update({
   id: '/api/actions/$actionId',
   path: '/api/actions/$actionId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
+  id: '/api/auth/$',
+  path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiCatalystsRefreshRoute = ApiCatalystsRefreshRouteImport.update({
@@ -59,7 +71,9 @@ export interface FileRoutesByFullPath {
   '/api/health': typeof ApiHealthRoute
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
+  '/api/viewer': typeof ApiViewerRoute
   '/api/actions/$actionId': typeof ApiActionsActionIdRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/catalysts/refresh': typeof ApiCatalystsRefreshRoute
 }
 export interface FileRoutesByTo {
@@ -68,7 +82,9 @@ export interface FileRoutesByTo {
   '/api/health': typeof ApiHealthRoute
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
+  '/api/viewer': typeof ApiViewerRoute
   '/api/actions/$actionId': typeof ApiActionsActionIdRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/catalysts/refresh': typeof ApiCatalystsRefreshRoute
 }
 export interface FileRoutesById {
@@ -78,7 +94,9 @@ export interface FileRoutesById {
   '/api/health': typeof ApiHealthRoute
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
+  '/api/viewer': typeof ApiViewerRoute
   '/api/actions/$actionId': typeof ApiActionsActionIdRoute
+  '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/catalysts/refresh': typeof ApiCatalystsRefreshRoute
 }
 export interface FileRouteTypes {
@@ -89,7 +107,9 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/api/snapshot'
     | '/api/stream'
+    | '/api/viewer'
     | '/api/actions/$actionId'
+    | '/api/auth/$'
     | '/api/catalysts/refresh'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -98,7 +118,9 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/api/snapshot'
     | '/api/stream'
+    | '/api/viewer'
     | '/api/actions/$actionId'
+    | '/api/auth/$'
     | '/api/catalysts/refresh'
   id:
     | '__root__'
@@ -107,7 +129,9 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/api/snapshot'
     | '/api/stream'
+    | '/api/viewer'
     | '/api/actions/$actionId'
+    | '/api/auth/$'
     | '/api/catalysts/refresh'
   fileRoutesById: FileRoutesById
 }
@@ -117,7 +141,9 @@ export interface RootRouteChildren {
   ApiHealthRoute: typeof ApiHealthRoute
   ApiSnapshotRoute: typeof ApiSnapshotRoute
   ApiStreamRoute: typeof ApiStreamRoute
+  ApiViewerRoute: typeof ApiViewerRoute
   ApiActionsActionIdRoute: typeof ApiActionsActionIdRoute
+  ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiCatalystsRefreshRoute: typeof ApiCatalystsRefreshRoute
 }
 
@@ -158,11 +184,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiStreamRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/viewer': {
+      id: '/api/viewer'
+      path: '/api/viewer'
+      fullPath: '/api/viewer'
+      preLoaderRoute: typeof ApiViewerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/actions/$actionId': {
       id: '/api/actions/$actionId'
       path: '/api/actions/$actionId'
       fullPath: '/api/actions/$actionId'
       preLoaderRoute: typeof ApiActionsActionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/$': {
+      id: '/api/auth/$'
+      path: '/api/auth/$'
+      fullPath: '/api/auth/$'
+      preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/catalysts/refresh': {
@@ -181,7 +221,9 @@ const rootRouteChildren: RootRouteChildren = {
   ApiHealthRoute: ApiHealthRoute,
   ApiSnapshotRoute: ApiSnapshotRoute,
   ApiStreamRoute: ApiStreamRoute,
+  ApiViewerRoute: ApiViewerRoute,
   ApiActionsActionIdRoute: ApiActionsActionIdRoute,
+  ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiCatalystsRefreshRoute: ApiCatalystsRefreshRoute,
 }
 export const routeTree = rootRouteImport

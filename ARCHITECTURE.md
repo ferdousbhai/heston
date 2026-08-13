@@ -15,6 +15,8 @@ chat + bounded account context ──> Workers AI plan ──> D1 pending action
                                                     │
                                                     v
                                     option resolution + dry-run + submit
+
+Google OAuth ──> Better Auth ──> D1 session ──> exact-owner API boundary
 ```
 
 ## Module map
@@ -30,6 +32,8 @@ chat + bounded account context ──> Workers AI plan ──> D1 pending action
 - `components/agent-screen.tsx`: conversation and confirmation UI.
 - `components/market-visuals.tsx`: reusable chart and metric primitives.
 - `components/ticker-picker.tsx`: private, position, and public-list selection.
+- `components/auth-gate.tsx`: branded Google entry point, session bootstrap, and offline continuation.
+- `server/auth.ts`: Better Auth construction, Cloudflare D1 sessions, encrypted Google tokens, and exact-owner enforcement.
 - `server/tastytrade.ts`: OAuth, account/watchlist/position/metric reads, broker transport, and response normalization.
 - `server/market-feed.ts`: account-scoped Durable Object that owns DXLink auth, union subscriptions, normalized fanout, and reconnects.
 - `server/market-feed-contracts.ts`: shared symbol and live-event validation boundary.
@@ -44,19 +48,19 @@ chat + bounded account context ──> Workers AI plan ──> D1 pending action
 - `server/agent-planner.ts`: demo parsing and Workers AI planning; its output remains untrusted.
 - `server/agent.ts`: expiring confirmation storage and atomic state transitions.
 - `server/brokerage.ts`: exact option resolution, tastytrade dry-run, and final dispatch.
-- `server/http.ts`: Cloudflare Access, same-origin write checks, and safe error responses.
+- `server/http.ts`: owner-session authorization, same-origin write checks, and safe error responses.
 
 ## Invariants
 
-1. Broker secrets, account identifiers, and Access configuration are server-only Cloudflare Secrets Store bindings; no local secret files exist.
-2. Live requests verify the Cloudflare Access JWT signature, issuer, audience, and allowed email; live writes also require a same-origin browser request.
+1. Broker secrets, account identifiers, Google OAuth credentials, and Better Auth keys are server-only Cloudflare Secrets Store bindings; no local secret files exist.
+2. Google can create a user only for the configured owner email. Every live API request rechecks the database-backed Better Auth session and exact owner email; live writes also require a same-origin browser request.
 3. Model output is untrusted and must pass a strict Zod action schema.
 4. Account reads are normalized from tastytrade and can answer immediately. Orders, cancellations, and watchlist mutations always produce a pending action.
 5. Confirmation tokens are random, stored only as SHA-256 digests, expire after five minutes, and are claimed atomically.
 6. Order placement resolves the exact tastytrade option symbol and passes a broker dry-run before submission.
 7. Offline state is a validated cache, visibly marked with source and sync status.
 8. The research model receives bounded official and public-discussion headlines; citation URLs are attached by code, never accepted from model output.
-9. The service worker precaches the app shell only; validated TanStack DB collections are the single offline data cache.
+9. The service worker precaches the app shell only, excludes all `/api/` paths (including the OAuth callback), and uses validated TanStack DB collections as the single offline data cache.
 10. Catalyst rows retain source provenance, confidence, and observed timestamps; a refreshed tastytrade symbol replaces its prior tastytrade-sourced dates without touching future sources.
 11. The browser never receives a tastytrade access token or quote token. One Durable Object maintains the union of active client symbols and closes DXLink when no clients remain.
 12. X findings must target a watched symbol, fall within the validated future horizon, pass the catalyst schema, and use a direct X post URL present in xAI citation metadata.

@@ -2,10 +2,12 @@ export interface AppEnv {
   AI?: Ai
   AI_GATEWAY_TOKEN?: SecretsStoreSecret
   APP_MODE?: string
-  CF_ACCESS_ALLOWED_EMAIL?: SecretsStoreSecret
-  CF_ACCESS_AUD?: SecretsStoreSecret
-  CF_ACCESS_TEAM_DOMAIN?: SecretsStoreSecret
+  AUTH_BASE_URL?: string
+  AUTH_OWNER_EMAIL?: SecretsStoreSecret
+  BETTER_AUTH_SECRET?: SecretsStoreSecret
   DB?: D1Database
+  GOOGLE_CLIENT_ID?: SecretsStoreSecret
+  GOOGLE_CLIENT_SECRET?: SecretsStoreSecret
   MARKET_FEED?: DurableObjectNamespace
   REDDIT_CLIENT_ID?: SecretsStoreSecret
   REDDIT_CLIENT_SECRET?: SecretsStoreSecret

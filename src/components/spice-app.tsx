@@ -18,6 +18,7 @@ import { demoCatalysts, demoResearch, demoTickers, demoWatchlists } from '../dom
 import { type Watchlist } from '../domain/market'
 import { useLiveMarket } from '../data/live-market'
 import { AgentScreen } from './agent-screen'
+import { AuthGate, type Viewer } from './auth-gate'
 import { BriefScreen } from './brief-screen'
 import { MarketScreen } from './market-screen'
 import { TickerPicker } from './ticker-picker'
@@ -26,6 +27,10 @@ import { TopBar, type SyncPhase } from './top-bar'
 type Tab = 'market' | 'brief' | 'agent'
 
 export function SpiceApp() {
+  return <AuthGate>{(viewer, signOut) => <AuthenticatedSpiceApp onSignOut={signOut} viewer={viewer} />}</AuthGate>
+}
+
+function AuthenticatedSpiceApp({ onSignOut, viewer }: { onSignOut: () => Promise<void>; viewer: Viewer | null }) {
   const { data: storedTickers = [] } = useLiveQuery((query) => query.from({ ticker: tickerCollection }))
   const { data: storedCatalysts = [] } = useLiveQuery((query) => query.from({ catalyst: catalystCollection }))
   const { data: storedWatchlists = [] } = useLiveQuery((query) => query.from({ watchlist: watchlistCollection }))
@@ -90,7 +95,15 @@ export function SpiceApp() {
     <div className="app-viewport">
       <a className="skip-link" href="#main-content">Skip to content</a>
       <div className="app-shell">
-        {tab !== 'agent' && <TopBar phase={phase} source={source} onSync={() => void synchronize()} />}
+        {tab !== 'agent' && (
+          <TopBar
+            onSignOut={viewer ? () => void onSignOut() : undefined}
+            onSync={() => void synchronize()}
+            phase={phase}
+            source={source}
+            viewerName={viewer?.name}
+          />
+        )}
         <main id="main-content" className={tab === 'agent' ? 'main-content agent-main' : 'main-content'}>
           {tab === 'market' && (
             <MarketScreen

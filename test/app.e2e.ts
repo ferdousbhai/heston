@@ -1,5 +1,17 @@
 import { expect, test } from '@playwright/test'
 
+test('unauthenticated visitors get the branded Google entry point', async ({ page }) => {
+  await page.route('**/api/viewer', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ authRequired: true, user: null }),
+  }))
+  await page.goto('/')
+  await expect(page.getByRole('heading', { name: 'Your market. In motion.' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeVisible()
+  await expect(page.getByText('One authorized account')).toBeVisible()
+  await expect(page.locator('.app-shell')).toHaveCount(0)
+})
+
 test('mobile market, research, picker, and agent flows remain coherent', async ({ page, context }) => {
   await page.goto('/')
   await expect(page).toHaveTitle(/Spice Must Flow/)

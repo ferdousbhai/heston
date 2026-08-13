@@ -43,19 +43,24 @@
       "secret_name": "account-ai-gateway"
     },
     {
-      "binding": "CF_ACCESS_TEAM_DOMAIN",
+      "binding": "AUTH_OWNER_EMAIL",
       "store_id": "a436a6cefedc4acd8bb920cdbc202c1c",
-      "secret_name": "spice-access-team-domain"
+      "secret_name": "spice-auth-owner-email"
     },
     {
-      "binding": "CF_ACCESS_AUD",
+      "binding": "BETTER_AUTH_SECRET",
       "store_id": "a436a6cefedc4acd8bb920cdbc202c1c",
-      "secret_name": "spice-access-aud"
+      "secret_name": "spice-better-auth-secret"
     },
     {
-      "binding": "CF_ACCESS_ALLOWED_EMAIL",
+      "binding": "GOOGLE_CLIENT_ID",
       "store_id": "a436a6cefedc4acd8bb920cdbc202c1c",
-      "secret_name": "spice-access-owner-email"
+      "secret_name": "spice-google-client-id"
+    },
+    {
+      "binding": "GOOGLE_CLIENT_SECRET",
+      "store_id": "a436a6cefedc4acd8bb920cdbc202c1c",
+      "secret_name": "spice-google-client-secret"
     }
   ],
   "d1_databases": [
@@ -71,6 +76,7 @@
   },
   "vars": {
     "APP_MODE": "live",
+    "AUTH_BASE_URL": "https://spice.ferdousbd.workers.dev",
     "TASTYTRADE_API_BASE": "https://api.tastyworks.com"
   }
 }

@@ -41,6 +41,7 @@ const config = defineConfig(({ command }) => ({
       },
       workbox: {
         navigateFallback: '/',
+        navigateFallbackDenylist: [/^\/api\//],
       },
     }),
   ],

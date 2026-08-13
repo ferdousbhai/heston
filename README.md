@@ -46,18 +46,25 @@ Server routes in `src/routes/api.*.ts` are deliberately thin validation and HTTP
 
    The existing `reddit-client-id` and `reddit-client-secret` entries are reused by name. Secret values cannot be read back by Spice, Wrangler, or this repository.
 
-4. Put the Worker behind Cloudflare Access, then add its verifier settings to the same Secrets Store:
+4. Create a Google OAuth Web client named `Spice Must Flow` with this production redirect URI:
 
-   ```sh
-   npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name spice-access-team-domain --scopes workers --remote
-   npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name spice-access-aud --scopes workers --remote
-   npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name spice-access-owner-email --scopes workers --remote
+   ```text
+   https://spice.ferdousbd.workers.dev/api/auth/callback/google
    ```
 
-   Live API routes verify the Access JWT signature, issuer, application audience, and your exact email. A forwarded identity header alone is deliberately insufficient.
+   Keep the Google app in external testing mode and add the single owner account as its test user. Add the Google credentials and Better Auth configuration to the same Secrets Store:
+
+   ```sh
+   npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name spice-google-client-id --scopes workers --remote
+   npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name spice-google-client-secret --scopes workers --remote
+   npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name spice-better-auth-secret --scopes workers --remote
+   npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name spice-auth-owner-email --scopes workers --remote
+   ```
+
+   The Better Auth secret must contain at least 32 random characters. Google account creation is rejected unless the verified email exactly matches the configured owner, and every live API route independently rechecks that session identity.
 5. Deploy with `npm run deploy`. `wrangler.jsonc` is already configured for live mode, the account-scoped market-feed Durable Object, and the New York-time guarded cron windows.
 
-`wrangler.jsonc` binds the shared Reddit, xAI, AI Gateway, tastytrade, and Access Secret Store handles. There is intentionally no `.env`, `.env.example`, or `.dev.vars` workflow in this project; local development stays in demo mode and never needs production credentials.
+`wrangler.jsonc` binds the shared Reddit, xAI, AI Gateway, tastytrade, Google, and session-secret handles. There is intentionally no `.env`, `.env.example`, or `.dev.vars` workflow in this project; local development stays in demo mode and never needs production credentials.
 
 Cloudflare reference: [Secrets Store bindings](https://developers.cloudflare.com/secrets-store/integrations/workers/).
 

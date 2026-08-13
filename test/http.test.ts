@@ -8,7 +8,7 @@ describe('personal API authorization', () => {
       .resolves.toBeUndefined()
   })
 
-  it('fails closed when a live Access verifier is not configured', async () => {
+  it('fails closed when live authentication is not configured', async () => {
     const response = await authorizePersonalRequest(new Request('https://spice.test/api/snapshot'), { APP_MODE: 'live' })
     expect(response?.status).toBe(503)
   })
