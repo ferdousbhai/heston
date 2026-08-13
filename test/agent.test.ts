@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { BrokerageActionSchema, ChatRequestSchema, ConfirmRequestSchema } from '../src/server/agent-contracts'
 import { planAgentReply } from '../src/server/agent-planner'
@@ -50,8 +50,9 @@ describe('brokerage input boundary', () => {
 })
 
 describe('live Dan boundary', () => {
+  const configured = { get: async () => 'configured' } as SecretsStoreSecret
+
   it('does not turn the demo parser into a live draft when the policy model is unavailable', async () => {
-    const configured = { get: async () => 'configured' } as SecretsStoreSecret
     const plan = await planAgentReply({
       APP_MODE: 'live',
       TASTYTRADE_CLIENT_SECRET: configured,
@@ -62,5 +63,45 @@ describe('live Dan boundary', () => {
 
     expect(plan.action).toBeNull()
     expect(plan.message).toContain('policy engine is unavailable')
+  })
+
+  it('uses a simple structured envelope and validates its serialized action with Zod', async () => {
+    const run = vi.fn().mockResolvedValue({
+      response: {
+        message: 'Cash is valid while the edge is unknown.',
+        action_json: '',
+      },
+    })
+    const plan = await planAgentReply({
+      AI: { run } as unknown as Ai,
+      APP_MODE: 'live',
+      TASTYTRADE_CLIENT_SECRET: configured,
+      TASTYTRADE_REFRESH_TOKEN: configured,
+    }, { message: 'State your Kelly rule.' }, undefined)
+
+    expect(plan).toEqual({ message: 'Cash is valid while the edge is unknown.', action: null })
+    expect(run.mock.calls[0]?.[1]?.response_format).toMatchObject({
+      type: 'json_schema',
+      json_schema: {
+        properties: { message: { type: 'string' }, action_json: { type: 'string' } },
+        required: ['message', 'action_json'],
+      },
+    })
+  })
+
+  it('rejects a model action that does not satisfy the brokerage contract', async () => {
+    const run = vi.fn().mockResolvedValue({
+      response: {
+        message: 'Drafted.',
+        action_json: JSON.stringify({ kind: 'place_option_order', underlying: 'SPY' }),
+      },
+    })
+
+    await expect(planAgentReply({
+      AI: { run } as unknown as Ai,
+      APP_MODE: 'live',
+      TASTYTRADE_CLIENT_SECRET: configured,
+      TASTYTRADE_REFRESH_TOKEN: configured,
+    }, { message: 'Draft something incomplete.' }, undefined)).rejects.toThrow()
   })
 })
