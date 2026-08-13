@@ -66,6 +66,9 @@ describe('tastytrade normalization', () => {
       symbol: 'SPY', price: 700, ivIndex: 18, ivRank: 25, ivPercentile: 30,
       position: true, updatedAt: '2026-08-13T13:31:00.000Z',
     })
+    expect(liveTickerFromRecords('SPY', metrics, {
+      symbol: 'SPY', mark: '700', prevDayClose: '695', updatedAt: '2026-08-13T13:31:00.000Z',
+    }, false)?.change).toBe(5)
     expect(liveTickerFromRecords('SPY', undefined, quote, false)).toBeUndefined()
     expect(liveTickerFromRecords('SPY', metrics, { ...quote, 'updated-at': undefined }, false)).toBeUndefined()
   })

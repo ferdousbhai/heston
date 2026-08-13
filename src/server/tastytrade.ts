@@ -49,6 +49,17 @@ function bounded(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
+function previousCloseValue(quote: JsonRecord | undefined): number | undefined {
+  return numberValue(
+    quote?.prevClose
+    ?? quote?.['prev-close']
+    ?? quote?.previousClose
+    ?? quote?.['previous-close']
+    ?? quote?.prevDayClose
+    ?? quote?.['prev-day-close'],
+  )
+}
+
 /** tastytrade volatility metrics are decimal ratios; the UI contract uses percentage points. */
 export function percentMetric(value: unknown, max = 100): number | undefined {
   const parsed = numberValue(value)
@@ -211,7 +222,7 @@ export function liveTickerFromRecords(
 ): Ticker | undefined {
   if (!metrics || !quote) return undefined
   const price = numberValue(quote.mark ?? quote['mark-price'] ?? quote.last ?? quote['last-price'] ?? quote.close)
-  const previousClose = numberValue(quote.prevClose ?? quote['previous-close'] ?? quote.previousClose)
+  const previousClose = previousCloseValue(quote)
   const explicitChange = numberValue(quote.change)
   const explicitChangePercent = numberValue(quote['change-percent'] ?? quote.changePercent)
   const ivIndex = percentMetric(metrics['implied-volatility-index'], 500)
@@ -362,7 +373,7 @@ export async function loadMarketSnapshot(
         hasIvRank: percentMetric(metric?.['implied-volatility-index-rank'] ?? metric?.['implied-volatility-rank']) !== undefined,
         hasLiquidity: numberValue(metric?.['liquidity-rating']) !== undefined,
         hasMetric: Boolean(metric),
-        hasPreviousClose: numberValue(quote?.prevClose ?? quote?.['previous-close'] ?? quote?.previousClose) !== undefined,
+        hasPreviousClose: previousCloseValue(quote) !== undefined,
         hasPrice: numberValue(quote?.mark ?? quote?.['mark-price'] ?? quote?.last ?? quote?.['last-price'] ?? quote?.close) !== undefined,
         hasQuote: Boolean(quote),
         hasTimestamp: Number.isFinite(Date.parse(stringValue(quote?.updatedAt ?? quote?.['updated-at']) ?? '')),
