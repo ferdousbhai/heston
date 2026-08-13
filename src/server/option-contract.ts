@@ -49,5 +49,28 @@ export async function resolveEquityOptionContract(
   }
   if (matches.size === 1) return [...matches.values()][0]!
   if (matches.size > 1) throw new Error('Requested option contract is ambiguous')
+  console.warn('OptionContractUnavailable', JSON.stringify({
+    requested: { underlying: action.underlying, expiry: action.expiry, strike: action.strike, optionType: action.optionType },
+    chains: rows(data.items).map((chain) => {
+      const expirations = rows(chain.expirations)
+      const requestedExpiration = expirations.find((expiration) => expiration['expiration-date'] === action.expiry)
+      const deliverables = chain.deliverables
+      return {
+        underlying: chain['underlying-symbol'],
+        root: chain['root-symbol'],
+        chainType: chain['option-chain-type'],
+        sharesPerContract: chain['shares-per-contract'],
+        deliverables: Array.isArray(deliverables)
+          ? `array:${deliverables.length}`
+          : deliverables && typeof deliverables === 'object'
+            ? `object:${Object.keys(deliverables).sort().join(',')}`
+            : String(deliverables),
+        expirationCount: expirations.length,
+        requestedExpiryExists: Boolean(requestedExpiration),
+        requestedStrikeExists: rows(requestedExpiration?.strikes)
+          .some((strike) => Number(strike['strike-price']) === action.strike),
+      }
+    }),
+  }))
   throw new Error('Requested option contract is not available')
 }
