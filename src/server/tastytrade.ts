@@ -350,7 +350,27 @@ export async function loadMarketSnapshot(
     )
     return ticker ? [ticker] : []
   })
-  if (symbols.length && tickers.length === 0) throw new Error('TastytradeSnapshot:no-complete-tickers')
+  if (symbols.length && tickers.length === 0) {
+    const metric = metricBySymbol.get(symbols[0]!)
+    const quote = quoteBySymbol.get(symbols[0]!)
+    console.error('TastytradeSnapshotIncompleteTicker', JSON.stringify({
+      metricCount: metrics.length,
+      quoteCount: quotes.length,
+      sample: {
+        hasIvIndex: percentMetric(metric?.['implied-volatility-index'], 500) !== undefined,
+        hasIvPercentile: percentMetric(metric?.['implied-volatility-percentile']) !== undefined,
+        hasIvRank: percentMetric(metric?.['implied-volatility-index-rank'] ?? metric?.['implied-volatility-rank']) !== undefined,
+        hasLiquidity: numberValue(metric?.['liquidity-rating']) !== undefined,
+        hasMetric: Boolean(metric),
+        hasPreviousClose: numberValue(quote?.prevClose ?? quote?.['previous-close'] ?? quote?.previousClose) !== undefined,
+        hasPrice: numberValue(quote?.mark ?? quote?.['mark-price'] ?? quote?.last ?? quote?.['last-price'] ?? quote?.close) !== undefined,
+        hasQuote: Boolean(quote),
+        hasTimestamp: Number.isFinite(Date.parse(stringValue(quote?.updatedAt ?? quote?.['updated-at']) ?? '')),
+      },
+      symbolCount: symbols.length,
+    }))
+    throw new Error('TastytradeSnapshot:no-complete-tickers')
+  }
   const metricSymbols = metrics
     .map((metric) => stringValue(metric.symbol)?.toUpperCase())
     .filter((symbol): symbol is string => Boolean(symbol))
