@@ -104,6 +104,12 @@ async function loadRiskAccount(env: AppEnv, accountNumber: string): Promise<Risk
   const withdrawableCash = balanceValue(balances, ['cash-available-to-withdraw'])
   if (netLiquidatingValue === undefined || netLiquidatingValue <= 0
     || cashBalance === undefined || withdrawableCash === undefined) {
+    console.warn('PortfolioBalanceFieldsUnavailable', JSON.stringify({
+      keys: Object.keys(balances).filter((key) => /cash|liquid|withdraw/i.test(key)).sort(),
+      hasNetLiquidatingValue: netLiquidatingValue !== undefined,
+      hasCashBalance: cashBalance !== undefined,
+      hasWithdrawableCash: withdrawableCash !== undefined,
+    }))
     throw new PortfolioRiskError("Dan's portfolio guard could not verify net liquidation value and unencumbered cash.")
   }
   const cash = Math.min(cashBalance, withdrawableCash)
