@@ -44,6 +44,7 @@ test('mobile market, research, picker, and agent flows remain coherent', async (
 
   await page.getByRole('button', { name: 'Dan' }).click()
   await expect(page.getByRole('heading', { name: 'Dan' })).toBeVisible()
+  await page.getByRole('button', { name: 'Clear conversation' }).click()
   const composer = page.getByPlaceholder('Ask about a ticker or draft an order…')
   await composer.fill('Why is NVDA volatility expensive?')
   await page.getByRole('button', { name: 'Send message' }).click()
@@ -51,7 +52,21 @@ test('mobile market, research, picker, and agent flows remain coherent', async (
 
   await composer.fill('Buy 1 SPY 700 call expiring 2026-09-18 at $5.20')
   await page.getByRole('button', { name: 'Send message' }).click()
+  const toolCall = page.getByRole('button', { name: /Preparing brokerage action/ }).last()
+  await expect(toolCall).toBeVisible()
+  await toolCall.click()
+  await expect(page.locator('.tool-call-detail').last()).toContainText('place_option_order')
   await expect(page.getByText('Brokerage confirmation')).toBeVisible()
+  await expect(page.getByLabel('Agent runtime usage')).toContainText('pi · spice-demo')
+  await page.route('**/api/actions/*', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ error: 'Action service temporarily unavailable' }),
+    status: 503,
+  }))
+  await page.getByRole('button', { name: 'Discard' }).click()
+  await expect(page.getByRole('alert')).toHaveText('Action service temporarily unavailable')
+  await expect(page.getByText('Brokerage confirmation')).toBeVisible()
+  await page.unroute('**/api/actions/*')
   await page.getByRole('button', { name: 'Discard' }).click()
   await expect(page.getByText('Demo action discarded')).toBeVisible()
 

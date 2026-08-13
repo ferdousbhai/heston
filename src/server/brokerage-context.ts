@@ -1,8 +1,12 @@
+import { type Ticker } from '../domain/market'
 import { type AppEnv } from './env'
 import { resolveAccountNumber, tastyRequest } from './tastytrade'
 import { accountBalanceRecord, isWorkingOrderRecord } from './tastytrade-payload'
 
 type JsonRecord = Record<string, unknown>
+
+type AgentMarketTicker = Pick<Ticker,
+  'changePercent' | 'earningsDate' | 'ivIndex' | 'ivPercentile' | 'ivRank' | 'liquidity' | 'price' | 'symbol'>
 
 export interface BrokerageContext {
   accountNumber: string
@@ -104,6 +108,51 @@ export async function loadBrokerageContext(env: AppEnv): Promise<BrokerageContex
       symbols: (Array.isArray(row['watchlist-entries']) ? row['watchlist-entries'].map(record) : [])
         .map((entry) => text(entry.symbol).toUpperCase()).filter(Boolean).slice(0, 100),
     })),
+  }
+}
+
+/** Keep model context factual and compact while retaining the account data needed for brokerage actions. */
+export function buildAgentRuntimeContext(
+  context: BrokerageContext | undefined,
+  tickers: readonly AgentMarketTicker[],
+  selectedTicker?: AgentMarketTicker,
+) {
+  const relevantSymbols = new Set(context?.positions.map((position) => position.underlying))
+  if (selectedTicker) relevantSymbols.add(selectedTicker.symbol.toUpperCase())
+  const tickerBySymbol = new Map([...tickers, ...(selectedTicker ? [selectedTicker] : [])]
+    .map((ticker) => [ticker.symbol.toUpperCase(), ticker]))
+  const marketMetrics = Object.fromEntries([...relevantSymbols].map((symbol) => {
+    const ticker = tickerBySymbol.get(symbol)
+    return [symbol, ticker ? {
+      price: ticker.price,
+      changePercent: ticker.changePercent,
+      ivIndex: ticker.ivIndex,
+      ivRank: ticker.ivRank,
+      ivPercentile: ticker.ivPercentile,
+      liquidity: ticker.liquidity,
+      earningsDate: ticker.earningsDate,
+    } : null]
+  }))
+  const marketContext = {
+    ...(selectedTicker ? { selectedSymbol: selectedTicker.symbol } : {}),
+    ...(relevantSymbols.size ? { marketMetrics } : {}),
+  }
+  if (!context) return marketContext
+
+  const unavailable = (Object.entries(context.availability) as Array<[keyof BrokerageContext['availability'], boolean]>)
+    .filter(([, available]) => !available)
+    .map(([section]) => section)
+
+  return {
+    ...marketContext,
+    balances: {
+      buyingPower: context.balances.buyingPower,
+      netLiquidatingValue: context.balances.netLiquidatingValue,
+    },
+    positions: context.positions,
+    orders: context.orders,
+    watchlists: context.watchlists,
+    ...(unavailable.length ? { unavailable } : {}),
   }
 }
 

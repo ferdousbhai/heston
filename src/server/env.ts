@@ -6,6 +6,7 @@ export interface AppEnv {
   AUTH_OWNER_EMAIL?: SecretsStoreSecret
   BETTER_AUTH_SECRET?: SecretsStoreSecret
   DB?: D1Database
+  DanAgent?: DurableObjectNamespace
   GOOGLE_CLIENT_ID?: SecretsStoreSecret
   GOOGLE_CLIENT_SECRET?: SecretsStoreSecret
   MARKET_FEED?: DurableObjectNamespace

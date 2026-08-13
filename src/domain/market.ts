@@ -65,6 +65,12 @@ export type MarketSnapshot = z.infer<typeof MarketSnapshotSchema>
 
 export type VolatilityVerdict = 'cheap' | 'fair' | 'rich'
 
+const marketMetricFormatter = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 })
+
+export function formatMarketMetric(value: number): string {
+  return marketMetricFormatter.format(value)
+}
+
 export function volatilityVerdict(ticker: Pick<Ticker, 'ivRank' | 'ivPercentile'>): VolatilityVerdict {
   if (ticker.ivRank <= 30 && ticker.ivPercentile <= 35) return 'cheap'
   if (ticker.ivRank >= 70 || ticker.ivPercentile >= 80) return 'rich'

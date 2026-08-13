@@ -31,7 +31,7 @@ function randomToken(): string {
   return base64Url(bytes)
 }
 
-async function storePendingAction(env: AppEnv, action: BrokerageAction): Promise<PendingAction> {
+export async function preparePendingAction(env: AppEnv, action: BrokerageAction): Promise<PendingAction> {
   const id = crypto.randomUUID()
   const token = randomToken()
   const createdAt = new Date()
@@ -76,7 +76,7 @@ export async function chatWithAgent(env: AppEnv, input: ChatRequest): Promise<Ag
   const plan = await planAgentReply(env, input, ticker, account)
   if (!plan.action) return { message: plan.message }
   try {
-    return { message: plan.message, pendingAction: await storePendingAction(env, plan.action) }
+    return { message: plan.message, pendingAction: await preparePendingAction(env, plan.action) }
   } catch (error) {
     if (error instanceof PortfolioRiskError) return { message: `I won't draft this trade. ${error.message}` }
     throw error

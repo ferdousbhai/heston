@@ -36,7 +36,7 @@ function tickerContext(ticker: Ticker | undefined) {
   }
 }
 
-function demoPlan(message: string, ticker: Ticker | undefined) {
+export function demoPlan(message: string, ticker: Ticker | undefined) {
   const optionMatch = message.match(/\b(buy|sell)\s+(\d+)\s+([A-Za-z.]{1,8})\s+(\d+(?:\.\d+)?)\s*(call|put).*?(\d{4}-\d{2}-\d{2}).*?(?:\$|at\s+)(\d+(?:\.\d+)?)/i)
   if (optionMatch) {
     const verb = optionMatch[1]?.toLowerCase()

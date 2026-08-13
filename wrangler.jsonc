@@ -5,10 +5,14 @@
   "compatibility_flags": ["nodejs_compat"],
   "main": "./src/server.ts",
   "durable_objects": {
-    "bindings": [{ "name": "MARKET_FEED", "class_name": "MarketFeed" }]
+    "bindings": [
+      { "name": "MARKET_FEED", "class_name": "MarketFeed" },
+      { "name": "DanAgent", "class_name": "DanAgent" }
+    ]
   },
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["MarketFeed"] }
+    { "tag": "v1", "new_sqlite_classes": ["MarketFeed"] },
+    { "tag": "v2", "new_sqlite_classes": ["DanAgent"] }
   ],
   "ai": { "binding": "AI" },
   "secrets_store_secrets": [

@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { demoTickers } from '../src/domain/demo'
 import { BrokerageActionSchema, ChatRequestSchema, ConfirmRequestSchema } from '../src/server/agent-contracts'
 import { planAgentReply } from '../src/server/agent-planner'
+import { createPiRuntime } from '../src/server/pi-runtime'
 
 describe('brokerage input boundary', () => {
   it('accepts a fully specified, bounded option order draft', () => {
@@ -103,5 +105,30 @@ describe('live Dan boundary', () => {
       TASTYTRADE_CLIENT_SECRET: configured,
       TASTYTRADE_REFRESH_TOKEN: configured,
     }, { message: 'Draft something incomplete.' }, undefined)).rejects.toThrow()
+  })
+})
+
+describe('pi runtime protocol', () => {
+  it('streams a demo brokerage draft as a real pi tool call', async () => {
+    const runtime = createPiRuntime(undefined, demoTickers.find((ticker) => ticker.symbol === 'SPY'))
+    const stream = runtime.stream(runtime.model, {
+      messages: [{
+        content: 'Buy 1 SPY 700 call expiring 2026-09-18 at $5.20',
+        role: 'user',
+        timestamp: Date.now(),
+      }],
+      systemPrompt: 'Test',
+      tools: [],
+    }, {})
+    const eventTypes: string[] = []
+    for await (const event of stream) eventTypes.push(event.type)
+    const result = await stream.result()
+
+    expect(eventTypes).toEqual(['start', 'toolcall_start', 'toolcall_delta', 'toolcall_end', 'done'])
+    expect(result.stopReason).toBe('toolUse')
+    expect(result.content).toContainEqual(expect.objectContaining({
+      name: 'prepare_brokerage_action',
+      type: 'toolCall',
+    }))
   })
 })

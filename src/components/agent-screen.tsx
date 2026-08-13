@@ -1,21 +1,96 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Bot, Send, ShieldCheck, Sparkles } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { useAgent } from 'agents/react'
+import { Bot, Check, ChevronRight, CircleStop, Clock3, Send, ShieldCheck, Sparkles, Trash2, Wrench, X } from 'lucide-react'
 
-import { volatilityVerdict, type Ticker } from '../domain/market'
+import {
+  isDanAgentEvent,
+  type AgentChatMessage,
+  type AgentToolCall,
+  type DanAgentState,
+  type PendingAction,
+} from '../domain/agent-chat'
+import { formatMarketMetric, volatilityVerdict, type Ticker } from '../domain/market'
 
-type PendingAction = {
-  expiresAt: string
-  id: string
-  preview: string
-  token: string
+type ProvisionalTool = AgentToolCall & { rawInput: string }
+type ProvisionalTurn = { reasoning: string; text: string; tools: ProvisionalTool[] }
+
+function formatTokens(value: number): string {
+  if (value < 1_000) return String(value)
+  if (value < 10_000) return `${(value / 1_000).toFixed(1)}k`
+  if (value < 1_000_000) return `${Math.round(value / 1_000)}k`
+  return `${(value / 1_000_000).toFixed(1)}m`
 }
 
-type ChatMessage = {
-  actionStatus?: string
-  id: string
-  pendingAction?: PendingAction
-  role: 'assistant' | 'user'
-  text: string
+function formatDuration(value: number | undefined): string | undefined {
+  if (value === undefined) return undefined
+  return value < 1_000 ? `${value}ms` : `${(value / 1_000).toFixed(1)}s`
+}
+
+function InlineText({ text }: { text: string }) {
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g)
+  return parts.map((part, index) => {
+    if (part.startsWith('**') && part.endsWith('**')) return <strong key={index}>{part.slice(2, -2)}</strong>
+    if (part.startsWith('`') && part.endsWith('`')) return <code key={index}>{part.slice(1, -1)}</code>
+    return <span key={index}>{part}</span>
+  })
+}
+
+function RichText({ text }: { text: string }) {
+  const sections = text.split('```')
+  const nodes: ReactNode[] = []
+  sections.forEach((section, sectionIndex) => {
+    if (sectionIndex % 2 === 1) {
+      nodes.push(<pre className="agent-code" key={`code-${sectionIndex}`}><code>{section.trim()}</code></pre>)
+      return
+    }
+    const lines = section.split('\n')
+    let list: string[] = []
+    const flushList = () => {
+      if (!list.length) return
+      nodes.push(<ul key={`list-${sectionIndex}-${nodes.length}`}>{list.map((line, index) => <li key={index}><InlineText text={line} /></li>)}</ul>)
+      list = []
+    }
+    lines.forEach((line, lineIndex) => {
+      if (/^[-*] /.test(line)) {
+        list.push(line.slice(2))
+        return
+      }
+      flushList()
+      if (!line.trim()) return
+      if (/^#{1,3} /.test(line)) {
+        nodes.push(<strong className="agent-markdown-heading" key={`${sectionIndex}-${lineIndex}`}><InlineText text={line.replace(/^#{1,3} /, '')} /></strong>)
+      } else {
+        nodes.push(<p key={`${sectionIndex}-${lineIndex}`}><InlineText text={line} /></p>)
+      }
+    })
+    flushList()
+  })
+  return <div className="agent-markdown">{nodes}</div>
+}
+
+function ToolCallRow({ tool }: { tool: AgentToolCall }) {
+  const [open, setOpen] = useState(false)
+  const duration = formatDuration(tool.durationMs)
+  return (
+    <div className={`tool-call ${tool.status}`}>
+      <button aria-expanded={open} onClick={() => setOpen((value) => !value)} type="button">
+        <span className="tool-call-icon"><Wrench size={13} aria-hidden="true" /></span>
+        <span className="tool-call-label">{tool.label}</span>
+        {duration && <span className="tool-call-duration">{duration}</span>}
+        <span className="tool-call-status" aria-label={tool.status}>
+          {tool.status === 'running' ? <i /> : tool.status === 'error' ? <X size={13} /> : <Check size={13} />}
+        </span>
+        <ChevronRight className={open ? 'open' : ''} size={13} aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="tool-call-detail">
+          <span>Input</span>
+          <pre>{JSON.stringify(tool.input, null, 2)}</pre>
+          {(tool.output || tool.error) && <><span>{tool.error ? 'Error' : 'Output'}</span><pre>{tool.error ?? tool.output}</pre></>}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function ActionCard({
@@ -28,27 +103,34 @@ function ActionCard({
   onResolved: (messageId: string, status: string) => void
 }) {
   const [working, setWorking] = useState(false)
+  const [error, setError] = useState<string>()
   const resolve = async (decision: 'confirm' | 'deny') => {
+    setError(undefined)
     setWorking(true)
     try {
       const response = await fetch(`/api/actions/${encodeURIComponent(action.id)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ decision, token: action.token }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
       })
       const payload = await response.json() as { detail?: string; error?: string }
+      if (!response.ok) {
+        setError(payload.error ?? 'The action could not be resolved')
+        return
+      }
       onResolved(messageId, payload.detail ?? payload.error ?? 'Action resolved')
     } catch {
-      onResolved(messageId, 'Could not reach the action service')
+      setError('Could not reach the action service')
     } finally {
       setWorking(false)
     }
   }
   return (
     <div className="action-card">
-      <div className="action-label"><ShieldCheck size={16} aria-hidden="true" /><span>Brokerage confirmation</span></div>
+      <div className="action-label"><ShieldCheck size={15} aria-hidden="true" /><span>Brokerage confirmation</span></div>
       <strong>{action.preview}</strong>
-      <small>Expires in 5 minutes · orders are dry-run before submission</small>
+      <small>Short-lived draft · validated again before dispatch</small>
+      {error && <small className="action-error" role="alert">{error}</small>}
       <div className="action-buttons">
         <button disabled={working} onClick={() => resolve('deny')} type="button">Discard</button>
         <button disabled={working} onClick={() => resolve('confirm')} type="button">{working ? 'Working…' : 'Confirm action'}</button>
@@ -57,81 +139,168 @@ function ActionCard({
   )
 }
 
-export function AgentScreen({ selected }: { selected: Ticker }) {
-  const [messages, setMessages] = useState<ChatMessage[]>([{
-    id: 'welcome',
-    role: 'assistant',
-    text: `I’m looking at ${selected.symbol}. Ask me about option premium, account state, watchlists, or draft an order. Every tastytrade write stops for confirmation.`,
-  }])
-  const [input, setInput] = useState('')
-  const [sending, setSending] = useState(false)
-  const scrollRef = useRef<HTMLDivElement>(null)
-  useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }) }, [messages, sending])
+function TranscriptMessage({ message, onResolved }: {
+  message: AgentChatMessage
+  onResolved: (messageId: string, status: string) => void
+}) {
+  if (message.role === 'user') {
+    return (
+      <article className="agent-message user">
+        <div className="agent-message-meta"><span>you</span><time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>
+        <div className="user-prompt">{message.text}</div>
+      </article>
+    )
+  }
+  return (
+    <article className="agent-message assistant">
+      <div className="agent-message-meta"><span>dan</span><time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>
+      {message.reasoning && <details className="reasoning-trace"><summary>Thinking</summary><RichText text={message.reasoning} /></details>}
+      {message.text && <RichText text={message.text} />}
+      {message.toolCalls?.map((tool) => <ToolCallRow key={tool.id} tool={tool} />)}
+      {message.pendingAction && <ActionCard action={message.pendingAction} messageId={message.id} onResolved={onResolved} />}
+      {message.actionStatus && <div className="action-status"><ShieldCheck size={14} aria-hidden="true" />{message.actionStatus}</div>}
+      {message.usage && message.usage.totalTokens > 0 && (
+        <div className="message-usage">↑{formatTokens(message.usage.input)} ↓{formatTokens(message.usage.output)} · {message.stopReason ?? 'stop'}</div>
+      )}
+    </article>
+  )
+}
 
-  const send = async (text: string) => {
+function RuntimeFooter({ state }: { state: DanAgentState | undefined }) {
+  const totals = useMemo(() => (state?.messages ?? []).reduce((result, message) => {
+    if (!message.usage) return result
+    result.input += message.usage.input
+    result.output += message.usage.output
+    result.cacheRead += message.usage.cacheRead
+    result.cost += message.usage.cost
+    return result
+  }, { cacheRead: 0, cost: 0, input: 0, output: 0 }), [state?.messages])
+  const latestUsage = [...(state?.messages ?? [])].reverse().find((message) => message.usage)?.usage
+  const contextUsed = latestUsage ? latestUsage.input + latestUsage.cacheRead + latestUsage.cacheWrite : 0
+  const contextPercent = state?.contextWindow ? (contextUsed / state.contextWindow) * 100 : 0
+  return (
+    <div className="runtime-footer" aria-label="Agent runtime usage">
+      <span>↑{formatTokens(totals.input)} ↓{formatTokens(totals.output)}{totals.cacheRead ? ` R${formatTokens(totals.cacheRead)}` : ''}{totals.cost ? ` $${totals.cost.toFixed(3)}` : ''}</span>
+      <span>{state?.contextWindow ? `${contextPercent.toFixed(1)}%/${formatTokens(state.contextWindow)}` : 'context —'} · {state?.model ?? 'pi'}</span>
+    </div>
+  )
+}
+
+export function AgentScreen({ selected }: { selected: Ticker }) {
+  const [connected, setConnected] = useState(false)
+  const [input, setInput] = useState('')
+  const [provisional, setProvisional] = useState<ProvisionalTurn | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  const onAgentMessage = useCallback((message: MessageEvent) => {
+    if (typeof message.data !== 'string') return
+    let event: unknown
+    try { event = JSON.parse(message.data) } catch { return }
+    if (!isDanAgentEvent(event)) return
+    if (event.type === 'dan:turn_start') {
+      setProvisional({ reasoning: '', text: '', tools: [] })
+    } else if (event.type === 'dan:text_delta') {
+      setProvisional((current) => ({ reasoning: current?.reasoning ?? '', text: `${current?.text ?? ''}${event.delta}`, tools: current?.tools ?? [] }))
+    } else if (event.type === 'dan:reasoning_delta') {
+      setProvisional((current) => ({ reasoning: `${current?.reasoning ?? ''}${event.delta}`, text: current?.text ?? '', tools: current?.tools ?? [] }))
+    } else if (event.type === 'dan:tool_call_start') {
+      setProvisional((current) => ({
+        reasoning: current?.reasoning ?? '', text: current?.text ?? '',
+        tools: [...(current?.tools ?? []), { id: event.toolCallId, input: {}, label: event.toolName === 'prepare_brokerage_action' ? 'Preparing brokerage action' : event.toolName, name: event.toolName, rawInput: '', status: 'running' }],
+      }))
+    } else if (event.type === 'dan:tool_call_delta') {
+      setProvisional((current) => current ? {
+        ...current,
+        tools: current.tools.map((tool) => {
+          if (tool.id !== event.toolCallId) return tool
+          const rawInput = `${tool.rawInput}${event.delta}`
+          let parsed = tool.input
+          try { parsed = JSON.parse(rawInput) as Record<string, unknown> } catch { /* partial JSON */ }
+          return { ...tool, input: parsed, rawInput }
+        }),
+      } : current)
+    } else if (event.type === 'dan:tool_execution_start') {
+      setProvisional((current) => current ? { ...current, tools: current.tools.map((tool) => tool.id === event.toolCallId ? { ...tool, input: event.input } : tool) } : current)
+    } else if (event.type === 'dan:tool_execution_end') {
+      setProvisional((current) => current ? { ...current, tools: current.tools.map((tool) => tool.id === event.toolCallId ? { ...tool, durationMs: event.durationMs, error: event.error, output: event.output, status: event.error ? 'error' : 'complete' } : tool) } : current)
+    } else if (event.type === 'dan:turn_end' || event.type === 'dan:agent_end') {
+      setProvisional(null)
+    }
+  }, [])
+
+  const agent = useAgent<DanAgentState>({
+    agent: 'DanAgent',
+    name: 'owner',
+    onClose: () => setConnected(false),
+    onError: () => setConnected(false),
+    onMessage: onAgentMessage,
+    onOpen: () => setConnected(true),
+  })
+  const state = agent.state
+  const running = state?.status === 'running'
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
+  }, [provisional, state?.messages])
+
+  const send = (text: string) => {
     const trimmed = text.trim()
-    if (!trimmed || sending) return
+    if (!trimmed || running || !connected) return
     setInput('')
-    setSending(true)
-    setMessages((current) => [...current, { id: crypto.randomUUID(), role: 'user', text: trimmed }])
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: trimmed, selectedSymbol: selected.symbol }),
-      })
-      const payload = await response.json() as { error?: string; message?: string; pendingAction?: PendingAction }
-      setMessages((current) => [...current, {
-        id: crypto.randomUUID(), role: 'assistant',
-        text: payload.message ?? payload.error ?? 'I could not complete that request.',
-        pendingAction: payload.pendingAction,
-      }])
-    } catch {
-      setMessages((current) => [...current, {
-        id: crypto.randomUUID(), role: 'assistant',
-        text: 'I’m offline. Cached market data is still available, but brokerage actions require a connection.',
-      }])
-    } finally {
-      setSending(false)
+    agent.send(JSON.stringify({ message: trimmed, selectedSymbol: selected.symbol, type: 'submit' }))
+  }
+  const submit = (event: FormEvent) => { event.preventDefault(); send(input) }
+  const keyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      send(input)
     }
   }
-  const submit = (event: FormEvent) => { event.preventDefault(); void send(input) }
   const resolved = (messageId: string, status: string) => {
-    setMessages((current) => current.map((message) => (
-      message.id === messageId ? { ...message, pendingAction: undefined, actionStatus: status } : message
-    )))
+    agent.send(JSON.stringify({ messageId, status, type: 'action_resolved' }))
   }
   const suggestions = [
     `Why is ${selected.symbol} vol ${volatilityVerdict(selected)}?`,
     'Show my active positions',
     'Explain the safest bullish structure',
   ]
+  const hasUserMessage = state?.messages.some((message) => message.role === 'user')
+
   return (
     <div className="agent-screen">
       <header className="agent-header">
-        <span className="dan-avatar"><Bot size={22} /></span>
-        <div><h1>Dan</h1><p><i /> Connected to Spice Must Flow</p></div>
-        <button className="icon-button" type="button" aria-label="Agent controls"><ShieldCheck size={20} /></button>
+        <span className="dan-avatar"><Bot size={21} aria-hidden="true" /></span>
+        <div><h1>Dan</h1><p><i className={connected ? 'connected' : ''} />{connected ? `${state?.model ?? 'pi'} runtime` : 'Reconnecting…'}</p></div>
+        <button className="icon-button" disabled={running} onClick={() => agent.send(JSON.stringify({ type: 'clear' }))} type="button" aria-label="Clear conversation"><Trash2 size={17} /></button>
       </header>
-      <div className="chat-scroll" ref={scrollRef}>
-        <div className="context-chip"><Sparkles size={14} /> Live context · {selected.symbol} · IV rank {selected.ivRank}</div>
-        {messages.map((message) => (
-          <div className={`message-row ${message.role}`} key={message.id}>
-            {message.role === 'assistant' && <span className="mini-avatar">D</span>}
-            <div className="message-stack">
-              <div className="bubble">{message.text}</div>
-              {message.pendingAction && <ActionCard action={message.pendingAction} messageId={message.id} onResolved={resolved} />}
-              {message.actionStatus && <div className="action-status"><ShieldCheck size={15} />{message.actionStatus}</div>}
-            </div>
-          </div>
-        ))}
-        {sending && <div className="message-row assistant"><span className="mini-avatar">D</span><div className="bubble typing"><i /><i /><i /></div></div>}
+
+      <div className="chat-scroll" ref={scrollRef} aria-live="polite">
+        <div className="context-chip"><Sparkles size={13} /> Live context · {selected.symbol} · IV rank {formatMarketMetric(selected.ivRank)}</div>
+        {(state?.messages ?? []).map((message) => <TranscriptMessage key={message.id} message={message} onResolved={resolved} />)}
+        {running && provisional && (
+          <article className="agent-message assistant provisional">
+            <div className="agent-message-meta"><span>dan</span><span className="streaming-label">streaming</span></div>
+            {!provisional.text && !provisional.reasoning && provisional.tools.length === 0 && <div className="thinking-shimmer">Thinking</div>}
+            {provisional.reasoning && <details className="reasoning-trace" open><summary>Thinking</summary><RichText text={provisional.reasoning} /></details>}
+            {provisional.text && <RichText text={provisional.text} />}
+            {provisional.tools.map((tool) => <ToolCallRow key={tool.id} tool={tool} />)}
+          </article>
+        )}
+        {running && !provisional && <div className="thinking-shimmer">Thinking</div>}
+        {state?.error && !running && <div className="agent-runtime-error">{state.error}</div>}
       </div>
-      <div className="suggestion-row">{suggestions.map((suggestion) => <button onClick={() => void send(suggestion)} key={suggestion} type="button">{suggestion}</button>)}</div>
-      <form className="chat-composer" onSubmit={submit}>
-        <label><span className="sr-only">Message Dan</span><input value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ask about a ticker or draft an order…" /></label>
-        <button disabled={!input.trim() || sending} type="submit" aria-label="Send message"><Send size={18} /></button>
-      </form>
+
+      {!hasUserMessage && <div className="suggestion-row">{suggestions.map((suggestion) => <button disabled={!connected} onClick={() => send(suggestion)} key={suggestion} type="button">{suggestion}</button>)}</div>}
+      <div className="composer-shell">
+        <form className="chat-composer" onSubmit={submit}>
+          <label><span className="sr-only">Message Dan</span><textarea onChange={(event) => setInput(event.target.value)} onKeyDown={keyDown} placeholder="Ask about a ticker or draft an order…" rows={1} value={input} /></label>
+          {running
+            ? <button className="stop-button" onClick={() => agent.send(JSON.stringify({ type: 'cancel' }))} type="button" aria-label="Stop agent"><CircleStop size={18} /></button>
+            : <button disabled={!input.trim() || !connected} type="submit" aria-label="Send message"><Send size={17} /></button>}
+        </form>
+        <div className="composer-hints"><span><Clock3 size={11} /> durable history</span><span><ShieldCheck size={11} /> writes require approval</span></div>
+        <RuntimeFooter state={state} />
+      </div>
     </div>
   )
 }
