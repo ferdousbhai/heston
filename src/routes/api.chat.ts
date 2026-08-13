@@ -18,6 +18,7 @@ export const Route = createFileRoute('/api/chat')({
         try {
           return jsonNoStore(await chatWithAgent(workerEnv, parsed.data))
         } catch (error) {
+          console.error('AgentChatFailed', error instanceof Error ? `${error.name}:${error.message.slice(0, 500)}` : 'UnknownError')
           return jsonNoStore({ error: publicError(error) }, { status: 502 })
         }
       },
