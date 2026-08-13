@@ -4,6 +4,8 @@ import { type AppEnv } from './env'
 type JsonRecord = Record<string, unknown>
 
 const TASTYTRADE_METRICS_URL = 'https://developer.tastytrade.com/open-api-spec/market-metrics/'
+const D1_MAX_BOUND_PARAMETERS = 100
+const DELETE_SYMBOL_CHUNK_SIZE = D1_MAX_BOUND_PARAMETERS - 1
 
 function record(value: unknown): JsonRecord {
   return typeof value === 'object' && value !== null ? value as JsonRecord : {}
@@ -117,11 +119,12 @@ export async function persistAndLoadCatalysts(
   try {
     const normalizedSymbols = [...new Set(refreshedSymbols.map((symbol) => symbol.toUpperCase()))]
     const statements: D1PreparedStatement[] = []
-    if (normalizedSymbols.length) {
+    for (let start = 0; start < normalizedSymbols.length; start += DELETE_SYMBOL_CHUNK_SIZE) {
+      const symbols = normalizedSymbols.slice(start, start + DELETE_SYMBOL_CHUNK_SIZE)
       statements.push(env.DB.prepare(
         `DELETE FROM catalysts
-         WHERE source_name = ? AND symbol IN (${normalizedSymbols.map(() => '?').join(', ')})`,
-      ).bind('tastytrade market metrics', ...normalizedSymbols))
+         WHERE source_name = ? AND symbol IN (${symbols.map(() => '?').join(', ')})`,
+      ).bind('tastytrade market metrics', ...symbols))
     }
     statements.push(...observed.map((catalyst) => env.DB!.prepare(
         `INSERT INTO catalysts

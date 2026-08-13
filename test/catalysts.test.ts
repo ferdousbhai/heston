@@ -1,11 +1,34 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { catalystLabel, nextCatalystForSymbol, sortSymbolsByCatalyst, type Catalyst } from '../src/domain/catalyst'
-import { catalystsFromMarketMetrics, earningsDateFromMetric } from '../src/server/catalysts'
+import { catalystsFromMarketMetrics, earningsDateFromMetric, persistAndLoadCatalysts } from '../src/server/catalysts'
 
 const NOW = new Date('2026-08-13T16:00:00.000Z')
 
 describe('tastytrade catalyst normalization', () => {
+  it('stays within the D1 parameter limit when refreshing 100 symbols', async () => {
+    const boundParameterCounts: number[] = []
+    const batch = vi.fn(async () => [])
+    const database = {
+      batch,
+      prepare: vi.fn(() => ({
+        bind: (...values: unknown[]) => {
+          boundParameterCounts.push(values.length)
+          if (values.length > 100) throw new Error('too many SQL variables')
+          return {
+            all: async () => ({ results: [] }),
+          }
+        },
+      })),
+    } as unknown as D1Database
+
+    const symbols = Array.from({ length: 100 }, (_, index) => `T${index}`)
+    await expect(persistAndLoadCatalysts({ DB: database }, [], symbols, NOW)).resolves.toEqual([])
+
+    expect(batch).toHaveBeenCalledOnce()
+    expect(boundParameterCounts).toEqual([100, 2, 1])
+  })
+
   it('extracts upcoming earnings timing, confidence, and dividend dates', () => {
     const catalysts = catalystsFromMarketMetrics([{
       symbol: 'NVDA',
