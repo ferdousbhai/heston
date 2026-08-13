@@ -1,0 +1,48 @@
+import { type MarketSnapshot, type ResearchBrief, type Ticker, type Watchlist } from './market'
+
+const spark = (base: number, deltas: number[]) => deltas.map((delta) => Number((base + delta).toFixed(2)))
+const DEMO_UPDATED_AT = '2026-08-13T13:31:00.000Z'
+
+export const demoTickers: Ticker[] = [
+  { symbol: 'SPY', name: 'SPDR S&P 500 ETF', price: 691.24, change: 3.82, changePercent: 0.56, sparkline: spark(685, [0, 1.2, 0.4, 2.5, 1.7, 3.8, 4.5, 3.9, 5.2, 6.24]), ivRank: 18, ivPercentile: 23, ivIndex: 14.8, liquidity: 5, earningsDate: null, position: true, updatedAt: DEMO_UPDATED_AT },
+  { symbol: 'NVDA', name: 'NVIDIA', price: 191.68, change: 4.91, changePercent: 2.63, sparkline: spark(181, [0, 2.4, 1.3, 3.1, 5.8, 4.4, 7.2, 8.1, 7.6, 10.68]), ivRank: 72, ivPercentile: 81, ivIndex: 48.2, liquidity: 5, earningsDate: '2026-08-26', position: true, updatedAt: DEMO_UPDATED_AT },
+  { symbol: 'AAPL', name: 'Apple', price: 236.41, change: -1.84, changePercent: -0.77, sparkline: spark(241, [0, -0.5, 0.3, -1.4, -2.1, -1.5, -3, -2.4, -3.7, -4.59]), ivRank: 46, ivPercentile: 52, ivIndex: 27.4, liquidity: 5, earningsDate: '2026-10-29', position: false, updatedAt: DEMO_UPDATED_AT },
+  { symbol: 'TSLA', name: 'Tesla', price: 338.12, change: -9.77, changePercent: -2.81, sparkline: spark(354, [0, -2.2, -1.1, -4.8, -6.4, -5.7, -9.2, -11.4, -12.2, -15.88]), ivRank: 84, ivPercentile: 89, ivIndex: 61.6, liquidity: 5, earningsDate: '2026-10-21', position: false, updatedAt: DEMO_UPDATED_AT },
+  { symbol: 'QQQ', name: 'Invesco QQQ', price: 618.73, change: 5.02, changePercent: 0.82, sparkline: spark(609, [0, 1.4, 0.8, 3.2, 4.7, 4.1, 6.5, 7.2, 8.4, 9.73]), ivRank: 24, ivPercentile: 31, ivIndex: 18.6, liquidity: 5, earningsDate: null, position: false, updatedAt: DEMO_UPDATED_AT },
+  { symbol: 'AMD', name: 'Advanced Micro Devices', price: 176.22, change: 2.08, changePercent: 1.19, sparkline: spark(170, [0, 0.8, -0.4, 1.7, 2.4, 2, 3.8, 4.2, 5.1, 6.22]), ivRank: 57, ivPercentile: 64, ivIndex: 43.5, liquidity: 4, earningsDate: '2026-11-03', position: true, updatedAt: DEMO_UPDATED_AT },
+  { symbol: 'IWM', name: 'iShares Russell 2000 ETF', price: 243.86, change: 1.37, changePercent: 0.57, sparkline: spark(239, [0, 0.3, -0.2, 1.1, 0.9, 2.4, 2.1, 3.2, 4, 4.86]), ivRank: 66, ivPercentile: 72, ivIndex: 25.9, liquidity: 5, earningsDate: null, position: false, updatedAt: DEMO_UPDATED_AT },
+  { symbol: 'META', name: 'Meta Platforms', price: 782.17, change: 8.31, changePercent: 1.07, sparkline: spark(767, [0, 1.3, 3.2, 2.7, 6.1, 5.4, 8, 10.2, 12.6, 15.17]), ivRank: 35, ivPercentile: 44, ivIndex: 32.8, liquidity: 4, earningsDate: '2026-10-28', position: false, updatedAt: DEMO_UPDATED_AT },
+]
+
+export const demoWatchlists: Watchlist[] = [
+  { id: 'private-core', kind: 'private', name: 'My Watchlist', symbols: ['SPY', 'NVDA', 'AAPL', 'TSLA'] },
+  { id: 'positions', kind: 'positions', name: 'Active Positions', symbols: ['SPY', 'NVDA', 'AMD'] },
+  { id: 'public-liquid', kind: 'public', name: 'Liquid ETFs', symbols: ['SPY', 'QQQ', 'IWM'] },
+  { id: 'public-volume', kind: 'public', name: 'Options Volume', symbols: ['NVDA', 'TSLA', 'AAPL', 'AMD'] },
+  { id: 'public-earnings', kind: 'public', name: 'Upcoming Earnings', symbols: ['NVDA', 'META', 'AAPL'] },
+]
+
+export const demoResearch: ResearchBrief = {
+  id: 'brief-2026-08-13', publishedAt: '2026-08-13T13:35:00.000Z',
+  title: 'Calm index tape, expensive single-name stories',
+  summary: 'Index volatility remains subdued while event premium concentrates in semiconductors and high-beta growth. Keep broad-market convexity on the shopping list; make single-name longs earn their carry.',
+  regime: 'Selective long vol', regimeDetail: 'Cheap index protection · rich event volatility',
+  pulse: [
+    { label: 'SPY IV rank', value: '18', tone: 'down' },
+    { label: 'NVDA IV rank', value: '72', tone: 'up' },
+    { label: 'SPY IV percentile', value: '23', tone: 'down' },
+  ],
+  ideas: [
+    { symbol: 'SPY', direction: 'bullish', setup: 'Defined-risk call spread', horizon: '45–75 DTE', thesis: 'Low index IV keeps upside convexity inexpensive while participation broadens.', risk: 'A volatility shock can steepen skew before delta offsets the mark-to-market loss.' },
+    { symbol: 'NVDA', direction: 'neutral', setup: 'Wait or sell defined risk', horizon: 'Through earnings', thesis: 'Event demand has pushed IV rank above 70; avoid paying peak narrative premium.', risk: 'A larger-than-implied gap can overwhelm short premium even when volatility is rich.' },
+    { symbol: 'IWM', direction: 'bullish', setup: 'Call diagonal', horizon: '60–120 DTE', thesis: 'Small-cap catch-up has room, but elevated near-term premium rewards a diagonal structure.', risk: 'Funding stress or renewed mega-cap concentration can stall relative performance.' },
+  ],
+  sources: [
+    { label: 'tastytrade market metrics', url: 'https://developer.tastytrade.com/open-api-spec/market-metrics/' },
+    { label: 'tastytrade account data', url: 'https://developer.tastytrade.com/basic-api-usage/' },
+  ],
+}
+
+export function demoSnapshot(): MarketSnapshot {
+  return { source: 'demo', syncedAt: DEMO_UPDATED_AT, marketState: 'open', watchlists: demoWatchlists, tickers: demoTickers, research: demoResearch }
+}

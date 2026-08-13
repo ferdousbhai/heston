@@ -1,0 +1,88 @@
+import { demoResearch } from '../domain/demo'
+import { ResearchBriefSchema, type ResearchBrief } from '../domain/market'
+import { type AppEnv, isLiveTastytrade } from './env'
+import { collectResearchSources } from './research-sources'
+import { hasSecret, readSecret } from './secrets'
+import { loadMarketSnapshot } from './tastytrade'
+
+type AiTextResult = { response?: string }
+
+function newYorkParts(date: Date) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(date)
+  return Object.fromEntries(parts.map((part) => [part.type, part.value]))
+}
+
+export function shouldRunDailyResearch(date: Date): boolean {
+  const parts = newYorkParts(date)
+  return parts.weekday !== 'Sat' && parts.weekday !== 'Sun' && parts.hour === '09' && parts.minute === '30'
+}
+
+function extractJson(response: string): unknown {
+  const fenced = response.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]
+  return JSON.parse(fenced ?? response)
+}
+
+export async function generateDailyResearch(env: AppEnv, now = new Date()): Promise<ResearchBrief> {
+  const snapshot = await loadMarketSnapshot(env)
+  if (!env.AI || !isLiveTastytrade(env)) return demoResearch
+  const reddit = hasSecret(env.REDDIT_CLIENT_ID) && hasSecret(env.REDDIT_CLIENT_SECRET)
+    ? {
+        clientId: await readSecret(env.REDDIT_CLIENT_ID, 'REDDIT_CLIENT_ID'),
+        clientSecret: await readSecret(env.REDDIT_CLIENT_SECRET, 'REDDIT_CLIENT_SECRET'),
+      }
+    : undefined
+  const headlines = await collectResearchSources({ reddit })
+  const compactMarket = snapshot.tickers.map((ticker) => ({
+    symbol: ticker.symbol,
+    changePercent: ticker.changePercent,
+    ivRank: ticker.ivRank,
+    ivPercentile: ticker.ivPercentile,
+    ivIndex: ticker.ivIndex,
+    liquidity: ticker.liquidity,
+    position: ticker.position,
+    earningsDate: ticker.earningsDate,
+  }))
+  const result = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
+    messages: [
+      {
+        role: 'system',
+        content: 'You are a skeptical options research editor. Use only supplied market metrics and headlines. Distinguish reported facts from your inference. IV rank below 30 can favor long premium; above 70 makes premium comparatively rich. Prefer defined risk, state one failure mode, never claim certainty, and never place trades. Return JSON only.',
+      },
+      {
+        role: 'user',
+        content: `Create the daily mobile market brief for ${now.toISOString()}. Market metrics: ${JSON.stringify(compactMarket)}. Official headlines: ${JSON.stringify(headlines)}. Return fields: id, publishedAt, title, summary, regime, regimeDetail, pulse (3 items with label/value/tone), ideas (1-3 with symbol/direction/setup/thesis/risk/horizon), sources (always an empty array; trusted citations are attached by the application).`,
+      },
+    ],
+    response_format: {
+      type: 'json_schema',
+      json_schema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' }, publishedAt: { type: 'string' },
+          title: { type: 'string' }, summary: { type: 'string' }, regime: { type: 'string' },
+          regimeDetail: { type: 'string' }, pulse: { type: 'array' }, ideas: { type: 'array' }, sources: { type: 'array' },
+        },
+        required: ['id', 'publishedAt', 'title', 'summary', 'regime', 'regimeDetail', 'pulse', 'ideas', 'sources'],
+      },
+    },
+    max_tokens: 1_400,
+    temperature: 0.35,
+  }) as AiTextResult
+  const brief = ResearchBriefSchema.parse({
+    ...extractJson(result.response ?? '') as Record<string, unknown>,
+    sources: [
+      { label: 'tastytrade market metrics', url: 'https://developer.tastytrade.com/open-api-spec/market-metrics/' },
+      ...headlines.map((headline) => ({ label: `${headline.source} · ${headline.title}`, url: headline.url })),
+    ],
+  })
+  if (env.DB) {
+    await env.DB.prepare(
+      `INSERT INTO research_briefs (id, published_at, payload_json)
+       VALUES (?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET published_at = excluded.published_at, payload_json = excluded.payload_json`,
+    ).bind(brief.id, brief.publishedAt, JSON.stringify(brief)).run()
+  }
+  return brief
+}

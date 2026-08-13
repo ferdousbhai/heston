@@ -1,0 +1,35 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "spice",
+  "compatibility_date": "2026-08-13",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "./src/server.ts",
+  "ai": { "binding": "AI" },
+  "secrets_store_secrets": [
+    {
+      "binding": "REDDIT_CLIENT_ID",
+      "store_id": "a436a6cefedc4acd8bb920cdbc202c1c",
+      "secret_name": "reddit-client-id"
+    },
+    {
+      "binding": "REDDIT_CLIENT_SECRET",
+      "store_id": "a436a6cefedc4acd8bb920cdbc202c1c",
+      "secret_name": "reddit-client-secret"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "spice",
+      "database_id": "156976db-742c-4407-8ec0-57c38add05c4",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "triggers": {
+    "crons": ["30 13,14 * * 1-5"]
+  },
+  "vars": {
+    "APP_MODE": "demo",
+    "TASTYTRADE_API_BASE": "https://api.tastyworks.com"
+  }
+}
