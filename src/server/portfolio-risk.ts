@@ -104,7 +104,13 @@ async function loadRiskAccount(env: AppEnv, accountNumber: string): Promise<Risk
   const withdrawableCash = balanceValue(balances, ['cash-available-to-withdraw'])
   if (netLiquidatingValue === undefined || netLiquidatingValue <= 0
     || cashBalance === undefined || withdrawableCash === undefined) {
+    const rawData = body.data
+    const dataRecord = record(rawData)
     console.warn('PortfolioBalanceFieldsUnavailable', JSON.stringify({
+      topLevelKeys: Object.keys(body).sort(),
+      dataKind: Array.isArray(rawData) ? 'array' : rawData === null ? 'null' : typeof rawData,
+      dataKeys: Object.keys(dataRecord).sort(),
+      dataItemCount: Array.isArray(dataRecord.items) ? dataRecord.items.length : undefined,
       keys: Object.keys(balances).filter((key) => /cash|liquid|withdraw/i.test(key)).sort(),
       hasNetLiquidatingValue: netLiquidatingValue !== undefined,
       hasCashBalance: cashBalance !== undefined,
