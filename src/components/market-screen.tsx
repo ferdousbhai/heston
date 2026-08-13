@@ -1,30 +1,33 @@
-import { ArrowDownRight, ArrowUpRight, ChevronDown, Search } from 'lucide-react'
+import { ArrowDownRight, ArrowUpRight, ChevronDown } from 'lucide-react'
 
-import { catalystLabel, nextCatalystForSymbol, sortSymbolsByCatalyst, type Catalyst } from '../domain/catalyst'
+import { catalystLabel, nextCatalystForSymbol, sortSymbolsByCatalyst, upcomingInterestedSymbols, type Catalyst } from '../domain/catalyst'
 import { volatilityVerdict, type Ticker, type Watchlist } from '../domain/market'
 import { LiquidityMetric, MetricGauge, Sparkline } from './market-visuals'
 
-function WatchlistStrip({
-  active,
+function CatalystStories({
   catalysts,
-  onOpen,
   onSelect,
   tickers,
+  watchlists,
 }: {
-  active: Watchlist
   catalysts: Catalyst[]
-  onOpen: () => void
   onSelect: (symbol: string) => void
   tickers: Ticker[]
+  watchlists: Watchlist[]
 }) {
-  const visible = sortSymbolsByCatalyst(active.symbols, catalysts)
+  const positionSymbols = watchlists.find((watchlist) => watchlist.kind === 'positions')?.symbols ?? []
+  const privateSymbols = watchlists
+    .filter((watchlist) => watchlist.kind === 'private')
+    .flatMap((watchlist) => watchlist.symbols)
+  const visible = upcomingInterestedSymbols(positionSymbols, privateSymbols, catalysts)
     .map((symbol) => tickers.find((ticker) => ticker.symbol === symbol))
     .filter((ticker): ticker is Ticker => Boolean(ticker))
   return (
-    <section className="stories" aria-label={`${active.name} symbols`}>
-      <button className="watchlist-title" onClick={onOpen} type="button">
-        <span>{active.name}</span><ChevronDown size={17} aria-hidden="true" />
-      </button>
+    <section className="stories" aria-labelledby="catalyst-stories-title">
+      <header className="stories-title">
+        <h2 id="catalyst-stories-title">Upcoming catalysts</h2>
+        <span>30 days</span>
+      </header>
       <div className="story-row">
         {visible.map((ticker) => {
           const catalyst = nextCatalystForSymbol(ticker.symbol, catalysts)
@@ -42,10 +45,7 @@ function WatchlistStrip({
             </button>
           )
         })}
-        <button className="story" onClick={onOpen} type="button">
-          <span className="story-ring more"><Search size={18} aria-hidden="true" /></span>
-          <span className="story-symbol">Browse</span>
-        </button>
+        {!visible.length && <p className="story-empty">Nothing scheduled in the next 30 days.</p>}
       </div>
     </section>
   )
@@ -58,6 +58,7 @@ export function MarketScreen({
   onSelectTicker,
   selected,
   tickers,
+  watchlists,
 }: {
   activeWatchlist: Watchlist
   catalysts: Catalyst[]
@@ -65,13 +66,14 @@ export function MarketScreen({
   onSelectTicker: (symbol: string) => void
   selected: Ticker
   tickers: Ticker[]
+  watchlists: Watchlist[]
 }) {
   const watchTickers = sortSymbolsByCatalyst(activeWatchlist.symbols, catalysts)
     .map((symbol) => tickers.find((ticker) => ticker.symbol === symbol))
     .filter((ticker): ticker is Ticker => Boolean(ticker))
   return (
     <>
-      <WatchlistStrip active={activeWatchlist} catalysts={catalysts} onOpen={onOpenPicker} onSelect={onSelectTicker} tickers={tickers} />
+      <CatalystStories catalysts={catalysts} onSelect={onSelectTicker} tickers={tickers} watchlists={watchlists} />
       <section className="ticker-hero">
         <div className="ticker-identity">
           <button className="ticker-switcher" onClick={onOpenPicker} type="button">

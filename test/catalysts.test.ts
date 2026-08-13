@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { catalystLabel, nextCatalystForSymbol, sortSymbolsByCatalyst, type Catalyst } from '../src/domain/catalyst'
+import { catalystLabel, nextCatalystForSymbol, sortSymbolsByCatalyst, upcomingInterestedSymbols, type Catalyst } from '../src/domain/catalyst'
 import { catalystsFromMarketMetrics, earningsDateFromMetric, persistAndLoadCatalysts } from '../src/server/catalysts'
 
 const NOW = new Date('2026-08-13T16:00:00.000Z')
@@ -96,5 +96,21 @@ describe('catalyst ordering', () => {
 
   it('ignores catalysts that have passed', () => {
     expect(nextCatalystForSymbol('NVDA', [catalyst('NVDA', '2026-08-12')], NOW)).toBeUndefined()
+  })
+
+  it('builds a 30-day catalyst rail with positions before private watchlists', () => {
+    const rows = [
+      catalyst('AAPL', '2026-08-20'),
+      catalyst('NVDA', '2026-08-26'),
+      catalyst('META', '2026-08-18'),
+      catalyst('TSLA', '2026-09-20'),
+    ]
+
+    expect(upcomingInterestedSymbols(
+      ['NVDA', 'AAPL'],
+      ['META', 'AAPL', 'TSLA', 'SPY'],
+      rows,
+      NOW,
+    )).toEqual(['AAPL', 'NVDA', 'META'])
   })
 })

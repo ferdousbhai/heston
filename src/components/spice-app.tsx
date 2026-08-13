@@ -113,6 +113,7 @@ function AuthenticatedSpiceApp({ onSignOut, viewer }: { onSignOut: () => Promise
               onSelectTicker={chooseSymbol}
               selected={selected}
               tickers={tickers}
+              watchlists={watchlists}
             />
           )}
           {tab === 'brief' && <BriefScreen brief={research} onSymbol={chooseSymbol} />}

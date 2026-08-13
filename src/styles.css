@@ -78,7 +78,9 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .auth-footer { display: flex; justify-content: space-between; gap: 18px; padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, .1); color: #686b73; font-size: 9px; }
 
 .stories { padding: 12px 0 12px; border-bottom: 1px solid var(--hairline); }
-.watchlist-title { border: 0; background: none; padding: 0 20px 10px; display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 15px; font-weight: 750; letter-spacing: -.02em; }
+.stories-title { padding: 0 20px 10px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.stories-title h2 { margin: 0; font-size: 15px; font-weight: 750; letter-spacing: -.02em; }
+.stories-title span { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
 .story-row { display: flex; gap: 15px; overflow-x: auto; scrollbar-width: none; padding: 0 20px 4px; }
 .story-row::-webkit-scrollbar { display: none; }
 .story { width: 58px; flex: 0 0 58px; border: 0; background: none; padding: 0; display: flex; flex-direction: column; align-items: center; gap: 5px; cursor: pointer; }
@@ -86,11 +88,11 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .story-ring.rich { background: linear-gradient(135deg, #ffb14c, #ff535f 55%, #ec4bb3); }
 .story-ring.cheap { background: linear-gradient(135deg, var(--lime), #5be5b8 55%, #52b2ff); }
 .story-ring.fair { background: linear-gradient(135deg, #f6d365, var(--paprika) 55%, var(--cyan)); }
-.story-ring > span, .story-ring.more { width: 100%; height: 100%; border: 3px solid var(--bg); background: #1b1d23; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 820; letter-spacing: -.04em; }
-.story-ring.more { background: var(--surface-2); border: 1px dashed #555965; color: #aeb1ba; padding: 0; box-shadow: none; }
+.story-ring > span { width: 100%; height: 100%; border: 3px solid var(--bg); background: #1b1d23; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 820; letter-spacing: -.04em; }
 .story-symbol { color: #b8bac2; font-size: 10px; font-weight: 680; }
 .story-catalyst { color: var(--spice); font-size: 8px; line-height: 1; font-weight: 760; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .story-catalyst.estimated { color: #d8a86f; }
+.story-empty { min-height: 54px; margin: 0; display: flex; align-items: center; color: var(--muted); font-size: 11px; }
 
 .ticker-hero { padding: 25px 20px 4px; }
 .ticker-identity { display: flex; align-items: baseline; gap: 10px; }

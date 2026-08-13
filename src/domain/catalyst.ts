@@ -101,3 +101,24 @@ export function sortSymbolsByCatalyst(
       || originalOrder.get(left)! - originalOrder.get(right)!
   })
 }
+
+export function upcomingInterestedSymbols(
+  positionSymbols: readonly string[],
+  privateWatchlistSymbols: readonly string[],
+  catalysts: readonly Catalyst[],
+  now = new Date(),
+  horizonDays = 30,
+): string[] {
+  const positions = [...new Set(positionSymbols)]
+  const positionSet = new Set(positions)
+  const privateOnly = [...new Set(privateWatchlistSymbols)].filter((symbol) => !positionSet.has(symbol))
+  const upcoming = (symbols: readonly string[]) => sortSymbolsByCatalyst(symbols, catalysts, now)
+    .filter((symbol) => {
+      const catalyst = nextCatalystForSymbol(symbol, catalysts, now)
+      if (!catalyst) return false
+      const days = daysUntilCatalyst(catalyst, now)
+      return days >= 0 && days <= horizonDays
+    })
+
+  return [...upcoming(positions), ...upcoming(privateOnly)]
+}
