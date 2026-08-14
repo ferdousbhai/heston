@@ -17,7 +17,6 @@ export function jsonNoStore(value: unknown, init: ResponseInit = {}): Response {
 }
 
 export async function authorizePersonalRequest(request: Request, env: AppEnv, write = false): Promise<Response | undefined> {
-  if (env.APP_MODE !== 'live') return undefined
   try {
     if (!await getOwnerSession(request, env)) {
       return jsonNoStore({ error: 'Authentication required' }, { status: 401 })

@@ -259,16 +259,16 @@ export async function loadBrokerageContext(env: AppEnv): Promise<BrokerageContex
 /** Keep model context factual and compact while retaining the account data needed for brokerage actions. */
 export function buildAgentRuntimeContext(
   context: BrokerageContext | undefined,
-  tickers: readonly AgentMarketTicker[],
+  tickers: readonly AgentMarketTicker[] = [],
   selectedTicker?: AgentMarketTicker,
 ) {
   const relevantSymbols = new Set(context?.positions.map((position) => position.underlying))
   if (selectedTicker) relevantSymbols.add(selectedTicker.symbol.toUpperCase())
   const tickerBySymbol = new Map([...tickers, ...(selectedTicker ? [selectedTicker] : [])]
     .map((ticker) => [ticker.symbol.toUpperCase(), ticker]))
-  const marketMetrics = Object.fromEntries([...relevantSymbols].map((symbol) => {
+  const marketMetrics = Object.fromEntries([...relevantSymbols].flatMap((symbol) => {
     const ticker = tickerBySymbol.get(symbol)
-    return [symbol, ticker ? {
+    return ticker ? [[symbol, {
       price: ticker.price,
       changePercent: ticker.changePercent,
       ivIndex: ticker.ivIndex,
@@ -276,11 +276,11 @@ export function buildAgentRuntimeContext(
       ivPercentile: ticker.ivPercentile,
       liquidity: ticker.liquidity,
       earningsDate: ticker.earningsDate,
-    } : null]
+    }]] : []
   }))
   const marketContext = {
     ...(selectedTicker ? { selectedSymbol: selectedTicker.symbol } : {}),
-    ...(relevantSymbols.size ? { marketMetrics } : {}),
+    ...(Object.keys(marketMetrics).length ? { marketMetrics } : {}),
   }
   if (!context) return marketContext
 

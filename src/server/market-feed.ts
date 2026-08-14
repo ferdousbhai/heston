@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers'
 
 import { MAX_INTRADAY_CANDLES, type CandlePoint, updateCandleSeries } from '../domain/candle'
-import { type AppEnv, isLiveTastytrade } from './env'
+import { type AppEnv } from './env'
 import {
   DXLINK_REMOVE_EVENT,
   DXLINK_SNAPSHOT_BEGIN,
@@ -128,7 +128,6 @@ export class MarketFeed extends DurableObject<AppEnv> {
   }
 
   async fetch(request: Request): Promise<Response> {
-    if (!isLiveTastytrade(this.env)) return new Response('Live market data is disabled', { status: 503 })
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return new Response('WebSocket required', { status: 426 })
     const symbols = parseRequestedSymbols(new URL(request.url))
     if (!symbols.length) return new Response('At least one valid symbol is required', { status: 400 })
@@ -144,7 +143,6 @@ export class MarketFeed extends DurableObject<AppEnv> {
 
   /** Read a bounded exact set of option Greeks over the account's shared upstream socket. */
   async readOptionGreeks(streamerSymbols: readonly string[]): Promise<OptionGreeksReadResult> {
-    if (!isLiveTastytrade(this.env)) throw new Error('Live option Greeks are disabled.')
     const symbols = parseOptionStreamerSymbols(streamerSymbols)
     const lease = this.greekRequests.register(symbols, OPTION_GREEKS_TIMEOUT_MS)
     try {

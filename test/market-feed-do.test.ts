@@ -100,7 +100,6 @@ function downstream(symbols: string[]): WebSocket {
 function liveEnvironment(): AppEnv {
   const secret = { get: vi.fn() } as unknown as SecretsStoreSecret
   return {
-    APP_MODE: 'live',
     TASTYTRADE_CLIENT_SECRET: secret,
     TASTYTRADE_REFRESH_TOKEN: secret,
   }

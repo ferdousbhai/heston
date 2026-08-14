@@ -6,7 +6,7 @@ import {
 } from './agent-contracts'
 import { BrokerageSubmissionUnknownError, executeOrderPlacement } from './brokerage'
 import { reconcileUnknownBrokerageAction } from './brokerage-reconciliation'
-import { type AppEnv, isLiveTastytrade } from './env'
+import { type AppEnv } from './env'
 import { assertPortfolioActionAllowed, PortfolioRiskError } from './portfolio-risk'
 import { resolveOrderIntent } from './order-intent'
 import { assertOrderMarketSafe, orderMarketPreview } from './order-market'
@@ -36,44 +36,39 @@ export async function preparePendingAction(env: AppEnv, untrustedAction: unknown
   const token = randomToken()
   const createdAt = new Date()
   const expiresAt = new Date(createdAt.getTime() + 5 * 60_000).toISOString()
-  if (isLiveTastytrade(env) && !env.DB) throw new PortfolioRiskError("Dan's action store is unavailable.")
-  let marketPreview: string | undefined
-  let storedAction: unknown = action
-  if (env.DB && isLiveTastytrade(env)) {
-    await reconcileUnknownBrokerageAction(env)
-    const accountNumber = await resolveAccountNumber(env)
-    const intent = await resolveOrderIntent(env, action, accountNumber)
-    storedAction = intent.storedAction
-    await assertPortfolioActionAllowed(env, intent.effectiveAction, {
-      accountNumber,
-      ignoredOrderId: intent.replaceOrderId,
-      optionContracts: intent.optionContracts,
-    })
-    marketPreview = orderMarketPreview(await assertOrderMarketSafe(env, intent.effectiveAction, intent.optionContracts))
+  if (!env.DB) throw new PortfolioRiskError("Dan's action store is unavailable.")
+  await reconcileUnknownBrokerageAction(env)
+  const accountNumber = await resolveAccountNumber(env)
+  const intent = await resolveOrderIntent(env, action, accountNumber)
+  await assertPortfolioActionAllowed(env, intent.effectiveAction, {
+    accountNumber,
+    ignoredOrderId: intent.replaceOrderId,
+    optionContracts: intent.optionContracts,
+  })
+  const marketPreview = orderMarketPreview(await assertOrderMarketSafe(env, intent.effectiveAction, intent.optionContracts))
+  await env.DB.prepare(
+    "UPDATE brokerage_actions SET status = 'expired' WHERE status = 'pending' AND expires_at <= ?",
+  ).bind(createdAt.toISOString()).run()
+  const recentTrade = await env.DB.prepare(
+    `SELECT id FROM brokerage_actions
+       WHERE (status IN ('pending', 'executing')
+           OR (status = 'executed' AND julianday(resolved_at) >= julianday('now', '-5 minutes')))
+       LIMIT 1`,
+  ).first<{ id: string }>()
+  if (recentTrade) throw new PortfolioRiskError('Wait for the current trade and account balances to settle before drafting another trade.')
+  try {
     await env.DB.prepare(
-      "UPDATE brokerage_actions SET status = 'expired' WHERE status = 'pending' AND expires_at <= ?",
-    ).bind(createdAt.toISOString()).run()
-    const recentTrade = await env.DB.prepare(
-      `SELECT id FROM brokerage_actions
-         WHERE (status IN ('pending', 'executing')
-             OR (status = 'executed' AND julianday(resolved_at) >= julianday('now', '-5 minutes')))
-         LIMIT 1`,
-      ).first<{ id: string }>()
-    if (recentTrade) throw new PortfolioRiskError('Wait for the current trade and account balances to settle before drafting another trade.')
-    try {
-      await env.DB.prepare(
-        `INSERT INTO brokerage_actions (id, status, payload_json, token_digest, created_at, expires_at)
-         VALUES (?, 'pending', ?, ?, ?, ?)`,
-      ).bind(id, JSON.stringify(storedAction), await digest(token), createdAt.toISOString(), expiresAt).run()
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('UNIQUE')) {
-        throw new PortfolioRiskError('Resolve the existing draft before creating another brokerage action.')
-      }
-      throw error
+      `INSERT INTO brokerage_actions (id, status, payload_json, token_digest, created_at, expires_at)
+       VALUES (?, 'pending', ?, ?, ?, ?)`,
+    ).bind(id, JSON.stringify(intent.storedAction), await digest(token), createdAt.toISOString(), expiresAt).run()
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('UNIQUE')) {
+      throw new PortfolioRiskError('Resolve the existing draft before creating another brokerage action.')
     }
+    throw error
   }
-  const preview = [previewAction(action), marketPreview].filter(Boolean).join(' · ')
-  return { id: isLiveTastytrade(env) ? id : `demo-${id}`, token, expiresAt, preview }
+  const preview = `${previewAction(action)} · ${marketPreview}`
+  return { id, token, expiresAt, preview }
 }
 
 export async function resolvePendingAction(
@@ -81,11 +76,6 @@ export async function resolvePendingAction(
   actionId: string,
   input: ConfirmRequest,
 ): Promise<{ detail: string; status: 'denied' | 'executed' }> {
-  if (actionId.startsWith('demo-') || !isLiveTastytrade(env)) {
-    return input.decision === 'deny'
-      ? { status: 'denied', detail: 'Demo action discarded' }
-      : { status: 'executed', detail: 'Demo confirmed — no brokerage request was sent' }
-  }
   if (!env.DB) throw new Error('Brokerage action store is unavailable')
   const row = await env.DB.prepare(
     'SELECT payload_json, token_digest, expires_at, status FROM brokerage_actions WHERE id = ?',

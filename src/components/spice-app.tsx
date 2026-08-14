@@ -3,13 +3,13 @@ import { useLiveQuery } from '@tanstack/react-db'
 import { Bot, Newspaper, TrendingUp } from 'lucide-react'
 
 import {
-  ensureOfflineSnapshot,
   applyWatchlistMutation,
   catalystCollection,
   isSnapshotInitialized,
   preferenceCollection,
   researchCollection,
   requestPersistentLocalStorage,
+  restoreOfflineSnapshot,
   selectTicker,
   selectLiveMarketSymbols,
   selectWatchlist,
@@ -30,7 +30,6 @@ import { TopBar } from './top-bar'
 import { WatchlistEditor } from './watchlist-editor'
 
 type Tab = 'market' | 'brief' | 'agent'
-const DEMO_RUNTIME = import.meta.env.DEV
 
 export function SpiceApp() {
   return <AuthGate>{(viewer) => <AuthenticatedSpiceApp viewer={viewer} />}</AuthGate>
@@ -44,12 +43,11 @@ function AuthenticatedSpiceApp({ viewer }: { viewer: Viewer | null }) {
   const { data: preferences = [] } = useLiveQuery((query) => query.from({ preference: preferenceCollection }))
   const { data: syncStates = [] } = useLiveQuery((query) => query.from({ sync: syncStateCollection }))
   const syncState = syncStates.find((candidate) => candidate.id === 'snapshot')
-  const snapshotReady = isSnapshotInitialized(syncState, DEMO_RUNTIME)
+  const snapshotReady = isSnapshotInitialized(syncState)
   const tickers = snapshotReady ? storedTickers : []
   const catalysts = snapshotReady ? storedCatalysts : []
   const watchlists = snapshotReady ? storedWatchlists : []
   const research = snapshotReady ? storedResearch[0] : undefined
-  const catalystNow = syncState?.source === 'demo' ? new Date(syncState.syncedAt) : undefined
   const preference = preferences[0]
   const [tab, setTab] = useState<Tab>('market')
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -75,7 +73,7 @@ function AuthenticatedSpiceApp({ viewer }: { viewer: Viewer | null }) {
     ?? tickers[0]
   const loadedSymbols = new Set(tickers.map((ticker) => ticker.symbol))
   const streamSymbols = selectLiveMarketSymbols(selected?.symbol, activeWatchlist?.symbols ?? [], loadedSymbols)
-  useLiveMarket(streamSymbols, snapshotReady && syncState?.source === 'tastytrade')
+  useLiveMarket(streamSymbols, snapshotReady)
 
   const synchronize = useCallback(async (signal?: AbortSignal, force = false): Promise<void> => {
     if (!navigator.onLine) return
@@ -109,7 +107,7 @@ function AuthenticatedSpiceApp({ viewer }: { viewer: Viewer | null }) {
     const controller = new AbortController()
 
     void (async () => {
-      await ensureOfflineSnapshot({ demoRuntime: DEMO_RUNTIME })
+      await restoreOfflineSnapshot()
       void requestPersistentLocalStorage()
       if (!controller.signal.aborted) await synchronize(controller.signal)
       if (!controller.signal.aborted) setBootstrapComplete(true)
@@ -138,11 +136,6 @@ function AuthenticatedSpiceApp({ viewer }: { viewer: Viewer | null }) {
     setTab('market')
     closePicker()
   }
-  const chooseFromPicker = (symbol: string) => {
-    selectTicker(symbol)
-    setTab('market')
-    closePicker()
-  }
   const chooseWatchlist = (watchlist: Watchlist) => {
     const fallbackSymbol = selected && watchlist.symbols.includes(selected.symbol)
       ? undefined
@@ -161,7 +154,7 @@ function AuthenticatedSpiceApp({ viewer }: { viewer: Viewer | null }) {
       throw new Error(typeof payload.error === 'string' ? payload.error : 'The watchlist could not be updated')
     }
     await applyWatchlistMutation(action)
-    if (syncState?.source === 'tastytrade') await synchronize(undefined, true)
+    if (snapshotReady) await synchronize(undefined, true)
   }
 
   const overlayOpen = pickerOpen || watchlistEditorOpen
@@ -183,7 +176,6 @@ function AuthenticatedSpiceApp({ viewer }: { viewer: Viewer | null }) {
             <MarketScreen
               activeWatchlist={activeWatchlist}
               catalysts={catalysts}
-              catalystNow={catalystNow}
               onManageWatchlist={() => setWatchlistEditorOpen(true)}
               onOpenPicker={openPicker}
               onSelectWatchlist={chooseWatchlist}
@@ -207,7 +199,7 @@ function AuthenticatedSpiceApp({ viewer }: { viewer: Viewer | null }) {
           <button aria-pressed={tab === 'agent'} className={tab === 'agent' ? 'active' : ''} onClick={() => setTab('agent')} type="button"><Bot size={21} /><span>Dan</span></button>
         </nav>
       </div>
-      {pickerOpen && snapshotReady && <TickerPicker onClose={closePicker} onPick={chooseFromPicker} tickers={tickers} watchlists={watchlists} />}
+      {pickerOpen && snapshotReady && <TickerPicker onClose={closePicker} onPick={chooseSymbol} tickers={tickers} watchlists={watchlists} />}
       {watchlistEditorOpen && snapshotReady && activeWatchlist?.kind === 'private' && (
         <WatchlistEditor
           onClose={closeWatchlistEditor}

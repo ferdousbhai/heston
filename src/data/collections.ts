@@ -21,16 +21,15 @@ import {
   type Ticker,
 } from '../domain/market'
 import { type AggregateWatchlistMutation } from '../domain/watchlist'
-import { demoSnapshot } from '../domain/demo'
 
-export const OFFLINE_SNAPSHOT_VERSION = 1
+export const OFFLINE_SNAPSHOT_VERSION = 2
 export const MAX_LIVE_MARKET_SYMBOLS = 100
 
 const SyncStateSchema = z.object({
   id: z.literal('snapshot'),
   marketState: z.enum(['open', 'closed', 'pre', 'after', 'unknown']),
   schemaVersion: z.literal(OFFLINE_SNAPSHOT_VERSION),
-  source: z.enum(['demo', 'tastytrade']),
+  source: z.literal('tastytrade'),
   syncedAt: z.string(),
 })
 
@@ -130,8 +129,8 @@ type MutableCollection<T extends object, TKey extends string> = {
 }
 
 type PersistedMutation = { isPersisted: { promise: Promise<unknown> } }
-export function isSnapshotInitialized(state: SyncState | undefined, demoRuntime: boolean): boolean {
-  return Boolean(state && (demoRuntime || state.source === 'tastytrade'))
+export function isSnapshotInitialized(state: SyncState | undefined): boolean {
+  return Boolean(state)
 }
 
 export function selectLiveMarketSymbols(
@@ -234,11 +233,7 @@ export async function hydrateCollections(snapshot: MarketSnapshot) {
   await marker.isPersisted.promise
 }
 
-export async function ensureOfflineSnapshot({
-  demoRuntime,
-}: {
-  demoRuntime: boolean
-}) {
+export async function restoreOfflineSnapshot() {
   await Promise.all([
     persistedTickerCollection.preload(),
     tickerCollection.preload(),
@@ -248,17 +243,11 @@ export async function ensureOfflineSnapshot({
     syncStateCollection.preload(),
   ])
   const current = syncStateCollection.get('snapshot')
-  if (isSnapshotInitialized(current, demoRuntime)) {
+  if (isSnapshotInitialized(current)) {
     const persisted = [...persistedTickerCollection.keys()]
       .flatMap((key) => persistedTickerCollection.get(key) ?? [])
     await replaceLiveTickers(persisted)
-    return current
   }
-
-  if (!demoRuntime) return undefined
-
-  await hydrateCollections(demoSnapshot())
-  return syncStateCollection.get('snapshot')
 }
 
 /** Best-effort protection against browser storage eviction; denial does not block offline use. */

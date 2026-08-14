@@ -1,4 +1,3 @@
-import { demoSnapshot } from '../domain/demo'
 import { type CandlePoint } from '../domain/candle'
 import {
   aggregatePrivateWatchlists,
@@ -7,7 +6,7 @@ import {
   type Ticker,
   type Watchlist,
 } from '../domain/market'
-import { type AppEnv, isLiveTastytrade } from './env'
+import { type AppEnv } from './env'
 import { readBoundedJson } from './bounded-response'
 import { catalystsFromMarketMetrics, earningsDateFromMetric, persistAndLoadCatalysts } from './catalysts'
 import { readSecret } from './secrets'
@@ -307,11 +306,6 @@ export async function loadMarketSnapshot(
   env: AppEnv,
   options: MarketSnapshotOptions = {},
 ): Promise<MarketSnapshot> {
-  const demo = demoSnapshot()
-  if (!isLiveTastytrade(env)) {
-    return { ...demo, research: await loadStoredResearch(env, demo.research) }
-  }
-
   const accountNumber = await resolveAccountNumber(env)
   const includeWatchlists = options.includeWatchlists !== false
   const [privateResult, publicResult, positionResult, sessionResult] = await Promise.allSettled([

@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { demoTickers } from '../src/domain/demo'
+const pi = vi.hoisted(() => ({ stream: vi.fn() }))
+vi.mock('@earendil-works/pi-ai/api/openai-responses', () => pi)
+
 import {
   ChatRequestSchema,
   ConfirmRequestSchema,
@@ -77,26 +79,20 @@ describe('brokerage input boundary', () => {
 })
 
 describe('pi runtime protocol', () => {
-  it('streams a demo brokerage draft as a real pi tool call', async () => {
-    const runtime = createPiRuntime(undefined, demoTickers.find((ticker) => ticker.symbol === 'SPY'))
-    const stream = runtime.stream(runtime.model, {
-      messages: [{
-        content: 'Buy 1 SPY 700 call expiring 2026-09-18 at $5.20',
-        role: 'user',
-        timestamp: Date.now(),
-      }],
+  it('uses Grok 4.6 with high reasoning through the Pi Responses adapter', () => {
+    const runtime = createPiRuntime('xai-test-key')
+    const context = {
+      messages: [],
       systemPrompt: 'Test',
       tools: [],
-    }, {})
-    const eventTypes: string[] = []
-    for await (const event of stream) eventTypes.push(event.type)
-    const result = await stream.result()
+    }
+    runtime.stream(runtime.model, context, {})
 
-    expect(eventTypes).toEqual(['start', 'toolcall_start', 'toolcall_delta', 'toolcall_end', 'done'])
-    expect(result.stopReason).toBe('toolUse')
-    expect(result.content).toContainEqual(expect.objectContaining({
-      name: 'prepare_brokerage_action',
-      type: 'toolCall',
+    expect(runtime.model).toMatchObject({ id: 'grok-4.6', name: 'Grok 4.6', reasoning: true })
+    expect(pi.stream).toHaveBeenCalledWith(runtime.model, context, expect.objectContaining({
+      apiKey: 'xai-test-key',
+      reasoningEffort: 'high',
+      reasoningSummary: 'auto',
     }))
   })
 })

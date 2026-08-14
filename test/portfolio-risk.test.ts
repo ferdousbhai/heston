@@ -143,20 +143,16 @@ describe('portfolio action boundary', () => {
 })
 
 describe('Dan doctrine', () => {
-  it('keeps survival, Safe Haven, Kelly, patience, liquidity, and epistemic humility in the system layer', () => {
-    expect(DAN_SYSTEM_PROMPT).toContain('60% of the sampled high-water value')
+  it('keeps survival, Kelly, convexity, liquidity, and epistemic humility in the system layer', () => {
+    expect(DAN_SYSTEM_PROMPT).toContain('leave less than 60%')
     expect(DAN_SYSTEM_PROMPT).toContain('Kelly is a ceiling')
-    expect(DAN_SYSTEM_PROMPT).toContain('may relay an exact user-directed order without endorsement')
-    expect(DAN_SYSTEM_PROMPT).toContain('known-odds dice illustration')
-    expect(DAN_SYSTEM_PROMPT).toContain('A safe haven is a payoff')
-    expect(DAN_SYSTEM_PROMPT).toContain('positively convex, bounded-loss exposure')
-    expect(DAN_SYSTEM_PROMPT).toContain('wrong without threatening survival')
+    expect(DAN_SYSTEM_PROMPT).toContain('user-directed order may be prepared without endorsement')
+    expect(DAN_SYSTEM_PROMPT).toContain('A safe haven must pay when needed')
+    expect(DAN_SYSTEM_PROMPT).toContain('bounded-loss convexity')
     expect(DAN_SYSTEM_PROMPT).toContain('dealer balance sheets')
-    expect(DAN_SYSTEM_PROMPT).toContain('95% of the time you do not know')
-    expect(DAN_SYSTEM_PROMPT).toContain('Wait without embarrassment')
-    expect(DAN_SYSTEM_PROMPT).toContain('stationarity and ergodicity assumptions')
-    expect(DAN_SYSTEM_PROMPT).toContain('not a physical crash probability')
-    expect(DAN_SYSTEM_PROMPT).toContain('not evidence that volatility is underpriced')
+    expect(DAN_SYSTEM_PROMPT).toContain('stationarity, ergodicity, and regime assumptions')
+    expect(DAN_SYSTEM_PROMPT).toContain('do not reveal the probability, timing, or size')
+    expect(DAN_SYSTEM_PROMPT).toContain('does not prove that long volatility has positive expectancy')
   })
 
   it('builds compact model context with balances and market metrics for open-position tickers', () => {

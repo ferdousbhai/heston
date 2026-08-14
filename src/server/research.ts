@@ -1,6 +1,5 @@
-import { demoResearch } from '../domain/demo'
 import { ResearchBriefSchema, type ResearchBrief } from '../domain/market'
-import { type AppEnv, isLiveTastytrade } from './env'
+import { type AppEnv } from './env'
 import { collectResearchSources } from './research-sources'
 import { hasSecret, readSecret } from './secrets'
 import { loadMarketSnapshot } from './tastytrade'
@@ -49,7 +48,7 @@ function normalizeModelBrief(value: unknown): unknown {
 
 export async function generateDailyResearch(env: AppEnv, now = new Date()): Promise<ResearchBrief> {
   const snapshot = await loadMarketSnapshot(env)
-  if (!env.AI || !isLiveTastytrade(env)) return demoResearch
+  if (!env.AI) throw new Error('ResearchModelUnavailable')
   const reddit = hasSecret(env.REDDIT_CLIENT_ID) && hasSecret(env.REDDIT_CLIENT_SECRET)
     ? {
         clientId: await readSecret(env.REDDIT_CLIENT_ID, 'REDDIT_CLIENT_ID'),

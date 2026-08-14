@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { CatalystKindSchema, CatalystSchema, marketDate, type Catalyst } from '../domain/catalyst'
-import { type AppEnv, isLiveTastytrade } from './env'
+import { type AppEnv } from './env'
 import { readBoundedJson } from './bounded-response'
 import { readSecret } from './secrets'
 import { loadMarketSnapshot } from './tastytrade'
@@ -229,7 +229,6 @@ export function shouldRunXCatalystResearch(date: Date): boolean {
 }
 
 export async function runXCatalystResearch(env: AppEnv, now = new Date()): Promise<{ accepted: number; rejected: number }> {
-  if (!isLiveTastytrade(env)) throw new Error('XCatalystResearch:live-mode-required')
   const snapshot = await loadMarketSnapshot(env)
   const symbols = catalystResearchSymbols(snapshot.watchlists)
   const run = { id: crypto.randomUUID(), startedAt: now.toISOString(), symbols: symbols.length }

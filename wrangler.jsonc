@@ -40,6 +40,11 @@
       "secret_name": "reddit-client-secret"
     },
     {
+      "binding": "FMP_API_KEY",
+      "store_id": "a436a6cefedc4acd8bb920cdbc202c1c",
+      "secret_name": "fmp-api-key"
+    },
+    {
       "binding": "TASTYTRADE_CLIENT_SECRET",
       "store_id": "a436a6cefedc4acd8bb920cdbc202c1c",
       "secret_name": "tastytrade-client-secret"
@@ -87,7 +92,6 @@
     "crons": ["30 13,14,22,23 * * 1-5"]
   },
   "vars": {
-    "APP_MODE": "live",
     "AUTH_BASE_URL": "https://tryspice.xyz",
     "TASTYTRADE_API_BASE": "https://api.tastyworks.com"
   }

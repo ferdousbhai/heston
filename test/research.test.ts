@@ -38,7 +38,6 @@ describe('daily research schedule', () => {
     const secret = { get: async () => 'secret' } as SecretsStoreSecret
     const brief = await generateDailyResearch({
       AI: { run } as unknown as Ai,
-      APP_MODE: 'live',
       TASTYTRADE_CLIENT_SECRET: secret,
       TASTYTRADE_REFRESH_TOKEN: secret,
     }, new Date('2026-08-14T13:30:00.000Z'))

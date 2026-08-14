@@ -49,7 +49,7 @@ export const ResearchBriefSchema = z.object({
 })
 
 export const MarketSnapshotSchema = z.object({
-  source: z.enum(['demo', 'tastytrade']),
+  source: z.literal('tastytrade'),
   syncedAt: z.string(),
   marketState: z.enum(['open', 'closed', 'pre', 'after', 'unknown']),
   watchlists: z.array(WatchlistSchema),

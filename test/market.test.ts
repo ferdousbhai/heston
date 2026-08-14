@@ -6,7 +6,7 @@ import {
   MarketSnapshotSchema,
   volatilityVerdict,
 } from '../src/domain/market'
-import { demoSnapshot } from '../src/domain/demo'
+import { marketSnapshotFixture } from './fixtures/market'
 import {
   equityCandleFromTime,
   liveTickerFromRecords,
@@ -31,8 +31,15 @@ describe('volatility classification', () => {
 })
 
 describe('snapshot contract', () => {
-  it('validates the complete offline seed', () => {
-    expect(MarketSnapshotSchema.parse(demoSnapshot()).tickers.length).toBeGreaterThan(3)
+  it('validates a complete tastytrade snapshot', () => {
+    expect(MarketSnapshotSchema.parse(marketSnapshotFixture()).tickers.length).toBeGreaterThan(3)
+  })
+
+  it('returns isolated fixtures for tests that mutate broker state', () => {
+    const snapshot = marketSnapshotFixture()
+    snapshot.watchlists[0]!.symbols.push('MUTATED')
+
+    expect(marketSnapshotFixture().watchlists[0]!.symbols).not.toContain('MUTATED')
   })
 
   it('collapses every private list into one deduplicated Watchlist', () => {
@@ -63,7 +70,7 @@ describe('tastytrade normalization', () => {
     expect(percentMetric('1.5', 500)).toBe(150)
   })
 
-  it('never fills incomplete live ticker facts with demo estimates', () => {
+  it('rejects incomplete live ticker facts instead of filling estimates', () => {
     const quote = {
       symbol: 'SPY', mark: '700', 'previous-close': '695',
       'updated-at': '2026-08-13T13:31:00.000Z',

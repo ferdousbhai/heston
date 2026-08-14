@@ -6,20 +6,10 @@ import viteReact from '@vitejs/plugin-react'
 import { cloudflare } from '@cloudflare/vite-plugin'
 import { VitePWA } from 'vite-plugin-pwa'
 
-const config = defineConfig(({ command }) => ({
+const config = defineConfig({
   resolve: { tsconfigPaths: true },
   plugins: [
-    cloudflare({
-      viteEnvironment: { name: 'ssr' },
-      // Local development is always a credential-free demo even though production is live.
-      config: command === 'serve'
-        ? (worker) => ({
-            name: 'spice-local',
-            secrets_store_secrets: [],
-            vars: { ...worker.vars, APP_MODE: 'demo' },
-          })
-        : undefined,
-    }),
+    cloudflare({ viteEnvironment: { name: 'ssr' } }),
 
     tanstackStart(),
     viteReact(),
@@ -45,6 +35,6 @@ const config = defineConfig(({ command }) => ({
       },
     }),
   ],
-}))
+})
 
 export default config

@@ -10,7 +10,7 @@ import {
   tickerCollection,
   type SyncState,
 } from '../src/data/collections'
-import { demoSnapshot } from '../src/domain/demo'
+import { marketSnapshotFixture } from './fixtures/market'
 
 describe('offline snapshot boundary', () => {
   it('treats a version marker, not collection row counts, as initialization', () => {
@@ -22,10 +22,8 @@ describe('offline snapshot boundary', () => {
       syncedAt: '2026-08-13T20:00:00.000Z',
     }
 
-    expect(isSnapshotInitialized(liveState, false)).toBe(true)
-    expect(isSnapshotInitialized({ ...liveState, source: 'demo' }, false)).toBe(false)
-    expect(isSnapshotInitialized({ ...liveState, source: 'demo' }, true)).toBe(true)
-    expect(isSnapshotInitialized(undefined, true)).toBe(false)
+    expect(isSnapshotInitialized(liveState)).toBe(true)
+    expect(isSnapshotInitialized(undefined)).toBe(false)
   })
 })
 
@@ -40,7 +38,7 @@ describe('live market subscriptions', () => {
   })
 
   it('keeps the newest quote and recomputes the daily move from the prior close', async () => {
-    const snapshot = demoSnapshot()
+    const snapshot = marketSnapshotFixture()
     const original = snapshot.tickers[0]!
     await hydrateCollections({ ...snapshot, tickers: [original] })
     const priorClose = original.price - original.change
@@ -61,7 +59,7 @@ describe('live market subscriptions', () => {
   })
 
   it('does not let an older cloud snapshot overwrite newer live market fields', async () => {
-    const snapshot = demoSnapshot()
+    const snapshot = marketSnapshotFixture()
     const original = snapshot.tickers[0]!
     await hydrateCollections({ ...snapshot, tickers: [original] })
     const timestamp = new Date(Date.parse(original.updatedAt) + 60_000).toISOString()
@@ -79,7 +77,7 @@ describe('live market subscriptions', () => {
   })
 
   it('does not replace a richer live candle series with a newer two-point broker fallback', async () => {
-    const snapshot = demoSnapshot()
+    const snapshot = marketSnapshotFixture()
     const original = snapshot.tickers[0]!
     const baseTime = Date.parse(original.updatedAt)
     const fallback = [

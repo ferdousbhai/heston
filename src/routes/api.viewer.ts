@@ -10,7 +10,6 @@ export const Route = createFileRoute('/api/viewer')({
     handlers: {
       GET: async ({ request }) => {
         const workerEnv = env as unknown as AppEnv
-        if (workerEnv.APP_MODE !== 'live') return jsonNoStore({ authRequired: false, user: null })
         try {
           const session = await getOwnerSession(request, workerEnv)
           return jsonNoStore({

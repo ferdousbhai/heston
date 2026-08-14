@@ -2,7 +2,7 @@ import { Type } from '@earendil-works/pi-ai'
 import { type AgentTool } from '@earendil-works/pi-agent-core'
 
 import { type OrderPayload } from './order-payload'
-import { type AppEnv, isLiveTastytrade } from './env'
+import { type AppEnv } from './env'
 import { resolveStoredOrderFingerprint } from './order-intent'
 import { resolveAccountNumber, tastyRequest } from './tastytrade'
 
@@ -90,7 +90,7 @@ export async function reconcileUnknownBrokerageAction(
   env: AppEnv,
   now = new Date(),
 ): Promise<ReconciliationResult> {
-  if (!isLiveTastytrade(env) || !env.DB) {
+  if (!env.DB) {
     return { detail: 'Live brokerage reconciliation is unavailable.', status: 'none' }
   }
   const staleBefore = new Date(now.getTime() - 2 * 60_000).toISOString()

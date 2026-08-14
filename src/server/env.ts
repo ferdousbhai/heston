@@ -24,12 +24,12 @@ export interface MarketFeedNamespace {
 export interface AppEnv {
   AI?: Ai
   AI_GATEWAY_TOKEN?: SecretsStoreSecret
-  APP_MODE?: string
   AUTH_BASE_URL?: string
   BETTER_AUTH_SECRET?: SecretsStoreSecret
   BROKER_GATE?: BrokerGateNamespace
   DB?: D1Database
   DanAgent?: DurableObjectNamespace
+  FMP_API_KEY?: SecretsStoreSecret
   GOOGLE_CLIENT_ID?: SecretsStoreSecret
   GOOGLE_CLIENT_SECRET?: SecretsStoreSecret
   MARKET_FEED?: MarketFeedNamespace
@@ -39,10 +39,4 @@ export interface AppEnv {
   TASTYTRADE_CLIENT_SECRET?: SecretsStoreSecret
   TASTYTRADE_REFRESH_TOKEN?: SecretsStoreSecret
   XAI_API_KEY?: SecretsStoreSecret
-}
-
-export function isLiveTastytrade(env: AppEnv): boolean {
-  return env.APP_MODE === 'live'
-    && Boolean(env.TASTYTRADE_CLIENT_SECRET?.get)
-    && Boolean(env.TASTYTRADE_REFRESH_TOKEN?.get)
 }

@@ -98,10 +98,7 @@ async function loadWatchlists(env: AppEnv): Promise<MutableWatchlist[]> {
 
 async function withMutationLease<T>(env: AppEnv, mutation: () => Promise<T>): Promise<T> {
   const gate = env.BROKER_GATE?.getByName('primary-account')
-  if (!gate) {
-    if (env.APP_MODE === 'live') throw new Error('WatchlistMutation:coordinator-unavailable')
-    return mutation()
-  }
+  if (!gate) throw new Error('WatchlistMutation:coordinator-unavailable')
   const token = await gate.acquireMutation()
   try {
     return await mutation()

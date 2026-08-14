@@ -52,7 +52,6 @@ function CatalystStories({
 export function MarketScreen({
   activeWatchlist,
   catalysts,
-  catalystNow,
   onManageWatchlist,
   onOpenPicker,
   onSelectWatchlist,
@@ -63,7 +62,6 @@ export function MarketScreen({
 }: {
   activeWatchlist: Watchlist
   catalysts: Catalyst[]
-  catalystNow?: Date
   onManageWatchlist: () => void
   onOpenPicker: () => void
   onSelectWatchlist: (watchlist: Watchlist) => void
@@ -72,7 +70,7 @@ export function MarketScreen({
   tickers: Ticker[]
   watchlists: Watchlist[]
 }) {
-  const now = catalystNow ?? new Date()
+  const now = new Date()
   const watchTickers = sortSymbolsByCatalyst(activeWatchlist.symbols, catalysts, now)
     .map((symbol) => tickers.find((ticker) => ticker.symbol === symbol))
     .filter((ticker): ticker is Ticker => Boolean(ticker))
@@ -137,9 +135,10 @@ export function MarketScreen({
         <div className="watch-rows">
           {watchTickers.map((ticker) => {
             const catalyst = nextCatalystForSymbol(ticker.symbol, catalysts, now)
+            const volatility = volatilityVerdict(ticker)
             return (
               <button aria-pressed={ticker.symbol === selected.symbol} className={ticker.symbol === selected.symbol ? 'watch-row selected' : 'watch-row'} key={ticker.symbol} onClick={() => onSelectTicker(ticker.symbol)} type="button">
-                <span className="symbol-cell"><strong>{ticker.symbol}</strong><small>{catalyst ? catalystLabel(catalyst, now) : volatilityVerdict(ticker) === 'rich' ? 'Hot vol' : volatilityVerdict(ticker) === 'cheap' ? 'Cool vol' : 'Mid vol'}</small></span>
+                <span className="symbol-cell"><strong>{ticker.symbol}</strong><small>{catalyst ? catalystLabel(catalyst, now) : volatility === 'rich' ? 'Hot vol' : volatility === 'cheap' ? 'Cool vol' : 'Mid vol'}</small></span>
                 <Sparkline ticker={ticker} />
                 <span className="quote-cell"><strong>${ticker.price.toFixed(2)}</strong><small className={ticker.change >= 0 ? 'positive' : 'negative'}>{ticker.change >= 0 ? '+' : ''}{ticker.changePercent.toFixed(2)}%</small></span>
               </button>

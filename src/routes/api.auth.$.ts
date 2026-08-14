@@ -6,7 +6,6 @@ import { type AppEnv } from '../server/env'
 
 async function handleAuth(request: Request) {
   const workerEnv = env as unknown as AppEnv
-  if (workerEnv.APP_MODE !== 'live') return new Response('Not found', { status: 404 })
   try {
     const { auth } = await getAuthRuntime(workerEnv)
     return auth.handler(request)

@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
 
+import { marketSnapshotFixture } from './fixtures/market'
+
 test('unauthenticated visitors get the branded Google entry point', async ({ page }) => {
   await page.route('**/api/viewer', (route) => route.fulfill({
     contentType: 'application/json',
@@ -17,12 +19,34 @@ test('unauthenticated visitors get the branded Google entry point', async ({ pag
 })
 
 test('mobile market, research, picker, and agent flows remain coherent', async ({ page, context }) => {
+  const snapshot = marketSnapshotFixture()
+  snapshot.catalysts.forEach((catalyst, index) => {
+    const date = new Date()
+    date.setUTCDate(date.getUTCDate() + 10 + index * 7)
+    catalyst.date = date.toISOString().slice(0, 10)
+  })
+  await page.route('**/api/viewer', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ authRequired: true, user: { name: 'Owner' } }),
+  }))
+  await page.route('**/api/snapshot', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify(snapshot),
+  }))
+  await page.route('**/api/watchlists', async (route) => {
+    const action = route.request().postDataJSON() as { kind: string; symbols: string[] }
+    const watchlist = snapshot.watchlists.find((candidate) => candidate.kind === 'private')!
+    const requested = new Set(action.symbols)
+    watchlist.symbols = action.kind === 'add_watchlist_symbols'
+      ? [...new Set([...watchlist.symbols, ...action.symbols])]
+      : watchlist.symbols.filter((symbol) => !requested.has(symbol))
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ detail: 'updated' }) })
+  })
   await page.goto('/')
   await expect(page).toHaveTitle(/Spice Must Flow/)
   await expect(page.locator('.brand')).toHaveAccessibleName('Spice Must Flow home')
   await expect(page.locator('.brand')).toHaveText('SPICEMUST FLOW')
   await expect(page.getByText('tastytrade live')).toHaveCount(0)
-  await expect(page.getByText('Demo market')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /sync|refresh market data/i })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /sign out/i })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /SPY/ }).first()).toBeVisible()
@@ -37,7 +61,7 @@ test('mobile market, research, picker, and agent flows remain coherent', async (
   expect(watchlistNames.slice(2)).toEqual(expect.arrayContaining(['Liquid ETFs', 'Options Volume', 'Upcoming Earnings']))
   await expect(page.getByRole('button', { name: 'Change' })).toHaveCount(0)
   await expect(page.locator('.story').first()).toContainText('NVDA')
-  await expect(page.locator('.story').first()).toContainText('EARN 13D')
+  await expect(page.locator('.story').first()).toContainText('EARN')
   await expect(page.getByText('Options temperature')).toHaveCount(0)
   await expect(page.getByText('Premium cool')).toHaveCount(0)
 
@@ -78,31 +102,6 @@ test('mobile market, research, picker, and agent flows remain coherent', async (
 
   await page.getByRole('button', { name: 'Dan' }).click()
   await expect(page.getByRole('heading', { name: 'Dan' })).toBeVisible()
-  await page.getByRole('button', { name: 'Clear conversation' }).click()
-  const composer = page.getByPlaceholder('Ask about a ticker or draft an order…')
-  await composer.fill('Why is NVDA volatility expensive?')
-  await page.getByRole('button', { name: 'Send message' }).click()
-  await expect(page.getByText(/NVDA options look rich/)).toBeVisible()
-
-  await composer.fill('Buy 1 SPY 700 call expiring 2026-09-18 at $5.20')
-  await page.getByRole('button', { name: 'Send message' }).click()
-  const toolCall = page.getByRole('button', { name: /Preparing order/ }).last()
-  await expect(toolCall).toBeVisible()
-  await toolCall.click()
-  await expect(page.locator('.tool-call-detail').last()).toContainText('place_option_order')
-  await expect(page.getByText('Order confirmation')).toBeVisible()
-  await expect(page.getByLabel('Agent runtime usage')).toContainText('pi · spice-demo')
-  await page.route('**/api/actions/*', (route) => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({ error: 'Action service temporarily unavailable' }),
-    status: 503,
-  }))
-  await page.getByRole('button', { name: 'Discard' }).click()
-  await expect(page.getByRole('alert')).toHaveText('Action service temporarily unavailable')
-  await expect(page.getByText('Order confirmation')).toBeVisible()
-  await page.unroute('**/api/actions/*')
-  await page.getByRole('button', { name: 'Discard' }).click()
-  await expect(page.getByText('Demo action discarded')).toBeVisible()
 
   await context.setOffline(true)
   await page.evaluate(() => window.dispatchEvent(new Event('offline')))

@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { TickerPicker } from '../src/components/ticker-picker'
-import { demoTickers, demoWatchlists } from '../src/domain/demo'
+import { marketTickersFixture, marketWatchlistsFixture } from './fixtures/market'
 
 afterEach(() => {
   cleanup()
@@ -21,8 +21,8 @@ describe('TickerPicker accessibility', () => {
     const { unmount } = render(createElement(TickerPicker, {
       onClose,
       onPick: vi.fn(),
-      tickers: demoTickers,
-      watchlists: demoWatchlists
+      tickers: marketTickersFixture,
+      watchlists: marketWatchlistsFixture
         .filter((watchlist) => watchlist.kind === 'positions')
         .map((watchlist) => ({ ...watchlist, symbols: ['MISSING', ...watchlist.symbols] })),
     }))

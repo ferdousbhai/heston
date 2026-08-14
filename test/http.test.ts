@@ -12,13 +12,8 @@ describe('canonical host redirect', () => {
 })
 
 describe('personal API authorization', () => {
-  it('keeps the complete demo usable without cloud credentials', async () => {
-    await expect(authorizePersonalRequest(new Request('https://spice.test/api/snapshot'), { APP_MODE: 'demo' }))
-      .resolves.toBeUndefined()
-  })
-
-  it('fails closed when live authentication is not configured', async () => {
-    const response = await authorizePersonalRequest(new Request('https://spice.test/api/snapshot'), { APP_MODE: 'live' })
+  it('fails closed when authentication is not configured', async () => {
+    const response = await authorizePersonalRequest(new Request('https://spice.test/api/snapshot'), {})
     expect(response?.status).toBe(503)
   })
 })

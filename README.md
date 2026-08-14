@@ -11,13 +11,13 @@ npm install
 npm run dev
 ```
 
-Production runs with `APP_MODE=live`. The Vite development server explicitly overrides that value to `demo` and removes remote Secret Store bindings, so the complete local interface works without credentials. Demo confirmations never call a brokerage.
+There is no demo runtime. Development and production use the same authenticated tastytrade and Grok paths; missing credentials or bindings fail closed.
 
 ## Architecture
 
 The code follows four clear boundaries:
 
-- `src/domain/` contains pure schemas, catalyst ordering, volatility classification, and demo fixtures. It has no framework or network dependency.
+- `src/domain/` contains pure schemas, catalyst ordering, and volatility classification. It has no framework or network dependency.
 - `src/data/` owns TanStack DB collections and cloud-to-local reconciliation. The UI reads reactive collections, not API response objects.
 - `src/components/` contains one product surface per module. `spice-app.tsx` only selects data, coordinates sync, and composes screens.
 - `src/server/` owns Cloudflare and tastytrade concerns. Secrets, account numbers, raw broker responses, and order dispatch never cross into client code.
@@ -41,6 +41,7 @@ Server routes in `src/routes/api.*.ts` are deliberately thin validation and HTTP
    npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name tastytrade-refresh-token --scopes workers --remote
    npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name xai --scopes workers --remote
    npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name account-ai-gateway --scopes workers --remote
+   npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name fmp-api-key --scopes workers --remote
    ```
 
    The existing `reddit-client-id` and `reddit-client-secret` entries are reused by name. Spice resolves the single available tastytrade account from the broker's accounts endpoint, so this deployment has no account-number secret. Secret values stay out of this repository and local files; only the deployed Worker reads them through bindings.
@@ -60,9 +61,9 @@ Server routes in `src/routes/api.*.ts` are deliberately thin validation and HTTP
    ```
 
    The Better Auth secret must contain at least 32 random characters. Until multi-user OAuth is configured, Google account creation is restricted to `ferdousbd@gmail.com`, and every live API route independently rechecks that session identity.
-5. Push `main` to trigger the repository's native Cloudflare Workers Build (`npm run build`, then `npx wrangler deploy`). Use `npm run deploy` only as a direct manual fallback. `wrangler.jsonc` is already configured for live mode, the account-scoped market-feed Durable Object, and the New York-time guarded cron windows.
+5. Push `main` to trigger the repository's native Cloudflare Workers Build (`npm run build`, then `npx wrangler deploy`). Use `npm run deploy` only as a direct manual fallback. `wrangler.jsonc` is already configured for the account-scoped market-feed Durable Object and the New York-time guarded cron windows.
 
-`wrangler.jsonc` binds the shared Reddit, xAI, AI Gateway, tastytrade, Google, and session-secret handles. There is intentionally no `.env`, `.env.example`, or `.dev.vars` workflow in this project; local development stays in demo mode and never needs production credentials.
+`wrangler.jsonc` binds the shared Reddit, xAI, AI Gateway, tastytrade, FMP, Google, and session-secret handles. There is intentionally no `.env`, `.env.example`, or `.dev.vars` workflow in this project. FMP is restricted to the owner-only deployment; review [the research-provider licensing gate](./docs/research-providers.md) before allowing another user or displaying its data publicly.
 
 Cloudflare reference: [Secrets Store bindings](https://developers.cloudflare.com/secrets-store/integrations/workers/).
 
@@ -87,7 +88,7 @@ Upcoming earnings from tastytrade market metrics and material scheduled events f
 
 Dan refreshes a compact factual account snapshot on every turn: net liquidation value, cash and withdrawable cash, available trading funds, separate equity/derivative/day-trading buying power, positions, every leg of working ordinary and complex orders, and recent Trade transactions. Private data is provenance-tagged and the account number is never sent to the model.
 
-Everything else is progressive and on demand. Read-only tools expose bounded account history, market metrics and hours, symbol search, active standard option contracts, exact tuple-resolved bid/ask quotes and Greeks, private/public watchlists, catalysts, and the latest daily brief. Watchlists are never part of default context. Only order placement uses the expiring confirmation state machine. An explicitly requested cancellation or private-watchlist add/remove runs through its narrow server-validated tool without another confirmation step.
+Everything else is progressive and on demand. Read-only tools expose bounded account history, market metrics and hours, symbol search, active standard option contracts, exact tuple-resolved bid/ask quotes and Greeks, company fundamentals, adjusted price history and technical studies, private/public watchlists, catalysts, and the latest daily brief. Price history combines FMP's unadjusted EOD OHLCV with its dividend-adjusted close and calculates studies locally. Company fundamentals remain explicitly secondary-source Yahoo context until the SEC migration is complete; tastytrade remains authoritative for executable quotes and contracts. Watchlists are never part of default context. Only order placement uses the expiring confirmation state machine. An explicitly requested cancellation or private-watchlist add/remove runs through its narrow server-validated tool without another confirmation step.
 
 Dan receives a fresh New York clock, market status, near-expiry option awareness, balances, positions, open orders, and recent trades on every turn. Kelly is advisory: Dan explains its assumptions and recommends a conservative ceiling, but an explicit user-selected size can still be drafted if it passes the deterministic portfolio survival guard and the user confirms it. Ambiguous broker receipts are matched against exact recent order history and are never automatically resubmitted.
 
