@@ -30,10 +30,13 @@ describe('daily research schedule', () => {
     const run = vi.fn(async (_model: string, _request: unknown) => ({ response: JSON.stringify({
       id: 'brief-2026-08-14', publishedAt: '2026-08-14T13:30:00.000Z',
       title: 'Daily brief', summary: 'Summary', regime: 'Selective', regimeDetail: 'Defined risk',
-      ideas: [], sources: [],
+      ideas: [{
+        symbol: 'SPY', direction: 'Bullish', setup: 'Call spread', thesis: 'Breadth',
+        risk: 'Reversal', horizon: '30 days',
+      }], sources: [],
     }) }))
     const secret = { get: async () => 'secret' } as SecretsStoreSecret
-    await generateDailyResearch({
+    const brief = await generateDailyResearch({
       AI: { run } as unknown as Ai,
       APP_MODE: 'live',
       TASTYTRADE_CLIENT_SECRET: secret,
@@ -41,5 +44,6 @@ describe('daily research schedule', () => {
     }, new Date('2026-08-14T13:30:00.000Z'))
 
     expect(run.mock.calls[0]?.[1]).toMatchObject({ response_format: { type: 'json_object' } })
+    expect(brief.ideas[0]?.direction).toBe('bullish')
   })
 })

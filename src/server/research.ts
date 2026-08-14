@@ -24,6 +24,20 @@ function extractJson(response: string): unknown {
   return JSON.parse(fenced ?? response)
 }
 
+function normalizeModelBrief(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return value
+  const brief = value as Record<string, unknown>
+  if (!Array.isArray(brief.ideas)) return value
+  return {
+    ...brief,
+    ideas: brief.ideas.map((idea) => {
+      if (typeof idea !== 'object' || idea === null || Array.isArray(idea)) return idea
+      const record = idea as Record<string, unknown>
+      return { ...record, direction: typeof record.direction === 'string' ? record.direction.toLowerCase() : record.direction }
+    }),
+  }
+}
+
 export async function generateDailyResearch(env: AppEnv, now = new Date()): Promise<ResearchBrief> {
   const snapshot = await loadMarketSnapshot(env)
   if (!env.AI || !isLiveTastytrade(env)) return demoResearch
@@ -60,7 +74,7 @@ export async function generateDailyResearch(env: AppEnv, now = new Date()): Prom
     temperature: 0.35,
   }, { signal: AbortSignal.timeout(90_000) }) as AiTextResult
   const brief = ResearchBriefSchema.parse({
-    ...extractJson(result.response ?? '') as Record<string, unknown>,
+    ...normalizeModelBrief(extractJson(result.response ?? '')) as Record<string, unknown>,
     sources: [
       { label: 'tastytrade market metrics', url: 'https://developer.tastytrade.com/open-api-spec/market-metrics/' },
       ...headlines.map((headline) => ({ label: `${headline.source} · ${headline.title}`, url: headline.url })),
