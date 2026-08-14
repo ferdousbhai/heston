@@ -1,10 +1,9 @@
 import { Type } from '@earendil-works/pi-ai'
 import { type AgentTool } from '@earendil-works/pi-agent-core'
 
-import { OrderPlacementSchema } from './agent-contracts'
-import { buildOrderPayload } from './brokerage'
+import { type OrderPayload } from './order-payload'
 import { type AppEnv, isLiveTastytrade } from './env'
-import { resolveEquityOptionContract } from './option-contract'
+import { resolveStoredOrderFingerprint } from './order-intent'
 import { resolveAccountNumber, tastyRequest } from './tastytrade'
 
 type JsonRecord = Record<string, unknown>
@@ -56,7 +55,7 @@ function orderRows(payload: unknown): { complete: boolean; rows: JsonRecord[] } 
   return { complete, rows }
 }
 
-function sameLeg(actual: JsonRecord, intended: ReturnType<typeof buildOrderPayload>['legs'][number]): boolean {
+function sameLeg(actual: JsonRecord, intended: OrderPayload['legs'][number]): boolean {
   return text(actual.action) === intended.action
     && text(actual['instrument-type']) === intended['instrument-type']
     && number(actual.quantity) === intended.quantity
@@ -66,16 +65,18 @@ function sameLeg(actual: JsonRecord, intended: ReturnType<typeof buildOrderPaylo
 /** Exact order fingerprint match; timestamps keep unrelated duplicate orders from clearing quarantine. */
 export function matchesSubmittedOrder(
   row: JsonRecord,
-  intended: ReturnType<typeof buildOrderPayload>,
+  intended: OrderPayload,
   submittedAt: Date,
   now = new Date(),
+  replacedOrderId?: string,
 ): boolean {
   if (!Array.isArray(row.legs) || row.legs.length !== intended.legs.length) return false
   const receivedAt = Date.parse(text(row['received-at']) ?? text(row['updated-at']) ?? '')
   if (!Number.isFinite(receivedAt)
     || receivedAt < submittedAt.getTime() - 2 * 60_000
     || receivedAt > now.getTime() + 60_000) return false
-  return text(row['order-type']) === intended['order-type']
+  return (!replacedOrderId || text(row['replaces-order-id']) === replacedOrderId)
+    && text(row['order-type']) === intended['order-type']
     && text(row['time-in-force']) === intended['time-in-force']
     && text(row['price-effect']) === intended['price-effect']
     && number(row.price) === Number(intended.price)
@@ -108,21 +109,18 @@ export async function reconcileUnknownBrokerageAction(
   if (!Number.isFinite(submittedAt.getTime())) {
     return { actionId: stored.id, detail: 'The local submission timestamp is invalid; the quarantine remains in place.', status: 'unresolved' }
   }
-  const action = OrderPlacementSchema.parse(JSON.parse(stored.payload_json))
-  const [account, optionContract] = await Promise.all([
+  const [account, fingerprint] = await Promise.all([
     resolveAccountNumber(env),
-    action.kind === 'place_option_order' ? resolveEquityOptionContract(env, action) : Promise.resolve(undefined),
+    resolveStoredOrderFingerprint(env, JSON.parse(stored.payload_json)),
   ])
-  const intended = buildOrderPayload(
-    action,
-    action.kind === 'place_option_order' ? optionContract!.symbol : action.symbol,
-  )
+  const intended = fingerprint.payload
+  const replacedOrderId = fingerprint.action.kind === 'replace_order' ? fingerprint.action.orderId : undefined
   const startDate = new Date(submittedAt.getTime() - 24 * 60 * 60_000).toISOString().slice(0, 10)
   const history = orderRows(await tastyRequest(
     env,
     `/accounts/${encodeURIComponent(account)}/orders?per-page=100&sort=Desc&start-date=${startDate}`,
   ))
-  const matches = history.rows.filter((row) => matchesSubmittedOrder(row, intended, submittedAt, now))
+  const matches = history.rows.filter((row) => matchesSubmittedOrder(row, intended, submittedAt, now, replacedOrderId))
   if (matches.length !== 1) {
     if (matches.length === 0 && history.complete && now.getTime() - submittedAt.getTime() >= FINAL_ABSENCE_DELAY_MS) {
       const update = await env.DB.prepare(

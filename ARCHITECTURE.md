@@ -46,6 +46,8 @@ Google OAuth ──> Better Auth ──> D1 session ──> exact-owner API boun
 - `server/secrets.ts`: the single boundary for resolving Cloudflare Secrets Store bindings.
 - `server/research.ts`: timezone-safe research synthesis, deterministic source attribution, and D1 persistence.
 - `server/agent-contracts.ts`: strict model and API schemas plus human-readable action previews.
+- `server/order-intent.ts`: exact single-leg, debit-vertical, and replacement intent resolution; replacements are restricted to unchanged, editable, unfilled Spice orders.
+- `server/order-payload.ts`: canonical tastytrade order payload construction shared by risk checks, submission, and reconciliation.
 - `server/brokerage-context.ts`: strict, timestamped always-on balances, positions, full working-order legs, and recent Trade transactions. Account identity and deprecated REST marks are omitted from model context.
 - `server/brokerage-read-tools.ts`: bounded, read-only account history, market metrics/status, symbol search, progressive option-contract discovery, and exact tuple-resolved bid/ask quotes.
 - `server/option-greeks-tool.ts`: exact human option tuple resolution plus live Greeks through the shared MarketFeed relay.
@@ -56,8 +58,9 @@ Google OAuth ──> Better Auth ──> D1 session ──> exact-owner API boun
 - `server/agent-planner.ts`: credential-free demo order parsing; its output remains untrusted.
 - `server/agent.ts`: expiring order-confirmation storage and atomic state transitions.
 - `server/brokerage-reconciliation.ts`: exact history matching for quarantined, ambiguous order submissions; it never retries a broker mutation.
-- `server/brokerage.ts`: exact option resolution, tastytrade dry-run, and final dispatch.
+- `server/brokerage.ts`: exact option resolution, tastytrade placement/replacement dry-runs, receipt validation, and final dispatch.
 - `server/scheduled-jobs.ts`: durable per-New-York-day cron claims, completion/failure receipts, and truthful Cron failure propagation.
+- `routes/ops.tsx`: hidden owner-only production controls that invoke the same durable scheduled-job boundary as Cron.
 - `server/http.ts`: owner-session authorization, same-origin write checks, and safe error responses.
 
 ## Invariants
@@ -67,7 +70,7 @@ Google OAuth ──> Better Auth ──> D1 session ──> exact-owner API boun
 3. Model output is untrusted and must pass a strict Zod action schema.
 4. Account reads are normalized from tastytrade and can answer immediately. Only order placement produces a pending action; an explicitly requested cancellation or private-watchlist mutation uses its narrow direct tool.
 5. Confirmation tokens are random, stored only as SHA-256 digests, expire after five minutes, and are claimed atomically.
-6. Order placement resolves the exact tastytrade option symbol and passes a broker dry-run before submission.
+6. Order placement resolves every exact tastytrade option symbol and passes a broker dry-run before submission. Executable multi-leg exposure is limited to bounded two-leg debit verticals; price replacement is limited to an unchanged, editable, unfilled live order previously placed by Spice.
 7. Offline state is a validated local cache. The persisted snapshot renders before network revalidation, live ticks remain in memory, and synchronization retries on reconnect and foregrounding without a manual sync control.
 8. The research model receives bounded official and public-discussion headlines; citation URLs are attached by code, never accepted from model output.
 9. The service worker precaches the app shell only, excludes all `/api/` paths (including the OAuth callback), and uses validated TanStack DB collections as the single offline data cache.

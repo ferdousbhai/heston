@@ -1,9 +1,11 @@
-import { OrderPlacementSchema } from './agent-contracts'
 import { type AppEnv } from './env'
-import { resolveEquityOptionContract } from './option-contract'
+import { resolveStoredOrderIntent } from './order-intent'
+import { replacementOrderPayload, type OrderPayload } from './order-payload'
 import { assertPortfolioActionAllowed } from './portfolio-risk'
 import { resolveAccountNumber, tastyRequest } from './tastytrade'
 import { assertOrderMarketSafe } from './order-market'
+
+export { buildOrderPayload } from './order-payload'
 
 function rows(value: unknown): Record<string, unknown>[] {
   if (!Array.isArray(value)) return []
@@ -12,43 +14,6 @@ function rows(value: unknown): Record<string, unknown>[] {
 
 function record(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
-}
-
-type OrderPayload = {
-  'advanced-instructions'?: {
-    'strict-position-effect-validation': true
-  }
-  'order-type': 'Limit'
-  'price-effect': 'Credit' | 'Debit'
-  'time-in-force': 'Day'
-  legs: Array<{
-    action: string
-    'instrument-type': 'Equity' | 'Equity Option'
-    quantity: number
-    symbol: string
-  }>
-  price: string
-}
-
-export function buildOrderPayload(
-  action: ReturnType<typeof OrderPlacementSchema.parse>,
-  resolvedSymbol: string,
-): OrderPayload {
-  return {
-    ...(action.action.endsWith('to Close')
-      ? { 'advanced-instructions': { 'strict-position-effect-validation': true as const } }
-      : {}),
-    'order-type': 'Limit',
-    'price-effect': action.priceEffect,
-    'time-in-force': 'Day',
-    legs: [{
-      action: action.action,
-      'instrument-type': action.kind === 'place_option_order' ? 'Equity Option' : 'Equity',
-      quantity: action.quantity,
-      symbol: resolvedSymbol,
-    }],
-    price: action.limitPrice.toFixed(2),
-  }
 }
 
 function messageRows(value: unknown): Record<string, unknown>[] {
@@ -132,6 +97,37 @@ export function rejectDryRunWarnings(warnings: readonly string[]): void {
   if (warnings.length) throw new TastytradeOrderWarningError(warnings)
 }
 
+export function validateReplacementReceipt(
+  payload: unknown,
+  replacedOrderId: string,
+  intended: OrderPayload,
+): { id: string } {
+  try {
+    const body = record(payload)
+    const order = record(body.data ?? body)
+    const id = String(order.id ?? '')
+    const legs = rows(order.legs)
+    const exact = /^\d{1,40}$/.test(id)
+      && String(order['replaces-order-id'] ?? '') === replacedOrderId
+      && order['order-type'] === intended['order-type']
+      && order['time-in-force'] === intended['time-in-force']
+      && order['price-effect'] === intended['price-effect']
+      && Number(order.price) === Number(intended.price)
+      && legs.length === intended.legs.length
+      && intended.legs.every((leg, index) => {
+        const actual = legs[index]
+        return actual?.action === leg.action
+          && actual?.['instrument-type'] === leg['instrument-type']
+          && actual?.symbol === leg.symbol
+          && Number(actual?.quantity) === leg.quantity
+      })
+    if (!exact) throw new Error('TastytradeReplacementResponse:echo-mismatch')
+    return { id }
+  } catch {
+    throw new BrokerageSubmissionUnknownError()
+  }
+}
+
 /** Once placement returned 2xx, anything short of a verified rejection or exact receipt is ambiguous. */
 export function validatePlacedOrderResponse(payload: unknown, intended: OrderPayload): { id: string; warnings: string[] } {
   try {
@@ -144,23 +140,41 @@ export function validatePlacedOrderResponse(payload: unknown, intended: OrderPay
 }
 
 export async function executeOrderPlacement(env: AppEnv, untrustedAction: unknown): Promise<{ detail: string; orderId?: string }> {
-  const action = OrderPlacementSchema.parse(untrustedAction)
   const account = await resolveAccountNumber(env)
-  const optionContract = action.kind === 'place_option_order' ? await resolveEquityOptionContract(env, action) : undefined
-  await assertPortfolioActionAllowed(env, action, { accountNumber: account, optionContract })
-  await assertOrderMarketSafe(env, action, optionContract)
-  const symbol = action.kind === 'place_option_order' ? optionContract!.symbol : action.symbol
-  const payload = buildOrderPayload(action, symbol)
-  const dryRun = await tastyRequest(env, `/accounts/${encodeURIComponent(account)}/orders/dry-run`, { method: 'POST', body: JSON.stringify(payload) })
-  rejectDryRunWarnings(validateOrderResponse(dryRun, payload, false).warnings)
+  const intent = await resolveStoredOrderIntent(env, untrustedAction, account)
+  await assertPortfolioActionAllowed(env, intent.effectiveAction, {
+    accountNumber: account,
+    ignoredOrderId: intent.replaceOrderId,
+    optionContracts: intent.optionContracts,
+  })
+  await assertOrderMarketSafe(env, intent.effectiveAction, intent.optionContracts)
+  const dryRunPath = intent.replaceOrderId
+    ? `/accounts/${encodeURIComponent(account)}/orders/${encodeURIComponent(intent.replaceOrderId)}/dry-run`
+    : `/accounts/${encodeURIComponent(account)}/orders/dry-run`
+  const dryRunBody = intent.replaceOrderId ? replacementOrderPayload(intent.payload) : intent.payload
+  const dryRun = await tastyRequest(env, dryRunPath, { method: 'POST', body: JSON.stringify(dryRunBody) })
+  rejectDryRunWarnings(validateOrderResponse(dryRun, intent.payload, false).warnings)
   let placed: unknown
   try {
-    placed = await tastyRequest(env, `/accounts/${encodeURIComponent(account)}/orders`, { method: 'POST', body: JSON.stringify(payload) })
+    const path = intent.replaceOrderId
+      ? `/accounts/${encodeURIComponent(account)}/orders/${encodeURIComponent(intent.replaceOrderId)}`
+      : `/accounts/${encodeURIComponent(account)}/orders`
+    const body = intent.replaceOrderId
+      ? JSON.stringify(replacementOrderPayload(intent.payload))
+      : JSON.stringify(intent.payload)
+    placed = await tastyRequest(env, path, {
+      method: intent.replaceOrderId ? 'PUT' : 'POST',
+      body,
+    })
   } catch (error) {
     if (error instanceof Error && error.name === 'TastytradeApiError') throw error
     throw new BrokerageSubmissionUnknownError()
   }
-  const receipt = validatePlacedOrderResponse(placed, payload)
+  if (intent.replaceOrderId) {
+    const receipt = validateReplacementReceipt(placed, intent.replaceOrderId, intent.payload)
+    return { detail: `Order #${intent.replaceOrderId} replaced by order #${receipt.id}.`, orderId: receipt.id }
+  }
+  const receipt = validatePlacedOrderResponse(placed, intent.payload)
   const warningDetail = receipt.warnings.length ? ` Broker warning: ${receipt.warnings.join('; ')}` : ''
   return { detail: `Order #${receipt.id} accepted by tastytrade.${warningDetail}`, orderId: receipt.id }
 }

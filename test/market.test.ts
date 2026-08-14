@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  aggregatePrivateWatchlists,
   formatMarketMetric,
   MarketSnapshotSchema,
   volatilityVerdict,
@@ -32,6 +33,16 @@ describe('volatility classification', () => {
 describe('snapshot contract', () => {
   it('validates the complete offline seed', () => {
     expect(MarketSnapshotSchema.parse(demoSnapshot()).tickers.length).toBeGreaterThan(3)
+  })
+
+  it('collapses every private list into one deduplicated Watchlist', () => {
+    expect(aggregatePrivateWatchlists([
+      { id: 'one', kind: 'private', name: 'Core', symbols: ['SPY', 'NVDA'] },
+      { id: 'two', kind: 'private', name: 'Ideas', symbols: ['NVDA', 'META'] },
+      { id: 'public', kind: 'public', name: 'Public', symbols: ['AAPL'] },
+    ])).toEqual({
+      id: 'watchlist', kind: 'private', name: 'Watchlist', symbols: ['SPY', 'NVDA', 'META'],
+    })
   })
 })
 

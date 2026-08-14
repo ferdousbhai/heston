@@ -1,11 +1,8 @@
-import { type DirectAccountAction } from './agent-contracts'
+import { type AggregateWatchlistMutation, type WatchlistMutation } from '../domain/watchlist'
 import { type AppEnv } from './env'
 import { tastyRequest } from './tastytrade'
 
 type JsonRecord = Record<string, unknown>
-type WatchlistAction = Extract<DirectAccountAction, {
-  kind: 'add_watchlist_symbols' | 'delete_watchlist' | 'remove_watchlist_symbols'
-}>
 
 type WatchlistEntry = {
   instrumentType: string
@@ -94,39 +91,49 @@ function brokerPayload(watchlist: MutableWatchlist) {
   }
 }
 
-async function loadExactWatchlist(env: AppEnv, name: string): Promise<MutableWatchlist | undefined> {
+async function loadWatchlists(env: AppEnv): Promise<MutableWatchlist[]> {
   const payload = await tastyRequest(env, '/watchlists')
-  const matches = mutableWatchlistsFromPayload(payload).filter((watchlist) => watchlist.name === name)
+  return mutableWatchlistsFromPayload(payload)
+}
+
+async function withMutationLease<T>(env: AppEnv, mutation: () => Promise<T>): Promise<T> {
+  const gate = env.BROKER_GATE?.getByName('primary-account')
+  if (!gate) {
+    if (env.APP_MODE === 'live') throw new Error('WatchlistMutation:coordinator-unavailable')
+    return mutation()
+  }
+  const token = await gate.acquireMutation()
+  try {
+    return await mutation()
+  } finally {
+    await gate.releaseMutation(token)
+  }
+}
+
+function exactWatchlist(watchlists: readonly MutableWatchlist[], name: string): MutableWatchlist | undefined {
+  const matches = watchlists.filter((watchlist) => watchlist.name === name)
   if (matches.length > 1) throw new Error('WatchlistMutation:ambiguous-name')
   return matches[0]
 }
 
 export async function executeWatchlistAction(
   env: AppEnv,
-  action: WatchlistAction,
+  action: WatchlistMutation,
 ): Promise<{ detail: string }> {
-  const watchlist = await loadExactWatchlist(env, action.watchlistName)
-  const path = `/watchlists/${encodeURIComponent(action.watchlistName)}`
+  return withMutationLease(env, () => executeWatchlistActionLocked(env, action))
+}
 
-  if (action.kind === 'delete_watchlist') {
-    if (!watchlist) throw new Error('WatchlistMutation:not-found')
-    await tastyRequest(env, path, { method: 'DELETE' })
-    return { detail: `${action.watchlistName} deleted` }
-  }
+async function executeWatchlistActionLocked(
+  env: AppEnv,
+  action: WatchlistMutation,
+): Promise<{ detail: string }> {
+  const watchlists = await loadWatchlists(env)
+  const watchlist = exactWatchlist(watchlists, action.watchlistName)
+  const path = `/watchlists/${encodeURIComponent(action.watchlistName)}`
 
   const symbols = [...new Set(action.symbols)]
   const requested = new Set(symbols)
-  if (!watchlist) {
-    if (action.kind === 'remove_watchlist_symbols') throw new Error('WatchlistMutation:not-found')
-    const created: MutableWatchlist = {
-      entries: symbols.map((symbol) => ({ instrumentType: 'Equity', symbol })),
-      groupName: 'main',
-      name: action.watchlistName,
-      orderIndex: 9999,
-    }
-    await tastyRequest(env, '/watchlists', { method: 'POST', body: JSON.stringify(brokerPayload(created)) })
-    return { detail: `${action.watchlistName} created with ${symbols.join(', ')}` }
-  }
+  if (!watchlist) throw new Error('WatchlistMutation:not-found')
 
   const actuallyAdded = action.kind === 'add_watchlist_symbols'
     ? symbols.filter((symbol) => !watchlist.entries.some((entry) => (
@@ -153,5 +160,59 @@ export async function executeWatchlistAction(
     detail: changed.length
       ? `${changed.join(', ')} ${action.kind === 'add_watchlist_symbols' ? 'added to' : 'removed from'} ${action.watchlistName}`
       : `No watchlist changes were needed for ${action.watchlistName}`,
+  }
+}
+
+/** The UI presents all private broker lists as one aggregate Watchlist without exposing broker list names. */
+export async function executeAggregateWatchlistAction(
+  env: AppEnv,
+  action: AggregateWatchlistMutation,
+): Promise<{ detail: string }> {
+  return withMutationLease(env, () => executeAggregateWatchlistActionLocked(env, action))
+}
+
+async function executeAggregateWatchlistActionLocked(
+  env: AppEnv,
+  action: AggregateWatchlistMutation,
+): Promise<{ detail: string }> {
+  const watchlists = await loadWatchlists(env)
+  if (!watchlists.length) throw new Error('WatchlistMutation:not-found')
+  if (new Set(watchlists.map((watchlist) => watchlist.name)).size !== watchlists.length) {
+    throw new Error('WatchlistMutation:ambiguous-name')
+  }
+
+  const symbols = [...new Set(action.symbols)]
+  if (action.kind === 'add_watchlist_symbols') {
+    const missing = symbols.filter((symbol) => !watchlists.some((watchlist) => watchlist.entries.some((entry) => (
+      entry.instrumentType === 'Equity' && entry.symbol.toUpperCase() === symbol
+    ))))
+    if (!missing.length) return { detail: 'No watchlist changes were needed' }
+    const target = watchlists[0]!
+    await tastyRequest(env, `/watchlists/${encodeURIComponent(target.name)}`, {
+      method: 'PUT',
+      body: JSON.stringify(brokerPayload({
+        ...target,
+        entries: [...target.entries, ...missing.map((symbol) => ({ instrumentType: 'Equity', symbol }))],
+      })),
+    })
+    return { detail: `${missing.join(', ')} added to Watchlist` }
+  }
+
+  const requested = new Set(symbols)
+  const changed = new Set<string>()
+  for (const watchlist of watchlists) {
+    const nextEntries = watchlist.entries.filter((entry) => {
+      const remove = entry.instrumentType === 'Equity' && requested.has(entry.symbol.toUpperCase())
+      if (remove) changed.add(entry.symbol.toUpperCase())
+      return !remove
+    })
+    if (nextEntries.length === watchlist.entries.length) continue
+    await tastyRequest(env, `/watchlists/${encodeURIComponent(watchlist.name)}`, {
+      method: 'PUT',
+      body: JSON.stringify(brokerPayload({ ...watchlist, entries: nextEntries })),
+    })
+  }
+  return {
+    detail: changed.size ? `${[...changed].join(', ')} removed from Watchlist` : 'No watchlist changes were needed',
   }
 }

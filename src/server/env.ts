@@ -2,6 +2,8 @@ import { type OptionGreeksReadResult } from './market-feed-contracts'
 
 export interface BrokerGateRpcStub {
   acquire(): Promise<void>
+  acquireMutation(): Promise<string>
+  releaseMutation(token: string): Promise<void>
 }
 
 export interface BrokerGateNamespace {

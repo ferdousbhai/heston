@@ -6,7 +6,9 @@ import {
   rejectDryRunWarnings,
   validateOrderResponse,
   validatePlacedOrderResponse,
+  validateReplacementReceipt,
 } from '../src/server/brokerage'
+import { replacementOrderPayload } from '../src/server/order-payload'
 
 const intended = {
   'order-type': 'Limit' as const,
@@ -32,7 +34,7 @@ describe('broker order response boundary', () => {
       priceEffect: 'Credit',
       quantity: 1,
       symbol: 'SPY',
-    }, 'SPY')
+    }, ['SPY'])
     expect(closePayload['advanced-instructions']).toEqual({
       'strict-position-effect-validation': true,
     })
@@ -47,8 +49,26 @@ describe('broker order response boundary', () => {
       quantity: 1,
       strike: 700,
       underlying: 'SPY',
-    }, 'SPY   260918C00700000')
+    }, ['SPY   260918C00700000'])
     expect(openPayload).not.toHaveProperty('advanced-instructions')
+  })
+
+  it('builds a two-leg debit vertical and requires an exact replacement receipt', () => {
+    const spread = buildOrderPayload({
+      kind: 'place_vertical_spread_order', underlying: 'SPY', optionType: 'C',
+      expiry: '2026-09-18', longStrike: 700, shortStrike: 710,
+      quantity: 2, limitPrice: 3.5, priceEffect: 'Debit',
+    }, ['SPY   260918C00700000', 'SPY   260918C00710000'])
+    expect(spread.legs.map((leg) => leg.action)).toEqual(['Buy to Open', 'Sell to Open'])
+    expect(spread.price).toBe('3.50')
+    expect(replacementOrderPayload(spread)).not.toHaveProperty('legs')
+
+    expect(validateReplacementReceipt({ data: {
+      id: '456', 'replaces-order-id': '123', ...spread,
+    } }, '123', spread)).toEqual({ id: '456' })
+    expect(() => validateReplacementReceipt({ data: {
+      id: '456', 'replaces-order-id': 'other', ...spread,
+    } }, '123', spread)).toThrow(BrokerageSubmissionUnknownError)
   })
 
   it('requires dry-run order, buying-power effect, and an exact echoed intent', () => {

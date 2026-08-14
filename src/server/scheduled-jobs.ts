@@ -1,7 +1,11 @@
 import { newYorkClock } from '../domain/market-clock'
 import { type AppEnv } from './env'
+import { generateDailyResearch } from './research'
+import { runXCatalystResearch } from './x-catalysts'
 
 export type ScheduledJobKind = 'daily-research' | 'x-catalysts'
+
+export const SCHEDULED_JOB_KINDS = ['daily-research', 'x-catalysts'] as const
 
 function errorCode(error: unknown): string {
   if (!(error instanceof Error)) return 'UnknownError'
@@ -45,4 +49,15 @@ export async function runScheduledJob(
     console.error(JSON.stringify({ event: 'ScheduledJobFailed', id, kind, error: errorCode(error) }))
     throw error
   }
+}
+
+/** One dispatch boundary shared by Cron and the owner-only run-now endpoint. */
+export function runScheduledJobKind(
+  env: AppEnv,
+  kind: ScheduledJobKind,
+  scheduledAt = new Date(),
+): Promise<'completed' | 'skipped'> {
+  return runScheduledJob(env, kind, scheduledAt, () => kind === 'daily-research'
+    ? generateDailyResearch(env, scheduledAt)
+    : runXCatalystResearch(env, scheduledAt))
 }

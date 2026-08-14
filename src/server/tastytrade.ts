@@ -1,6 +1,7 @@
 import { demoSnapshot } from '../domain/demo'
 import { type CandlePoint } from '../domain/candle'
 import {
+  aggregatePrivateWatchlists,
   MarketSnapshotSchema,
   type MarketSnapshot,
   type Ticker,
@@ -335,7 +336,8 @@ export async function loadMarketSnapshot(
   const positionList: Watchlist = {
     id: 'positions', kind: 'positions', name: 'Active Positions', symbols: positionSymbols,
   }
-  const watchlists = [...privateLists, positionList, ...publicLists]
+  const privateWatchlist = aggregatePrivateWatchlists(privateLists)
+  const watchlists = includeWatchlists ? [positionList, privateWatchlist, ...publicLists] : [positionList]
   const requestedSymbols = (options.symbols ?? [])
     .map((symbol) => symbol.trim().toUpperCase())
     .filter((symbol) => /^[A-Z.]{1,8}$/.test(symbol))

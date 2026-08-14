@@ -1,5 +1,5 @@
 import { survivalBudget } from '../domain/portfolio-risk'
-import { type OrderPlacement } from './agent-contracts'
+import { type FreshOrderPlacement } from './agent-contracts'
 import { type BrokerageContext } from './brokerage-context'
 import { type AppEnv } from './env'
 import { resolveEquityOptionContract, type EquityOptionContract } from './option-contract'
@@ -104,7 +104,7 @@ function positionRows(payload: unknown): RiskPosition[] {
   })
 }
 
-async function loadRiskAccount(env: AppEnv, accountNumber: string): Promise<RiskAccount> {
+async function loadRiskAccount(env: AppEnv, accountNumber: string, ignoredOrderId?: string): Promise<RiskAccount> {
   let positionPayload: unknown
   let balancePayload: unknown
   let orderPayload: unknown
@@ -134,7 +134,9 @@ async function loadRiskAccount(env: AppEnv, accountNumber: string): Promise<Risk
     netLiquidatingValue,
     cash,
     positions: positionRows(positionPayload),
-    liveOrderCount: completeOrderRows(orderPayload, 'every ordinary live order', 200).filter(isWorkingOrderRecord).length
+    liveOrderCount: completeOrderRows(orderPayload, 'every ordinary live order', 200)
+      .filter((row) => String(row.id ?? '') !== ignoredOrderId)
+      .filter(isWorkingOrderRecord).length
       + completeOrderRows(complexOrderPayload, 'every complex live order', 200).filter(isWorkingOrderRecord).length,
   }
 }
@@ -166,10 +168,11 @@ function unsupportedOpeningPosition(position: RiskPosition): boolean {
 }
 
 function closingPosition(
-  action: OrderPlacement,
+  action: FreshOrderPlacement,
   account: RiskAccount,
   optionContract?: EquityOptionContract,
 ): RiskPosition | undefined {
+  if (action.kind === 'place_vertical_spread_order') return undefined
   const symbol = action.kind === 'place_option_order' ? optionContract?.symbol : action.symbol
   const instrumentType = action.kind === 'place_option_order' ? 'Equity Option' : 'Equity'
   const direction = action.action === 'Sell to Close' ? 'Long' : 'Short'
@@ -180,18 +183,19 @@ function closingPosition(
 }
 
 export function assessPortfolioAction(
-  action: OrderPlacement,
+  action: FreshOrderPlacement,
   account: RiskAccount,
   highWaterValue: number,
-  optionContract?: EquityOptionContract,
+  optionContracts: readonly EquityOptionContract[] = [],
 ): PortfolioActionAssessment {
   const budget = survivalBudget(highWaterValue, account.cash)
   if (account.liveOrderCount > 0) {
     return { ...budget, maxLoss: 0, allowed: false, reason: 'Cancel or wait for every live order before Dan drafts another trade.' }
   }
-  const isClose = action.action === 'Sell to Close' || action.action === 'Buy to Close'
+  const isClose = action.kind !== 'place_vertical_spread_order'
+    && (action.action === 'Sell to Close' || action.action === 'Buy to Close')
   if (isClose) {
-    if (!closingPosition(action, account, optionContract)) {
+    if (!closingPosition(action, account, optionContracts[0])) {
       return { ...budget, maxLoss: 0, allowed: false, reason: 'The requested close is larger than the verified matching position.' }
     }
     if (action.action === 'Sell to Close' && account.positions.some(unsupportedOpeningPosition)) {
@@ -199,13 +203,14 @@ export function assessPortfolioAction(
     }
     return { ...budget, maxLoss: 0, allowed: true }
   }
-  if (action.action !== 'Buy to Open' || action.priceEffect !== 'Debit') {
+  if (action.kind !== 'place_vertical_spread_order'
+    && (action.action !== 'Buy to Open' || action.priceEffect !== 'Debit')) {
     return { ...budget, maxLoss: Number.POSITIVE_INFINITY, allowed: false, reason: 'Dan will not open a naked or unbounded short position.' }
   }
   if (account.positions.some(unsupportedOpeningPosition)) {
     return { ...budget, maxLoss: Number.POSITIVE_INFINITY, allowed: false, reason: 'Existing short, futures, or unsupported exposure prevents a contractually bounded portfolio floor.' }
   }
-  const multiplier = action.kind === 'place_option_order' ? optionContract?.sharesPerContract : 1
+  const multiplier = action.kind === 'place_equity_order' ? 1 : optionContracts[0]?.sharesPerContract
   if (multiplier === undefined || !Number.isFinite(multiplier) || multiplier <= 0) {
     return { ...budget, maxLoss: Number.POSITIVE_INFINITY, allowed: false, reason: 'The option contract multiplier could not be verified.' }
   }
@@ -226,18 +231,20 @@ function money(value: number): string {
 
 export async function assertPortfolioActionAllowed(
   env: AppEnv,
-  action: OrderPlacement,
-  resolved: { accountNumber?: string; optionContract?: EquityOptionContract } = {},
+  action: FreshOrderPlacement,
+  resolved: { accountNumber?: string; ignoredOrderId?: string; optionContracts?: readonly EquityOptionContract[] } = {},
 ): Promise<PortfolioActionAssessment> {
   const accountNumber = resolved.accountNumber ?? await resolveAccountNumber(env)
-  const [account, optionContract] = await Promise.all([
-    loadRiskAccount(env, accountNumber),
-    action.kind === 'place_option_order'
-      ? resolved.optionContract ?? resolveEquityOptionContract(env, action)
-      : undefined,
-  ])
+  const account = await loadRiskAccount(env, accountNumber, resolved.ignoredOrderId)
+  let optionContracts = resolved.optionContracts ?? []
+  if (action.kind === 'place_option_order' && !optionContracts.length) {
+    optionContracts = [await resolveEquityOptionContract(env, action)]
+  }
+  if (action.kind === 'place_vertical_spread_order' && optionContracts.length !== 2) {
+    throw new PortfolioRiskError('Dan could not verify both spread contracts.')
+  }
   const highWaterValue = await recordPortfolioHighWater(env, accountNumber, account.netLiquidatingValue)
-  const assessment = assessPortfolioAction(action, account, highWaterValue, optionContract)
+  const assessment = assessPortfolioAction(action, account, highWaterValue, optionContracts)
   if (!assessment.allowed) throw new PortfolioRiskError(assessment.reason ?? 'Dan rejected this trade at the portfolio boundary.')
   return assessment
 }

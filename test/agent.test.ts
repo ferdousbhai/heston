@@ -18,6 +18,21 @@ describe('brokerage input boundary', () => {
     }).kind).toBe('place_option_order')
   })
 
+  it('accepts only bounded debit verticals and price-only replacements', () => {
+    expect(OrderPlacementSchema.parse({
+      kind: 'place_vertical_spread_order', underlying: 'SPY', optionType: 'C',
+      expiry: '2026-09-18', longStrike: 700, shortStrike: 710,
+      quantity: 2, limitPrice: 3.5, priceEffect: 'Debit',
+    }).kind).toBe('place_vertical_spread_order')
+    expect(OrderPlacementSchema.safeParse({
+      kind: 'place_vertical_spread_order', underlying: 'SPY', optionType: 'C',
+      expiry: '2026-09-18', longStrike: 710, shortStrike: 700,
+      quantity: 2, limitPrice: 3.5, priceEffect: 'Debit',
+    }).success).toBe(false)
+    expect(OrderPlacementSchema.parse({ kind: 'replace_order', orderId: '12345', limitPrice: 3.55 }).kind)
+      .toBe('replace_order')
+  })
+
   it('rejects unbounded or incomplete order drafts', () => {
     expect(() => OrderPlacementSchema.parse({
       kind: 'place_option_order', underlying: 'SPY', optionType: 'C', strike: 700,
@@ -47,9 +62,12 @@ describe('brokerage input boundary', () => {
     expect(DirectAccountActionSchema.safeParse({
       kind: 'remove_watchlist_symbols', watchlistName: '../private', symbols: ['NVDA'],
     }).success).toBe(false)
-    expect(DirectAccountActionSchema.parse({
+    expect(DirectAccountActionSchema.safeParse({
       kind: 'delete_watchlist', watchlistName: 'Old ideas',
-    }).kind).toBe('delete_watchlist')
+    }).success).toBe(false)
+    expect(DirectAccountActionSchema.safeParse({
+      kind: 'rename_watchlist', watchlistName: 'Long vol', newName: 'Core ideas',
+    }).success).toBe(false)
   })
 
   it('bounds chat input before model invocation', () => {

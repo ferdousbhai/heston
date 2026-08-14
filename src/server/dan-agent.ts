@@ -66,6 +66,22 @@ const OrderPlacementParameters = Type.Union([
     quantity: Type.Integer({ maximum: 10_000, minimum: 1 }),
     symbol: Type.String({ pattern: '^[A-Z.]{1,8}$' }),
   }),
+  Type.Object({
+    expiry: Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }),
+    kind: Type.Literal('place_vertical_spread_order'),
+    limitPrice: Type.Number({ exclusiveMinimum: 0 }),
+    longStrike: Type.Number({ exclusiveMinimum: 0 }),
+    optionType: Type.Union([Type.Literal('C'), Type.Literal('P')]),
+    priceEffect: Type.Literal('Debit'),
+    quantity: Type.Integer({ maximum: 100, minimum: 1 }),
+    shortStrike: Type.Number({ exclusiveMinimum: 0 }),
+    underlying: Type.String({ pattern: '^[A-Z.]{1,8}$' }),
+  }),
+  Type.Object({
+    kind: Type.Literal('replace_order'),
+    limitPrice: Type.Number({ exclusiveMinimum: 0 }),
+    orderId: Type.String({ pattern: '^\\d{1,40}$' }),
+  }),
 ])
 
 function welcomeMessage(): AgentChatMessage {
@@ -298,7 +314,7 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
 
       const pendingActions = new Map<string, PendingAction>()
       const brokerageActionTool: AgentTool<typeof OrderPlacementParameters, { pendingAction: PendingAction }> = {
-        description: 'Prepare one tastytrade equity or option order placement. This never places the order; it creates a short-lived draft that the user must explicitly confirm.',
+        description: 'Prepare one tastytrade equity, single option, two-leg debit vertical, or price-only order replacement. This never places or replaces the order; it creates a short-lived draft that the user must explicitly confirm.',
         execute: async (toolCallId, params) => {
           const action = OrderPlacementSchema.parse(params)
           const pendingAction = await preparePendingAction(this.env, action)

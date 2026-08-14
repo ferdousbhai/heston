@@ -1,4 +1,4 @@
-import { ArrowDownRight, ArrowUpRight, ChevronDown } from 'lucide-react'
+import { ArrowDownRight, ArrowUpRight, ChevronDown, Settings2 } from 'lucide-react'
 
 import { catalystLabel, nextCatalystForSymbol, sortSymbolsByCatalyst, upcomingInterestedSymbols, type Catalyst } from '../domain/catalyst'
 import { volatilityVerdict, type Ticker, type Watchlist } from '../domain/market'
@@ -53,7 +53,9 @@ export function MarketScreen({
   activeWatchlist,
   catalysts,
   catalystNow,
+  onManageWatchlist,
   onOpenPicker,
+  onSelectWatchlist,
   onSelectTicker,
   selected,
   tickers,
@@ -62,7 +64,9 @@ export function MarketScreen({
   activeWatchlist: Watchlist
   catalysts: Catalyst[]
   catalystNow?: Date
+  onManageWatchlist: () => void
   onOpenPicker: () => void
+  onSelectWatchlist: (watchlist: Watchlist) => void
   onSelectTicker: (symbol: string) => void
   selected: Ticker
   tickers: Ticker[]
@@ -72,6 +76,11 @@ export function MarketScreen({
   const watchTickers = sortSymbolsByCatalyst(activeWatchlist.symbols, catalysts, now)
     .map((symbol) => tickers.find((ticker) => ticker.symbol === symbol))
     .filter((ticker): ticker is Ticker => Boolean(ticker))
+  const selectableWatchlists = [
+    ...watchlists.filter((watchlist) => watchlist.kind === 'positions'),
+    ...watchlists.filter((watchlist) => watchlist.kind === 'private'),
+    ...watchlists.filter((watchlist) => watchlist.kind === 'public'),
+  ]
   return (
     <>
       <CatalystStories catalysts={catalysts} now={now} onSelect={onSelectTicker} tickers={tickers} watchlists={watchlists} />
@@ -104,8 +113,26 @@ export function MarketScreen({
 
       <section className="watch-table" aria-labelledby="watch-title">
         <header className="section-header">
-          <h2 id="watch-title">{activeWatchlist.name}</h2>
-          <button className="text-button" onClick={onOpenPicker} type="button">Change</button>
+          <h2 className="sr-only" id="watch-title">Watchlist</h2>
+          <label className="watchlist-selector">
+            <span className="sr-only">Choose watchlist</span>
+            <select
+              aria-labelledby="watch-title"
+              onChange={(event) => {
+                const watchlist = selectableWatchlists.find((candidate) => candidate.id === event.target.value)
+                if (watchlist) onSelectWatchlist(watchlist)
+              }}
+              value={activeWatchlist.id}
+            >
+              {selectableWatchlists.map((watchlist) => <option key={watchlist.id} value={watchlist.id}>{watchlist.name}</option>)}
+            </select>
+            <ChevronDown aria-hidden="true" size={19} />
+          </label>
+          {activeWatchlist.kind === 'private' && (
+            <button className="watchlist-manage-button" onClick={onManageWatchlist} type="button" aria-label={`Manage ${activeWatchlist.name}`}>
+              <Settings2 aria-hidden="true" size={17} />
+            </button>
+          )}
         </header>
         <div className="watch-rows">
           {watchTickers.map((ticker) => {

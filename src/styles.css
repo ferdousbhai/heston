@@ -96,6 +96,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .site-footer a { color: inherit; text-decoration: none; }
 .site-footer a:hover { color: var(--text); }
 
+.ops-page { width: min(100% - 40px, 560px); min-height: 100dvh; margin: 0 auto; padding: calc(64px + env(safe-area-inset-top)) 0; }
+.ops-page h1 { margin: 0; font-size: clamp(44px, 12vw, 72px); line-height: .9; letter-spacing: -.06em; }
+.ops-page p { margin: 24px 0 34px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.ops-page form { border-top: 1px solid var(--hairline); }
+.ops-page button { width: 100%; min-height: 62px; padding: 0; border: 0; background: none; color: var(--text); text-align: left; font-size: 16px; font-weight: 760; cursor: pointer; }
+.ops-page button:hover { color: var(--spice); }
+
 .stories { padding: 12px 0 12px; border-bottom: 1px solid var(--hairline); }
 .story-row { display: flex; gap: 15px; overflow-x: auto; scrollbar-width: none; padding: 0 20px 4px; }
 .story-row::-webkit-scrollbar { display: none; }
@@ -138,8 +145,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .liquidity-dots { height: 7px; display: flex; gap: 4px; margin-top: 14px; }
 .liquidity-dots i { display: block; flex: 1; border-radius: 5px; background: #2c3038; }
 .liquidity-dots i.filled { background: var(--lime); }
-.text-button { padding: 5px; border: 0; background: none; color: var(--spice); font-size: 11px; font-weight: 750; cursor: pointer; }
 .watch-table { padding-bottom: 16px; }
+.watch-table .section-header { justify-content: flex-start; }
+.watchlist-selector { min-width: 0; max-width: calc(100% - 48px); position: relative; display: inline-flex; align-items: center; }
+.watchlist-selector select { min-width: 0; max-width: 100%; height: 40px; appearance: none; padding: 0 32px 0 0; border: 0; outline: 0; background: transparent; color: var(--text); cursor: pointer; font-size: 22px; line-height: 1.06; font-weight: 760; letter-spacing: -.04em; text-overflow: ellipsis; }
+.watchlist-selector svg { position: absolute; right: 5px; color: var(--spice); pointer-events: none; }
+.watchlist-selector:focus-within { border-radius: 4px; outline: 2px solid var(--spice); outline-offset: 3px; }
+.watchlist-selector select:focus-visible { outline: 0; }
+.watchlist-manage-button { width: 34px; height: 34px; flex: 0 0 34px; margin-left: auto; border: 1px solid var(--hairline); border-radius: 10px; display: grid; place-items: center; background: var(--surface); color: #aeb0b8; cursor: pointer; }
+.watchlist-manage-button:hover { color: var(--spice); border-color: rgba(255, 171, 74, .3); }
 .watch-rows { border-top: 1px solid var(--hairline); }
 .watch-row { width: 100%; height: 69px; display: grid; grid-template-columns: minmax(72px, .8fr) minmax(90px, 1fr) minmax(78px, .7fr); gap: 10px; align-items: center; padding: 0 3px; border: 0; border-bottom: 1px solid var(--hairline); background: transparent; text-align: left; cursor: pointer; }
 .watch-row.selected { position: relative; }
@@ -285,6 +299,29 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .picker-symbols button { min-height: 53px; border: 0; border-bottom: 1px solid var(--hairline); background: transparent; padding: 9px 11px 9px 0; display: flex; flex-direction: column; gap: 2px; align-items: flex-start; text-align: left; cursor: pointer; }
 .picker-symbols button:nth-child(even) { padding-left: 11px; border-left: 1px solid var(--hairline); }
 .picker-symbols strong { font-size: 12px; }.picker-symbols span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 8px; }
+
+.watchlist-sheet { max-height: min(88vh, 760px); max-height: min(88dvh, 760px); }
+.watchlist-add-form { margin-top: 8px; padding: 19px 0; border-bottom: 1px solid var(--hairline); }
+.watchlist-add-form label { display: block; margin-bottom: 8px; color: #8e919c; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.watchlist-add-form > div { min-height: 45px; display: flex; align-items: stretch; gap: 8px; }
+.watchlist-add-form input { min-width: 0; flex: 1; padding: 0 13px; border: 1px solid var(--hairline); border-radius: 11px; background: #1a1c22; font-size: 12px; }
+.watchlist-add-form button { min-width: 74px; border: 0; border-radius: 11px; background: var(--spice); color: #1b0d03; font-size: 10px; font-weight: 800; cursor: pointer; }
+.watchlist-add-form button:disabled { background: #292c33; color: #686b74; cursor: default; }
+.watchlist-add-form button { min-width: 45px; display: grid; place-items: center; }
+.watchlist-error { margin: 13px 0 0; padding: 10px 12px; border-left: 2px solid var(--red); background: rgba(255, 107, 120, .07); color: #e2a3aa; font-size: 10px; }
+.watchlist-members { padding-top: 20px; }
+.watchlist-members-heading { min-height: 30px; display: flex; align-items: baseline; justify-content: space-between; }
+.watchlist-members-heading h3 { margin: 0; font-size: 12px; }
+.watchlist-members-heading span { color: var(--muted); font: 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.watchlist-member { min-height: 58px; border-bottom: 1px solid var(--hairline); display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.watchlist-member > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.watchlist-member strong { font-size: 13px; }
+.watchlist-member span { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.watchlist-member button { width: 40px; height: 40px; flex: 0 0 40px; border: 0; border-radius: 10px; display: grid; place-items: center; background: transparent; color: #767984; cursor: pointer; }
+.watchlist-member button:hover { background: rgba(255, 107, 120, .08); color: var(--red); }
+.watchlist-member button:disabled { cursor: wait; opacity: .55; }
+.watchlist-empty { min-height: 90px; margin: 0; display: grid; place-items: center; color: var(--muted); font-size: 10px; }
+.mini-spinner { width: 13px; height: 13px; border: 1px solid #686b74; border-top-color: var(--spice); border-radius: 50%; animation: spin .8s linear infinite; }
 
 @media (min-width: 800px) {
   .auth-shell { padding-inline: max(7vw, 42px); }

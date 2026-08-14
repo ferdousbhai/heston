@@ -21,10 +21,6 @@ export const WatchlistManagementParameters = Type.Union([
     symbols: Type.Array(Type.String({ pattern: '^[A-Z.]{1,8}$' }), { maxItems: 50, minItems: 1 }),
     watchlistName: Type.String({ maxLength: 64, minLength: 1, pattern: '^(?=.*\\S)[^/]+$' }),
   }, { additionalProperties: false }),
-  Type.Object({
-    action: Type.Literal('delete'),
-    watchlistName: Type.String({ maxLength: 64, minLength: 1, pattern: '^(?=.*\\S)[^/]+$' }),
-  }, { additionalProperties: false }),
 ])
 
 function textResult<T>(result: T) {
@@ -71,21 +67,15 @@ export function authorizesCancel(message: string, orderId: string): boolean {
 
 export function authorizesWatchlistChange(
   message: string,
-  action: 'add' | 'delete' | 'remove',
+  action: 'add' | 'remove',
   watchlistName: string,
-  symbols?: readonly string[],
+  symbols: readonly string[],
 ): boolean {
   const command = commandText(message)
-  if (action === 'delete') {
-    const match = command.match(/^delete\s+(?:(?:my|the|private)\s+)?(.+?)\s+watchlist(?:\s+please)?[.!?]*$/i)
-      ?? command.match(/^delete\s+(?:(?:my|the|private)\s+)?watchlist\s+(.+?)(?:\s+please)?[.!?]*$/i)
-    return Boolean(match?.[1] && cleanName(match[1]) === cleanName(watchlistName))
-  }
-
   const preposition = action === 'add' ? 'to' : 'from'
   const match = command.match(new RegExp(`^${action}\\s+(.+?)\\s+${preposition}\\s+(?:(?:my|the|private)\\s+)?(.+?)\\s+watchlist(?:\\s+please)?[.!?]*$`, 'i'))
     ?? command.match(new RegExp(`^${action}\\s+(.+?)\\s+${preposition}\\s+(?:(?:my|the|private)\\s+)?watchlist\\s+(.+?)(?:\\s+please)?[.!?]*$`, 'i'))
-  if (!match?.[1] || !match[2] || cleanName(match[2]) !== cleanName(watchlistName) || !symbols) return false
+  if (!match?.[1] || !match[2] || cleanName(match[2]) !== cleanName(watchlistName)) return false
   const authorizedSymbols = requestedSymbols(match[1])
   const normalizedSymbols = symbols.map((symbol) => symbol.toUpperCase())
   return Boolean(authorizedSymbols
@@ -121,23 +111,21 @@ export function createWatchlistManagementTool(
   currentUserMessage: string,
 ): AgentTool<typeof WatchlistManagementParameters, { detail: string }> {
   return {
-    description: 'Add or remove equity symbols in a private tastytrade watchlist, or delete a private watchlist, immediately. Add creates a missing list. Use only when the user explicitly requests the exact change in the current message. This does not require a confirmation step.',
+    description: 'Add or remove equity symbols in an existing private tastytrade watchlist immediately. Use only when the user explicitly requests the exact change in the current message. This does not require a confirmation step.',
     execute: async (_toolCallId, params) => {
       if (!authorizesWatchlistChange(
         currentUserMessage,
         params.action,
         params.watchlistName,
-        params.action === 'delete' ? undefined : params.symbols,
+        params.symbols,
       )) throw new Error('DirectActionIntentMismatch')
-      const action = params.action === 'delete'
-        ? DirectAccountActionSchema.parse({ kind: 'delete_watchlist', watchlistName: params.watchlistName })
-        : DirectAccountActionSchema.parse({
-            kind: params.action === 'add' ? 'add_watchlist_symbols' : 'remove_watchlist_symbols',
-            symbols: params.symbols,
-            watchlistName: params.watchlistName,
-          })
+      const action = DirectAccountActionSchema.parse({
+        kind: params.action === 'add' ? 'add_watchlist_symbols' : 'remove_watchlist_symbols',
+        symbols: params.symbols,
+        watchlistName: params.watchlistName,
+      })
       if (action.kind !== 'add_watchlist_symbols' && action.kind !== 'remove_watchlist_symbols'
-        && action.kind !== 'delete_watchlist') throw new Error('WatchlistMutation:invalid-action')
+      ) throw new Error('WatchlistMutation:invalid-action')
       return textResult(await executeWatchlistAction(env, action))
     },
     executionMode: 'sequential',

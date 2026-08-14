@@ -12,7 +12,7 @@ export function TickerPicker({
   watchlists,
 }: {
   onClose: () => void
-  onPick: (watchlist: Watchlist, symbol: string) => void
+  onPick: (symbol: string) => void
   tickers: Ticker[]
   watchlists: Watchlist[]
 }) {
@@ -92,7 +92,7 @@ export function TickerPicker({
                       <span className="picker-list-name">{watchlist.name}</span>
                       <div className="picker-symbols">
                         {watchlist.symbols.map((symbol) => (
-                          <button key={symbol} onClick={() => onPick(watchlist, symbol)} type="button">
+                          <button key={symbol} onClick={() => onPick(symbol)} type="button">
                             <strong>{symbol}</strong>
                             <span>{tickerBySymbol.get(symbol)!.name}</span>
                           </button>

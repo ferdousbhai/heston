@@ -44,5 +44,6 @@ export function publicError(error: unknown): string {
   if (error.name === 'PortfolioRiskError') return error.message
   if (error.name === 'BrokerageSubmissionUnknownError') return error.message
   if (error.name === 'TastytradeOrderWarningError') return error.message
+  if (error.message.includes('WatchlistMutation:not-found')) return 'No private watchlist is available to update'
   return 'The request could not be completed'
 }

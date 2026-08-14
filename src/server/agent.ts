@@ -8,8 +8,9 @@ import { BrokerageSubmissionUnknownError, executeOrderPlacement } from './broker
 import { reconcileUnknownBrokerageAction } from './brokerage-reconciliation'
 import { type AppEnv, isLiveTastytrade } from './env'
 import { assertPortfolioActionAllowed, PortfolioRiskError } from './portfolio-risk'
-import { resolveEquityOptionContract } from './option-contract'
+import { resolveOrderIntent } from './order-intent'
 import { assertOrderMarketSafe, orderMarketPreview } from './order-market'
+import { resolveAccountNumber } from './tastytrade'
 
 type PendingAction = { expiresAt: string; id: string; preview: string; token: string }
 
@@ -37,20 +38,24 @@ export async function preparePendingAction(env: AppEnv, untrustedAction: unknown
   const expiresAt = new Date(createdAt.getTime() + 5 * 60_000).toISOString()
   if (isLiveTastytrade(env) && !env.DB) throw new PortfolioRiskError("Dan's action store is unavailable.")
   let marketPreview: string | undefined
+  let storedAction: unknown = action
   if (env.DB && isLiveTastytrade(env)) {
     await reconcileUnknownBrokerageAction(env)
-    const optionContract = action.kind === 'place_option_order'
-      ? await resolveEquityOptionContract(env, action)
-      : undefined
-    await assertPortfolioActionAllowed(env, action, { optionContract })
-    marketPreview = orderMarketPreview(await assertOrderMarketSafe(env, action, optionContract))
+    const accountNumber = await resolveAccountNumber(env)
+    const intent = await resolveOrderIntent(env, action, accountNumber)
+    storedAction = intent.storedAction
+    await assertPortfolioActionAllowed(env, intent.effectiveAction, {
+      accountNumber,
+      ignoredOrderId: intent.replaceOrderId,
+      optionContracts: intent.optionContracts,
+    })
+    marketPreview = orderMarketPreview(await assertOrderMarketSafe(env, intent.effectiveAction, intent.optionContracts))
     await env.DB.prepare(
       "UPDATE brokerage_actions SET status = 'expired' WHERE status = 'pending' AND expires_at <= ?",
     ).bind(createdAt.toISOString()).run()
     const recentTrade = await env.DB.prepare(
-        `SELECT id FROM brokerage_actions
-         WHERE json_extract(payload_json, '$.kind') IN ('place_option_order', 'place_equity_order')
-           AND (status IN ('pending', 'executing')
+      `SELECT id FROM brokerage_actions
+         WHERE (status IN ('pending', 'executing')
              OR (status = 'executed' AND julianday(resolved_at) >= julianday('now', '-5 minutes')))
          LIMIT 1`,
       ).first<{ id: string }>()
@@ -59,7 +64,7 @@ export async function preparePendingAction(env: AppEnv, untrustedAction: unknown
       await env.DB.prepare(
         `INSERT INTO brokerage_actions (id, status, payload_json, token_digest, created_at, expires_at)
          VALUES (?, 'pending', ?, ?, ?, ?)`,
-      ).bind(id, JSON.stringify(action), await digest(token), createdAt.toISOString(), expiresAt).run()
+      ).bind(id, JSON.stringify(storedAction), await digest(token), createdAt.toISOString(), expiresAt).run()
     } catch (error) {
       if (error instanceof Error && error.message.includes('UNIQUE')) {
         throw new PortfolioRiskError('Resolve the existing draft before creating another brokerage action.')
@@ -104,8 +109,7 @@ export async function resolvePendingAction(
   if (claimed.meta.changes !== 1) throw new Error('This action was already resolved')
   let receipt: Awaited<ReturnType<typeof executeOrderPlacement>>
   try {
-    const action = OrderPlacementSchema.parse(JSON.parse(row.payload_json))
-    receipt = await executeOrderPlacement(env, action)
+    receipt = await executeOrderPlacement(env, JSON.parse(row.payload_json))
   } catch (error) {
     if (error instanceof BrokerageSubmissionUnknownError) {
       await env.DB.prepare(

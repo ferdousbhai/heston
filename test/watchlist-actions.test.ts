@@ -3,7 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const tastytrade = vi.hoisted(() => ({ tastyRequest: vi.fn() }))
 vi.mock('../src/server/tastytrade', () => tastytrade)
 
-import { executeWatchlistAction, mutableWatchlistsFromPayload } from '../src/server/watchlist-actions'
+import {
+  executeAggregateWatchlistAction,
+  executeWatchlistAction,
+  mutableWatchlistsFromPayload,
+} from '../src/server/watchlist-actions'
 
 const existing = {
   data: {
@@ -37,21 +41,13 @@ describe('watchlist mutation boundary', () => {
     })).toThrow('incomplete-response')
   })
 
-  it('creates a missing private watchlist when adding equities', async () => {
-    tastytrade.tastyRequest
-      .mockResolvedValueOnce({ data: { items: [] } })
-      .mockResolvedValueOnce({ data: {} })
+  it('does not create a missing private watchlist when adding equities', async () => {
+    tastytrade.tastyRequest.mockResolvedValue({ data: { items: [] } })
 
-    await executeWatchlistAction({}, {
+    await expect(executeWatchlistAction({}, {
       kind: 'add_watchlist_symbols', watchlistName: 'Catalysts', symbols: ['NVDA', 'AAPL'],
-    })
-
-    expect(tastytrade.tastyRequest).toHaveBeenNthCalledWith(2, {}, '/watchlists', expect.objectContaining({ method: 'POST' }))
-    const body = JSON.parse(tastytrade.tastyRequest.mock.calls[1]?.[2]?.body)
-    expect(body['watchlist-entries']).toEqual([
-      { symbol: 'NVDA', 'instrument-type': 'Equity' },
-      { symbol: 'AAPL', 'instrument-type': 'Equity' },
-    ])
+    })).rejects.toThrow('not-found')
+    expect(tastytrade.tastyRequest).toHaveBeenCalledTimes(1)
   })
 
   it('adds and removes exact Equity entries while preserving other instrument types', async () => {
@@ -76,12 +72,6 @@ describe('watchlist mutation boundary', () => {
     ])
   })
 
-  it('deletes only an exact validated private watchlist', async () => {
-    tastytrade.tastyRequest.mockResolvedValue(existing)
-    await executeWatchlistAction({}, { kind: 'delete_watchlist', watchlistName: 'Long vol' })
-    expect(tastytrade.tastyRequest).toHaveBeenNthCalledWith(2, {}, '/watchlists/Long%20vol', { method: 'DELETE' })
-  })
-
   it('deduplicates additions and reports no-op mutations accurately', async () => {
     tastytrade.tastyRequest.mockResolvedValue(existing)
     const noOp = await executeWatchlistAction({}, {
@@ -90,13 +80,78 @@ describe('watchlist mutation boundary', () => {
     expect(noOp.detail).toBe('No watchlist changes were needed for Long vol')
     expect(tastytrade.tastyRequest).toHaveBeenCalledTimes(1)
 
-    tastytrade.tastyRequest.mockReset()
-      .mockResolvedValueOnce({ data: { items: [] } })
-      .mockResolvedValueOnce({ data: {} })
-    await executeWatchlistAction({}, {
-      kind: 'add_watchlist_symbols', watchlistName: 'Catalysts', symbols: ['NVDA', 'NVDA'],
-    })
+  })
+
+  it('adds an aggregate item to an existing private list without creating a list', async () => {
+    tastytrade.tastyRequest.mockResolvedValue(existing)
+    await executeAggregateWatchlistAction({}, { kind: 'add_watchlist_symbols', symbols: ['NVDA'] })
+
+    expect(tastytrade.tastyRequest).toHaveBeenNthCalledWith(2, {}, '/watchlists/Long%20vol', expect.objectContaining({ method: 'PUT' }))
     const body = JSON.parse(tastytrade.tastyRequest.mock.calls[1]?.[2]?.body)
-    expect(body['watchlist-entries']).toEqual([{ symbol: 'NVDA', 'instrument-type': 'Equity' }])
+    expect(body['watchlist-entries']).toContainEqual({ symbol: 'NVDA', 'instrument-type': 'Equity' })
+  })
+
+  it('removes an aggregate item from every private list that contains it', async () => {
+    tastytrade.tastyRequest.mockResolvedValue({
+      data: {
+        items: [
+          existing.data.items[0],
+          { ...existing.data.items[0], name: 'Second list', 'watchlist-entries': [
+            { symbol: 'SPY', 'instrument-type': 'Equity' },
+            { symbol: 'NVDA', 'instrument-type': 'Equity' },
+          ] },
+        ],
+      },
+    })
+    await executeAggregateWatchlistAction({}, { kind: 'remove_watchlist_symbols', symbols: ['SPY'] })
+
+    expect(tastytrade.tastyRequest).toHaveBeenCalledTimes(3)
+    for (const call of tastytrade.tastyRequest.mock.calls.slice(1)) {
+      const body = JSON.parse(call[2]?.body)
+      expect(body['watchlist-entries']).not.toContainEqual({ symbol: 'SPY', 'instrument-type': 'Equity' })
+    }
+  })
+
+  it('does not implicitly create a private list for the aggregate Watchlist', async () => {
+    tastytrade.tastyRequest.mockResolvedValue({ data: { items: [] } })
+    await expect(executeAggregateWatchlistAction({}, {
+      kind: 'add_watchlist_symbols', symbols: ['NVDA'],
+    })).rejects.toThrow('not-found')
+    expect(tastytrade.tastyRequest).toHaveBeenCalledTimes(1)
+  })
+
+  it('serializes concurrent read-modify-write mutations through the account gate', async () => {
+    let locked = false
+    let active = 0
+    let maxActive = 0
+    const waiters: Array<() => void> = []
+    const env = {
+      BROKER_GATE: {
+        getByName: () => ({
+          acquire: async () => undefined,
+          acquireMutation: async () => {
+            if (locked) await new Promise<void>((resolve) => waiters.push(resolve))
+            locked = true
+            active += 1
+            maxActive = Math.max(maxActive, active)
+            return crypto.randomUUID()
+          },
+          releaseMutation: async () => {
+            active -= 1
+            locked = false
+            waiters.shift()?.()
+          },
+        }),
+      },
+    }
+    tastytrade.tastyRequest.mockResolvedValue(existing)
+
+    await Promise.all([
+      executeAggregateWatchlistAction(env, { kind: 'add_watchlist_symbols', symbols: ['NVDA'] }),
+      executeAggregateWatchlistAction(env, { kind: 'add_watchlist_symbols', symbols: ['AAPL'] }),
+    ])
+
+    expect(maxActive).toBe(1)
+    expect(active).toBe(0)
   })
 })

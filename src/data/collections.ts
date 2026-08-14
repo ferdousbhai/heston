@@ -20,6 +20,7 @@ import {
   type MarketSnapshot,
   type Ticker,
 } from '../domain/market'
+import { type AggregateWatchlistMutation } from '../domain/watchlist'
 import { demoSnapshot } from '../domain/demo'
 
 export const OFFLINE_SNAPSHOT_VERSION = 1
@@ -213,7 +214,9 @@ export async function hydrateCollections(snapshot: MarketSnapshot) {
     const preference = preferenceCollection.insert({
       id: 'primary',
       selectedSymbol: snapshot.tickers[0]?.symbol ?? 'SPY',
-      selectedWatchlistId: snapshot.watchlists[0]?.id ?? 'private-core',
+      selectedWatchlistId: snapshot.watchlists.find((watchlist) => watchlist.kind === 'positions')?.id
+        ?? snapshot.watchlists[0]?.id
+        ?? 'positions',
     })
     await preference.isPersisted.promise
   }
@@ -268,13 +271,17 @@ export async function requestPersistentLocalStorage(): Promise<boolean> {
   }
 }
 
-export async function syncFromCloud(signal?: AbortSignal): Promise<MarketSnapshot> {
+export async function syncFromCloud(
+  signal?: AbortSignal,
+  isCurrent: () => boolean = () => true,
+): Promise<MarketSnapshot> {
   const response = await fetch('/api/snapshot', {
     headers: { Accept: 'application/json' },
     signal,
   })
   if (!response.ok) throw new Error(`Snapshot sync failed (${response.status})`)
   const snapshot = MarketSnapshotSchema.parse(await response.json())
+  if (signal?.aborted || !isCurrent()) throw new DOMException('Snapshot was superseded', 'AbortError')
   await hydrateCollections(snapshot)
   return snapshot
 }
@@ -294,6 +301,20 @@ export function selectWatchlist(id: string, fallbackSymbol?: string) {
     draft.selectedWatchlistId = id
     if (fallbackSymbol) draft.selectedSymbol = fallbackSymbol
   })
+}
+
+export async function applyWatchlistMutation(action: AggregateWatchlistMutation): Promise<void> {
+  const watchlist = [...watchlistCollection.keys()]
+    .map((key) => watchlistCollection.get(key))
+    .find((candidate) => candidate?.kind === 'private')
+  if (!watchlist) return
+  const mutation = watchlistCollection.update(watchlist.id, (draft) => {
+    const requested = new Set(action.symbols)
+    draft.symbols = action.kind === 'add_watchlist_symbols'
+      ? [...new Set([...draft.symbols, ...action.symbols])]
+      : draft.symbols.filter((symbol) => !requested.has(symbol))
+  })
+  await mutation.isPersisted.promise
 }
 
 type PendingCandleSnapshot = { endSeen: boolean; points: CandlePoint[] }

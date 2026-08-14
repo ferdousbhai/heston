@@ -1,10 +1,10 @@
-import { type OrderPlacement } from './agent-contracts'
+import { type FreshOrderPlacement } from './agent-contracts'
 import { type AppEnv } from './env'
 import { type EquityOptionContract } from './option-contract'
 import { tastyRequest } from './tastytrade'
 
 type JsonRecord = Record<string, unknown>
-type OrderAction = OrderPlacement
+type OrderAction = FreshOrderPlacement
 
 export type OrderMarket = {
   ask: number
@@ -46,6 +46,25 @@ function exactlyOneRecord(payload: unknown, label: string): JsonRecord {
   return row
 }
 
+function recordRows(payload: unknown, label: string): JsonRecord[] {
+  const body = record(payload)
+  const rawData = body?.data ?? payload
+  const data = record(rawData)
+  const rows = Array.isArray(rawData)
+    ? rawData
+    : Array.isArray(data?.items)
+      ? data.items
+      : Array.isArray(body?.items)
+        ? body.items
+        : data ? [data] : undefined
+  if (!rows?.length) throw new Error(`${label}:invalid-response`)
+  return rows.map((value) => {
+    const row = record(value)
+    if (!row) throw new Error(`${label}:invalid-response`)
+    return row
+  })
+}
+
 function tickSizeAt(rules: unknown, price: number): number {
   if (!Array.isArray(rules) || !rules.length) throw new Error('OrderMarket:missing-tick-rules')
   const parsed = rules.map((value) => {
@@ -80,6 +99,7 @@ export function orderMarketFromPayloads(
   resolvedOption: EquityOptionContract | undefined,
   now = new Date(),
 ): OrderMarket {
+  if (action.kind === 'place_vertical_spread_order') throw new Error('OrderMarket:use-spread-market')
   const expectedSymbol = action.kind === 'place_option_order' ? resolvedOption?.symbol : action.symbol
   if (!expectedSymbol) throw new Error('OrderMarket:missing-contract')
   const expectedType = action.kind === 'place_option_order' ? 'Equity Option' : 'Equity'
@@ -112,12 +132,65 @@ export function orderMarketFromPayloads(
   return { ask, bid, observedAt: new Date(observedTime).toISOString(), tickSize }
 }
 
+export function spreadOrderMarketFromPayloads(
+  action: Extract<OrderAction, { kind: 'place_vertical_spread_order' }>,
+  quotePayload: unknown,
+  instrumentPayload: unknown,
+  resolvedOptions: readonly EquityOptionContract[],
+  now = new Date(),
+): OrderMarket {
+  if (resolvedOptions.length !== 2) throw new Error('OrderMarket:missing-spread-contracts')
+  const quotes = recordRows(quotePayload, 'OrderMarketQuote')
+  if (quotes.length !== 2) throw new Error('OrderMarketQuote:invalid-response')
+  const bySymbol = new Map(quotes.map((quote) => [text(quote.symbol), quote]))
+  const parsed = resolvedOptions.map((contract) => {
+    const quote = bySymbol.get(contract.symbol)
+    const bid = finiteNumber(quote?.bid)
+    const ask = finiteNumber(quote?.ask)
+    const observed = Date.parse(text(quote?.['updated-at'] ?? quote?.updatedAt) ?? '')
+    if (!quote
+      || text(quote['instrument-type'] ?? quote.instrumentType) !== 'Equity Option'
+      || bid === undefined || ask === undefined || bid < 0 || ask <= 0 || bid > ask
+      || !Number.isFinite(observed) || observed > now.getTime() + 60_000
+      || now.getTime() - observed > 15 * 60_000) {
+      throw new Error('OrderMarketQuote:invalid-or-stale')
+    }
+    return { ask, bid, observed }
+  })
+  const bid = Math.round(Math.max(0, parsed[0]!.bid - parsed[1]!.ask) * 1e8) / 1e8
+  const ask = Math.round((parsed[0]!.ask - parsed[1]!.bid) * 1e8) / 1e8
+  if (ask <= 0 || bid > ask) throw new Error('OrderMarketQuote:invalid-spread-market')
+  const instrument = exactlyOneRecord(instrumentPayload, 'OrderMarketInstrument')
+  if (text(instrument.symbol)?.toUpperCase() !== action.underlying) throw new Error('OrderMarketInstrument:mismatch')
+  const tickSize = tickSizeAt(instrument['option-tick-sizes'], action.limitPrice)
+  if (!isTickAligned(action.limitPrice, tickSize)) throw new Error(`OrderMarket:limit-must-use-${tickSize}-tick`)
+  if (action.limitPrice < bid || action.limitPrice > ask) {
+    throw new Error(`OrderMarket:limit-outside-${bid.toFixed(2)}-${ask.toFixed(2)}`)
+  }
+  return {
+    ask,
+    bid,
+    observedAt: new Date(Math.min(parsed[0]!.observed, parsed[1]!.observed)).toISOString(),
+    tickSize,
+  }
+}
+
 export async function assertOrderMarketSafe(
   env: AppEnv,
   action: OrderAction,
-  resolvedOption?: EquityOptionContract,
+  resolvedOptions: readonly EquityOptionContract[] = [],
   now = new Date(),
 ): Promise<OrderMarket> {
+  if (action.kind === 'place_vertical_spread_order') {
+    if (resolvedOptions.length !== 2) throw new Error('OrderMarket:missing-spread-contracts')
+    const query = resolvedOptions.map((contract) => `equity-option=${encodeURIComponent(contract.symbol)}`).join('&')
+    const [quotePayload, instrumentPayload] = await Promise.all([
+      tastyRequest(env, `/market-data/by-type?${query}`),
+      tastyRequest(env, `/instruments/equities/${encodeURIComponent(action.underlying)}`),
+    ])
+    return spreadOrderMarketFromPayloads(action, quotePayload, instrumentPayload, resolvedOptions, now)
+  }
+  const resolvedOption = resolvedOptions[0]
   const brokerSymbol = action.kind === 'place_option_order' ? resolvedOption?.symbol : action.symbol
   if (!brokerSymbol) throw new Error('OrderMarket:missing-contract')
   const quoteQuery = action.kind === 'place_option_order'

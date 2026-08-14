@@ -53,7 +53,6 @@ describe('direct non-placement actions', () => {
       ['Remove SPY from Long vol watchlist.', { action: 'add' as const, watchlistName: 'Long vol', symbols: ['SPY'] }],
       ['Add SPY to Long vol watchlist.', { action: 'add' as const, watchlistName: 'Other', symbols: ['SPY'] }],
       ['Add SPY to Long vol watchlist.', { action: 'add' as const, watchlistName: 'Long vol', symbols: ['SPY', 'NVDA'] }],
-      ['Show me Long vol watchlist.', { action: 'delete' as const, watchlistName: 'Long vol' }],
     ] as const
     for (const [message, params] of cases) {
       const mutableParams = 'symbols' in params ? { ...params, symbols: [...params.symbols] } : params
@@ -66,7 +65,7 @@ describe('direct non-placement actions', () => {
 
   it('refuses to put non-placement actions into the confirmation store', async () => {
     await expect(preparePendingAction({}, {
-      kind: 'delete_watchlist', watchlistName: 'Long vol',
+      kind: 'add_watchlist_symbols', watchlistName: 'Long vol', symbols: ['SPY'],
     })).rejects.toThrow()
     expect(watchlists.executeWatchlistAction).not.toHaveBeenCalled()
   })

@@ -44,20 +44,31 @@ describe('Kelly and survival math', () => {
 })
 
 describe('portfolio action boundary', () => {
+  it('sizes a debit vertical by its net debit and verified multiplier', () => {
+    const spread: Extract<OrderPlacement, { kind: 'place_vertical_spread_order' }> = {
+      kind: 'place_vertical_spread_order', underlying: 'SPY', optionType: 'P',
+      expiry: '2026-09-18', longStrike: 700, shortStrike: 690,
+      quantity: 2, limitPrice: 3, priceEffect: 'Debit',
+    }
+    expect(assessPortfolioAction(spread, longOnlyAccount, 100_000, [
+      { symbol: 'long', sharesPerContract: 100 },
+      { symbol: 'short', sharesPerContract: 100 },
+    ])).toMatchObject({ allowed: true, maxLoss: 600 })
+  })
   it('allows a bounded debit only within the remaining hard-loss budget', () => {
     const action: Extract<OrderPlacement, { kind: 'place_option_order' }> = {
       kind: 'place_option_order', underlying: 'SPY', optionType: 'C', strike: 700,
       expiry: '2026-09-18', action: 'Buy to Open', quantity: 1, limitPrice: 10,
       priceEffect: 'Debit',
     }
-    expect(assessPortfolioAction(action, longOnlyAccount, 100_000, {
+    expect(assessPortfolioAction(action, longOnlyAccount, 100_000, [{
       symbol: 'SPY   260918C00700000', sharesPerContract: 100,
-    })).toMatchObject({ allowed: true, maxLoss: 1_000, remainingLossBudget: 5_000 })
+    }])).toMatchObject({ allowed: true, maxLoss: 1_000, remainingLossBudget: 5_000 })
 
     const tooLarge = { ...action, quantity: 6 }
-    expect(assessPortfolioAction(tooLarge, longOnlyAccount, 100_000, {
+    expect(assessPortfolioAction(tooLarge, longOnlyAccount, 100_000, [{
       symbol: 'SPY   260918C00700000', sharesPerContract: 100,
-    })).toMatchObject({ allowed: false, maxLoss: 6_000 })
+    }])).toMatchObject({ allowed: false, maxLoss: 6_000 })
   })
 
   it('rejects naked openings and portfolios whose downside is not contractually bounded', () => {
@@ -66,18 +77,18 @@ describe('portfolio action boundary', () => {
       expiry: '2026-09-18', action: 'Sell to Open', quantity: 1, limitPrice: 5,
       priceEffect: 'Credit',
     }
-    expect(assessPortfolioAction(naked, longOnlyAccount, 100_000, {
+    expect(assessPortfolioAction(naked, longOnlyAccount, 100_000, [{
       symbol: 'SPY   260918C00700000', sharesPerContract: 100,
-    }).allowed).toBe(false)
+    }]).allowed).toBe(false)
 
     const longCall = { ...naked, action: 'Buy to Open' as const, priceEffect: 'Debit' as const }
     const shortAccount = {
       ...longOnlyAccount,
       positions: [{ direction: 'Short' as const, instrumentType: 'Equity Option', quantity: 1, symbol: 'SPY short call' }],
     }
-    expect(assessPortfolioAction(longCall, shortAccount, 100_000, {
+    expect(assessPortfolioAction(longCall, shortAccount, 100_000, [{
       symbol: 'SPY   260918C00700000', sharesPerContract: 100,
-    }).allowed).toBe(false)
+    }]).allowed).toBe(false)
   })
 
   it('allows only a verified, quantity-bounded close', () => {
@@ -115,12 +126,12 @@ describe('portfolio action boundary', () => {
     }
 
     expect(assessPortfolioAction(sellShares, accountWithShort, 100_000).allowed).toBe(false)
-    expect(assessPortfolioAction(sellLongOption, accountWithShort, 100_000, {
+    expect(assessPortfolioAction(sellLongOption, accountWithShort, 100_000, [{
       symbol: 'SPY long call', sharesPerContract: 100,
-    }).allowed).toBe(false)
-    expect(assessPortfolioAction(buyBackShort, accountWithShort, 100_000, {
+    }]).allowed).toBe(false)
+    expect(assessPortfolioAction(buyBackShort, accountWithShort, 100_000, [{
       symbol: 'SPY short call', sharesPerContract: 100,
-    }).allowed).toBe(true)
+    }]).allowed).toBe(true)
   })
 
   it('rejects action and price-effect mismatches at the untrusted model boundary', () => {

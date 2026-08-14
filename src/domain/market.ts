@@ -63,6 +63,17 @@ export type Ticker = z.infer<typeof TickerSchema>
 export type ResearchBrief = z.infer<typeof ResearchBriefSchema>
 export type MarketSnapshot = z.infer<typeof MarketSnapshotSchema>
 
+export function aggregatePrivateWatchlists(watchlists: readonly Watchlist[]): Watchlist {
+  return {
+    id: 'watchlist',
+    kind: 'private',
+    name: 'Watchlist',
+    symbols: [...new Set(watchlists
+      .filter((watchlist) => watchlist.kind === 'private')
+      .flatMap((watchlist) => watchlist.symbols))],
+  }
+}
+
 export type VolatilityVerdict = 'cheap' | 'fair' | 'rich'
 
 const marketMetricFormatter = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 })

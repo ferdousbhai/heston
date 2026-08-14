@@ -68,6 +68,8 @@ Cloudflare reference: [Secrets Store bindings](https://developers.cloudflare.com
 
 Paired UTC cron windows cover both US daylight and standard time. The scheduled handler runs the daily brief only at 09:30 New York and the X catalyst workflow only at 18:30 New York on weekdays.
 
+The owner-only `/ops` page can run either pipeline through the same durable per-market-day job boundary used by Cron. It exists for production verification and recovery; it does not bypass authentication, idempotency, or run receipts.
+
 ## Checks
 
 ```sh
@@ -77,7 +79,7 @@ npm run build
 npm run test:e2e
 ```
 
-No live order is submitted directly from chat. Dan creates a bounded draft stored in D1 with a hashed, one-time, five-minute token. Confirmation atomically claims it, resolves the exact option instrument, runs tastytrade’s dry-run endpoint, and only then submits.
+No live order is submitted directly from chat. Dan creates a bounded draft stored in D1 with a hashed, one-time, five-minute token. Confirmation atomically claims it, resolves every exact option instrument, runs tastytrade’s dry-run endpoint, and only then submits. The executable spread scope is deliberately narrow: two-leg long call or put debit verticals with mechanically bounded loss. Dan can also replace the limit price of an exact, editable, unfilled live order previously placed by Spice; replacement uses the same confirmation, fresh risk/market checks, broker dry-run, and ambiguous-receipt quarantine.
 
 The live options-metric mapping recognizes tastytrade’s REST fields for IV rank, IV percentile, IV index, and liquidity rating. One account-scoped Durable Object owns the secret-bearing tastytrade DXLink connection, while a second Durable Object paces REST calls. Authenticated browser sessions subscribe to the relay, which unions requested symbols, streams normalized Quote, Trade, and five-minute Candle events into TanStack DB, and closes the upstream socket when the last client disconnects.
 
@@ -85,7 +87,7 @@ Upcoming earnings from tastytrade market metrics and material scheduled events f
 
 Dan refreshes a compact factual account snapshot on every turn: net liquidation value, cash and withdrawable cash, available trading funds, separate equity/derivative/day-trading buying power, positions, every leg of working ordinary and complex orders, and recent Trade transactions. Private data is provenance-tagged and the account number is never sent to the model.
 
-Everything else is progressive and on demand. Read-only tools expose bounded account history, market metrics and hours, symbol search, active standard option contracts, exact tuple-resolved bid/ask quotes and Greeks, private/public watchlists, catalysts, and the latest daily brief. Watchlists are never part of default context. Only order placement uses the expiring confirmation state machine. An explicitly requested cancellation or private-watchlist add/remove/delete runs through its narrow server-validated tool without another confirmation step.
+Everything else is progressive and on demand. Read-only tools expose bounded account history, market metrics and hours, symbol search, active standard option contracts, exact tuple-resolved bid/ask quotes and Greeks, private/public watchlists, catalysts, and the latest daily brief. Watchlists are never part of default context. Only order placement uses the expiring confirmation state machine. An explicitly requested cancellation or private-watchlist add/remove runs through its narrow server-validated tool without another confirmation step.
 
 Dan receives a fresh New York clock, market status, near-expiry option awareness, balances, positions, open orders, and recent trades on every turn. Kelly is advisory: Dan explains its assumptions and recommends a conservative ceiling, but an explicit user-selected size can still be drafted if it passes the deterministic portfolio survival guard and the user confirms it. Ambiguous broker receipts are matched against exact recent order history and are never automatically resubmitted.
 

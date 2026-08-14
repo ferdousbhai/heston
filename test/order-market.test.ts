@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { orderMarketFromPayloads } from '../src/server/order-market'
+import { orderMarketFromPayloads, spreadOrderMarketFromPayloads } from '../src/server/order-market'
 
 const option = {
   kind: 'place_option_order' as const,
@@ -40,5 +40,25 @@ describe('order market boundary', () => {
       symbol: 'SPY',
       'option-tick-sizes': [{ value: '0.01' }, { value: '0.05', threshold: '3' }],
     } }, contract, now).tickSize).toBe(0.05)
+  })
+
+  it('prices a debit vertical from the exact two-leg natural market', () => {
+    const spread = {
+      kind: 'place_vertical_spread_order' as const,
+      underlying: 'SPY', optionType: 'C' as const, expiry: '2026-09-18',
+      longStrike: 700, shortStrike: 710, quantity: 1, limitPrice: 2.55,
+      priceEffect: 'Debit' as const,
+    }
+    const contracts = [
+      { symbol: 'SPY   260918C00700000', sharesPerContract: 100 },
+      { symbol: 'SPY   260918C00710000', sharesPerContract: 100 },
+    ]
+    const quotes = { data: { items: [
+      { symbol: contracts[0]!.symbol, 'instrument-type': 'Equity Option', bid: '5.00', ask: '5.10', 'updated-at': now.toISOString() },
+      { symbol: contracts[1]!.symbol, 'instrument-type': 'Equity Option', bid: '2.50', ask: '2.60', 'updated-at': now.toISOString() },
+    ] } }
+    expect(spreadOrderMarketFromPayloads(spread, quotes, instrument, contracts, now)).toEqual({
+      bid: 2.4, ask: 2.6, observedAt: now.toISOString(), tickSize: 0.01,
+    })
   })
 })

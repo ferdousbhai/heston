@@ -25,8 +25,8 @@ export const demoTickers: Ticker[] = [
 ]
 
 export const demoWatchlists: Watchlist[] = [
-  { id: 'private-core', kind: 'private', name: 'My Watchlist', symbols: ['SPY', 'NVDA', 'AAPL', 'TSLA'] },
   { id: 'positions', kind: 'positions', name: 'Active Positions', symbols: ['SPY', 'NVDA', 'AMD'] },
+  { id: 'watchlist', kind: 'private', name: 'Watchlist', symbols: ['SPY', 'NVDA', 'AAPL', 'TSLA'] },
   { id: 'public-liquid', kind: 'public', name: 'Liquid ETFs', symbols: ['SPY', 'QQQ', 'IWM'] },
   { id: 'public-volume', kind: 'public', name: 'Options Volume', symbols: ['NVDA', 'TSLA', 'AAPL', 'AMD'] },
   { id: 'public-earnings', kind: 'public', name: 'Upcoming Earnings', symbols: ['NVDA', 'META', 'AAPL'] },

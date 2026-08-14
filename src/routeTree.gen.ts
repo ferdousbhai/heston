@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DisclosuresRouteImport } from './routes/disclosures'
+import { Route as OpsRouteImport } from './routes/ops'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as SupportRouteImport } from './routes/support'
 import { Route as TermsRouteImport } from './routes/terms'
@@ -18,9 +19,10 @@ import { Route as ApiHealthRouteImport } from './routes/api.health'
 import { Route as ApiSnapshotRouteImport } from './routes/api.snapshot'
 import { Route as ApiStreamRouteImport } from './routes/api.stream'
 import { Route as ApiViewerRouteImport } from './routes/api.viewer'
+import { Route as ApiWatchlistsRouteImport } from './routes/api.watchlists'
 import { Route as ApiActionsActionIdRouteImport } from './routes/api.actions.$actionId'
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
-import { Route as ApiCatalystsRefreshRouteImport } from './routes/api.catalysts.refresh'
+import { Route as ApiJobsJobKindRouteImport } from './routes/api.jobs.$jobKind'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -30,6 +32,11 @@ const IndexRoute = IndexRouteImport.update({
 const DisclosuresRoute = DisclosuresRouteImport.update({
   id: '/disclosures',
   path: '/disclosures',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OpsRoute = OpsRouteImport.update({
+  id: '/ops',
+  path: '/ops',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PrivacyRoute = PrivacyRouteImport.update({
@@ -67,6 +74,11 @@ const ApiViewerRoute = ApiViewerRouteImport.update({
   path: '/api/viewer',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiWatchlistsRoute = ApiWatchlistsRouteImport.update({
+  id: '/api/watchlists',
+  path: '/api/watchlists',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiActionsActionIdRoute = ApiActionsActionIdRouteImport.update({
   id: '/api/actions/$actionId',
   path: '/api/actions/$actionId',
@@ -77,15 +89,16 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiCatalystsRefreshRoute = ApiCatalystsRefreshRouteImport.update({
-  id: '/api/catalysts/refresh',
-  path: '/api/catalysts/refresh',
+const ApiJobsJobKindRoute = ApiJobsJobKindRouteImport.update({
+  id: '/api/jobs/$jobKind',
+  path: '/api/jobs/$jobKind',
   getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/disclosures': typeof DisclosuresRoute
+  '/ops': typeof OpsRoute
   '/privacy': typeof PrivacyRoute
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
@@ -93,13 +106,15 @@ export interface FileRoutesByFullPath {
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
   '/api/viewer': typeof ApiViewerRoute
+  '/api/watchlists': typeof ApiWatchlistsRoute
   '/api/actions/$actionId': typeof ApiActionsActionIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/catalysts/refresh': typeof ApiCatalystsRefreshRoute
+  '/api/jobs/$jobKind': typeof ApiJobsJobKindRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/disclosures': typeof DisclosuresRoute
+  '/ops': typeof OpsRoute
   '/privacy': typeof PrivacyRoute
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
@@ -107,14 +122,16 @@ export interface FileRoutesByTo {
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
   '/api/viewer': typeof ApiViewerRoute
+  '/api/watchlists': typeof ApiWatchlistsRoute
   '/api/actions/$actionId': typeof ApiActionsActionIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/catalysts/refresh': typeof ApiCatalystsRefreshRoute
+  '/api/jobs/$jobKind': typeof ApiJobsJobKindRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/disclosures': typeof DisclosuresRoute
+  '/ops': typeof OpsRoute
   '/privacy': typeof PrivacyRoute
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
@@ -122,15 +139,17 @@ export interface FileRoutesById {
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
   '/api/viewer': typeof ApiViewerRoute
+  '/api/watchlists': typeof ApiWatchlistsRoute
   '/api/actions/$actionId': typeof ApiActionsActionIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/catalysts/refresh': typeof ApiCatalystsRefreshRoute
+  '/api/jobs/$jobKind': typeof ApiJobsJobKindRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/disclosures'
+    | '/ops'
     | '/privacy'
     | '/support'
     | '/terms'
@@ -138,13 +157,15 @@ export interface FileRouteTypes {
     | '/api/snapshot'
     | '/api/stream'
     | '/api/viewer'
+    | '/api/watchlists'
     | '/api/actions/$actionId'
     | '/api/auth/$'
-    | '/api/catalysts/refresh'
+    | '/api/jobs/$jobKind'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/disclosures'
+    | '/ops'
     | '/privacy'
     | '/support'
     | '/terms'
@@ -152,13 +173,15 @@ export interface FileRouteTypes {
     | '/api/snapshot'
     | '/api/stream'
     | '/api/viewer'
+    | '/api/watchlists'
     | '/api/actions/$actionId'
     | '/api/auth/$'
-    | '/api/catalysts/refresh'
+    | '/api/jobs/$jobKind'
   id:
     | '__root__'
     | '/'
     | '/disclosures'
+    | '/ops'
     | '/privacy'
     | '/support'
     | '/terms'
@@ -166,14 +189,16 @@ export interface FileRouteTypes {
     | '/api/snapshot'
     | '/api/stream'
     | '/api/viewer'
+    | '/api/watchlists'
     | '/api/actions/$actionId'
     | '/api/auth/$'
-    | '/api/catalysts/refresh'
+    | '/api/jobs/$jobKind'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DisclosuresRoute: typeof DisclosuresRoute
+  OpsRoute: typeof OpsRoute
   PrivacyRoute: typeof PrivacyRoute
   SupportRoute: typeof SupportRoute
   TermsRoute: typeof TermsRoute
@@ -181,9 +206,10 @@ export interface RootRouteChildren {
   ApiSnapshotRoute: typeof ApiSnapshotRoute
   ApiStreamRoute: typeof ApiStreamRoute
   ApiViewerRoute: typeof ApiViewerRoute
+  ApiWatchlistsRoute: typeof ApiWatchlistsRoute
   ApiActionsActionIdRoute: typeof ApiActionsActionIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
-  ApiCatalystsRefreshRoute: typeof ApiCatalystsRefreshRoute
+  ApiJobsJobKindRoute: typeof ApiJobsJobKindRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -200,6 +226,13 @@ declare module '@tanstack/react-router' {
       path: '/disclosures'
       fullPath: '/disclosures'
       preLoaderRoute: typeof DisclosuresRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ops': {
+      id: '/ops'
+      path: '/ops'
+      fullPath: '/ops'
+      preLoaderRoute: typeof OpsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/privacy': {
@@ -251,6 +284,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiViewerRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/watchlists': {
+      id: '/api/watchlists'
+      path: '/api/watchlists'
+      fullPath: '/api/watchlists'
+      preLoaderRoute: typeof ApiWatchlistsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/actions/$actionId': {
       id: '/api/actions/$actionId'
       path: '/api/actions/$actionId'
@@ -265,11 +305,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/catalysts/refresh': {
-      id: '/api/catalysts/refresh'
-      path: '/api/catalysts/refresh'
-      fullPath: '/api/catalysts/refresh'
-      preLoaderRoute: typeof ApiCatalystsRefreshRouteImport
+    '/api/jobs/$jobKind': {
+      id: '/api/jobs/$jobKind'
+      path: '/api/jobs/$jobKind'
+      fullPath: '/api/jobs/$jobKind'
+      preLoaderRoute: typeof ApiJobsJobKindRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -278,6 +318,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DisclosuresRoute: DisclosuresRoute,
+  OpsRoute: OpsRoute,
   PrivacyRoute: PrivacyRoute,
   SupportRoute: SupportRoute,
   TermsRoute: TermsRoute,
@@ -285,9 +326,10 @@ const rootRouteChildren: RootRouteChildren = {
   ApiSnapshotRoute: ApiSnapshotRoute,
   ApiStreamRoute: ApiStreamRoute,
   ApiViewerRoute: ApiViewerRoute,
+  ApiWatchlistsRoute: ApiWatchlistsRoute,
   ApiActionsActionIdRoute: ApiActionsActionIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
-  ApiCatalystsRefreshRoute: ApiCatalystsRefreshRoute,
+  ApiJobsJobKindRoute: ApiJobsJobKindRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
