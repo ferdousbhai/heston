@@ -55,21 +55,10 @@ export async function generateDailyResearch(env: AppEnv, now = new Date()): Prom
         content: `Create the daily mobile market brief for ${now.toISOString()}. Market metrics: ${JSON.stringify(compactMarket)}. Official headlines: ${JSON.stringify(headlines)}. Return fields: id, publishedAt, title, summary, regime, regimeDetail, ideas (1-3 with symbol/direction/setup/thesis/risk/horizon), sources (always an empty array; trusted citations are attached by the application).`,
       },
     ],
-    response_format: {
-      type: 'json_schema',
-      json_schema: {
-        type: 'object',
-        properties: {
-          id: { type: 'string' }, publishedAt: { type: 'string' },
-          title: { type: 'string' }, summary: { type: 'string' }, regime: { type: 'string' },
-          regimeDetail: { type: 'string' }, ideas: { type: 'array' }, sources: { type: 'array' },
-        },
-        required: ['id', 'publishedAt', 'title', 'summary', 'regime', 'regimeDetail', 'ideas', 'sources'],
-      },
-    },
+    response_format: { type: 'json_object' },
     max_tokens: 1_200,
     temperature: 0.35,
-  }) as AiTextResult
+  }, { signal: AbortSignal.timeout(90_000) }) as AiTextResult
   const brief = ResearchBriefSchema.parse({
     ...extractJson(result.response ?? '') as Record<string, unknown>,
     sources: [

@@ -163,7 +163,7 @@ export async function discoverXCatalysts(
   ])
   const today = marketDate(now)
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 55_000)
+  const timeout = setTimeout(() => controller.abort(), 120_000)
   try {
     const response = await fetcher('https://gateway.ai.cloudflare.com/v1/0af9e0921b880657d84a6c07307f8aef/spice/grok/v1/responses', {
       method: 'POST', signal: controller.signal,
