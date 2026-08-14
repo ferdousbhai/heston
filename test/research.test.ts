@@ -31,7 +31,7 @@ describe('daily research schedule', () => {
       id: 'brief-2026-08-14', publishedAt: '2026-08-14T13:30:00.000Z',
       title: 'Daily brief', summary: 'Summary', regime: 'Selective', regimeDetail: 'Defined risk',
       ideas: [{
-        symbol: 'SPY', direction: 'Bullish', setup: 'Call spread', thesis: 'Breadth',
+        symbol: 'SPY', direction: 'Cautiously bullish', setup: 'Call spread', thesis: 'Breadth',
         risk: 'Reversal', horizon: '30 days',
       }], sources: [],
     }) }))

@@ -24,6 +24,15 @@ function extractJson(response: string): unknown {
   return JSON.parse(fenced ?? response)
 }
 
+function normalizeDirection(value: unknown): unknown {
+  if (typeof value !== 'string') return value
+  const direction = value.toLowerCase()
+  if (direction.includes('bull') || direction.includes('upside') || direction === 'positive') return 'bullish'
+  if (direction.includes('bear') || direction.includes('downside') || direction === 'negative') return 'bearish'
+  if (direction.includes('neutral') || direction.includes('range') || direction.includes('mixed') || direction.includes('wait')) return 'neutral'
+  return direction
+}
+
 function normalizeModelBrief(value: unknown): unknown {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return value
   const brief = value as Record<string, unknown>
@@ -33,7 +42,7 @@ function normalizeModelBrief(value: unknown): unknown {
     ideas: brief.ideas.map((idea) => {
       if (typeof idea !== 'object' || idea === null || Array.isArray(idea)) return idea
       const record = idea as Record<string, unknown>
-      return { ...record, direction: typeof record.direction === 'string' ? record.direction.toLowerCase() : record.direction }
+      return { ...record, direction: normalizeDirection(record.direction) }
     }),
   }
 }
@@ -66,7 +75,7 @@ export async function generateDailyResearch(env: AppEnv, now = new Date()): Prom
       },
       {
         role: 'user',
-        content: `Create the daily mobile market brief for ${now.toISOString()}. Market metrics: ${JSON.stringify(compactMarket)}. Official headlines: ${JSON.stringify(headlines)}. Return fields: id, publishedAt, title, summary, regime, regimeDetail, ideas (1-3 with symbol/direction/setup/thesis/risk/horizon), sources (always an empty array; trusted citations are attached by the application).`,
+        content: `Create the daily mobile market brief for ${now.toISOString()}. Market metrics: ${JSON.stringify(compactMarket)}. Official headlines: ${JSON.stringify(headlines)}. Return fields: id, publishedAt, title, summary, regime, regimeDetail, ideas (1-3 with symbol/direction/setup/thesis/risk/horizon; direction must be exactly bullish, bearish, or neutral), sources (always an empty array; trusted citations are attached by the application).`,
       },
     ],
     response_format: { type: 'json_object' },
