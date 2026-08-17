@@ -42,7 +42,7 @@ Google OAuth ──> Better Auth ──> D1 session ──> exact-owner API boun
 - `server/x-catalysts.ts`: Grok 4.6 native X search, citation allowlisting, schedule guard, D1 persistence, and run telemetry.
 - `server/research-sources.ts`: resilient orchestration of bounded research-source collectors.
 - `server/research-reddit.ts`: server-only Reddit OAuth and bounded public-post metadata ingestion.
-- `server/fmp.ts`: fixed-origin, bounded FMP transport with header-only credentials and stable provider error categories.
+- `server/research-provider.ts`: stable, redacted error categories shared by contextual research providers.
 - `server/secrets.ts`: the single boundary for resolving Cloudflare Secrets Store bindings.
 - `server/research.ts`: timezone-safe research synthesis, deterministic source attribution, and D1 persistence.
 - `server/agent-contracts.ts`: strict model and API schemas plus human-readable action previews.
@@ -50,7 +50,7 @@ Google OAuth ──> Better Auth ──> D1 session ──> exact-owner API boun
 - `server/order-payload.ts`: canonical tastytrade order payload construction shared by risk checks, submission, and reconciliation.
 - `server/brokerage-context.ts`: strict, timestamped always-on balances, positions, full working-order legs, and recent Trade transactions. Account identity and deprecated REST marks are omitted from model context.
 - `server/brokerage-read-tools.ts`: bounded, read-only account history, market metrics/status, symbol search, progressive option-contract discovery, and exact tuple-resolved bid/ask quotes.
-- `server/market-research-tools.ts`: provider-neutral research contracts, bounded secondary-source company fundamentals, and FMP EOD normalization plus locally derived technical studies; live tastytrade quotes remain authoritative for execution.
+- `server/market-research-tools.ts`: provider-neutral research contracts, bounded secondary-source company fundamentals, and Yahoo EOD normalization plus locally derived technical studies; live tastytrade quotes remain authoritative for execution.
 - `server/option-greeks-tool.ts`: exact human option tuple resolution plus live Greeks through the shared MarketFeed relay.
 - `server/account-action-tools.ts`: direct, narrowly validated order cancellation and private-watchlist writes.
 - `server/watchlist-tool.ts`: progressive private/public watchlist reads; names and counts precede exact-list symbols.

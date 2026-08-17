@@ -25,13 +25,12 @@ export interface AppEnv {
   AI?: Ai
   AI_GATEWAY_TOKEN?: SecretsStoreSecret
   AUTH_BASE_URL?: string
-  BETTER_AUTH_SECRET?: SecretsStoreSecret
+  BETTER_AUTH_SECRET?: string
   BROKER_GATE?: BrokerGateNamespace
   DB?: D1Database
   DanAgent?: DurableObjectNamespace
-  FMP_API_KEY?: SecretsStoreSecret
-  GOOGLE_CLIENT_ID?: SecretsStoreSecret
-  GOOGLE_CLIENT_SECRET?: SecretsStoreSecret
+  GOOGLE_CLIENT_ID?: string
+  GOOGLE_CLIENT_SECRET?: string
   MARKET_FEED?: MarketFeedNamespace
   REDDIT_CLIENT_ID?: SecretsStoreSecret
   REDDIT_CLIENT_SECRET?: SecretsStoreSecret

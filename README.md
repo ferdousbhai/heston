@@ -41,10 +41,9 @@ Server routes in `src/routes/api.*.ts` are deliberately thin validation and HTTP
    npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name tastytrade-refresh-token --scopes workers --remote
    npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name xai --scopes workers --remote
    npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name account-ai-gateway --scopes workers --remote
-   npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name fmp-api-key --scopes workers --remote
    ```
 
-   The existing `reddit-client-id` and `reddit-client-secret` entries are reused by name. Spice resolves the single available tastytrade account from the broker's accounts endpoint, so this deployment has no account-number secret. Secret values stay out of this repository and local files; only the deployed Worker reads them through bindings.
+   The existing `reddit-client-id` and `reddit-client-secret` entries are reused by name. Market research needs no credential: both research tools read Yahoo Finance unauthenticated. Spice resolves the single available tastytrade account from the broker's accounts endpoint, so this deployment has no account-number secret. Secret values stay out of this repository and local files; only the deployed Worker reads them through bindings.
 
 4. Create a Google OAuth Web client named `Spice Must Flow` with this production redirect URI:
 
@@ -52,18 +51,18 @@ Server routes in `src/routes/api.*.ts` are deliberately thin validation and HTTP
    https://tryspice.xyz/api/auth/callback/google
    ```
 
-   Keep the Google app in external testing mode and add the single owner account as its test user. Add the Google credentials and Better Auth configuration to the same Secrets Store:
+   Keep the Google app in external testing mode and add the single owner account as its test user. Store the Google credentials and Better Auth session key as Worker-bound secrets (not in the Secrets Store, so they stay isolated to this repo):
 
    ```sh
-   npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name spice-google-client-id --scopes workers --remote
-   npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name spice-google-client-secret --scopes workers --remote
-   npx wrangler secrets-store secret create "$SPICE_SECRET_STORE_ID" --name spice-better-auth-secret --scopes workers --remote
+   npx wrangler secret put GOOGLE_CLIENT_ID
+   npx wrangler secret put GOOGLE_CLIENT_SECRET
+   npx wrangler secret put BETTER_AUTH_SECRET
    ```
 
-   The Better Auth secret must contain at least 32 random characters. Until multi-user OAuth is configured, Google account creation is restricted to `ferdousbd@gmail.com`, and every live API route independently rechecks that session identity.
+   Each command prompts for the value. Generate the Better Auth secret with `openssl rand -base64 32`; it must contain at least 32 random characters. Until multi-user OAuth is configured, Google account creation is restricted to `ferdousbd@gmail.com`, and every live API route independently rechecks that session identity.
 5. Push `main` to trigger the repository's native Cloudflare Workers Build (`npm run build`, then `npx wrangler deploy`). Use `npm run deploy` only as a direct manual fallback. `wrangler.jsonc` is already configured for the account-scoped market-feed Durable Object and the New York-time guarded cron windows.
 
-`wrangler.jsonc` binds the shared Reddit, xAI, AI Gateway, tastytrade, FMP, Google, and session-secret handles. There is intentionally no `.env`, `.env.example`, or `.dev.vars` workflow in this project. FMP is restricted to the owner-only deployment; review [the research-provider licensing gate](./docs/research-providers.md) before allowing another user or displaying its data publicly.
+`wrangler.jsonc` binds the shared Reddit, xAI, AI Gateway, and tastytrade handles from the Secrets Store, while the Google and session-secret values are per-Worker secrets. There is intentionally no `.env`, `.env.example`, or `.dev.vars` workflow in this project. Research providers are contextual only and never authoritative for execution; see [the research-provider policy](./docs/research-providers.md).
 
 Cloudflare reference: [Secrets Store bindings](https://developers.cloudflare.com/secrets-store/integrations/workers/).
 
@@ -88,7 +87,7 @@ Upcoming earnings from tastytrade market metrics and material scheduled events f
 
 Dan refreshes a compact factual account snapshot on every turn: net liquidation value, cash and withdrawable cash, available trading funds, separate equity/derivative/day-trading buying power, positions, every leg of working ordinary and complex orders, and recent Trade transactions. Private data is provenance-tagged and the account number is never sent to the model.
 
-Everything else is progressive and on demand. Read-only tools expose bounded account history, market metrics and hours, symbol search, active standard option contracts, exact tuple-resolved bid/ask quotes and Greeks, company fundamentals, adjusted price history and technical studies, private/public watchlists, catalysts, and the latest daily brief. Price history combines FMP's unadjusted EOD OHLCV with its dividend-adjusted close and calculates studies locally. Company fundamentals remain explicitly secondary-source Yahoo context until the SEC migration is complete; tastytrade remains authoritative for executable quotes and contracts. Watchlists are never part of default context. Only order placement uses the expiring confirmation state machine. An explicitly requested cancellation or private-watchlist add/remove runs through its narrow server-validated tool without another confirmation step.
+Everything else is progressive and on demand. Read-only tools expose bounded account history, market metrics and hours, symbol search, active standard option contracts, exact tuple-resolved bid/ask quotes and Greeks, company fundamentals, adjusted price history and technical studies, private/public watchlists, catalysts, and the latest daily brief. Price history reads Yahoo's split-adjusted EOD OHLCV plus its dividend-adjusted close and calculates studies locally. Both price history and company fundamentals are explicitly secondary-source Yahoo context until the SEC migration is complete; tastytrade remains authoritative for executable quotes and contracts. Watchlists are never part of default context. Only order placement uses the expiring confirmation state machine. An explicitly requested cancellation or private-watchlist add/remove runs through its narrow server-validated tool without another confirmation step.
 
 Dan receives a fresh New York clock, market status, near-expiry option awareness, balances, positions, open orders, and recent trades on every turn. Kelly is advisory: Dan explains its assumptions and recommends a conservative ceiling, but an explicit user-selected size can still be drafted if it passes the deterministic portfolio survival guard and the user confirms it. Ambiguous broker receipts are matched against exact recent order history and are never automatically resubmitted.
 

@@ -1,14 +1,14 @@
 import { Type } from '@earendil-works/pi-ai'
 import { type AgentTool } from '@earendil-works/pi-agent-core'
 import createYahooFinance from 'yahoo-finance2/createYahooFinance'
+import chart, { type ChartResultArray } from 'yahoo-finance2/modules/chart'
 import quoteSummary, {
   type QuoteSummaryResult,
 } from 'yahoo-finance2/modules/quoteSummary'
 
 import { marketDate } from '../domain/catalyst'
 import { readBoundedText } from './bounded-response'
-import { type AppEnv } from './env'
-import { createFmpClient, type FmpClient, ResearchProviderError } from './fmp'
+import { ResearchProviderError } from './research-provider'
 
 const EQUITY_SYMBOL = /^[A-Z][A-Z0-9.]{0,7}$/
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -21,7 +21,7 @@ const MAX_PROFILE_CHARS = 1_600
 const MAX_FILINGS = 8
 const MAX_STUDIES = 5
 
-const ResearchYahooFinance = createYahooFinance({ modules: { quoteSummary } })
+const ResearchYahooFinance = createYahooFinance({ modules: { chart, quoteSummary } })
 
 type StudyInput =
   | { kind: 'SMA' | 'EMA' | 'RSI'; period?: number }
@@ -197,6 +197,11 @@ export type MarketResearchProviders = {
 }
 
 type ResearchYahooClient = {
+  chart(symbol: string, options: {
+    interval: '1d'
+    period1: string
+    period2: string
+  }): Promise<ChartResultArray>
   quoteSummary(symbol: string, options: {
     modules: Array<
       | 'defaultKeyStatistics'
@@ -453,7 +458,7 @@ function compactFundamentals(
 }
 
 export function createYahooFundamentalsProvider(
-  client: ResearchYahooClient = createYahooClient(),
+  client: Pick<ResearchYahooClient, 'quoteSummary'> = createYahooClient(),
 ): CompanyFundamentalsProvider {
   return {
     async read(symbol, now) {
@@ -486,111 +491,78 @@ export async function readCompanyFundamentals(
   return provider.read(normalizeSymbol(requestedSymbol), now)
 }
 
-type FmpRawHistoryRow = Omit<PriceHistoryRow, 'adjustedClose'> & { symbol: string }
-type FmpAdjustedHistoryRow = { adjustedClose: number; date: string; symbol: string }
-
-function invalidFmpHistory(): never {
-  throw new ResearchProviderError('invalid-response', 'fmp')
+function invalidHistory(): never {
+  throw new ResearchProviderError('invalid-response', 'yahoo')
 }
 
-function fmpRows(payload: unknown): unknown[] {
-  if (!Array.isArray(payload) || payload.length > MAX_RAW_HISTORY_ROWS) return invalidFmpHistory()
-  return payload
+/** `dateString` already round-trips through `toISOString`, so only the expanded-year form can slip past. */
+function historyDate(value: Date): string | undefined {
+  const date = dateString(value)
+  return date && ISO_DATE.test(date) ? date : undefined
 }
 
-function fmpRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined
+/**
+ * Yahoo daily bars are split-adjusted OHLCV with `adjclose` carrying the additional dividend
+ * adjustment, so unlike a two-endpoint provider there is no cross-payload date reconciliation.
+ * Rows missing any field are skipped rather than fatal; duplicate dates are fatal because they
+ * would silently corrupt local aggregation and studies.
+ */
+function normalizeChartQuote(quote: ChartResultArray['quotes'][number]): PriceHistoryRow | undefined {
+  const date = historyDate(quote.date)
+  const open = finite(quote.open)
+  const high = finite(quote.high)
+  const low = finite(quote.low)
+  const close = finite(quote.close)
+  const volume = finite(quote.volume)
+  if (date === undefined || open === undefined || high === undefined
+    || low === undefined || close === undefined || volume === undefined) return undefined
+  const adjustedClose = finite(quote.adjclose) ?? close
+  if (volume < 0 || low > high || open < 0 || close < 0 || adjustedClose < 0) return undefined
+  return { adjustedClose, close, date, high, low, open, volume }
 }
 
-function fmpText(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined
-}
-
-function fmpNumber(value: unknown): number | undefined {
-  if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return undefined
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : undefined
-}
-
-function fmpSymbol(record: Record<string, unknown>, requestedSymbol: string): string | undefined {
-  const symbol = fmpText(record.symbol)?.toUpperCase()
-  if (symbol && symbol !== requestedSymbol) return invalidFmpHistory()
-  return symbol
-}
-
-function normalizeFmpRawHistoryRow(value: unknown, requestedSymbol: string): FmpRawHistoryRow | undefined {
-  const record = fmpRecord(value)
-  if (!record) return undefined
-  const symbol = fmpSymbol(record, requestedSymbol)
-  const date = fmpText(record.date)
-  const open = fmpNumber(record.open)
-  const high = fmpNumber(record.high)
-  const low = fmpNumber(record.low)
-  const close = fmpNumber(record.close)
-  const volume = fmpNumber(record.volume)
-  if (!symbol || !date || !validDate(date) || open === undefined || high === undefined
-    || low === undefined || close === undefined || volume === undefined || volume < 0
-    || low > high || open < 0 || close < 0) return undefined
-  return { close, date, high, low, open, symbol, volume }
-}
-
-function normalizeFmpAdjustedHistoryRow(value: unknown, requestedSymbol: string): FmpAdjustedHistoryRow | undefined {
-  const record = fmpRecord(value)
-  if (!record) return undefined
-  const symbol = fmpSymbol(record, requestedSymbol)
-  const date = fmpText(record.date)
-  const adjustedClose = fmpNumber(record.adjClose)
-  if (!symbol || !date || !validDate(date) || adjustedClose === undefined || adjustedClose < 0) return undefined
-  return { adjustedClose, date, symbol }
-}
-
-function uniqueHistoryRows<T extends { date: string }>(rows: T[]): T[] {
-  if (new Set(rows.map((row) => row.date)).size !== rows.length) return invalidFmpHistory()
-  return rows
-}
-
-export function createFmpPriceHistoryProvider(
-  env: AppEnv,
-  client: FmpClient = createFmpClient(env),
+export function createYahooPriceHistoryProvider(
+  client: Pick<ResearchYahooClient, 'chart'> = createYahooClient(),
 ): PriceHistoryProvider {
   return {
     async readDaily(symbol, range) {
-      const parameters = { from: range.startDate, symbol, to: range.endDate }
-      const [rawPayload, adjustedPayload] = await Promise.all([
-        client.get('/historical-price-eod/non-split-adjusted', parameters),
-        client.get('/historical-price-eod/dividend-adjusted', parameters),
-      ])
-      const rawPayloadRows = fmpRows(rawPayload)
-      const adjustedPayloadRows = fmpRows(adjustedPayload)
-      const rawRows = uniqueHistoryRows(rawPayloadRows.flatMap((value) => {
-        const row = normalizeFmpRawHistoryRow(value, symbol)
-        return row ? [row] : []
-      }))
-      const adjustedRows = uniqueHistoryRows(adjustedPayloadRows.flatMap((value) => {
-        const row = normalizeFmpAdjustedHistoryRow(value, symbol)
-        return row ? [row] : []
-      }))
-      const adjustedByDate = new Map(adjustedRows.map((row) => [row.date, row.adjustedClose]))
-      const prices = rawRows.flatMap((row): PriceHistoryRow[] => {
-        const adjustedClose = adjustedByDate.get(row.date)
-        if (row.date < range.startDate || row.date > range.endDate || adjustedClose === undefined) return []
-        const { symbol: _symbol, ...raw } = row
-        return [{ ...raw, adjustedClose }]
-      }).sort((left, right) => left.date.localeCompare(right.date))
-      if (!prices.length) return invalidFmpHistory()
+      const providerSymbol = yahooSymbol(symbol)
+      let raw: ChartResultArray
+      try {
+        raw = await client.chart(providerSymbol, {
+          interval: '1d',
+          // Yahoo treats period2 as exclusive, so extend it to keep the requested end date inclusive.
+          period1: range.startDate,
+          period2: shiftDate(range.endDate, 1),
+        })
+      } catch {
+        throw new ResearchProviderError('unavailable', 'yahoo')
+      }
+      const quotes = raw.quotes
+      if (!Array.isArray(quotes) || quotes.length > MAX_RAW_HISTORY_ROWS) return invalidHistory()
+      if (raw.meta?.symbol && raw.meta.symbol.toUpperCase() !== providerSymbol) return invalidHistory()
 
-      const source = new URL('historical-price-eod/dividend-adjusted', 'https://financialmodelingprep.com/stable/')
-      for (const [name, value] of Object.entries(parameters)) source.searchParams.set(name, value)
+      const prices = quotes.flatMap((quote): PriceHistoryRow[] => {
+        const row = normalizeChartQuote(quote)
+        if (!row || row.date < range.startDate || row.date > range.endDate) return []
+        return [row]
+      }).sort((left, right) => left.date.localeCompare(right.date))
+      if (!prices.length) return invalidHistory()
+      if (new Set(prices.map((row) => row.date)).size !== prices.length) return invalidHistory()
+
+      const source = new URL(`https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(providerSymbol)}`)
+      source.searchParams.set('interval', '1d')
+      source.searchParams.set('period1', range.startDate)
+      source.searchParams.set('period2', range.endDate)
       return {
-        adjustmentMethodology: 'OHLCV is unadjusted; adjustedClose is split- and dividend-adjusted by the provider.',
-        currency: 'USD',
+        adjustmentMethodology: 'OHLCV is split-adjusted; adjustedClose additionally applies dividend adjustments. Both are provider-calculated.',
+        currency: raw.meta?.currency ?? 'USD',
         delay: 'end-of-day',
-        exchange: 'US equities EOD',
+        exchange: raw.meta?.exchangeName ?? 'US equities EOD',
+        name: raw.meta?.longName ?? raw.meta?.shortName,
         prices,
-        provider: 'financial-modeling-prep',
-        skippedRowCount: rawPayloadRows.length - prices.length,
+        provider: 'yahoo-finance-chart',
+        skippedRowCount: quotes.length - prices.length,
         sourceUrl: source.toString(),
         symbol,
       }
@@ -909,16 +881,18 @@ export function createPriceHistoryReadTool(
   }
 }
 
-export function createMarketResearchProviders(env: AppEnv): MarketResearchProviders {
+/** One Yahoo client for both providers: yahoo-finance2 queues per instance, so a second one would double the concurrency cap. */
+export function createMarketResearchProviders(
+  client: ResearchYahooClient = createYahooClient(),
+): MarketResearchProviders {
   return {
-    companyFundamentals: createYahooFundamentalsProvider(),
-    priceHistory: createFmpPriceHistoryProvider(env),
+    companyFundamentals: createYahooFundamentalsProvider(client),
+    priceHistory: createYahooPriceHistoryProvider(client),
   }
 }
 
 export function createMarketResearchTools(
-  env: AppEnv,
-  providers: MarketResearchProviders = createMarketResearchProviders(env),
+  providers: MarketResearchProviders = createMarketResearchProviders(),
 ) {
   return [
     createCompanyFundamentalsReadTool(providers.companyFundamentals),

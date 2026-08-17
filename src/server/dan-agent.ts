@@ -339,7 +339,7 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
         createWatchlistReadTool(this.env),
         createExactOptionGreeksReadTool(this.env),
         ...createBrokerageReadTools(this.env),
-        ...createMarketResearchTools(this.env),
+        ...createMarketResearchTools(),
         ...createResearchReadTools(this.env),
       ]
       const context: AgentContext = {

@@ -1,8 +1,11 @@
-export async function readSecret(binding: SecretsStoreSecret | undefined, name: string): Promise<string> {
+// Worker-bound secrets arrive as plain strings; Secrets Store bindings expose `.get()`.
+type SecretBinding = string | SecretsStoreSecret | undefined
+
+export async function readSecret(binding: SecretBinding, name: string): Promise<string> {
   if (!binding) throw new Error(`SecretBindingMissing:${name}`)
   let value: string
   try {
-    value = (await binding.get()).trim()
+    value = (typeof binding === 'string' ? binding : await binding.get()).trim()
   } catch {
     throw new Error(`SecretReadFailed:${name}`)
   }

@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { type QuoteSummaryResult } from 'yahoo-finance2/modules/quoteSummary'
 
 import {
-  createFmpPriceHistoryProvider,
   createMarketResearchTools,
   createYahooFundamentalsProvider,
+  createYahooPriceHistoryProvider,
   type PriceHistoryProvider,
   type PriceHistoryRow,
   readCompanyFundamentals,
@@ -46,6 +46,20 @@ function priceProvider(
       sourceUrl: 'https://provider.example/history?symbol=AAPL',
       symbol: 'AAPL',
       ...overrides,
+    }),
+  }
+}
+
+/** Yahoo daily bars are stamped at the exchange open, which stays inside the same UTC day. */
+function chartDate(date: string): Date {
+  return new Date(`${date}T13:30:00.000Z`)
+}
+
+function chartClient(quotes: unknown[], meta: Record<string, unknown> = {}) {
+  return {
+    chart: vi.fn().mockResolvedValue({
+      meta: { currency: 'USD', exchangeName: 'NMS', symbol: 'AAPL', ...meta },
+      quotes,
     }),
   }
 }
@@ -185,7 +199,7 @@ function fundamentals(summary = 'A'.repeat(1_700)): QuoteSummaryResult {
 
 describe('market research tools', () => {
   it('exposes only compact fundamentals and adjusted history capabilities', () => {
-    expect(createMarketResearchTools({}).map((tool) => tool.name)).toEqual([
+    expect(createMarketResearchTools().map((tool) => tool.name)).toEqual([
       'read_company_fundamentals',
       'read_price_history',
     ])
@@ -193,7 +207,6 @@ describe('market research tools', () => {
 
   it('compacts fundamentals, omits a live quote, and labels secondary-source limitations', async () => {
     const client = {
-      chart: vi.fn(),
       quoteSummary: vi.fn().mockResolvedValue(fundamentals()),
     }
     const result = await readCompanyFundamentals(' aapl ', now, createYahooFundamentalsProvider(client))
@@ -225,7 +238,7 @@ describe('market research tools', () => {
     const raw = fundamentals()
     raw.earningsTrend!.trend = []
     raw.secFilings!.filings = []
-    const client = { chart: vi.fn(), quoteSummary: vi.fn().mockResolvedValue(raw) }
+    const client = { quoteSummary: vi.fn().mockResolvedValue(raw) }
 
     const result = await readCompanyFundamentals('AAPL', now, createYahooFundamentalsProvider(client))
 
@@ -235,7 +248,7 @@ describe('market research tools', () => {
   it('rejects mismatched fundamentals instead of returning another instrument', async () => {
     const raw = fundamentals()
     raw.price!.symbol = 'MSFT'
-    const client = { chart: vi.fn(), quoteSummary: vi.fn().mockResolvedValue(raw) }
+    const client = { quoteSummary: vi.fn().mockResolvedValue(raw) }
     await expect(readCompanyFundamentals(
       'AAPL',
       now,
@@ -372,34 +385,26 @@ describe('market research tools', () => {
     expect(monthly.prices[1]).toMatchObject({ adjustedClose: 10, date: '2026-08-05' })
   })
 
-  it('merges FMP unadjusted and dividend-adjusted rows by exact symbol and date', async () => {
-    const client = {
-      get: vi.fn()
-        .mockResolvedValueOnce([
-          { symbol: 'AAPL', date: '2026-08-14', open: 101, high: 103, low: 100, close: 102, volume: 2_000 },
-          { symbol: 'AAPL', date: '2026-08-13', open: 99, high: 102, low: 98, close: 101, volume: 1_000 },
-          { symbol: 'AAPL', date: '2026-08-12', open: null, high: 100, low: 98, close: 99, volume: 900 },
-        ])
-        .mockResolvedValueOnce([
-          { symbol: 'AAPL', date: '2026-08-14', adjOpen: 100, adjHigh: 102, adjLow: 99, adjClose: 101, volume: 2_000 },
-          { symbol: 'AAPL', date: '2026-08-13', adjOpen: 98, adjHigh: 101, adjLow: 97, adjClose: 100, volume: 1_000 },
-        ]),
-    }
-    const provider = createFmpPriceHistoryProvider({}, client)
+  it('normalizes Yahoo chart bars to ascending adjusted rows and skips incomplete ones', async () => {
+    const client = chartClient([
+      { adjclose: 101, close: 102, date: chartDate('2026-08-14'), high: 103, low: 100, open: 101, volume: 2_000 },
+      { adjclose: 100, close: 101, date: chartDate('2026-08-13'), high: 102, low: 98, open: 99, volume: 1_000 },
+      { adjclose: 98, close: 99, date: chartDate('2026-08-12'), high: 100, low: 98, open: null, volume: 900 },
+    ], { longName: 'Apple Inc.' })
+    const provider = createYahooPriceHistoryProvider(client)
 
-    const result = await provider.readDaily('AAPL', {
-      endDate: '2026-08-14',
-      startDate: '2026-08-12',
-    })
+    const result = await provider.readDaily('AAPL', { endDate: '2026-08-14', startDate: '2026-08-12' })
 
-    expect(client.get).toHaveBeenNthCalledWith(1, '/historical-price-eod/non-split-adjusted', {
-      from: '2026-08-12', symbol: 'AAPL', to: '2026-08-14',
-    })
-    expect(client.get).toHaveBeenNthCalledWith(2, '/historical-price-eod/dividend-adjusted', {
-      from: '2026-08-12', symbol: 'AAPL', to: '2026-08-14',
+    expect(client.chart).toHaveBeenCalledWith('AAPL', {
+      interval: '1d',
+      period1: '2026-08-12',
+      period2: '2026-08-15',
     })
     expect(result).toMatchObject({
-      provider: 'financial-modeling-prep',
+      currency: 'USD',
+      exchange: 'NMS',
+      name: 'Apple Inc.',
+      provider: 'yahoo-finance-chart',
       skippedRowCount: 1,
       symbol: 'AAPL',
     })
@@ -407,23 +412,41 @@ describe('market research tools', () => {
       { adjustedClose: 100, close: 101, date: '2026-08-13', high: 102, low: 98, open: 99, volume: 1_000 },
       { adjustedClose: 101, close: 102, date: '2026-08-14', high: 103, low: 100, open: 101, volume: 2_000 },
     ])
-    expect(result.sourceUrl).not.toContain('apikey')
   })
 
-  it('rejects duplicate FMP dates and cross-symbol provider responses', async () => {
-    const complete = { symbol: 'AAPL', date: '2026-08-14', open: 10, high: 11, low: 9, close: 10, volume: 1_000 }
-    const adjusted = { symbol: 'AAPL', date: '2026-08-14', adjClose: 10 }
-    const duplicates = createFmpPriceHistoryProvider({}, {
-      get: vi.fn().mockResolvedValueOnce([complete, complete]).mockResolvedValueOnce([adjusted]),
-    })
-    const mismatch = createFmpPriceHistoryProvider({}, {
-      get: vi.fn()
-        .mockResolvedValueOnce([{ ...complete, symbol: 'MSFT' }])
-        .mockResolvedValueOnce([{ ...adjusted, symbol: 'MSFT' }]),
-    })
+  it('falls back to close when Yahoo omits an adjusted close', async () => {
+    const provider = createYahooPriceHistoryProvider(chartClient([
+      { close: 10, date: chartDate('2026-08-14'), high: 11, low: 9, open: 10, volume: 1_000 },
+    ]))
+
+    const result = await provider.readDaily('AAPL', { endDate: '2026-08-14', startDate: '2026-08-14' })
+
+    expect(result.prices).toEqual([
+      { adjustedClose: 10, close: 10, date: '2026-08-14', high: 11, low: 9, open: 10, volume: 1_000 },
+    ])
+  })
+
+  it('rejects duplicate dates, cross-symbol responses, and empty Yahoo history', async () => {
+    const bar = { adjclose: 10, close: 10, date: chartDate('2026-08-14'), high: 11, low: 9, open: 10, volume: 1_000 }
     const range = { endDate: '2026-08-14', startDate: '2026-08-14' }
+    const duplicates = createYahooPriceHistoryProvider(chartClient([bar, { ...bar }]))
+    const mismatch = createYahooPriceHistoryProvider(chartClient([bar], { symbol: 'MSFT' }))
+    const empty = createYahooPriceHistoryProvider(chartClient([]))
 
     await expect(duplicates.readDaily('AAPL', range)).rejects.toThrow('invalid-response')
     await expect(mismatch.readDaily('AAPL', range)).rejects.toThrow('invalid-response')
+    await expect(empty.readDaily('AAPL', range)).rejects.toThrow('invalid-response')
+  })
+
+  it('translates class-share notation and reports provider failure as unavailable', async () => {
+    const failing = {
+      chart: vi.fn().mockRejectedValue(new Error('network down')),
+    }
+
+    await expect(createYahooPriceHistoryProvider(failing).readDaily('BRK.B', {
+      endDate: '2026-08-14',
+      startDate: '2026-08-14',
+    })).rejects.toThrow('ResearchProvider:yahoo:unavailable')
+    expect(failing.chart).toHaveBeenCalledWith('BRK-B', expect.any(Object))
   })
 })
