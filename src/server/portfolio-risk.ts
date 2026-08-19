@@ -5,10 +5,10 @@ import { type AppEnv } from './env'
 import { resolveEquityOptionContract, type EquityOptionContract } from './option-contract'
 import {
   JsonArraySchema,
+  jsonNumber,
   JsonObjectArraySchema,
-  JsonObjectSchema,
-  NumericSchema,
-  TextSchema,
+  jsonObjectOrEmpty,
+  jsonTextOrEmpty,
   type JsonObject,
   type JsonValue,
 } from '../domain/json-payload'
@@ -54,13 +54,9 @@ export class PortfolioRiskError extends Error {
   }
 }
 
-function record(value: JsonValue): JsonObject {
-  return JsonObjectSchema.safeParse(value).data ?? {}
-}
-
 function strictItems(value: JsonValue, label: string): JsonObject[] {
-  const body = record(value)
-  const data = record(body.data)
+  const body = jsonObjectOrEmpty(value)
+  const data = jsonObjectOrEmpty(body.data)
   const candidate = JsonArraySchema.safeParse(value).data
     ?? JsonArraySchema.safeParse(data.items ?? body.items).data
   const rows = candidate && JsonObjectArraySchema.safeParse(candidate).data
@@ -69,10 +65,10 @@ function strictItems(value: JsonValue, label: string): JsonObject[] {
 }
 
 function paginationTotal(value: JsonValue): number | undefined {
-  const body = record(value)
-  const data = record(body.data)
-  const pagination = record(body.pagination ?? data.pagination)
-  const total = finiteNumber(pagination['total-items'])
+  const body = jsonObjectOrEmpty(value)
+  const data = jsonObjectOrEmpty(body.data)
+  const pagination = jsonObjectOrEmpty(body.pagination ?? data.pagination)
+  const total = jsonNumber(pagination['total-items'])
   return total !== undefined && Number.isSafeInteger(total) && total >= 0 ? total : undefined
 }
 
@@ -85,20 +81,16 @@ function completeOrderRows(value: JsonValue, label: string, pageLimit: number): 
   return rows
 }
 
-function finiteNumber(value: JsonValue): number | undefined {
-  return NumericSchema.safeParse(value).data
-}
-
 function balanceValue(balances: JsonObject, names: string[]): number | undefined {
-  return names.map((name) => finiteNumber(balances[name])).find((value) => value !== undefined)
+  return names.map((name) => jsonNumber(balances[name])).find((value) => value !== undefined)
 }
 
 function positionRows(payload: JsonValue): RiskPosition[] {
   return completeOrderRows(payload, 'every open position', 200).flatMap((row) => {
-    const symbol = TextSchema.safeParse(row.symbol).data ?? ''
-    const instrumentType = TextSchema.safeParse(row['instrument-type']).data ?? ''
+    const symbol = jsonTextOrEmpty(row.symbol)
+    const instrumentType = jsonTextOrEmpty(row['instrument-type'])
     const direction = row['quantity-direction']
-    const quantity = finiteNumber(row.quantity)
+    const quantity = jsonNumber(row.quantity)
     if (!symbol || !instrumentType || (direction !== 'Long' && direction !== 'Short') || quantity === undefined || quantity < 0) {
       throw new PortfolioRiskError("Dan's portfolio guard found an unsupported position record.")
     }

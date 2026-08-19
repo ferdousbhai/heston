@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { CandlePointSchema, MAX_INTRADAY_CANDLES } from '../domain/candle'
-import { NumericSchema, type JsonObject, type JsonValue } from '../domain/json-payload'
+import { jsonNumber, type JsonObject } from '../domain/json-payload'
 
 export const DXLINK_TX_PENDING = 0x1
 export const DXLINK_REMOVE_EVENT = 0x2
@@ -74,10 +74,6 @@ export const OptionGreeksReadResultSchema = z.object({
 
 export type OptionGreeksReadResult = z.infer<typeof OptionGreeksReadResultSchema>
 
-function finiteNumber(value: JsonValue): number | undefined {
-  return NumericSchema.safeParse(value).data
-}
-
 /** Validate the bounded, exact broker streamer symbols accepted by the public DO RPC. */
 export function parseOptionStreamerSymbols(value: readonly string[]): string[] {
   const parsed = z.array(OptionStreamerSymbolSchema)
@@ -93,14 +89,14 @@ export function optionGreeksFromRow(
   receivedAt = new Date(),
 ): OptionGreeksEvent | undefined {
   const streamerSymbol = OptionStreamerSymbolSchema.safeParse(row.eventSymbol)
-  const eventTime = finiteNumber(row.time)
-  const optionPrice = finiteNumber(row.price)
-  const impliedVolatility = finiteNumber(row.volatility)
-  const delta = finiteNumber(row.delta)
-  const gamma = finiteNumber(row.gamma)
-  const theta = finiteNumber(row.theta)
-  const rho = finiteNumber(row.rho)
-  const vega = finiteNumber(row.vega)
+  const eventTime = jsonNumber(row.time)
+  const optionPrice = jsonNumber(row.price)
+  const impliedVolatility = jsonNumber(row.volatility)
+  const delta = jsonNumber(row.delta)
+  const gamma = jsonNumber(row.gamma)
+  const theta = jsonNumber(row.theta)
+  const rho = jsonNumber(row.rho)
+  const vega = jsonNumber(row.vega)
   if (!streamerSymbol.success
     || eventTime === undefined
     || eventTime <= 0

@@ -9,9 +9,9 @@ import {
 import { type AppEnv } from './env'
 import {
   JsonArraySchema,
-  JsonObjectSchema,
-  LooseTextSchema,
-  NumericSchema,
+  jsonLooseText,
+  jsonNumber,
+  jsonObject,
   type JsonObject,
   type JsonValue,
 } from '../domain/json-payload'
@@ -29,14 +29,6 @@ export type ResolvedOrderIntent = {
   payload: OrderPayload
   replaceOrderId?: string
   storedAction: StoredOrderPlacement
-}
-
-function text(value: JsonValue): string | undefined {
-  return LooseTextSchema.safeParse(value).data
-}
-
-function number(value: JsonValue): number | undefined {
-  return NumericSchema.safeParse(value).data
 }
 
 export function effectiveStoredOrder(action: StoredOrderPlacement): FreshOrderPlacement {
@@ -68,26 +60,26 @@ async function resolveFreshOrder(
 }
 
 function exactOrder(payload: JsonValue): JsonObject {
-  const body = JsonObjectSchema.safeParse(payload).data
-  const data = JsonObjectSchema.safeParse(body?.data ?? payload).data
+  const body = jsonObject(payload)
+  const data = jsonObject(body?.data ?? payload)
   if (!data || JsonArraySchema.safeParse(data.items).success) throw new Error('OrderReplacement:invalid-order')
   return data
 }
 
 function sameOrderEcho(order: JsonObject, intended: OrderPayload): boolean {
   const legs = JsonArraySchema.safeParse(order.legs).data
-  if (text(order['order-type']) !== intended['order-type']
-    || text(order['time-in-force']) !== intended['time-in-force']
-    || text(order['price-effect']) !== intended['price-effect']
-    || number(order.price) !== Number(intended.price)
+  if (jsonLooseText(order['order-type']) !== intended['order-type']
+    || jsonLooseText(order['time-in-force']) !== intended['time-in-force']
+    || jsonLooseText(order['price-effect']) !== intended['price-effect']
+    || jsonNumber(order.price) !== Number(intended.price)
     || legs?.length !== intended.legs.length) return false
   return intended.legs.every((leg, index) => {
-    const actual = JsonObjectSchema.safeParse(legs[index]).data
-    if (!actual || text(actual.action) !== leg.action
-      || text(actual['instrument-type']) !== leg['instrument-type']
-      || text(actual.symbol) !== leg.symbol
-      || number(actual.quantity) !== leg.quantity
-      || number(actual['remaining-quantity']) !== leg.quantity) return false
+    const actual = jsonObject(legs[index])
+    if (!actual || jsonLooseText(actual.action) !== leg.action
+      || jsonLooseText(actual['instrument-type']) !== leg['instrument-type']
+      || jsonLooseText(actual.symbol) !== leg.symbol
+      || jsonNumber(actual.quantity) !== leg.quantity
+      || jsonNumber(actual['remaining-quantity']) !== leg.quantity) return false
     const fills = JsonArraySchema.safeParse(actual.fills).data
     return !fills || fills.length === 0
   })
@@ -95,12 +87,12 @@ function sameOrderEcho(order: JsonObject, intended: OrderPayload): boolean {
 
 export function assertReplaceableOrder(payload: JsonValue, orderId: string, intended: OrderPayload): void {
   const order = exactOrder(payload)
-  const status = text(order.status)?.toLowerCase()
-  if (text(order.id) !== orderId
+  const status = jsonLooseText(order.status)?.toLowerCase()
+  if (jsonLooseText(order.id) !== orderId
     || order.editable !== true
     || !status
     || ['cancelled', 'expired', 'filled', 'rejected', 'removed'].includes(status)
-    || text(order['terminal-at'])
+    || jsonLooseText(order['terminal-at'])
     || !sameOrderEcho(order, intended)) {
     throw new Error('OrderReplacement:order-changed-or-not-editable')
   }

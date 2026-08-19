@@ -1,21 +1,13 @@
 import { CatalystSchema, marketDate, type Catalyst } from '../domain/catalyst'
 import { type AppEnv } from './env'
-import { JsonObjectSchema, TextSchema, type JsonObject, type JsonValue } from '../domain/json-payload'
+import { jsonObjectOrEmpty, jsonText, type JsonObject, type JsonValue } from '../domain/json-payload'
 
 const TASTYTRADE_METRICS_URL = 'https://developer.tastytrade.com/open-api-spec/market-metrics/'
 const D1_MAX_BOUND_PARAMETERS = 100
 const DELETE_SYMBOL_CHUNK_SIZE = D1_MAX_BOUND_PARAMETERS - 1
 
-function record(value: JsonValue): JsonObject {
-  return JsonObjectSchema.safeParse(value).data ?? {}
-}
-
-function text(value: JsonValue): string | undefined {
-  return TextSchema.safeParse(value).data
-}
-
 function date(value: JsonValue): string | undefined {
-  const candidate = text(value)
+  const candidate = jsonText(value)
   if (!candidate || !/^\d{4}-\d{2}-\d{2}$/.test(candidate)) return undefined
   const [year, month, day] = candidate.split('-').map(Number)
   const parsed = new Date(Date.UTC(year, month - 1, day))
@@ -27,12 +19,12 @@ function date(value: JsonValue): string | undefined {
 }
 
 function iso(value: JsonValue, fallback: string): string {
-  const candidate = text(value)
+  const candidate = jsonText(value)
   return candidate && !Number.isNaN(Date.parse(candidate)) ? new Date(candidate).toISOString() : fallback
 }
 
 function earningsTiming(value: JsonValue): Catalyst['timing'] {
-  const timing = text(value)?.toLowerCase() ?? ''
+  const timing = jsonText(value)?.toLowerCase() ?? ''
   if (timing.includes('before') || timing.includes('pre')) return 'pre-market'
   if (timing.includes('after') || timing.includes('post')) return 'after-hours'
   if (timing.includes('during') || timing.includes('market')) return 'intraday'
@@ -44,9 +36,9 @@ export function catalystsFromMarketMetrics(metrics: readonly JsonObject[], now =
   const observedAt = now.toISOString()
   const today = marketDate(now)
   return metrics.flatMap((metric) => {
-    const symbol = text(metric.symbol)?.toUpperCase()
+    const symbol = jsonText(metric.symbol)?.toUpperCase()
     if (!symbol) return []
-    const earnings = record(metric.earnings)
+    const earnings = jsonObjectOrEmpty(metric.earnings)
     const rows: Catalyst[] = []
     const candidateEarningsDate = earnings.visible === false ? undefined : date(earnings['expected-report-date'])
     const earningsDate = candidateEarningsDate && candidateEarningsDate >= today ? candidateEarningsDate : undefined
@@ -70,7 +62,7 @@ export function catalystsFromMarketMetrics(metrics: readonly JsonObject[], now =
 }
 
 export function earningsDateFromMetric(metric: JsonObject | undefined, now = new Date()): string | null {
-  const earnings = record(metric?.earnings)
+  const earnings = jsonObjectOrEmpty(metric?.earnings)
   const candidate = earnings.visible === false ? undefined : date(earnings['expected-report-date'])
   return candidate && candidate >= marketDate(now) ? candidate : null
 }

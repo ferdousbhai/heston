@@ -5,9 +5,9 @@ import { type OrderPayload } from './order-payload'
 import { type AppEnv } from './env'
 import {
   JsonArraySchema,
-  JsonObjectSchema,
-  LooseTextSchema,
-  NumericSchema,
+  jsonLooseText,
+  jsonNumber,
+  jsonObject,
   type JsonObject,
   type JsonValue,
 } from '../domain/json-payload'
@@ -33,38 +33,29 @@ export type ReconciliationResult = {
 const ReconcileParameters = Type.Object({}, { additionalProperties: false })
 const FINAL_ABSENCE_DELAY_MS = 15 * 60_000
 
-function text(value: JsonValue): string | undefined {
-  return LooseTextSchema.safeParse(value).data
-}
-
-function number(value: JsonValue): number | undefined {
-  return NumericSchema.safeParse(value).data
-}
-
 function orderRows(payload: JsonValue): OrderHistoryPage {
-  const body = JsonObjectSchema.safeParse(payload).data
+  const body = jsonObject(payload)
   const rawData = body?.data ?? payload
-  const data = JsonObjectSchema.safeParse(rawData).data
+  const data = jsonObject(rawData)
   const candidate = JsonArraySchema.safeParse(rawData).data
     ?? JsonArraySchema.safeParse(data?.items ?? body?.items).data
   if (!candidate || candidate.length > 100) throw new Error('TastytradeReconciliation:invalid-history')
   const rows = candidate.map((value) => {
-    const row = JsonObjectSchema.safeParse(value).data
+    const row = jsonObject(value)
     if (!row) throw new Error('TastytradeReconciliation:invalid-history')
     return row
   })
-  const pagination = JsonObjectSchema.safeParse(body?.pagination).data
-    ?? JsonObjectSchema.safeParse(data?.pagination).data
-  const total = number(pagination?.['total-items'])
+  const pagination = jsonObject(body?.pagination) ?? jsonObject(data?.pagination)
+  const total = jsonNumber(pagination?.['total-items'])
   const complete = total === undefined ? rows.length < 100 : Number.isSafeInteger(total) && total <= rows.length
   return { complete, rows }
 }
 
 function sameLeg(actual: JsonObject, intended: OrderPayload['legs'][number]): boolean {
-  return text(actual.action) === intended.action
-    && text(actual['instrument-type']) === intended['instrument-type']
-    && number(actual.quantity) === intended.quantity
-    && text(actual.symbol) === intended.symbol
+  return jsonLooseText(actual.action) === intended.action
+    && jsonLooseText(actual['instrument-type']) === intended['instrument-type']
+    && jsonNumber(actual.quantity) === intended.quantity
+    && jsonLooseText(actual.symbol) === intended.symbol
 }
 
 /** Exact order fingerprint match; timestamps keep unrelated duplicate orders from clearing quarantine. */
@@ -77,17 +68,17 @@ export function matchesSubmittedOrder(
 ): boolean {
   const legs = JsonArraySchema.safeParse(row.legs).data
   if (legs?.length !== intended.legs.length) return false
-  const receivedAt = Date.parse(text(row['received-at']) ?? text(row['updated-at']) ?? '')
+  const receivedAt = Date.parse(jsonLooseText(row['received-at']) ?? jsonLooseText(row['updated-at']) ?? '')
   if (!Number.isFinite(receivedAt)
     || receivedAt < submittedAt.getTime() - 2 * 60_000
     || receivedAt > now.getTime() + 60_000) return false
-  return (!replacedOrderId || text(row['replaces-order-id']) === replacedOrderId)
-    && text(row['order-type']) === intended['order-type']
-    && text(row['time-in-force']) === intended['time-in-force']
-    && text(row['price-effect']) === intended['price-effect']
-    && number(row.price) === Number(intended.price)
+  return (!replacedOrderId || jsonLooseText(row['replaces-order-id']) === replacedOrderId)
+    && jsonLooseText(row['order-type']) === intended['order-type']
+    && jsonLooseText(row['time-in-force']) === intended['time-in-force']
+    && jsonLooseText(row['price-effect']) === intended['price-effect']
+    && jsonNumber(row.price) === Number(intended.price)
     && legs.every((leg, index) => {
-      const actual = JsonObjectSchema.safeParse(leg).data
+      const actual = jsonObject(leg)
       return Boolean(actual && sameLeg(actual, intended.legs[index]!))
     })
 }
@@ -141,8 +132,8 @@ export async function reconcileUnknownBrokerageAction(
   }
 
   const match = matches[0]!
-  const providerOrderId = text(match.id)
-  const status = text(match.status)?.toLowerCase()
+  const providerOrderId = jsonLooseText(match.id)
+  const status = jsonLooseText(match.status)?.toLowerCase()
   if (!providerOrderId || !status) throw new Error('TastytradeReconciliation:invalid-match')
   const rejected = status === 'rejected'
   const update = await env.DB.prepare(rejected

@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { CatalystKindSchema, CatalystSchema, marketDate, type Catalyst } from '../domain/catalyst'
 import { type AppEnv } from './env'
 import { readBoundedJson } from './bounded-response'
-import { JsonArraySchema, JsonObjectSchema, type JsonObject, type JsonValue } from '../domain/json-payload'
+import { JsonArraySchema, jsonObjectOrEmpty, type JsonValue } from '../domain/json-payload'
 import { readStoredSecret } from './secrets'
 import { brokerApi } from './tastytrade'
 
@@ -37,10 +37,6 @@ const ModelTextSchema = z.string()
 
 export type XCatalystResult = { catalysts: Catalyst[]; rejected: number }
 
-function record(value: JsonValue): JsonObject {
-  return JsonObjectSchema.safeParse(value).data ?? {}
-}
-
 function isoDateIsValid(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
   const [year, month, day] = value.split('-').map(Number)
@@ -68,14 +64,14 @@ export function canonicalXPostUrl(value: JsonValue): string | undefined {
 
 function citationUrls(payload: JsonValue): Set<string> {
   const urls = new Set<string>()
-  const body = record(payload)
+  const body = jsonObjectOrEmpty(payload)
   for (const citation of JsonArraySchema.safeParse(body.citations).data ?? []) {
-    const url = canonicalXPostUrl(ModelTextSchema.safeParse(citation).data ?? record(citation).url)
+    const url = canonicalXPostUrl(ModelTextSchema.safeParse(citation).data ?? jsonObjectOrEmpty(citation).url)
     if (url) urls.add(url)
   }
-  for (const output of (JsonArraySchema.safeParse(body.output).data ?? []).map(record)) {
-    for (const content of (JsonArraySchema.safeParse(output.content).data ?? []).map(record)) {
-      for (const annotation of (JsonArraySchema.safeParse(content.annotations).data ?? []).map(record)) {
+  for (const output of (JsonArraySchema.safeParse(body.output).data ?? []).map(jsonObjectOrEmpty)) {
+    for (const content of (JsonArraySchema.safeParse(output.content).data ?? []).map(jsonObjectOrEmpty)) {
+      for (const annotation of (JsonArraySchema.safeParse(content.annotations).data ?? []).map(jsonObjectOrEmpty)) {
         const url = canonicalXPostUrl(annotation.url)
         if (url) urls.add(url)
       }
@@ -85,8 +81,8 @@ function citationUrls(payload: JsonValue): Set<string> {
 }
 
 function outputText(payload: JsonValue): string | undefined {
-  for (const item of (JsonArraySchema.safeParse(record(payload).output).data ?? []).map(record)) {
-    for (const content of (JsonArraySchema.safeParse(item.content).data ?? []).map(record)) {
+  for (const item of (JsonArraySchema.safeParse(jsonObjectOrEmpty(payload).output).data ?? []).map(jsonObjectOrEmpty)) {
+    for (const content of (JsonArraySchema.safeParse(item.content).data ?? []).map(jsonObjectOrEmpty)) {
       const text = ModelTextSchema.safeParse(content.text).data
       if (content.type === 'output_text' && text !== undefined) return text
     }

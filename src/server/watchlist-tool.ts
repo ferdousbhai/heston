@@ -2,7 +2,7 @@ import { Type } from '@earendil-works/pi-ai'
 import { type AgentTool } from '@earendil-works/pi-agent-core'
 
 import { type AppEnv } from './env'
-import { envelopeRows, JsonArraySchema, JsonObjectSchema, TextSchema, type JsonObject, type JsonValue } from '../domain/json-payload'
+import { envelopeRows, JsonArraySchema, jsonObject, jsonText, type JsonValue } from '../domain/json-payload'
 import { brokerApi } from './tastytrade'
 
 type WatchlistEntry = {
@@ -63,30 +63,22 @@ export const WatchlistReadParameters = Type.Object({
   ], { description: 'Private tastytrade watchlists by default, or notable public watchlists.' })),
 }, { additionalProperties: false })
 
-function record(value: JsonValue): JsonObject | undefined {
-  return JsonObjectSchema.safeParse(value).data
-}
-
-function text(value: JsonValue): string | undefined {
-  return TextSchema.safeParse(value).data
-}
-
 /** Strictly normalize the tastytrade envelope before any private data reaches the model. */
 export function watchlistsFromPayload(payload: JsonValue): NormalizedWatchlist[] {
   const candidate = envelopeRows(payload)
   if (!candidate || candidate.length > MAX_WATCHLISTS) throw new Error('Watchlists:invalid-response')
 
   return candidate.map((value) => {
-    const row = record(value)
-    const name = text(row?.name)
+    const row = jsonObject(value)
+    const name = jsonText(row?.name)
     const rawEntries = JsonArraySchema.safeParse(row?.['watchlist-entries']).data
     if (!row || !name || name.length > 64 || !rawEntries) {
       throw new Error('Watchlists:invalid-response')
     }
     const entries = rawEntries.slice(0, MAX_RETURNED_ENTRIES).map((rawEntry) => {
-      const entry = record(rawEntry)
-      const symbol = text(entry?.symbol)
-      const instrumentType = text(entry?.['instrument-type'])
+      const entry = jsonObject(rawEntry)
+      const symbol = jsonText(entry?.symbol)
+      const instrumentType = jsonText(entry?.['instrument-type'])
       if (!symbol || symbol.length > 64 || !instrumentType || instrumentType.length > 64) {
         throw new Error('Watchlists:invalid-response')
       }

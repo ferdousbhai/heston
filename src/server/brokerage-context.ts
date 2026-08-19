@@ -13,9 +13,9 @@ import {
 
 import {
   JsonArraySchema,
-  JsonObjectSchema,
-  NumericSchema,
-  TextSchema,
+  jsonNumber,
+  jsonObject,
+  jsonText,
   type JsonObject,
   type JsonValue,
 } from '../domain/json-payload'
@@ -116,44 +116,35 @@ function agentPosition(position: BrokeragePosition): BrokeragePosition {
 }
 
 function strictItems(value: JsonValue): JsonObject[] {
-  const body = JsonObjectSchema.safeParse(value).data
+  const body = jsonObject(value)
   const rawData = body?.data ?? value
-  const data = JsonObjectSchema.safeParse(rawData).data
+  const data = jsonObject(rawData)
   const candidate = JsonArraySchema.safeParse(rawData).data
     ?? JsonArraySchema.safeParse(data?.items ?? body?.items).data
   if (!candidate) throw new Error('TastytradeAccount:invalid-collection')
   return candidate.map((item) => {
-    const row = JsonObjectSchema.safeParse(item).data
+    const row = jsonObject(item)
     if (!row) throw new Error('TastytradeAccount:invalid-collection')
     return row
   })
 }
 
 function paginationTotal(value: JsonValue): number | undefined {
-  const body = JsonObjectSchema.safeParse(value).data
-  const data = JsonObjectSchema.safeParse(body?.data).data
-  const pagination = JsonObjectSchema.safeParse(body?.pagination).data
-    ?? JsonObjectSchema.safeParse(data?.pagination).data
+  const body = jsonObject(value)
+  const data = jsonObject(body?.data)
+  const pagination = jsonObject(body?.pagination) ?? jsonObject(data?.pagination)
   const raw = pagination?.['total-items']
   if (raw === undefined || raw === null) return undefined
-  const parsed = number(raw)
+  const parsed = jsonNumber(raw)
   return parsed !== undefined && Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined
 }
 
-function text(value: JsonValue): string | undefined {
-  return TextSchema.safeParse(value).data
-}
-
-function number(value: JsonValue): number | undefined {
-  return NumericSchema.safeParse(value).data
-}
-
 function positionFromRecord(row: JsonObject): BrokerageContext['positions'][number] | undefined {
-  const symbol = text(row.symbol)
-  const underlying = text(row['underlying-symbol'])?.toUpperCase()
-  const quantity = number(row.quantity)
-  const direction = text(row['quantity-direction'])
-  const instrumentType = text(row['instrument-type'])
+  const symbol = jsonText(row.symbol)
+  const underlying = jsonText(row['underlying-symbol'])?.toUpperCase()
+  const quantity = jsonNumber(row.quantity)
+  const direction = jsonText(row['quantity-direction'])
+  const instrumentType = jsonText(row['instrument-type'])
   if (!symbol
     || !underlying
     || quantity === undefined
@@ -162,8 +153,8 @@ function positionFromRecord(row: JsonObject): BrokerageContext['positions'][numb
     throw new Error('TastytradeAccount:invalid-position')
   }
   if (quantity === 0) return undefined
-  const averageOpenPrice = number(row['average-open-price'])
-  const rawExpiry = text(row['expires-at'])
+  const averageOpenPrice = jsonNumber(row['average-open-price'])
+  const rawExpiry = jsonText(row['expires-at'])
   const expiresAt = rawExpiry && Number.isFinite(Date.parse(rawExpiry)) ? rawExpiry : undefined
   const position: BrokeragePosition = { direction, instrumentType, quantity, symbol, underlying }
   if (averageOpenPrice !== undefined) position.averageOpenPrice = averageOpenPrice

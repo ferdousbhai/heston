@@ -3,7 +3,7 @@ import { useAgent } from 'agents/react'
 import { Bot, Check, ChevronRight, CircleStop, Clock3, Send, ShieldCheck, Trash2, Wrench, X } from 'lucide-react'
 import { z } from 'zod'
 
-import { JsonObjectSchema, type JsonValue } from '../domain/json-payload'
+import { jsonObject, JsonObjectSchema, type JsonValue } from '../domain/json-payload'
 import {
   isDanAgentEvent,
   type AgentChatMessage,
@@ -210,7 +210,7 @@ export function AgentScreen({
     if (frame === undefined) return
     let decoded: JsonValue
     try { decoded = JSON.parse(frame) } catch { return }
-    const event = JsonObjectSchema.safeParse(decoded).data
+    const event = jsonObject(decoded)
     if (!event || !isDanAgentEvent(event)) return
     if (event.type === 'dan:turn_start') {
       setProvisional({ reasoning: '', text: '', tools: [] })

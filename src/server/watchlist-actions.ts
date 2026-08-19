@@ -1,6 +1,6 @@
 import { type AggregateWatchlistMutation, type WatchlistMutation } from '../domain/watchlist'
 import { type AppEnv } from './env'
-import { envelopeRows, JsonArraySchema, JsonObjectSchema, TextSchema, type JsonObject, type JsonValue } from '../domain/json-payload'
+import { envelopeRows, JsonArraySchema, jsonObject, jsonText, type JsonValue } from '../domain/json-payload'
 import { brokerApi } from './tastytrade'
 
 type WatchlistEntry = {
@@ -24,32 +24,24 @@ const INSTRUMENT_TYPES = new Set([
   'Warrant',
 ])
 
-function record(value: JsonValue): JsonObject | undefined {
-  return JsonObjectSchema.safeParse(value).data
-}
-
-function text(value: JsonValue): string | undefined {
-  return TextSchema.safeParse(value).data
-}
-
 /** Mutation reads are intentionally stricter and untruncated: an incomplete list must never be rewritten. */
 export function mutableWatchlistsFromPayload(payload: JsonValue): MutableWatchlist[] {
-  const body = record(payload)
-  const data = record(body?.data ?? payload)
+  const body = jsonObject(payload)
+  const data = jsonObject(body?.data ?? payload)
   const rows = envelopeRows(payload)
   if (!rows || rows.length > 100) throw new Error('WatchlistMutation:invalid-response')
 
-  const pagination = record(body?.pagination ?? data?.pagination)
+  const pagination = jsonObject(body?.pagination ?? data?.pagination)
   const totalItems = Number(pagination?.['total-items'])
   if (Number.isFinite(totalItems) && totalItems > rows.length) {
     throw new Error('WatchlistMutation:incomplete-response')
   }
 
   return rows.map((value) => {
-    const row = record(value)
-    const name = text(row?.name)
+    const row = jsonObject(value)
+    const name = jsonText(row?.name)
     const rawEntries = JsonArraySchema.safeParse(row?.['watchlist-entries']).data
-    const groupName = text(row?.['group-name']) ?? 'default'
+    const groupName = jsonText(row?.['group-name']) ?? 'default'
     const rawOrderIndex = row?.['order-index'] ?? 9999
     const orderIndex = Number(rawOrderIndex)
     if (!row || !name || name.length > 64 || name.includes('/') || !rawEntries
@@ -57,9 +49,9 @@ export function mutableWatchlistsFromPayload(payload: JsonValue): MutableWatchli
       throw new Error('WatchlistMutation:invalid-response')
     }
     const entries = rawEntries.map((value) => {
-      const entry = record(value)
-      const symbol = text(entry?.symbol)
-      const instrumentType = text(entry?.['instrument-type'])
+      const entry = jsonObject(value)
+      const symbol = jsonText(entry?.symbol)
+      const instrumentType = jsonText(entry?.['instrument-type'])
       if (!entry || !symbol || symbol.length > 128 || !instrumentType || !INSTRUMENT_TYPES.has(instrumentType)) {
         throw new Error('WatchlistMutation:invalid-response')
       }

@@ -1,9 +1,9 @@
 import {
   JsonArraySchema,
-  JsonObjectSchema,
-  LooseTextSchema,
-  NumericSchema,
-  TextSchema,
+  jsonLooseText,
+  jsonNumber,
+  jsonObject,
+  jsonText,
   type JsonObject,
   type JsonValue,
 } from '../domain/json-payload'
@@ -43,18 +43,18 @@ export interface WorkingOrder {
 
 function matchesAccount(row: JsonObject, accountNumber: string): boolean {
   if (!Object.hasOwn(row, 'account-number')) return true
-  return TextSchema.safeParse(row['account-number']).data === accountNumber
+  return jsonText(row['account-number']) === accountNumber
 }
 
 /** Normalize both tastytrade balance envelopes without guessing among multiple accounts. */
 export function accountBalanceRecord(payload: JsonValue, accountNumber: string): JsonObject | undefined {
-  const body = JsonObjectSchema.safeParse(payload).data
+  const body = jsonObject(payload)
   const rawData = body?.data ?? payload
-  const data = JsonObjectSchema.safeParse(rawData).data
+  const data = jsonObject(rawData)
   const items = JsonArraySchema.safeParse(rawData).data ?? JsonArraySchema.safeParse(data?.items).data
   if (items) {
     if (items.length !== 1) return undefined
-    const row = JsonObjectSchema.safeParse(items[0]).data
+    const row = jsonObject(items[0])
     return row && matchesAccount(row, accountNumber) ? row : undefined
   }
   return data && matchesAccount(data, accountNumber) ? data : undefined
@@ -64,27 +64,19 @@ const TERMINAL_ORDER_STATUSES = new Set(['cancelled', 'expired', 'filled', 'reje
 
 /** Treat incomplete or unfamiliar order states as working; exclude only verified terminal rows. */
 export function isWorkingOrderRecord(row: JsonObject): boolean {
-  if (TextSchema.safeParse(row['terminal-at']).data) return false
-  const status = TextSchema.safeParse(row.status).data?.toLowerCase() ?? ''
+  if (jsonText(row['terminal-at'])) return false
+  const status = jsonText(row.status)?.toLowerCase() ?? ''
   return !TERMINAL_ORDER_STATUSES.has(status)
-}
-
-function text(value: JsonValue): string | undefined {
-  return TextSchema.safeParse(value).data
-}
-
-function number(value: JsonValue): number | undefined {
-  return NumericSchema.safeParse(value).data
 }
 
 /** Broker identifiers arrive as strings or numbers and must stay short enough to log and index. */
 function id(value: JsonValue): string | undefined {
-  const parsed = LooseTextSchema.safeParse(value).data
+  const parsed = jsonLooseText(value)
   return parsed !== undefined && parsed.length <= 80 ? parsed : undefined
 }
 
 function requiredNumber(row: JsonObject, field: string): number {
-  const parsed = number(row[field])
+  const parsed = jsonNumber(row[field])
   if (parsed === undefined) throw new Error(`TastytradePayload:invalid-${field}`)
   return parsed
 }
@@ -101,7 +93,7 @@ export function accountBalancesFromPayload(payload: JsonValue, accountNumber: st
       dayTradingBuyingPower: requiredNumber(row, 'day-trading-buying-power'),
       derivativeBuyingPower: requiredNumber(row, 'derivative-buying-power'),
       equityBuyingPower: requiredNumber(row, 'equity-buying-power'),
-      netLiquidatingValue: number(row['net-liquidating-value'])
+      netLiquidatingValue: jsonNumber(row['net-liquidating-value'])
         ?? requiredNumber(row, 'net-liquidating-value-snapshot'),
     }
   } catch {
@@ -110,11 +102,11 @@ export function accountBalancesFromPayload(payload: JsonValue, accountNumber: st
 }
 
 function workingOrderLeg(value: JsonValue) {
-  const row = JsonObjectSchema.safeParse(value).data
-  const action = text(row?.action)
-  const instrumentType = text(row?.['instrument-type'])
-  const quantity = number(row?.quantity)
-  const symbol = text(row?.symbol)
+  const row = jsonObject(value)
+  const action = jsonText(row?.action)
+  const instrumentType = jsonText(row?.['instrument-type'])
+  const quantity = jsonNumber(row?.quantity)
+  const symbol = jsonText(row?.symbol)
   if (!row || !action || !instrumentType || quantity === undefined || quantity <= 0 || !symbol) {
     throw new Error('TastytradePayload:invalid-order-leg')
   }
@@ -123,16 +115,16 @@ function workingOrderLeg(value: JsonValue) {
 
 function workingOrder(row: JsonObject, complexOrderId?: string): WorkingOrder {
   const orderId = id(row.id)
-  const status = text(row.status)
-  const type = text(row['order-type'])
+  const status = jsonText(row.status)
+  const type = jsonText(row['order-type'])
   const rawLegs = JsonArraySchema.safeParse(row.legs).data
   if (!orderId || !status || !type || !rawLegs?.length) {
     throw new Error('TastytradePayload:invalid-working-order')
   }
   const legs = rawLegs.map(workingOrderLeg)
-  const price = number(row.price)
-  const priceEffect = text(row['price-effect'])
-  const timeInForce = text(row['time-in-force'])
+  const price = jsonNumber(row.price)
+  const priceEffect = jsonText(row['price-effect'])
+  const timeInForce = jsonText(row['time-in-force'])
   const order: WorkingOrder = { id: orderId, legs, status, symbol: legs[0]!.symbol, type }
   if (complexOrderId) order.complexOrderId = complexOrderId
   if (price !== undefined) order.price = price
@@ -153,12 +145,12 @@ export function workingOrderRecords(row: JsonObject): WorkingOrder[] {
     throw new Error('TastytradePayload:invalid-complex-order')
   }
   const nested = (childOrders ?? []).map((value) => {
-    const order = JsonObjectSchema.safeParse(value).data
+    const order = jsonObject(value)
     if (!order) throw new Error('TastytradePayload:invalid-complex-order')
     return order
   })
   if (Object.hasOwn(row, 'trigger-order')) {
-    const trigger = JsonObjectSchema.safeParse(row['trigger-order']).data
+    const trigger = jsonObject(row['trigger-order'])
     if (!trigger) throw new Error('TastytradePayload:invalid-complex-order')
     nested.push(trigger)
   }
@@ -168,15 +160,15 @@ export function workingOrderRecords(row: JsonObject): WorkingOrder[] {
 
 /** Normalize one canonical Trade transaction without fees or descriptive broker text. */
 export function tradeTransactionRecord(row: JsonObject): RecentTrade {
-  const action = text(row.action)
-  const executedAt = text(row['executed-at']) ?? text(row['transaction-date'])
-  const instrumentType = text(row['instrument-type'])
+  const action = jsonText(row.action)
+  const executedAt = jsonText(row['executed-at']) ?? jsonText(row['transaction-date'])
+  const instrumentType = jsonText(row['instrument-type'])
   const orderId = id(row['order-id'])
-  const price = number(row.price)
-  const quantity = number(row.quantity)
-  const symbol = text(row.symbol)
-  const underlying = text(row['underlying-symbol'])
-  if (text(row['transaction-type']) !== 'Trade'
+  const price = jsonNumber(row.price)
+  const quantity = jsonNumber(row.quantity)
+  const symbol = jsonText(row.symbol)
+  const underlying = jsonText(row['underlying-symbol'])
+  if (jsonText(row['transaction-type']) !== 'Trade'
     || !action
     || !executedAt
     || !instrumentType

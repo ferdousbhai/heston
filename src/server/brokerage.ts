@@ -1,9 +1,10 @@
 import { type AppEnv } from './env'
 import {
   JsonArraySchema,
+  jsonObject,
   JsonObjectArraySchema,
-  JsonObjectSchema,
-  TextSchema,
+  jsonObjectOrEmpty,
+  jsonText,
   type JsonObject,
   type JsonValue,
 } from '../domain/json-payload'
@@ -23,13 +24,9 @@ export type ReplacementReceipt = { id: string }
 function rows(value: JsonValue): JsonObject[] {
   const items = JsonArraySchema.safeParse(value).data ?? []
   return items.flatMap((row) => {
-    const parsed = JsonObjectSchema.safeParse(row).data
+    const parsed = jsonObject(row)
     return parsed ? [parsed] : []
   })
-}
-
-function record(value: JsonValue): JsonObject {
-  return JsonObjectSchema.safeParse(value).data ?? {}
 }
 
 function messageRows(value: JsonValue): JsonObject[] {
@@ -40,7 +37,7 @@ function messageRows(value: JsonValue): JsonObject[] {
 }
 
 function messageText(row: JsonObject): string {
-  const value = TextSchema.safeParse(row.message ?? row.code).data
+  const value = jsonText(row.message ?? row.code)
   if (value === undefined) throw new Error('TastytradeOrderResponse:invalid-message')
   return value.slice(0, 160)
 }
@@ -50,16 +47,16 @@ export function validateOrderResponse(
   intended: OrderPayload,
   requireOrderId: boolean,
 ): OrderResponseReceipt {
-  const body = record(payload)
-  const data = record(body.data ?? body)
+  const body = jsonObjectOrEmpty(payload)
+  const data = jsonObjectOrEmpty(body.data ?? body)
   const errors = messageRows(data.errors ?? body.errors).slice(0, 5)
   if (errors.length) {
     const message = errors.map(messageText).join('; ')
     throw new TastytradeOrderRejectedError(message.slice(0, 160))
   }
   const warnings = messageRows(data.warnings ?? body.warnings).slice(0, 5).map(messageText)
-  const order = record(data.order ?? body.order)
-  const buyingPower = record(data['buying-power-effect'] ?? body['buying-power-effect'])
+  const order = jsonObjectOrEmpty(data.order ?? body.order)
+  const buyingPower = jsonObjectOrEmpty(data['buying-power-effect'] ?? body['buying-power-effect'])
   if (!Object.keys(order).length || !Object.keys(buyingPower).length) {
     throw new Error('TastytradeOrderResponse:missing-order-or-buying-power')
   }
@@ -117,8 +114,8 @@ export function validateReplacementReceipt(
   intended: OrderPayload,
 ): ReplacementReceipt {
   try {
-    const body = record(payload)
-    const order = record(body.data ?? body)
+    const body = jsonObjectOrEmpty(payload)
+    const order = jsonObjectOrEmpty(body.data ?? body)
     const id = String(order.id ?? '')
     const legs = rows(order.legs)
     const exact = /^\d{1,40}$/.test(id)

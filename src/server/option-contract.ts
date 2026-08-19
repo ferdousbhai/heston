@@ -2,9 +2,9 @@ import { type OrderPlacement } from './agent-contracts'
 import { type AppEnv } from './env'
 import {
   JsonArraySchema,
-  JsonObjectSchema,
-  NumericSchema,
-  TextSchema,
+  jsonNumber,
+  jsonObjectOrEmpty,
+  jsonTextOrEmpty,
   type JsonObject,
   type JsonValue,
 } from '../domain/json-payload'
@@ -12,23 +12,11 @@ import { brokerApi } from './tastytrade'
 
 type OptionAction = Extract<OrderPlacement, { kind: 'place_option_order' }>
 
-function record(value: JsonValue): JsonObject {
-  return JsonObjectSchema.safeParse(value).data ?? {}
-}
-
 function chainRows(payload: JsonValue): JsonObject[] {
-  const data = record(record(payload).data)
+  const data = jsonObjectOrEmpty(jsonObjectOrEmpty(payload).data)
   const items = JsonArraySchema.safeParse(data.items).data
   if (!items) throw new Error('Requested option contract is not available. The option chain response was incomplete.')
-  return items.map(record)
-}
-
-function text(value: JsonValue): string {
-  return TextSchema.safeParse(value).data ?? ''
-}
-
-function number(value: JsonValue): number | undefined {
-  return NumericSchema.safeParse(value).data
+  return items.map(jsonObjectOrEmpty)
 }
 
 function unavailable(detail: string): Error {
@@ -42,7 +30,7 @@ function shortList(values: string[]): string {
 
 function nearestStrikes(rows: JsonObject[], requestedStrike: number): string {
   const strikes = [...new Set(rows.flatMap((row) => {
-    const strike = number(row['strike-price'])
+    const strike = jsonNumber(row['strike-price'])
     return strike === undefined ? [] : [strike]
   }))]
   return strikes
@@ -80,24 +68,24 @@ export function equityOptionContractFromChainTuple(
 ): EquityOptionContract {
   const rows = chainRows(payload)
   const standardRows = rows.filter((row) => (
-    text(row['instrument-type']) === 'Equity Option'
-    && text(row['underlying-symbol']).toUpperCase() === tuple.underlying
-    && text(row['option-chain-type']) === 'Standard'
+    jsonTextOrEmpty(row['instrument-type']) === 'Equity Option'
+    && jsonTextOrEmpty(row['underlying-symbol']).toUpperCase() === tuple.underlying
+    && jsonTextOrEmpty(row['option-chain-type']) === 'Standard'
   ))
-  const expirationRows = standardRows.filter((row) => text(row['expiration-date']) === tuple.expiry)
+  const expirationRows = standardRows.filter((row) => jsonTextOrEmpty(row['expiration-date']) === tuple.expiry)
   if (!expirationRows.length) {
-    throw unavailable(`Available standard expirations: ${shortList(standardRows.map((row) => text(row['expiration-date'])).filter(Boolean))}.`)
+    throw unavailable(`Available standard expirations: ${shortList(standardRows.map((row) => jsonTextOrEmpty(row['expiration-date'])).filter(Boolean))}.`)
   }
-  const sideRows = expirationRows.filter((row) => text(row['option-type']) === tuple.optionType)
-  const strikeRows = sideRows.filter((row) => number(row['strike-price']) === tuple.strike)
+  const sideRows = expirationRows.filter((row) => jsonTextOrEmpty(row['option-type']) === tuple.optionType)
+  const strikeRows = sideRows.filter((row) => jsonNumber(row['strike-price']) === tuple.strike)
   if (!strikeRows.length) {
     throw unavailable(`Nearest ${tuple.optionType === 'C' ? 'call' : 'put'} strikes: ${nearestStrikes(sideRows, tuple.strike)}.`)
   }
   const candidates: EquityOptionContract[] = []
   for (const row of strikeRows) {
-    const symbol = text(row.symbol)
-    const streamerSymbol = text(row['streamer-symbol'])
-    const sharesPerContract = number(row['shares-per-contract'])
+    const symbol = jsonTextOrEmpty(row.symbol)
+    const streamerSymbol = jsonTextOrEmpty(row['streamer-symbol'])
+    const sharesPerContract = jsonNumber(row['shares-per-contract'])
     if (row.active !== true
       || (options.opening && row['is-closing-only'] !== false)
       || !symbol

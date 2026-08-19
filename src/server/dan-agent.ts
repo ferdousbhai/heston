@@ -24,7 +24,7 @@ import {
 } from '../domain/agent-chat'
 import { compactTranscript } from '../domain/agent-transcript'
 import { toError } from '../domain/failure'
-import { JsonObjectSchema, type JsonValue } from '../domain/json-payload'
+import { jsonObject, jsonObjectOrEmpty, type JsonValue } from '../domain/json-payload'
 import { newYorkClock } from '../domain/market-clock'
 import { preparePendingAction } from './agent'
 import { ChatRequestSchema, OrderPlacementSchema } from './agent-contracts'
@@ -231,7 +231,7 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
     } catch {
       return
     }
-    const command = JsonObjectSchema.safeParse(decoded).data
+    const command = jsonObject(decoded)
     if (!command) return
     if (command.type === 'cancel') {
       this.abortController?.abort(new Error('Operation aborted'))
@@ -399,7 +399,7 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
           case 'tool_execution_start': {
             toolStartedAt.set(event.toolCallId, Date.now())
             const existing = turnTools.get(event.toolCallId)
-            const toolInput = JsonObjectSchema.safeParse(event.args).data ?? {}
+            const toolInput = jsonObjectOrEmpty(event.args)
             if (existing) existing.input = toolInput
             this.sendEvent({
               input: toolInput,

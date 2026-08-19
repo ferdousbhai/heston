@@ -5,8 +5,8 @@ import { z } from 'zod'
 import { type AppEnv } from './env'
 import {
   envelopeRows,
-  JsonObjectSchema,
-  NumericSchema,
+  jsonNumber,
+  jsonObject,
   type JsonObject,
   type JsonValue,
 } from '../domain/json-payload'
@@ -263,24 +263,20 @@ type ItemEnvelope = { rows: JsonObject[]; totalItems?: number }
 /** Broker text fields are compared and length-checked verbatim, so they are not trimmed on the way in. */
 const BrokerTextSchema = z.string()
 
-function record(value: JsonValue): JsonObject | undefined {
-  return JsonObjectSchema.safeParse(value).data
-}
-
 function invalidResponse(label: string): never {
   throw new Error(`${label} returned an invalid response.`)
 }
 
 function itemEnvelope(payload: JsonValue, label: string, maximumRows: number): ItemEnvelope {
-  const body = record(payload)
-  const data = record(body?.data ?? payload)
+  const body = jsonObject(payload)
+  const data = jsonObject(body?.data ?? payload)
   const candidate = envelopeRows(payload)
   if (!candidate || candidate.length > maximumRows) return invalidResponse(label)
-  const rows = candidate.map((value) => record(value) ?? invalidResponse(label))
+  const rows = candidate.map((value) => jsonObject(value) ?? invalidResponse(label))
 
   const rawPagination = body?.pagination ?? data?.pagination
   if (rawPagination === undefined || rawPagination === null) return { rows }
-  const pagination = record(rawPagination) ?? invalidResponse(label)
+  const pagination = jsonObject(rawPagination) ?? invalidResponse(label)
   const rawTotal = pagination['total-items']
   if (rawTotal === undefined || rawTotal === null) return { rows }
   const totalItems = finiteNumber(rawTotal, label)
@@ -289,9 +285,9 @@ function itemEnvelope(payload: JsonValue, label: string, maximumRows: number): I
 }
 
 function dataRecord(payload: JsonValue, label: string): JsonObject {
-  const body = record(payload) ?? invalidResponse(label)
+  const body = jsonObject(payload) ?? invalidResponse(label)
   const rawData = body.data ?? body
-  return record(rawData) ?? invalidResponse(label)
+  return jsonObject(rawData) ?? invalidResponse(label)
 }
 
 function optionalText(row: JsonObject, keys: readonly string[], label: string, maxLength = 160): string | undefined {
@@ -312,7 +308,7 @@ function requiredText(row: JsonObject, keys: readonly string[], label: string, m
 }
 
 function finiteNumber(value: JsonValue, label: string): number {
-  return NumericSchema.safeParse(value).data ?? invalidResponse(label)
+  return jsonNumber(value) ?? invalidResponse(label)
 }
 
 function optionalNumber(row: JsonObject, keys: readonly string[], label: string): number | undefined {
@@ -416,7 +412,7 @@ function compactTransaction(row: JsonObject): CompactTransaction {
 
 function compactOrderLeg(value: JsonValue): CompactOrderLeg {
   const label = 'Tastytrade order history'
-  const row = record(value) ?? invalidResponse(label)
+  const row = jsonObject(value) ?? invalidResponse(label)
   return {
     action: requiredText(row, ['action'], label, 64),
     instrumentType: requiredText(row, ['instrument-type'], label, 64),
@@ -526,7 +522,7 @@ function compactMetric(row: JsonObject): CompactMarketMetric {
   if (!EQUITY_SYMBOL.test(symbol)) return invalidResponse(label)
   const rawEarnings = row.earnings
   let earnings: JsonObject | undefined
-  if (rawEarnings !== undefined && rawEarnings !== null) earnings = record(rawEarnings) ?? invalidResponse(label)
+  if (rawEarnings !== undefined && rawEarnings !== null) earnings = jsonObject(rawEarnings) ?? invalidResponse(label)
   return {
     beta: optionalNumber(row, ['beta'], label),
     earningsDate: earnings ? optionalDate(earnings, ['expected-report-date'], label) : undefined,
@@ -586,10 +582,10 @@ export async function readMarketStatus(env: AppEnv, now = new Date()): Promise<M
   const session = dataRecord(await brokerApi().tastyRequest(env, '/market-time/equities/sessions/current'), label)
   const next = session['next-session'] === undefined || session['next-session'] === null
     ? undefined
-    : record(session['next-session']) ?? invalidResponse(label)
+    : jsonObject(session['next-session']) ?? invalidResponse(label)
   const previous = session['previous-session'] === undefined || session['previous-session'] === null
     ? undefined
-    : record(session['previous-session']) ?? invalidResponse(label)
+    : jsonObject(session['previous-session']) ?? invalidResponse(label)
   return {
     asOf: now.toISOString(),
     closesAt: optionalTimestamp(session, ['close-at'], label),

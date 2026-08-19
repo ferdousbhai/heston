@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 import { ResearchBriefSchema, type ResearchBrief } from '../domain/market'
 import { type AppEnv } from './env'
-import { JsonArraySchema, JsonObjectSchema, type JsonValue } from '../domain/json-payload'
+import { JsonArraySchema, jsonObject, JsonObjectSchema, type JsonValue } from '../domain/json-payload'
 import { researchSources } from './research-sources'
 import { readStoredSecret } from './secrets'
 import { brokerApi } from './tastytrade'
@@ -40,13 +40,13 @@ function normalizeDirection(value: JsonValue): JsonValue {
 }
 
 function normalizeModelBrief(value: JsonValue): JsonValue {
-  const brief = JsonObjectSchema.safeParse(value).data
+  const brief = jsonObject(value)
   const ideas = brief && JsonArraySchema.safeParse(brief.ideas).data
   if (!brief || !ideas) return value
   return {
     ...brief,
     ideas: ideas.map((idea) => {
-      const fields = JsonObjectSchema.safeParse(idea).data
+      const fields = jsonObject(idea)
       return fields ? { ...fields, direction: normalizeDirection(fields.direction) } : idea
     }),
   }

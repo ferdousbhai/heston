@@ -16,7 +16,7 @@ import {
   parseOptionStreamerSymbols,
   parseRequestedSymbols,
 } from './market-feed-contracts'
-import { JsonArraySchema, JsonObjectSchema, type JsonObject, type JsonValue } from '../domain/json-payload'
+import { JsonArraySchema, jsonObjectOrEmpty, type JsonObject, type JsonValue } from '../domain/json-payload'
 import { brokerApi } from './tastytrade'
 
 const SocketAttachmentSchema = z.object({ symbols: z.array(z.string()) })
@@ -37,10 +37,6 @@ const FEED_TYPES = ['Quote', 'Trade', 'Candle', 'Greeks'] as const satisfies rea
 
 const OPTION_GREEKS_TIMEOUT_MS = 10_000
 const UPSTREAM_SETUP_TIMEOUT_MS = 15_000
-
-function object(value: JsonValue): JsonObject {
-  return JsonObjectSchema.safeParse(value).data ?? {}
-}
 
 /** dxFeed COMPACT rows encode absent numeric slots as null or empty strings, which coerce to 0. */
 const CoercedNumberSchema = z.coerce.number().refine(Number.isFinite)
@@ -211,7 +207,7 @@ export class MarketFeedCore {
     const frame = TextFrameSchema.safeParse(message).data
     if (frame === undefined) return
     try {
-      const payload = object(JSON.parse(frame))
+      const payload = jsonObjectOrEmpty(JSON.parse(frame))
       const requested = JsonArraySchema.safeParse(payload.symbols).data
       if (payload.type !== 'subscribe' || !requested) return
       const url = new URL('https://relay.invalid')
@@ -328,7 +324,7 @@ export class MarketFeedCore {
     const frame = TextFrameSchema.safeParse(raw).data
     if (socket !== this.upstream || frame === undefined) return
     let message: JsonObject
-    try { message = object(JSON.parse(frame)) } catch { return }
+    try { message = jsonObjectOrEmpty(JSON.parse(frame)) } catch { return }
     if (message.type === 'SETUP') {
       await this.sendToUpstream(socket, { type: 'AUTH', channel: 0, token })
       return

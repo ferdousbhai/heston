@@ -3,9 +3,9 @@ import { type AppEnv } from './env'
 import {
   envelopeRows,
   JsonArraySchema,
-  JsonObjectSchema,
-  NumericSchema,
-  TextSchema,
+  jsonNumber,
+  jsonObject,
+  jsonText,
   type JsonObject,
   type JsonValue,
 } from '../domain/json-payload'
@@ -21,27 +21,19 @@ export type OrderMarket = {
   tickSize: number
 }
 
-function finiteNumber(value: JsonValue): number | undefined {
-  return NumericSchema.safeParse(value).data
-}
-
-function text(value: JsonValue): string | undefined {
-  return TextSchema.safeParse(value).data
-}
-
 /** Market-data endpoints may also answer with a single `data` object rather than a collection. */
 function quoteRows(payload: JsonValue): JsonValue[] | undefined {
   const rows = envelopeRows(payload)
   if (rows) return rows
-  const body = JsonObjectSchema.safeParse(payload).data
-  const data = JsonObjectSchema.safeParse(body?.data ?? payload).data
+  const body = jsonObject(payload)
+  const data = jsonObject(body?.data ?? payload)
   return data ? [data] : undefined
 }
 
 function exactlyOneRecord(payload: JsonValue, label: string): JsonObject {
   const rows = quoteRows(payload)
   if (rows?.length !== 1) throw new Error(`${label}:invalid-response`)
-  const row = JsonObjectSchema.safeParse(rows[0]).data
+  const row = jsonObject(rows[0])
   if (!row) throw new Error(`${label}:invalid-response`)
   return row
 }
@@ -50,7 +42,7 @@ function recordRows(payload: JsonValue, label: string): JsonObject[] {
   const rows = quoteRows(payload)
   if (!rows?.length) throw new Error(`${label}:invalid-response`)
   return rows.map((value) => {
-    const row = JsonObjectSchema.safeParse(value).data
+    const row = jsonObject(value)
     if (!row) throw new Error(`${label}:invalid-response`)
     return row
   })
@@ -60,10 +52,10 @@ function tickSizeAt(rules: JsonValue, price: number): number {
   const ruleRows = JsonArraySchema.safeParse(rules).data
   if (!ruleRows?.length) throw new Error('OrderMarket:missing-tick-rules')
   const parsed = ruleRows.map((value) => {
-    const row = JsonObjectSchema.safeParse(value).data
-    const tick = finiteNumber(row?.value)
+    const row = jsonObject(value)
+    const tick = jsonNumber(row?.value)
     const rawThreshold = row?.threshold
-    const threshold = rawThreshold === undefined || rawThreshold === null ? undefined : finiteNumber(rawThreshold)
+    const threshold = rawThreshold === undefined || rawThreshold === null ? undefined : jsonNumber(rawThreshold)
     if (!row || tick === undefined || tick <= 0
       || (rawThreshold !== undefined && rawThreshold !== null && threshold === undefined)) {
       throw new Error('OrderMarket:invalid-tick-rules')
@@ -96,11 +88,11 @@ export function orderMarketFromPayloads(
   if (!expectedSymbol) throw new Error('OrderMarket:missing-contract')
   const expectedType = action.kind === 'place_option_order' ? 'Equity Option' : 'Equity'
   const quote = exactlyOneRecord(quotePayload, 'OrderMarketQuote')
-  const responseSymbol = text(quote.symbol)
-  const responseType = text(quote['instrument-type'] ?? quote.instrumentType)
-  const bid = finiteNumber(quote.bid)
-  const ask = finiteNumber(quote.ask)
-  const rawObservedAt = text(quote['updated-at'] ?? quote.updatedAt)
+  const responseSymbol = jsonText(quote.symbol)
+  const responseType = jsonText(quote['instrument-type'] ?? quote.instrumentType)
+  const bid = jsonNumber(quote.bid)
+  const ask = jsonNumber(quote.ask)
+  const rawObservedAt = jsonText(quote['updated-at'] ?? quote.updatedAt)
   const observedTime = Date.parse(rawObservedAt ?? '')
   if (responseSymbol !== expectedSymbol || responseType !== expectedType
     || bid === undefined || ask === undefined || bid < 0 || ask <= 0 || bid > ask
@@ -110,7 +102,7 @@ export function orderMarketFromPayloads(
   }
 
   const instrument = exactlyOneRecord(instrumentPayload, 'OrderMarketInstrument')
-  if (text(instrument.symbol)?.toUpperCase() !== (action.kind === 'place_option_order' ? action.underlying : action.symbol)) {
+  if (jsonText(instrument.symbol)?.toUpperCase() !== (action.kind === 'place_option_order' ? action.underlying : action.symbol)) {
     throw new Error('OrderMarketInstrument:mismatch')
   }
   const tickSize = tickSizeAt(
@@ -134,14 +126,14 @@ export function spreadOrderMarketFromPayloads(
   if (resolvedOptions.length !== 2) throw new Error('OrderMarket:missing-spread-contracts')
   const quotes = recordRows(quotePayload, 'OrderMarketQuote')
   if (quotes.length !== 2) throw new Error('OrderMarketQuote:invalid-response')
-  const bySymbol = new Map(quotes.map((quote) => [text(quote.symbol), quote]))
+  const bySymbol = new Map(quotes.map((quote) => [jsonText(quote.symbol), quote]))
   const parsed = resolvedOptions.map((contract) => {
     const quote = bySymbol.get(contract.symbol)
-    const bid = finiteNumber(quote?.bid)
-    const ask = finiteNumber(quote?.ask)
-    const observed = Date.parse(text(quote?.['updated-at'] ?? quote?.updatedAt) ?? '')
+    const bid = jsonNumber(quote?.bid)
+    const ask = jsonNumber(quote?.ask)
+    const observed = Date.parse(jsonText(quote?.['updated-at'] ?? quote?.updatedAt) ?? '')
     if (!quote
-      || text(quote['instrument-type'] ?? quote.instrumentType) !== 'Equity Option'
+      || jsonText(quote['instrument-type'] ?? quote.instrumentType) !== 'Equity Option'
       || bid === undefined || ask === undefined || bid < 0 || ask <= 0 || bid > ask
       || !Number.isFinite(observed) || observed > now.getTime() + 60_000
       || now.getTime() - observed > 15 * 60_000) {
@@ -153,7 +145,7 @@ export function spreadOrderMarketFromPayloads(
   const ask = Math.round((parsed[0]!.ask - parsed[1]!.bid) * 1e8) / 1e8
   if (ask <= 0 || bid > ask) throw new Error('OrderMarketQuote:invalid-spread-market')
   const instrument = exactlyOneRecord(instrumentPayload, 'OrderMarketInstrument')
-  if (text(instrument.symbol)?.toUpperCase() !== action.underlying) throw new Error('OrderMarketInstrument:mismatch')
+  if (jsonText(instrument.symbol)?.toUpperCase() !== action.underlying) throw new Error('OrderMarketInstrument:mismatch')
   const tickSize = tickSizeAt(instrument['option-tick-sizes'], action.limitPrice)
   if (!isTickAligned(action.limitPrice, tickSize)) throw new Error(`OrderMarket:limit-must-use-${tickSize}-tick`)
   if (action.limitPrice < bid || action.limitPrice > ask) {
