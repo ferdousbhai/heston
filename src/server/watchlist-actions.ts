@@ -1,8 +1,7 @@
 import { type AggregateWatchlistMutation, type WatchlistMutation } from '../domain/watchlist'
 import { type AppEnv } from './env'
-import { tastyRequest } from './tastytrade'
-
-type JsonRecord = Record<string, unknown>
+import { envelopeRows, JsonArraySchema, JsonObjectSchema, TextSchema, type JsonObject, type JsonValue } from '../domain/json-payload'
+import { brokerApi } from './tastytrade'
 
 type WatchlistEntry = {
   instrumentType: string
@@ -25,28 +24,19 @@ const INSTRUMENT_TYPES = new Set([
   'Warrant',
 ])
 
-function record(value: unknown): JsonRecord | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? value as JsonRecord
-    : undefined
+function record(value: JsonValue): JsonObject | undefined {
+  return JsonObjectSchema.safeParse(value).data
 }
 
-function text(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+function text(value: JsonValue): string | undefined {
+  return TextSchema.safeParse(value).data
 }
 
 /** Mutation reads are intentionally stricter and untruncated: an incomplete list must never be rewritten. */
-export function mutableWatchlistsFromPayload(payload: unknown): MutableWatchlist[] {
+export function mutableWatchlistsFromPayload(payload: JsonValue): MutableWatchlist[] {
   const body = record(payload)
-  const rawData = body?.data ?? payload
-  const data = record(rawData)
-  const rows = Array.isArray(rawData)
-    ? rawData
-    : Array.isArray(data?.items)
-      ? data.items
-      : Array.isArray(body?.items)
-        ? body.items
-        : undefined
+  const data = record(body?.data ?? payload)
+  const rows = envelopeRows(payload)
   if (!rows || rows.length > 100) throw new Error('WatchlistMutation:invalid-response')
 
   const pagination = record(body?.pagination ?? data?.pagination)
@@ -58,11 +48,11 @@ export function mutableWatchlistsFromPayload(payload: unknown): MutableWatchlist
   return rows.map((value) => {
     const row = record(value)
     const name = text(row?.name)
-    const rawEntries = row?.['watchlist-entries']
+    const rawEntries = JsonArraySchema.safeParse(row?.['watchlist-entries']).data
     const groupName = text(row?.['group-name']) ?? 'default'
     const rawOrderIndex = row?.['order-index'] ?? 9999
     const orderIndex = Number(rawOrderIndex)
-    if (!row || !name || name.length > 64 || name.includes('/') || !Array.isArray(rawEntries)
+    if (!row || !name || name.length > 64 || name.includes('/') || !rawEntries
       || rawEntries.length > 2_000 || !Number.isSafeInteger(orderIndex)) {
       throw new Error('WatchlistMutation:invalid-response')
     }
@@ -92,7 +82,7 @@ function brokerPayload(watchlist: MutableWatchlist) {
 }
 
 async function loadWatchlists(env: AppEnv): Promise<MutableWatchlist[]> {
-  const payload = await tastyRequest(env, '/watchlists')
+  const payload = await brokerApi().tastyRequest(env, '/watchlists')
   return mutableWatchlistsFromPayload(payload)
 }
 
@@ -147,7 +137,7 @@ async function executeWatchlistActionLocked(
     : watchlist.entries.filter((entry) => entry.instrumentType !== 'Equity' || !requested.has(entry.symbol.toUpperCase()))
 
   if (nextEntries.length !== watchlist.entries.length) {
-    await tastyRequest(env, path, {
+    await brokerApi().tastyRequest(env, path, {
       method: 'PUT',
       body: JSON.stringify(brokerPayload({ ...watchlist, entries: nextEntries })),
     })
@@ -185,7 +175,7 @@ async function executeAggregateWatchlistActionLocked(
     ))))
     if (!missing.length) return { detail: 'No watchlist changes were needed' }
     const target = watchlists[0]!
-    await tastyRequest(env, `/watchlists/${encodeURIComponent(target.name)}`, {
+    await brokerApi().tastyRequest(env, `/watchlists/${encodeURIComponent(target.name)}`, {
       method: 'PUT',
       body: JSON.stringify(brokerPayload({
         ...target,
@@ -204,7 +194,7 @@ async function executeAggregateWatchlistActionLocked(
       return !remove
     })
     if (nextEntries.length === watchlist.entries.length) continue
-    await tastyRequest(env, `/watchlists/${encodeURIComponent(watchlist.name)}`, {
+    await brokerApi().tastyRequest(env, `/watchlists/${encodeURIComponent(watchlist.name)}`, {
       method: 'PUT',
       body: JSON.stringify(brokerPayload({ ...watchlist, entries: nextEntries })),
     })
@@ -212,4 +202,32 @@ async function executeAggregateWatchlistActionLocked(
   return {
     detail: changed.size ? `${[...changed].join(', ')} removed from Watchlist` : 'No watchlist changes were needed',
   }
+}
+
+/**
+ * The watchlist writes the agent tools perform. Production goes through
+ * `watchlistWriter()` so a test can install a recording stand-in with
+ * `setWatchlistWriter` instead of replacing this module.
+ */
+function createWatchlistWriter() {
+  return { executeWatchlistAction }
+}
+
+export type WatchlistWriter = ReturnType<typeof createWatchlistWriter>
+
+let installedWatchlistWriter: WatchlistWriter = createWatchlistWriter()
+
+/** The watchlist writes currently in force. */
+export function watchlistWriter(): WatchlistWriter {
+  return installedWatchlistWriter
+}
+
+/** Install a stand-in writer for a test; pair every call with `resetWatchlistWriter()`. */
+export function setWatchlistWriter(next: WatchlistWriter): void {
+  installedWatchlistWriter = next
+}
+
+/** Restore the real watchlist writes. */
+export function resetWatchlistWriter(): void {
+  installedWatchlistWriter = createWatchlistWriter()
 }

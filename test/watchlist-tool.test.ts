@@ -1,17 +1,17 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-const tastytrade = vi.hoisted(() => ({
-  resolveAccountNumber: vi.fn(),
-  tastyRequest: vi.fn(),
-}))
-
-vi.mock('../src/server/tastytrade', () => tastytrade)
-
+import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
+import { stubBroker } from './broker-stub'
 import { buildAgentRuntimeContext, loadBrokerageContext } from '../src/server/brokerage-context'
 import {
   createWatchlistReadTool,
   watchlistsFromPayload,
 } from '../src/server/watchlist-tool'
+
+const tastytrade = stubBroker()
+
+beforeEach(() => setBrokerApi(tastytrade))
+afterEach(() => resetBrokerApi())
 
 const watchlistPayload = {
   data: {

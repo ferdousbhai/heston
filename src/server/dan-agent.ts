@@ -13,6 +13,7 @@ import {
   type AgentTool,
 } from '@earendil-works/pi-agent-core'
 import { Agent, type Connection, type WSMessage } from 'agents'
+import { z } from 'zod'
 
 import {
   type AgentChatMessage,
@@ -22,6 +23,8 @@ import {
   type PendingAction,
 } from '../domain/agent-chat'
 import { compactTranscript } from '../domain/agent-transcript'
+import { toError } from '../domain/failure'
+import { JsonObjectSchema, type JsonValue } from '../domain/json-payload'
 import { newYorkClock } from '../domain/market-clock'
 import { preparePendingAction } from './agent'
 import { ChatRequestSchema, OrderPlacementSchema } from './agent-contracts'
@@ -39,6 +42,11 @@ import { createWatchlistReadTool } from './watchlist-tool'
 import { createExactOptionGreeksReadTool } from './option-greeks-tool'
 
 const MAX_STORED_TOOL_RESULT_CHARS = 4_000
+
+/** The chat relay delivers text frames; binary frames are not part of the client protocol. */
+const ClientFrameSchema = z.string()
+
+const ActionResolvedSchema = z.looseObject({ messageId: z.string(), status: z.string() })
 
 const OrderPlacementParameters = Type.Union([
   Type.Object({
@@ -215,15 +223,16 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
   }
 
   override onMessage(_connection: Connection, raw: WSMessage) {
-    if (typeof raw !== 'string') return
-    let input: unknown
+    const frame = ClientFrameSchema.safeParse(raw).data
+    if (frame === undefined) return
+    let decoded: JsonValue
     try {
-      input = JSON.parse(raw)
+      decoded = JSON.parse(frame)
     } catch {
       return
     }
-    if (!input || typeof input !== 'object') return
-    const command = input as Record<string, unknown>
+    const command = JsonObjectSchema.safeParse(decoded).data
+    if (!command) return
     if (command.type === 'cancel') {
       this.abortController?.abort(new Error('Operation aborted'))
       return
@@ -234,11 +243,12 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
       return
     }
     if (command.type === 'action_resolved') {
-      if (typeof command.messageId !== 'string' || typeof command.status !== 'string') return
-      const status = command.status.slice(0, 240)
+      const resolved = ActionResolvedSchema.safeParse(command).data
+      if (!resolved) return
+      const status = resolved.status.slice(0, 240)
       this.setState({
         ...this.state,
-        messages: this.state.messages.map((message) => message.id === command.messageId
+        messages: this.state.messages.map((message) => message.id === resolved.messageId
           ? { ...message, actionStatus: status, pendingAction: undefined }
           : message),
       })
@@ -263,8 +273,9 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
       startedAt: new Date().toISOString(),
       status: 'running',
     })
-    const run = this.runTurn(parsed.data.selectedSymbol, parsed.data.message).catch((error: unknown) => {
-      console.error('DanAgentTurnFailed', error instanceof Error ? error.message.slice(0, 500) : 'UnknownError')
+    const run = this.runTurn(parsed.data.selectedSymbol, parsed.data.message).catch((cause: unknown) => {
+      const error = toError(cause)
+      console.error('DanAgentTurnFailed', error ? error.message.slice(0, 500) : 'UnknownError')
     })
     this.ctx.waitUntil(run)
   }
@@ -280,8 +291,9 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
     try {
       const [account, liveMarketSession] = await Promise.all([
         loadBrokerageContext(this.env),
-        readMarketStatus(this.env).catch((error: unknown) => {
-          console.warn('DanMarketStatusUnavailable', error instanceof Error ? error.message.slice(0, 200) : 'UnknownError')
+        readMarketStatus(this.env).catch((cause: unknown) => {
+          const error = toError(cause)
+          console.warn('DanMarketStatusUnavailable', error ? error.message.slice(0, 200) : 'UnknownError')
           return {
             asOf: new Date().toISOString(),
             source: 'tastytrade' as const,
@@ -324,13 +336,11 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
         name: 'prepare_brokerage_action',
         parameters: OrderPlacementParameters,
       }
-      const runtimeContext = JSON.stringify({
-        ...buildAgentRuntimeContext(account),
-        ...(selectedSymbol ? { selectedSymbol } : {}),
-        clock: newYorkClock(),
-        marketSession: liveMarketSession,
-        portfolioPolicy,
-      })
+      const accountContext = buildAgentRuntimeContext(account)
+      const turnContext = { clock: newYorkClock(), marketSession: liveMarketSession, portfolioPolicy }
+      const runtimeContext = JSON.stringify(selectedSymbol
+        ? { ...accountContext, selectedSymbol, ...turnContext }
+        : { ...accountContext, ...turnContext })
       const tools = [
         brokerageActionTool,
         createBrokerageReconciliationTool(this.env),
@@ -389,9 +399,10 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
           case 'tool_execution_start': {
             toolStartedAt.set(event.toolCallId, Date.now())
             const existing = turnTools.get(event.toolCallId)
-            if (existing) existing.input = event.args as Record<string, unknown>
+            const toolInput = JsonObjectSchema.safeParse(event.args).data ?? {}
+            if (existing) existing.input = toolInput
             this.sendEvent({
-              input: event.args as Record<string, unknown>,
+              input: toolInput,
               toolCallId: event.toolCallId,
               toolName: event.toolName,
               type: 'dan:tool_execution_start',
@@ -419,7 +430,8 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
             break
           }
           case 'turn_end': {
-            const message = event.message as AssistantMessage
+            const message = event.message
+            if (message.role !== 'assistant') break
             if (message.stopReason === 'error' || message.stopReason === 'aborted') {
               turnFailure = message.errorMessage ?? 'The model request failed.'
               break
@@ -471,6 +483,7 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
         throw new Error('The conversation has no user message to answer.')
       }
       await runAgentLoopContinue(context, {
+        // SAFETY: this agent never appends CustomMessage values, so the context holds only pi Message values.
         convertToLlm: (messages) => messages as Message[],
         maxTokens: 1_200,
         model: runtime.model,

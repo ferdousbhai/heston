@@ -2,9 +2,8 @@ import { Type } from '@earendil-works/pi-ai'
 import { type AgentTool } from '@earendil-works/pi-agent-core'
 
 import { type AppEnv } from './env'
-import { tastyRequest } from './tastytrade'
-
-type JsonRecord = Record<string, unknown>
+import { envelopeRows, JsonArraySchema, JsonObjectSchema, TextSchema, type JsonObject, type JsonValue } from '../domain/json-payload'
+import { brokerApi } from './tastytrade'
 
 type WatchlistEntry = {
   instrumentType: string
@@ -64,33 +63,24 @@ export const WatchlistReadParameters = Type.Object({
   ], { description: 'Private tastytrade watchlists by default, or notable public watchlists.' })),
 }, { additionalProperties: false })
 
-function record(value: unknown): JsonRecord | undefined {
-  return typeof value === 'object' && value !== null ? value as JsonRecord : undefined
+function record(value: JsonValue): JsonObject | undefined {
+  return JsonObjectSchema.safeParse(value).data
 }
 
-function text(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+function text(value: JsonValue): string | undefined {
+  return TextSchema.safeParse(value).data
 }
 
 /** Strictly normalize the tastytrade envelope before any private data reaches the model. */
-export function watchlistsFromPayload(payload: unknown): NormalizedWatchlist[] {
-  const body = record(payload)
-  const rawData = body?.data ?? payload
-  const data = record(rawData)
-  const candidate = Array.isArray(rawData)
-    ? rawData
-    : Array.isArray(data?.items)
-      ? data.items
-      : Array.isArray(body?.items)
-        ? body.items
-        : undefined
+export function watchlistsFromPayload(payload: JsonValue): NormalizedWatchlist[] {
+  const candidate = envelopeRows(payload)
   if (!candidate || candidate.length > MAX_WATCHLISTS) throw new Error('Watchlists:invalid-response')
 
   return candidate.map((value) => {
     const row = record(value)
     const name = text(row?.name)
-    const rawEntries = row?.['watchlist-entries']
-    if (!row || !name || name.length > 64 || !Array.isArray(rawEntries)) {
+    const rawEntries = JsonArraySchema.safeParse(row?.['watchlist-entries']).data
+    if (!row || !name || name.length > 64 || !rawEntries) {
       throw new Error('Watchlists:invalid-response')
     }
     const entries = rawEntries.slice(0, MAX_RETURNED_ENTRIES).map((rawEntry) => {
@@ -112,9 +102,9 @@ export async function readWatchlists(
   watchlistType: WatchlistType = 'private',
   now = new Date(),
 ): Promise<WatchlistReadResult> {
-  let payload: unknown
+  let payload: JsonValue
   try {
-    payload = await tastyRequest(env, watchlistType === 'public' ? '/public-watchlists' : '/watchlists')
+    payload = await brokerApi().tastyRequest(env, watchlistType === 'public' ? '/public-watchlists' : '/watchlists')
   } catch {
     throw new Error(`${watchlistType === 'public' ? 'Public' : 'Private'} tastytrade watchlists are unavailable.`)
   }

@@ -2,6 +2,7 @@ import { createCollection, localOnlyCollectionOptions, localStorageCollectionOpt
 import { z } from 'zod'
 
 import { CatalystSchema } from '../domain/catalyst'
+import { type JsonValue } from '../domain/json-payload'
 import { reconcileCandleSeries, updateCandleSeries, type CandlePoint } from '../domain/candle'
 import {
   DXLINK_REMOVE_EVENT,
@@ -252,7 +253,8 @@ export async function restoreOfflineSnapshot() {
 
 /** Best-effort protection against browser storage eviction; denial does not block offline use. */
 export async function requestPersistentLocalStorage(): Promise<boolean> {
-  if (typeof navigator === 'undefined' || !navigator.storage?.persist) return false
+  const hasNavigator = 'navigator' in globalThis
+  if (!hasNavigator || !navigator.storage?.persist) return false
   try {
     return await navigator.storage.persist()
   } catch {
@@ -309,7 +311,7 @@ export async function applyWatchlistMutation(action: AggregateWatchlistMutation)
 type PendingCandleSnapshot = { endSeen: boolean; points: CandlePoint[] }
 const pendingCandleSnapshots = new Map<string, PendingCandleSnapshot>()
 
-export function applyLiveMarketEvent(untrusted: unknown): void {
+export function applyLiveMarketEvent(untrusted: JsonValue): void {
   const parsed = LiveMarketEventSchema.safeParse(untrusted)
   if (!parsed.success || !tickerCollection.get(parsed.data.symbol)) return
   const event: LiveMarketEvent = parsed.data

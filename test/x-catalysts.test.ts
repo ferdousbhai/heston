@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { JsonObjectSchema } from '../src/domain/json-payload'
 
 import { canonicalXPostUrl, catalystResearchSymbols, discoverXCatalysts, parseXCatalystResponse, shouldRunXCatalystResearch } from '../src/server/x-catalysts'
 
@@ -15,17 +16,17 @@ function response(findings: unknown[], citations: string[]) {
 
 describe('Grok X catalyst boundary', () => {
   it('does not cap Grok native X Search tool calls', async () => {
-    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      const request = JSON.parse(String(init?.body)) as Record<string, unknown>
+    const fetcher = vi.fn<typeof fetch>(async (_input, init) => {
+      const request = JsonObjectSchema.parse(JSON.parse(String(init?.body)))
       expect(request).not.toHaveProperty('max_tool_calls')
       return Response.json(response([], []))
     })
 
-    const secret = (value: string) => ({ get: async () => value }) as SecretsStoreSecret
+    const secret = (value: string): SecretsStoreSecret => ({ get: async () => value })
     await discoverXCatalysts({
       AI_GATEWAY_TOKEN: secret('gateway-token'),
       XAI_API_KEY: secret('xai-key'),
-    }, ['AAPL'], NOW, fetcher as typeof fetch)
+    }, ['AAPL'], NOW, fetcher)
 
     expect(fetcher).toHaveBeenCalledOnce()
   })

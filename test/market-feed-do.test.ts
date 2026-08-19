@@ -1,27 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { JsonObjectSchema, type JsonValue } from '../src/domain/json-payload'
 
 import { type AppEnv } from '../src/server/env'
 
-const tasty = vi.hoisted(() => ({
-  loadEquityCandleFromTime: vi.fn(),
-  loadQuoteToken: vi.fn(),
-}))
+import { MarketFeedCore, type FeedClientSocket, type FeedContext } from '../src/server/market-feed-core'
+import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
+import { stubBroker } from './broker-stub'
 
-vi.mock('cloudflare:workers', () => ({
-  DurableObject: class {
-    ctx: DurableObjectState
-    env: AppEnv
-
-    constructor(ctx: DurableObjectState, env: AppEnv) {
-      this.ctx = ctx
-      this.env = env
-    }
-  },
-}))
-
-vi.mock('../src/server/tastytrade', () => tasty)
-
-import { MarketFeed } from '../src/server/market-feed'
+const tasty = stubBroker()
 
 type Listener = (event: { data?: unknown }) => void
 
@@ -59,25 +45,26 @@ class FakeUpstreamWebSocket {
     this.emit('open')
   }
 
-  message(payload: unknown): void {
+  message(payload: JsonValue): void {
     this.emit('message', JSON.stringify(payload))
   }
 
-  emit(type: string, data?: unknown): void {
+  emit(type: string, data?: string): void {
     for (const listener of this.listeners.get(type) ?? []) listener({ data })
   }
 }
 
-class FakeContext {
+class FakeContext implements FeedContext {
+  readonly acceptWebSocket = vi.fn()
   readonly blockConcurrencyWhile = vi.fn()
   readonly deleteAlarm = vi.fn(async () => undefined)
   readonly setAlarm = vi.fn(async () => undefined)
   readonly tasks: Promise<unknown>[] = []
   readonly storage = { deleteAlarm: this.deleteAlarm, setAlarm: this.setAlarm }
 
-  constructor(private readonly clients: WebSocket[]) {}
+  constructor(private readonly clients: FeedClientSocket[]) {}
 
-  getWebSockets(): WebSocket[] {
+  getWebSockets(): FeedClientSocket[] {
     return this.clients
   }
 
@@ -90,15 +77,16 @@ class FakeContext {
   }
 }
 
-function downstream(symbols: string[]): WebSocket {
+function downstream(symbols: string[]): FeedClientSocket {
   return {
+    close: vi.fn(),
     deserializeAttachment: () => ({ symbols }),
     send: vi.fn(),
-  } as unknown as WebSocket
+  }
 }
 
 function liveEnvironment(): AppEnv {
-  const secret = { get: vi.fn() } as unknown as SecretsStoreSecret
+  const secret: SecretsStoreSecret = { get: vi.fn() }
   return {
     TASTYTRADE_CLIENT_SECRET: secret,
     TASTYTRADE_REFRESH_TOKEN: secret,
@@ -107,10 +95,12 @@ function liveEnvironment(): AppEnv {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  resetBrokerApi()
 })
 
 beforeEach(() => {
   vi.clearAllMocks()
+  setBrokerApi(tasty)
   FakeUpstreamWebSocket.instances = []
   vi.stubGlobal('WebSocket', FakeUpstreamWebSocket)
   tasty.loadQuoteToken.mockResolvedValue({ token: 'quote-token', url: 'wss://streamer.test' })
@@ -120,7 +110,7 @@ beforeEach(() => {
 describe('MarketFeed option Greeks RPC', () => {
   it('single-flights concurrent reads, completes both, unsubscribes, and ignores stale close callbacks', async () => {
     const context = new FakeContext([downstream(['SPY'])])
-    const feed = new MarketFeed(context as unknown as DurableObjectState, liveEnvironment())
+    const feed = new MarketFeedCore(context, liveEnvironment())
     expect(context.blockConcurrencyWhile).not.toHaveBeenCalled()
     await vi.waitFor(() => expect(tasty.loadQuoteToken).toHaveBeenCalledTimes(1))
 
@@ -156,7 +146,7 @@ describe('MarketFeed option Greeks RPC', () => {
     })
 
     const subscriptions = socket.sent
-      .map((frame) => JSON.parse(frame) as Record<string, unknown>)
+      .map((frame) => JsonObjectSchema.parse(JSON.parse(frame)))
       .filter((frame) => frame.type === 'FEED_SUBSCRIPTION' && frame.channel === 7)
     expect(subscriptions).toEqual([
       { add: [{ symbol: '.NVDA260814C250', type: 'Greeks' }], channel: 7, type: 'FEED_SUBSCRIPTION' },
@@ -179,7 +169,7 @@ describe('MarketFeed option Greeks RPC', () => {
   it('reconnects when the upstream never completes setup', async () => {
     vi.useFakeTimers()
     const context = new FakeContext([downstream(['SPY'])])
-    new MarketFeed(context as unknown as DurableObjectState, liveEnvironment())
+    new MarketFeedCore(context, liveEnvironment())
     await vi.advanceTimersByTimeAsync(0)
     expect(FakeUpstreamWebSocket.instances).toHaveLength(1)
 

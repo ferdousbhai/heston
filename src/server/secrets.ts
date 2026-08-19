@@ -1,18 +1,28 @@
-// Worker-bound secrets arrive as plain strings; Secrets Store bindings expose `.get()`.
-type SecretBinding = string | SecretsStoreSecret | undefined
+// Worker-bound secrets (`wrangler secret put`) arrive as plain strings; Secrets Store
+// bindings (`secrets_store_secrets` in wrangler.jsonc) arrive as objects exposing
+// `.get()`. Which binding is which is fixed by configuration and recorded in `AppEnv`,
+// so each kind gets its own reader rather than a runtime shape probe.
 
-export async function readSecret(binding: SecretBinding, name: string): Promise<string> {
+function requireValue(value: string, name: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) throw new Error(`SecretValueMissing:${name}`)
+  return trimmed
+}
+
+/** Read a secret bound directly to the Worker as a plain string. */
+export function readBoundSecret(binding: string | undefined, name: string): string {
+  if (!binding) throw new Error(`SecretBindingMissing:${name}`)
+  return requireValue(binding, name)
+}
+
+/** Read a secret held in a Secrets Store binding. */
+export async function readStoredSecret(binding: SecretsStoreSecret | undefined, name: string): Promise<string> {
   if (!binding) throw new Error(`SecretBindingMissing:${name}`)
   let value: string
   try {
-    value = (typeof binding === 'string' ? binding : await binding.get()).trim()
+    value = await binding.get()
   } catch {
     throw new Error(`SecretReadFailed:${name}`)
   }
-  if (!value) throw new Error(`SecretValueMissing:${name}`)
-  return value
-}
-
-export function hasSecret(binding: SecretsStoreSecret | undefined): binding is SecretsStoreSecret {
-  return Boolean(binding && typeof binding.get === 'function')
+  return requireValue(value, name)
 }

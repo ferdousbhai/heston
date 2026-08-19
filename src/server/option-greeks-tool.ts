@@ -4,6 +4,7 @@ import { z } from 'zod'
 
 import { type AppEnv } from './env'
 import { OptionGreeksReadResultSchema, OptionStreamerSymbolSchema } from './market-feed-contracts'
+import { textResult } from './agent-tool-result'
 import {
   type EquityOptionTuple,
   resolveEquityOptionTuples,
@@ -113,10 +114,6 @@ export async function readExactOptionGreeks(
     impliedVolatilityUnit: 'decimal_ratio',
     source: 'tastytrade-dxlink',
   }
-}
-
-function textResult<T>(result: T) {
-  return { content: [{ text: JSON.stringify(result), type: 'text' as const }], details: result }
 }
 
 /** Wiring export for Dan's read-only tool registry. */

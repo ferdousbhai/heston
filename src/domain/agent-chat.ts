@@ -1,3 +1,7 @@
+import { z } from 'zod'
+
+import { type JsonObject } from './json-payload'
+
 export type PendingAction = {
   expiresAt: string
   id: string
@@ -18,7 +22,7 @@ export type AgentToolCall = {
   durationMs?: number
   error?: string
   id: string
-  input: Record<string, unknown>
+  input: JsonObject
   label: string
   name: string
   output?: string
@@ -56,12 +60,13 @@ export type DanAgentEvent =
   | { type: 'dan:tool_call_delta'; delta: string; toolCallId: string }
   | { type: 'dan:tool_call_start'; toolCallId: string; toolName: string }
   | { type: 'dan:tool_execution_end'; durationMs: number; error?: string; output?: string; toolCallId: string; toolName: string }
-  | { type: 'dan:tool_execution_start'; input: Record<string, unknown>; toolCallId: string; toolName: string }
+  | { type: 'dan:tool_execution_start'; input: JsonObject; toolCallId: string; toolName: string }
   | { type: 'dan:turn_end' }
   | { type: 'dan:turn_start' }
 
-export function isDanAgentEvent(value: unknown): value is DanAgentEvent {
-  if (!value || typeof value !== 'object') return false
-  const type = (value as { type?: unknown }).type
-  return typeof type === 'string' && type.startsWith('dan:')
+const DanAgentEventEnvelopeSchema = z.looseObject({ type: z.string().startsWith('dan:') })
+
+/** Relay frames arrive over a socket; only the `dan:` discriminant is trusted before dispatch. */
+export function isDanAgentEvent(value: JsonObject): value is DanAgentEvent {
+  return DanAgentEventEnvelopeSchema.safeParse(value).success
 }

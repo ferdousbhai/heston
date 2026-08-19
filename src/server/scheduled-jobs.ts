@@ -1,3 +1,4 @@
+import { toError } from '../domain/failure'
 import { newYorkClock } from '../domain/market-clock'
 import { type AppEnv } from './env'
 import { generateDailyResearch } from './research'
@@ -7,8 +8,8 @@ export type ScheduledJobKind = 'daily-research' | 'x-catalysts'
 
 export const SCHEDULED_JOB_KINDS = ['daily-research', 'x-catalysts'] as const
 
-function errorCode(error: unknown): string {
-  if (!(error instanceof Error)) return 'UnknownError'
+function errorCode(error: Error | undefined): string {
+  if (!error) return 'UnknownError'
   return `${error.name}:${error.message}`.replaceAll(/[^A-Za-z0-9:._-]/g, '_').slice(0, 160)
 }
 
@@ -17,7 +18,7 @@ export async function runScheduledJob(
   env: AppEnv,
   kind: ScheduledJobKind,
   scheduledAt: Date,
-  task: () => Promise<unknown>,
+  task: () => Promise<void>,
 ): Promise<'completed' | 'skipped'> {
   if (!env.DB) throw new Error('ScheduledJobStoreUnavailable')
   const clock = newYorkClock(scheduledAt)
@@ -43,10 +44,11 @@ export async function runScheduledJob(
     if (completed.meta.changes !== 1) throw new Error('ScheduledJobReceiptNotRecorded')
     return 'completed'
   } catch (error) {
+    const code = errorCode(toError(error))
     await env.DB.prepare(
       "UPDATE scheduled_runs SET status = 'failed', completed_at = ?, error_code = ? WHERE id = ? AND status = 'running'",
-    ).bind(new Date().toISOString(), errorCode(error), id).run().catch(() => undefined)
-    console.error(JSON.stringify({ event: 'ScheduledJobFailed', id, kind, error: errorCode(error) }))
+    ).bind(new Date().toISOString(), code, id).run().catch(() => undefined)
+    console.error(JSON.stringify({ event: 'ScheduledJobFailed', id, kind, error: code }))
     throw error
   }
 }
@@ -57,7 +59,8 @@ export function runScheduledJobKind(
   kind: ScheduledJobKind,
   scheduledAt = new Date(),
 ): Promise<'completed' | 'skipped'> {
-  return runScheduledJob(env, kind, scheduledAt, () => kind === 'daily-research'
-    ? generateDailyResearch(env, scheduledAt)
-    : runXCatalystResearch(env, scheduledAt))
+  return runScheduledJob(env, kind, scheduledAt, async () => {
+    if (kind === 'daily-research') await generateDailyResearch(env, scheduledAt)
+    else await runXCatalystResearch(env, scheduledAt)
+  })
 }

@@ -2,7 +2,7 @@ import { betterAuth } from 'better-auth'
 import { APIError } from 'better-auth/api'
 
 import { type AppEnv } from './env'
-import { readSecret } from './secrets'
+import { readBoundSecret } from './secrets'
 
 const AUTHORIZED_EMAIL = 'ferdousbd@gmail.com'
 
@@ -65,11 +65,9 @@ let cachedRuntime: Promise<AuthRuntime> | undefined
 
 async function createAuthRuntime(env: AppEnv): Promise<AuthRuntime> {
   if (!env.DB) throw new Error('AuthDatabaseMissing')
-  const [secret, googleClientId, googleClientSecret] = await Promise.all([
-    readSecret(env.BETTER_AUTH_SECRET, 'BETTER_AUTH_SECRET'),
-    readSecret(env.GOOGLE_CLIENT_ID, 'GOOGLE_CLIENT_ID'),
-    readSecret(env.GOOGLE_CLIENT_SECRET, 'GOOGLE_CLIENT_SECRET'),
-  ])
+  const secret = readBoundSecret(env.BETTER_AUTH_SECRET, 'BETTER_AUTH_SECRET')
+  const googleClientId = readBoundSecret(env.GOOGLE_CLIENT_ID, 'GOOGLE_CLIENT_ID')
+  const googleClientSecret = readBoundSecret(env.GOOGLE_CLIENT_SECRET, 'GOOGLE_CLIENT_SECRET')
   if (secret.length < 32) throw new Error('AuthSecretTooShort')
   const baseURL = requireProductionOrigin(env.AUTH_BASE_URL)
 
@@ -78,13 +76,18 @@ async function createAuthRuntime(env: AppEnv): Promise<AuthRuntime> {
   return { auth }
 }
 
-export function getAuthRuntime(env: AppEnv): Promise<AuthRuntime> {
-  if (!cachedRuntime) {
-    cachedRuntime = createAuthRuntime(env).catch((error: unknown) => {
-      cachedRuntime = undefined
-      throw error
-    })
+/** A failed build must not stay cached, so the next request retries from scratch. */
+async function buildAuthRuntime(env: AppEnv): Promise<AuthRuntime> {
+  try {
+    return await createAuthRuntime(env)
+  } catch (error) {
+    cachedRuntime = undefined
+    throw error
   }
+}
+
+export function getAuthRuntime(env: AppEnv): Promise<AuthRuntime> {
+  cachedRuntime ??= buildAuthRuntime(env)
   return cachedRuntime
 }
 

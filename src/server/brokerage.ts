@@ -1,49 +1,63 @@
 import { type AppEnv } from './env'
+import {
+  JsonArraySchema,
+  JsonObjectArraySchema,
+  JsonObjectSchema,
+  TextSchema,
+  type JsonObject,
+  type JsonValue,
+} from '../domain/json-payload'
 import { resolveStoredOrderIntent } from './order-intent'
 import { replacementOrderPayload, type OrderPayload } from './order-payload'
-import { assertPortfolioActionAllowed } from './portfolio-risk'
-import { resolveAccountNumber, tastyRequest } from './tastytrade'
-import { assertOrderMarketSafe } from './order-market'
+import { brokerApi } from './tastytrade'
+import { tradeGuards } from './trade-guards'
 
 export { buildOrderPayload } from './order-payload'
 
-function rows(value: unknown): Record<string, unknown>[] {
-  if (!Array.isArray(value)) return []
-  return value.filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
+/** A dry-run receipt: the broker order id is present only once the order is actually placed. */
+export type OrderResponseReceipt = { id?: string; warnings: string[] }
+export type PlacedOrderReceipt = { id: string; warnings: string[] }
+export type ReplacementReceipt = { id: string }
+
+/** Echoed legs that are not objects carry no comparable fields, so they drop out of the check. */
+function rows(value: JsonValue): JsonObject[] {
+  const items = JsonArraySchema.safeParse(value).data ?? []
+  return items.flatMap((row) => {
+    const parsed = JsonObjectSchema.safeParse(row).data
+    return parsed ? [parsed] : []
+  })
 }
 
-function record(value: unknown): Record<string, unknown> {
-  return typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
+function record(value: JsonValue): JsonObject {
+  return JsonObjectSchema.safeParse(value).data ?? {}
 }
 
-function messageRows(value: unknown): Record<string, unknown>[] {
+function messageRows(value: JsonValue): JsonObject[] {
   if (value === undefined || value === null) return []
-  if (!Array.isArray(value) || value.some((item) => typeof item !== 'object' || item === null || Array.isArray(item))) {
-    throw new Error('TastytradeOrderResponse:invalid-messages')
-  }
-  return value as Record<string, unknown>[]
+  const items = JsonObjectArraySchema.safeParse(value).data
+  if (!items) throw new Error('TastytradeOrderResponse:invalid-messages')
+  return items
 }
 
-function messageText(row: Record<string, unknown>, fallback: string): string {
-  const value = row.message ?? row.code
-  if (typeof value !== 'string' || !value.trim()) throw new Error('TastytradeOrderResponse:invalid-message')
-  return value.trim().slice(0, 160) || fallback
+function messageText(row: JsonObject): string {
+  const value = TextSchema.safeParse(row.message ?? row.code).data
+  if (value === undefined) throw new Error('TastytradeOrderResponse:invalid-message')
+  return value.slice(0, 160)
 }
 
 export function validateOrderResponse(
-  payload: unknown,
+  payload: JsonValue,
   intended: OrderPayload,
   requireOrderId: boolean,
-): { id?: string; warnings: string[] } {
+): OrderResponseReceipt {
   const body = record(payload)
   const data = record(body.data ?? body)
   const errors = messageRows(data.errors ?? body.errors).slice(0, 5)
   if (errors.length) {
-    const message = errors.map((error) => messageText(error, 'Order rejected')).join('; ')
+    const message = errors.map(messageText).join('; ')
     throw new TastytradeOrderRejectedError(message.slice(0, 160))
   }
-  const warnings = messageRows(data.warnings ?? body.warnings).slice(0, 5)
-    .map((warning) => messageText(warning, 'Broker warning'))
+  const warnings = messageRows(data.warnings ?? body.warnings).slice(0, 5).map(messageText)
   const order = record(data.order ?? body.order)
   const buyingPower = record(data['buying-power-effect'] ?? body['buying-power-effect'])
   if (!Object.keys(order).length || !Object.keys(buyingPower).length) {
@@ -98,10 +112,10 @@ export function rejectDryRunWarnings(warnings: readonly string[]): void {
 }
 
 export function validateReplacementReceipt(
-  payload: unknown,
+  payload: JsonValue,
   replacedOrderId: string,
   intended: OrderPayload,
-): { id: string } {
+): ReplacementReceipt {
   try {
     const body = record(payload)
     const order = record(body.data ?? body)
@@ -129,7 +143,7 @@ export function validateReplacementReceipt(
 }
 
 /** Once placement returned 2xx, anything short of a verified rejection or exact receipt is ambiguous. */
-export function validatePlacedOrderResponse(payload: unknown, intended: OrderPayload): { id: string; warnings: string[] } {
+export function validatePlacedOrderResponse(payload: JsonValue, intended: OrderPayload): PlacedOrderReceipt {
   try {
     const result = validateOrderResponse(payload, intended, true)
     return { id: result.id!, warnings: result.warnings }
@@ -139,22 +153,22 @@ export function validatePlacedOrderResponse(payload: unknown, intended: OrderPay
   }
 }
 
-export async function executeOrderPlacement(env: AppEnv, untrustedAction: unknown): Promise<{ detail: string; orderId?: string }> {
-  const account = await resolveAccountNumber(env)
+export async function executeOrderPlacement(env: AppEnv, untrustedAction: JsonValue): Promise<{ detail: string; orderId?: string }> {
+  const account = await brokerApi().resolveAccountNumber(env)
   const intent = await resolveStoredOrderIntent(env, untrustedAction, account)
-  await assertPortfolioActionAllowed(env, intent.effectiveAction, {
+  await tradeGuards().assertPortfolioActionAllowed(env, intent.effectiveAction, {
     accountNumber: account,
     ignoredOrderId: intent.replaceOrderId,
     optionContracts: intent.optionContracts,
   })
-  await assertOrderMarketSafe(env, intent.effectiveAction, intent.optionContracts)
+  await tradeGuards().assertOrderMarketSafe(env, intent.effectiveAction, intent.optionContracts)
   const dryRunPath = intent.replaceOrderId
     ? `/accounts/${encodeURIComponent(account)}/orders/${encodeURIComponent(intent.replaceOrderId)}/dry-run`
     : `/accounts/${encodeURIComponent(account)}/orders/dry-run`
   const dryRunBody = intent.replaceOrderId ? replacementOrderPayload(intent.payload) : intent.payload
-  const dryRun = await tastyRequest(env, dryRunPath, { method: 'POST', body: JSON.stringify(dryRunBody) })
+  const dryRun = await brokerApi().tastyRequest(env, dryRunPath, { method: 'POST', body: JSON.stringify(dryRunBody) })
   rejectDryRunWarnings(validateOrderResponse(dryRun, intent.payload, false).warnings)
-  let placed: unknown
+  let placed: JsonValue
   try {
     const path = intent.replaceOrderId
       ? `/accounts/${encodeURIComponent(account)}/orders/${encodeURIComponent(intent.replaceOrderId)}`
@@ -162,7 +176,7 @@ export async function executeOrderPlacement(env: AppEnv, untrustedAction: unknow
     const body = intent.replaceOrderId
       ? JSON.stringify(replacementOrderPayload(intent.payload))
       : JSON.stringify(intent.payload)
-    placed = await tastyRequest(env, path, {
+    placed = await brokerApi().tastyRequest(env, path, {
       method: intent.replaceOrderId ? 'PUT' : 'POST',
       body,
     })

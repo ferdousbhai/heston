@@ -1,13 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { env } from 'cloudflare:workers'
 
 import { getAuthRuntime } from '../server/auth'
-import { type AppEnv } from '../server/env'
+import { appEnv } from '../server/worker-env'
 
 async function handleAuth(request: Request) {
-  const workerEnv = env as unknown as AppEnv
   try {
-    const { auth } = await getAuthRuntime(workerEnv)
+    const { auth } = await getAuthRuntime(appEnv)
     return auth.handler(request)
   } catch (error) {
     console.error('AuthUnavailable', error instanceof Error ? error.message : 'UnknownError')

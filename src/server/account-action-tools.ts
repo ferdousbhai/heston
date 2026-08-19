@@ -3,8 +3,9 @@ import { type AgentTool } from '@earendil-works/pi-agent-core'
 
 import { DirectAccountActionSchema } from './agent-contracts'
 import { type AppEnv } from './env'
-import { resolveAccountNumber, tastyRequest } from './tastytrade'
-import { executeWatchlistAction } from './watchlist-actions'
+import { brokerApi } from './tastytrade'
+import { textResult } from './agent-tool-result'
+import { watchlistWriter } from './watchlist-actions'
 
 export const CancelOrderParameters = Type.Object({
   orderId: Type.String({ description: 'Exact tastytrade working-order ID.', pattern: '^\\d{1,40}$' }),
@@ -22,10 +23,6 @@ export const WatchlistManagementParameters = Type.Union([
     watchlistName: Type.String({ maxLength: 64, minLength: 1, pattern: '^(?=.*\\S)[^/]+$' }),
   }, { additionalProperties: false }),
 ])
-
-function textResult<T>(result: T) {
-  return { content: [{ text: JSON.stringify(result), type: 'text' as const }], details: result }
-}
 
 function commandText(message: string): string {
   let command = message.normalize('NFKC').trim()
@@ -95,8 +92,8 @@ export function createCancelOrderTool(
       if (!authorizesCancel(currentUserMessage, params.orderId)) throw new Error('DirectActionIntentMismatch')
       const parsed = DirectAccountActionSchema.parse({ kind: 'cancel_order', orderId: params.orderId })
       if (parsed.kind !== 'cancel_order') throw new Error('CancelOrder:invalid-action')
-      const account = await resolveAccountNumber(env)
-      await tastyRequest(env, `/accounts/${encodeURIComponent(account)}/orders/${parsed.orderId}`, { method: 'DELETE' })
+      const account = await brokerApi().resolveAccountNumber(env)
+      await brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/orders/${parsed.orderId}`, { method: 'DELETE' })
       return textResult({ orderId: parsed.orderId, status: 'cancelled' as const })
     },
     executionMode: 'sequential',
@@ -126,7 +123,7 @@ export function createWatchlistManagementTool(
       })
       if (action.kind !== 'add_watchlist_symbols' && action.kind !== 'remove_watchlist_symbols'
       ) throw new Error('WatchlistMutation:invalid-action')
-      return textResult(await executeWatchlistAction(env, action))
+      return textResult(await watchlistWriter().executeWatchlistAction(env, action))
     },
     executionMode: 'sequential',
     label: 'Updating watchlist',

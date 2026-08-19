@@ -7,8 +7,10 @@ import quoteSummary, {
 } from 'yahoo-finance2/modules/quoteSummary'
 
 import { marketDate } from '../domain/catalyst'
+import { JsonObjectSchema } from '../domain/json-payload'
 import { readBoundedText } from './bounded-response'
 import { ResearchProviderError } from './research-provider'
+import { textResult } from './agent-tool-result'
 
 const EQUITY_SYMBOL = /^[A-Z][A-Z0-9.]{0,7}$/
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -276,10 +278,10 @@ function timestamp(value: Date | null | undefined): string | undefined {
 }
 
 function finite(value: number | null | undefined): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+  return value !== null && value !== undefined && Number.isFinite(value) ? value : undefined
 }
 
-function compactObject<T extends Record<string, unknown>>(value: T): T | undefined {
+function compactObject<T extends object>(value: T): T | undefined {
   return Object.values(value).some((entry) => entry !== undefined) ? value : undefined
 }
 
@@ -659,6 +661,8 @@ function movingAverageConvergenceDivergence(
     ? null
     : fast[index]! - slow[index]!)
   const firstMacdIndex = macd.findIndex((value) => value !== null)
+  // SAFETY: firstMacdIndex is the first non-null entry and the MACD series has no interior gaps,
+  // so every value from that index onward is a number.
   const signalValues = firstMacdIndex < 0
     ? []
     : exponentialMovingAverage(macd.slice(firstMacdIndex) as number[], signalPeriod)
@@ -679,7 +683,7 @@ function normalizeStudies(inputs: StudyInput[] | undefined): StudyInput[] {
   if (!Array.isArray(inputs) || inputs.length > MAX_STUDIES) throw new Error('Price studies are invalid.')
   const seen = new Set<string>()
   return inputs.map((input) => {
-    if (!input || typeof input !== 'object') throw new Error('Price studies are invalid.')
+    if (!JsonObjectSchema.safeParse(input).success) throw new Error('Price studies are invalid.')
     if (input.kind === 'SMA' || input.kind === 'EMA' || input.kind === 'RSI') {
       const period = requireInteger(input.period, 14, 2, 200, `${input.kind} period`)
       const key = `${input.kind}:${period}`
@@ -843,10 +847,6 @@ export async function readPriceHistory(
     totalValidRowCount: normalized.length,
     truncated: normalized.length > prices.length,
   }
-}
-
-function textResult<T>(result: T) {
-  return { content: [{ text: JSON.stringify(result), type: 'text' as const }], details: result }
 }
 
 export function createCompanyFundamentalsReadTool(

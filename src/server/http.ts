@@ -1,3 +1,4 @@
+import { type JsonValue } from '../domain/json-payload'
 import { getOwnerSession } from './auth'
 import { type AppEnv } from './env'
 
@@ -10,7 +11,7 @@ export function canonicalHostRedirect(request: Request): Response | undefined {
   return Response.redirect(`${CANONICAL_ORIGIN}${url.pathname}${url.search}`, 308)
 }
 
-export function jsonNoStore(value: unknown, init: ResponseInit = {}): Response {
+export function jsonNoStore(value: JsonValue, init: ResponseInit = {}): Response {
   const headers = new Headers(init.headers)
   headers.set('Cache-Control', 'no-store')
   return Response.json(value, { ...init, headers })
@@ -33,8 +34,9 @@ export async function authorizePersonalRequest(request: Request, env: AppEnv, wr
   return undefined
 }
 
-export function publicError(error: unknown): string {
-  if (!(error instanceof Error)) return 'Request failed'
+/** Maps a failure decoded by `toError` onto a message that is safe to show a caller. */
+export function publicError(error: Error | undefined): string {
+  if (!error) return 'Request failed'
   if (error.message.includes('expired')) return 'This confirmation has expired'
   if (error.message.includes('no longer pending') || error.message.includes('already resolved')) {
     return 'This action is no longer pending'

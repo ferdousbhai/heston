@@ -30,15 +30,18 @@ export function buildOrderPayload(
         symbol: resolvedSymbols[0]!,
       }]
   if (legs.some((leg) => !leg.symbol)) throw new Error('OrderPayload:missing-resolved-symbol')
-  const closes = legs.some((leg) => leg.action.endsWith('to Close'))
-  return {
-    ...(closes ? { 'advanced-instructions': { 'strict-position-effect-validation': true as const } } : {}),
+  const payload: OrderPayload = {
     'order-type': 'Limit',
     'price-effect': action.priceEffect,
     'time-in-force': 'Day',
     legs,
     price: action.limitPrice.toFixed(2),
   }
+  // Closing legs must never be re-opened by the broker if the position moved underneath us.
+  if (legs.some((leg) => leg.action.endsWith('to Close'))) {
+    payload['advanced-instructions'] = { 'strict-position-effect-validation': true }
+  }
+  return payload
 }
 
 /** tastytrade replacements preserve the existing legs; sending them again can be rejected. */

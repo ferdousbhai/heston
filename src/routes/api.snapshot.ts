@@ -1,19 +1,17 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { env } from 'cloudflare:workers'
 
-import { type AppEnv } from '../server/env'
+import { appEnv } from '../server/worker-env'
 import { authorizePersonalRequest, jsonNoStore } from '../server/http'
-import { loadMarketSnapshot } from '../server/tastytrade'
+import { brokerApi } from '../server/tastytrade'
 
 export const Route = createFileRoute('/api/snapshot')({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        const workerEnv = env as unknown as AppEnv
-        const unauthorized = await authorizePersonalRequest(request, workerEnv)
+        const unauthorized = await authorizePersonalRequest(request, appEnv)
         if (unauthorized) return unauthorized
         try {
-          return jsonNoStore(await loadMarketSnapshot(workerEnv))
+          return jsonNoStore(await brokerApi().loadMarketSnapshot(appEnv))
         } catch (error) {
           console.error('MarketSnapshotUnavailable', error instanceof Error ? error.message : 'UnknownError')
           return jsonNoStore({ error: 'Market sync is temporarily unavailable' }, { status: 502 })

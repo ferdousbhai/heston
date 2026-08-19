@@ -1,29 +1,34 @@
 import { type OrderPlacement } from './agent-contracts'
 import { type AppEnv } from './env'
-import { tastyRequest } from './tastytrade'
+import {
+  JsonArraySchema,
+  JsonObjectSchema,
+  NumericSchema,
+  TextSchema,
+  type JsonObject,
+  type JsonValue,
+} from '../domain/json-payload'
+import { brokerApi } from './tastytrade'
 
-type JsonRecord = Record<string, unknown>
 type OptionAction = Extract<OrderPlacement, { kind: 'place_option_order' }>
 
-function record(value: unknown): JsonRecord {
-  return typeof value === 'object' && value !== null ? value as JsonRecord : {}
+function record(value: JsonValue): JsonObject {
+  return JsonObjectSchema.safeParse(value).data ?? {}
 }
 
-function chainRows(payload: unknown): JsonRecord[] {
-  const body = record(payload)
-  const data = record(body.data)
-  if (!Array.isArray(data.items)) throw new Error('Requested option contract is not available. The option chain response was incomplete.')
-  return data.items.map(record)
+function chainRows(payload: JsonValue): JsonObject[] {
+  const data = record(record(payload).data)
+  const items = JsonArraySchema.safeParse(data.items).data
+  if (!items) throw new Error('Requested option contract is not available. The option chain response was incomplete.')
+  return items.map(record)
 }
 
-function text(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : ''
+function text(value: JsonValue): string {
+  return TextSchema.safeParse(value).data ?? ''
 }
 
-function number(value: unknown): number | undefined {
-  if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return undefined
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : undefined
+function number(value: JsonValue): number | undefined {
+  return NumericSchema.safeParse(value).data
 }
 
 function unavailable(detail: string): Error {
@@ -35,7 +40,7 @@ function shortList(values: string[]): string {
   return unique.length ? unique.slice(0, 8).join(', ') : 'none'
 }
 
-function nearestStrikes(rows: JsonRecord[], requestedStrike: number): string {
+function nearestStrikes(rows: JsonObject[], requestedStrike: number): string {
   const strikes = [...new Set(rows.flatMap((row) => {
     const strike = number(row['strike-price'])
     return strike === undefined ? [] : [strike]
@@ -69,7 +74,7 @@ export type ResolvedEquityOptionTuple = EquityOptionTuple & EquityOptionContract
 
 /** Resolve one exact, standard, active contract without assuming its root equals the underlying. */
 export function equityOptionContractFromChainTuple(
-  payload: unknown,
+  payload: JsonValue,
   tuple: EquityOptionTuple,
   options: ResolutionOptions = {},
 ): EquityOptionContract {
@@ -99,7 +104,9 @@ export function equityOptionContractFromChainTuple(
       || sharesPerContract === undefined
       || !Number.isSafeInteger(sharesPerContract)
       || sharesPerContract <= 0) continue
-    candidates.push({ symbol, sharesPerContract, ...(streamerSymbol ? { streamerSymbol } : {}) })
+    const candidate: EquityOptionContract = { symbol, sharesPerContract }
+    if (streamerSymbol) candidate.streamerSymbol = streamerSymbol
+    candidates.push(candidate)
   }
   if (candidates.length > 1) throw new Error('Requested option contract is ambiguous')
   if (candidates.length === 1) {
@@ -116,7 +123,7 @@ export function equityOptionContractFromChainTuple(
 }
 
 /** Resolve one exact, standard, active contract for execution. */
-export function equityOptionContractFromChain(payload: unknown, action: OptionAction): EquityOptionContract {
+export function equityOptionContractFromChain(payload: JsonValue, action: OptionAction): EquityOptionContract {
   return equityOptionContractFromChainTuple(payload, action, { opening: action.action.endsWith('to Open') })
 }
 
@@ -124,7 +131,7 @@ export async function resolveEquityOptionContract(
   env: AppEnv,
   action: OptionAction,
 ): Promise<EquityOptionContract> {
-  const payload = await tastyRequest(env, `/option-chains/${encodeURIComponent(action.underlying)}`)
+  const payload = await brokerApi().tastyRequest(env, `/option-chains/${encodeURIComponent(action.underlying)}`)
   return equityOptionContractFromChain(payload, action)
 }
 
@@ -142,7 +149,7 @@ export async function resolveEquityOptionTuples(
   })
   const resolved: Array<ResolvedEquityOptionTuple | undefined> = Array.from({ length: tuples.length })
   for (const [underlying, group] of groups) {
-    const payload = await tastyRequest(env, `/option-chains/${encodeURIComponent(underlying)}`)
+    const payload = await brokerApi().tastyRequest(env, `/option-chains/${encodeURIComponent(underlying)}`)
     for (const { index, tuple } of group) {
       resolved[index] = { ...tuple, ...equityOptionContractFromChainTuple(payload, tuple, options) }
     }

@@ -1,11 +1,19 @@
 import { Type } from '@earendil-works/pi-ai'
 import { type AgentTool } from '@earendil-works/pi-agent-core'
+import { z } from 'zod'
 
 import { type AppEnv } from './env'
+import {
+  envelopeRows,
+  JsonObjectSchema,
+  NumericSchema,
+  type JsonObject,
+  type JsonValue,
+} from '../domain/json-payload'
 import { resolveEquityOptionTuples } from './option-contract'
-import { resolveAccountNumber, tastyRequest } from './tastytrade'
+import { textResult } from './agent-tool-result'
+import { brokerApi } from './tastytrade'
 
-type JsonRecord = Record<string, unknown>
 type HistoryKind = 'orders' | 'transactions'
 type TransactionType = 'Money Movement' | 'Trade'
 
@@ -250,27 +258,23 @@ export type InstrumentQuoteReadResult = {
   source: 'tastytrade-rest-market-data'
 }
 
-type ItemEnvelope = { rows: JsonRecord[]; totalItems?: number }
+type ItemEnvelope = { rows: JsonObject[]; totalItems?: number }
 
-function record(value: unknown): JsonRecord | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as JsonRecord : undefined
+/** Broker text fields are compared and length-checked verbatim, so they are not trimmed on the way in. */
+const BrokerTextSchema = z.string()
+
+function record(value: JsonValue): JsonObject | undefined {
+  return JsonObjectSchema.safeParse(value).data
 }
 
 function invalidResponse(label: string): never {
   throw new Error(`${label} returned an invalid response.`)
 }
 
-function itemEnvelope(payload: unknown, label: string, maximumRows: number): ItemEnvelope {
+function itemEnvelope(payload: JsonValue, label: string, maximumRows: number): ItemEnvelope {
   const body = record(payload)
-  const rawData = body?.data ?? payload
-  const data = record(rawData)
-  const candidate = Array.isArray(rawData)
-    ? rawData
-    : Array.isArray(data?.items)
-      ? data.items
-      : Array.isArray(body?.items)
-        ? body.items
-        : undefined
+  const data = record(body?.data ?? payload)
+  const candidate = envelopeRows(payload)
   if (!candidate || candidate.length > maximumRows) return invalidResponse(label)
   const rows = candidate.map((value) => record(value) ?? invalidResponse(label))
 
@@ -284,35 +288,34 @@ function itemEnvelope(payload: unknown, label: string, maximumRows: number): Ite
   return { rows, totalItems }
 }
 
-function dataRecord(payload: unknown, label: string): JsonRecord {
+function dataRecord(payload: JsonValue, label: string): JsonObject {
   const body = record(payload) ?? invalidResponse(label)
   const rawData = body.data ?? body
   return record(rawData) ?? invalidResponse(label)
 }
 
-function optionalText(row: JsonRecord, keys: readonly string[], label: string, maxLength = 160): string | undefined {
+function optionalText(row: JsonObject, keys: readonly string[], label: string, maxLength = 160): string | undefined {
   for (const key of keys) {
     const value = row[key]
     if (value === undefined || value === null || value === '') continue
-    if (typeof value !== 'string') return invalidResponse(label)
-    const normalized = value.trim()
+    const raw = BrokerTextSchema.safeParse(value).data
+    if (raw === undefined) return invalidResponse(label)
+    const normalized = raw.trim()
     if (!normalized || normalized.length > maxLength) return invalidResponse(label)
     return normalized
   }
   return undefined
 }
 
-function requiredText(row: JsonRecord, keys: readonly string[], label: string, maxLength = 160): string {
+function requiredText(row: JsonObject, keys: readonly string[], label: string, maxLength = 160): string {
   return optionalText(row, keys, label, maxLength) ?? invalidResponse(label)
 }
 
-function finiteNumber(value: unknown, label: string): number {
-  if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return invalidResponse(label)
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : invalidResponse(label)
+function finiteNumber(value: JsonValue, label: string): number {
+  return NumericSchema.safeParse(value).data ?? invalidResponse(label)
 }
 
-function optionalNumber(row: JsonRecord, keys: readonly string[], label: string): number | undefined {
+function optionalNumber(row: JsonObject, keys: readonly string[], label: string): number | undefined {
   for (const key of keys) {
     const value = row[key]
     if (value === undefined || value === null || value === '') continue
@@ -321,27 +324,26 @@ function optionalNumber(row: JsonRecord, keys: readonly string[], label: string)
   return undefined
 }
 
-function optionalRatioPercent(row: JsonRecord, keys: readonly string[], label: string): number | undefined {
+function optionalRatioPercent(row: JsonObject, keys: readonly string[], label: string): number | undefined {
   const value = optionalNumber(row, keys, label)
   return value === undefined ? undefined : Math.round(value * 10_000) / 100
 }
 
-function optionalBoolean(row: JsonRecord, keys: readonly string[], label: string): boolean | undefined {
+function optionalBoolean(row: JsonObject, keys: readonly string[], label: string): boolean | undefined {
   for (const key of keys) {
     const value = row[key]
     if (value === undefined || value === null) continue
-    return typeof value === 'boolean' ? value : invalidResponse(label)
+    return z.boolean().safeParse(value).data ?? invalidResponse(label)
   }
   return undefined
 }
 
-function requiredIdentifier(row: JsonRecord, key: string, label: string): string {
+function requiredIdentifier(row: JsonObject, key: string, label: string): string {
   const value = row[key]
-  if (typeof value === 'number' && Number.isSafeInteger(value)) return String(value)
-  if (typeof value === 'string') {
-    const normalized = value.trim()
-    if (normalized && normalized.length <= 64) return normalized
-  }
+  const numeric = z.number().safeParse(value).data
+  if (numeric !== undefined && Number.isSafeInteger(numeric)) return String(numeric)
+  const normalized = BrokerTextSchema.safeParse(value).data?.trim()
+  if (normalized && normalized.length <= 64) return normalized
   return invalidResponse(label)
 }
 
@@ -351,20 +353,20 @@ function validDate(value: string): boolean {
   return !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value
 }
 
-function optionalDate(row: JsonRecord, keys: readonly string[], label: string): string | undefined {
+function optionalDate(row: JsonObject, keys: readonly string[], label: string): string | undefined {
   const value = optionalText(row, keys, label, 40)
   if (value === undefined) return undefined
   return validDate(value) ? value : invalidResponse(label)
 }
 
-function optionalTimestamp(row: JsonRecord, keys: readonly string[], label: string): string | undefined {
+function optionalTimestamp(row: JsonObject, keys: readonly string[], label: string): string | undefined {
   const value = optionalText(row, keys, label, 40)
   if (value === undefined) return undefined
   if (!/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(value) || Number.isNaN(Date.parse(value))) return invalidResponse(label)
   return value
 }
 
-function requiredTimestamp(row: JsonRecord, keys: readonly string[], label: string): string {
+function requiredTimestamp(row: JsonObject, keys: readonly string[], label: string): string {
   return optionalTimestamp(row, keys, label) ?? invalidResponse(label)
 }
 
@@ -379,7 +381,7 @@ function assertInteger(value: number, minimum: number, maximum: number, label: s
   return value
 }
 
-function compactTransaction(row: JsonRecord): CompactTransaction {
+function compactTransaction(row: JsonObject): CompactTransaction {
   const label = 'Tastytrade transaction history'
   const transactionType = requiredText(row, ['transaction-type'], label, 64)
   const occurredAt = optionalTimestamp(row, ['executed-at'], label)
@@ -412,7 +414,7 @@ function compactTransaction(row: JsonRecord): CompactTransaction {
   }
 }
 
-function compactOrderLeg(value: unknown): CompactOrderLeg {
+function compactOrderLeg(value: JsonValue): CompactOrderLeg {
   const label = 'Tastytrade order history'
   const row = record(value) ?? invalidResponse(label)
   return {
@@ -424,7 +426,7 @@ function compactOrderLeg(value: unknown): CompactOrderLeg {
   }
 }
 
-function compactOrder(row: JsonRecord): CompactOrder {
+function compactOrder(row: JsonObject): CompactOrder {
   const label = 'Tastytrade order history'
   if (!Array.isArray(row.legs) || row.legs.length < 1 || row.legs.length > 20) return invalidResponse(label)
   return {
@@ -473,7 +475,7 @@ export async function readAccountHistory(
     throw new Error('Account history transaction type is invalid.')
   }
 
-  const accountNumber = await resolveAccountNumber(env)
+  const accountNumber = await brokerApi().resolveAccountNumber(env)
   const query = new URLSearchParams({
     'page-offset': String(pageOffset),
     'per-page': String(limit),
@@ -482,9 +484,9 @@ export async function readAccountHistory(
   })
   if (underlyingSymbol) query.set('underlying-symbol', underlyingSymbol)
   if (input.transactionType) query.set('type', input.transactionType)
-  let payload: unknown
+  let payload: JsonValue
   try {
-    payload = await tastyRequest(
+    payload = await brokerApi().tastyRequest(
       env,
       `/accounts/${encodeURIComponent(accountNumber)}/${input.type}?${query.toString()}`,
     )
@@ -503,26 +505,27 @@ export async function readAccountHistory(
   const consumed = pageOffset * limit + items.length
   const truncated = envelope.rows.length > limit
     || (envelope.totalItems === undefined ? envelope.rows.length === limit : consumed < envelope.totalItems)
-  return {
+  const result: AccountHistoryReadResult = {
     asOf: now.toISOString(),
     days,
     items,
     limit,
     pageOffset,
     returnedItemCount: items.length,
-    ...(envelope.totalItems === undefined ? {} : { totalItemCount: envelope.totalItems }),
     truncated,
     type: input.type,
     source: 'tastytrade',
   }
+  if (envelope.totalItems !== undefined) result.totalItemCount = envelope.totalItems
+  return result
 }
 
-function compactMetric(row: JsonRecord): CompactMarketMetric {
+function compactMetric(row: JsonObject): CompactMarketMetric {
   const label = 'Tastytrade market metrics'
   const symbol = requiredText(row, ['symbol'], label, 8).toUpperCase()
   if (!EQUITY_SYMBOL.test(symbol)) return invalidResponse(label)
   const rawEarnings = row.earnings
-  let earnings: JsonRecord | undefined
+  let earnings: JsonObject | undefined
   if (rawEarnings !== undefined && rawEarnings !== null) earnings = record(rawEarnings) ?? invalidResponse(label)
   return {
     beta: optionalNumber(row, ['beta'], label),
@@ -557,7 +560,7 @@ export async function readMarketMetrics(
   }
   const query = symbols.map(encodeURIComponent).join(',')
   const envelope = itemEnvelope(
-    await tastyRequest(env, `/market-metrics?symbols=${query}`),
+    await brokerApi().tastyRequest(env, `/market-metrics?symbols=${query}`),
     'Tastytrade market metrics',
     MAX_MARKET_SYMBOLS,
   )
@@ -580,7 +583,7 @@ export async function readMarketMetrics(
 
 export async function readMarketStatus(env: AppEnv, now = new Date()): Promise<MarketStatusReadResult> {
   const label = 'Tastytrade equity market status'
-  const session = dataRecord(await tastyRequest(env, '/market-time/equities/sessions/current'), label)
+  const session = dataRecord(await brokerApi().tastyRequest(env, '/market-time/equities/sessions/current'), label)
   const next = session['next-session'] === undefined || session['next-session'] === null
     ? undefined
     : record(session['next-session']) ?? invalidResponse(label)
@@ -602,7 +605,7 @@ export async function readMarketStatus(env: AppEnv, now = new Date()): Promise<M
   }
 }
 
-function compactSearchItem(row: JsonRecord): SymbolSearchItem {
+function compactSearchItem(row: JsonObject): SymbolSearchItem {
   const label = 'Tastytrade symbol search'
   return {
     description: requiredText(row, ['description'], label, 200),
@@ -614,7 +617,7 @@ function compactSearchItem(row: JsonRecord): SymbolSearchItem {
 }
 
 function quoteFromRecord(
-  row: JsonRecord,
+  row: JsonObject,
   expectedSymbol: string,
   instrumentType: 'Equity' | 'Equity Option',
   underlying?: string,
@@ -629,17 +632,18 @@ function quoteFromRecord(
   const askSize = optionalNumber(row, ['askSize', 'ask-size'], label)
   const observedAt = requiredTimestamp(row, ['updatedAt', 'updated-at'], label)
   if (bid === undefined || ask === undefined || bid < 0 || ask <= 0 || bid > ask) return invalidResponse(label)
-  return {
+  const quote: InstrumentQuoteReadResult['quotes'][number] = {
     ask,
-    ...(askSize === undefined ? {} : { askSize }),
     bid,
-    ...(bidSize === undefined ? {} : { bidSize }),
     instrumentType,
     mid: Math.round(((bid + ask) / 2) * 1e6) / 1e6,
     observedAt,
     symbol,
-    ...(underlying ? { underlying } : {}),
   }
+  if (askSize !== undefined) quote.askSize = askSize
+  if (bidSize !== undefined) quote.bidSize = bidSize
+  if (underlying) quote.underlying = underlying
+  return quote
 }
 
 export type InstrumentQuoteReadInput = {
@@ -672,7 +676,7 @@ export async function readInstrumentQuotes(
     ...resolvedContracts.map((contract) => `equity-option=${encodeURIComponent(contract.symbol)}`),
   ].join('&')
   const envelope = itemEnvelope(
-    await tastyRequest(env, `/market-data/by-type?${query}`),
+    await brokerApi().tastyRequest(env, `/market-data/by-type?${query}`),
     'Tastytrade market quote',
     10,
   )
@@ -707,7 +711,7 @@ export async function searchSymbols(
   if (!query || query.length > 64 || !/^[\x20-\x7E]+$/.test(query)) throw new Error('Symbol search query is invalid.')
   const limit = assertInteger(requestedLimit, 1, MAX_SEARCH_RESULTS, 'Symbol search limit')
   const envelope = itemEnvelope(
-    await tastyRequest(env, `/symbols/search/${encodeURIComponent(query)}`),
+    await brokerApi().tastyRequest(env, `/symbols/search/${encodeURIComponent(query)}`),
     'Tastytrade symbol search',
     MAX_SEARCH_ROWS,
   )
@@ -726,7 +730,7 @@ export async function searchSymbols(
 
 type ParsedOption = CompactOptionContract & { expirationDate: string }
 
-function parseActiveStandardOption(row: JsonRecord, underlying: string): ParsedOption | undefined {
+function parseActiveStandardOption(row: JsonObject, underlying: string): ParsedOption | undefined {
   const label = 'Tastytrade option chain'
   const instrumentType = requiredText(row, ['instrument-type'], label, 64)
   const rowUnderlying = requiredText(row, ['underlying-symbol'], label, 64).toUpperCase()
@@ -781,7 +785,7 @@ export async function findOptionContracts(
     throw new Error('Option strike is invalid.')
   }
   const envelope = itemEnvelope(
-    await tastyRequest(env, `/option-chains/${encodeURIComponent(underlying)}`),
+    await brokerApi().tastyRequest(env, `/option-chains/${encodeURIComponent(underlying)}`),
     'Tastytrade option chain',
     MAX_CHAIN_ROWS,
   )
@@ -803,15 +807,15 @@ export async function findOptionContracts(
   const expirationDates = allExpirationDates.slice(0, MAX_OPTION_EXPIRATIONS)
   const mode = input.expiry === undefined && input.strike === undefined ? 'expirations' : 'contracts'
   const contracts = mode === 'contracts' ? matching.slice(0, MAX_OPTION_CONTRACTS) : []
+  const filters: OptionContractFindResult['filters'] = {}
+  if (input.expiry !== undefined) filters.expiry = input.expiry
+  if (input.optionType !== undefined) filters.optionType = input.optionType
+  if (input.strike !== undefined) filters.strike = input.strike
   return {
     asOf: now.toISOString(),
     contracts,
     expirationDates,
-    filters: {
-      ...(input.expiry === undefined ? {} : { expiry: input.expiry }),
-      ...(input.optionType === undefined ? {} : { optionType: input.optionType }),
-      ...(input.strike === undefined ? {} : { strike: input.strike }),
-    },
+    filters,
     returnedContractCount: contracts.length,
     returnedExpirationCount: expirationDates.length,
     totalContractCount: matching.length,
@@ -821,10 +825,6 @@ export async function findOptionContracts(
     source: 'tastytrade',
     mode,
   }
-}
-
-function textResult<T>(result: T) {
-  return { content: [{ text: JSON.stringify(result), type: 'text' as const }], details: result }
 }
 
 export function createAccountHistoryReadTool(

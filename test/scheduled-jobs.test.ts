@@ -2,34 +2,38 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { runScheduledJob } from '../src/server/scheduled-jobs'
 import { type AppEnv } from '../src/server/env'
+import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
 
 function jobStore() {
   let status: string | undefined
-  const db = {
+  const db: D1Database = {
+    ...unsupportedDatabase(),
     prepare: vi.fn((sql: string) => ({
+      ...unsupportedStatement(),
       bind: (..._values: unknown[]) => ({
+        ...unsupportedStatement(),
         run: async () => {
           if (sql.startsWith('INSERT INTO scheduled_runs')) {
             if (status === undefined || status === 'failed') {
               status = 'running'
-              return { meta: { changes: 1 }, success: true }
+              return d1Result([], 1)
             }
-            return { meta: { changes: 0 }, success: true }
+            return d1Result([], 0)
           }
           if (sql.includes("status = 'completed'")) {
             const changes = status === 'running' ? 1 : 0
             if (changes) status = 'completed'
-            return { meta: { changes }, success: true }
+            return d1Result([], changes)
           }
           if (sql.includes("status = 'failed'")) {
             if (status === 'running') status = 'failed'
-            return { meta: { changes: 1 }, success: true }
+            return d1Result([], 1)
           }
           throw new Error('Unexpected SQL')
         },
       }),
     })),
-  } as unknown as D1Database
+  }
   return { db, status: () => status }
 }
 

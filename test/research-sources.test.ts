@@ -18,10 +18,10 @@ describe('research sources', () => {
   })
 
   it('keeps successful feeds when another publisher is unavailable', async () => {
-    const fetcher = vi.fn(async (url: string | URL | Request) => {
+    const fetcher: typeof fetch = vi.fn(async (url: RequestInfo | URL) => {
       if (String(url).includes('sec.gov')) return new Response('unavailable', { status: 503 })
       return new Response('<rss><channel><item><title>Policy update</title><link>https://www.federalreserve.gov/newsevents/pressreleases/test.htm</link></item></channel></rss>')
-    }) as unknown as typeof fetch
+    })
 
     await expect(collectResearchSources({ fetcher })).resolves.toEqual([{
       source: 'Federal Reserve',

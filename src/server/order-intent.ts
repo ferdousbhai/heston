@@ -7,15 +7,21 @@ import {
   type StoredOrderPlacement,
 } from './agent-contracts'
 import { type AppEnv } from './env'
+import {
+  JsonArraySchema,
+  JsonObjectSchema,
+  LooseTextSchema,
+  NumericSchema,
+  type JsonObject,
+  type JsonValue,
+} from '../domain/json-payload'
 import { buildOrderPayload, type OrderPayload } from './order-payload'
 import {
   resolveEquityOptionContract,
   resolveEquityOptionTuples,
   type EquityOptionContract,
 } from './option-contract'
-import { tastyRequest } from './tastytrade'
-
-type JsonRecord = Record<string, unknown>
+import { brokerApi } from './tastytrade'
 
 export type ResolvedOrderIntent = {
   effectiveAction: FreshOrderPlacement
@@ -25,20 +31,12 @@ export type ResolvedOrderIntent = {
   storedAction: StoredOrderPlacement
 }
 
-function record(value: unknown): JsonRecord | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as JsonRecord : undefined
+function text(value: JsonValue): string | undefined {
+  return LooseTextSchema.safeParse(value).data
 }
 
-function text(value: unknown): string | undefined {
-  if (typeof value !== 'string' && typeof value !== 'number') return undefined
-  const result = String(value).trim()
-  return result || undefined
-}
-
-function number(value: unknown): number | undefined {
-  if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return undefined
-  const result = Number(value)
-  return Number.isFinite(result) ? result : undefined
+function number(value: JsonValue): number | undefined {
+  return NumericSchema.safeParse(value).data
 }
 
 export function effectiveStoredOrder(action: StoredOrderPlacement): FreshOrderPlacement {
@@ -69,33 +67,33 @@ async function resolveFreshOrder(
   }
 }
 
-function exactOrder(payload: unknown): JsonRecord {
-  const body = record(payload)
-  const data = record(body?.data ?? payload)
-  if (!data || Array.isArray(data.items)) throw new Error('OrderReplacement:invalid-order')
+function exactOrder(payload: JsonValue): JsonObject {
+  const body = JsonObjectSchema.safeParse(payload).data
+  const data = JsonObjectSchema.safeParse(body?.data ?? payload).data
+  if (!data || JsonArraySchema.safeParse(data.items).success) throw new Error('OrderReplacement:invalid-order')
   return data
 }
 
-function sameOrderEcho(order: JsonRecord, intended: OrderPayload): boolean {
-  const legs = order.legs
+function sameOrderEcho(order: JsonObject, intended: OrderPayload): boolean {
+  const legs = JsonArraySchema.safeParse(order.legs).data
   if (text(order['order-type']) !== intended['order-type']
     || text(order['time-in-force']) !== intended['time-in-force']
     || text(order['price-effect']) !== intended['price-effect']
     || number(order.price) !== Number(intended.price)
-    || !Array.isArray(legs)
-    || legs.length !== intended.legs.length) return false
+    || legs?.length !== intended.legs.length) return false
   return intended.legs.every((leg, index) => {
-    const actual = record(legs[index])
+    const actual = JsonObjectSchema.safeParse(legs[index]).data
     if (!actual || text(actual.action) !== leg.action
       || text(actual['instrument-type']) !== leg['instrument-type']
       || text(actual.symbol) !== leg.symbol
       || number(actual.quantity) !== leg.quantity
       || number(actual['remaining-quantity']) !== leg.quantity) return false
-    return !Array.isArray(actual.fills) || actual.fills.length === 0
+    const fills = JsonArraySchema.safeParse(actual.fills).data
+    return !fills || fills.length === 0
   })
 }
 
-export function assertReplaceableOrder(payload: unknown, orderId: string, intended: OrderPayload): void {
+export function assertReplaceableOrder(payload: JsonValue, orderId: string, intended: OrderPayload): void {
   const order = exactOrder(payload)
   const status = text(order.status)?.toLowerCase()
   if (text(order.id) !== orderId
@@ -127,7 +125,7 @@ async function expandReplacement(
 ): Promise<ResolvedOrderIntent> {
   const source = effectiveStoredOrder(await sourceOrderAction(env, action.orderId))
   const sourceResolved = await resolveFreshOrder(env, source)
-  const current = await tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/orders/${encodeURIComponent(action.orderId)}`)
+  const current = await brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/orders/${encodeURIComponent(action.orderId)}`)
   assertReplaceableOrder(current, action.orderId, sourceResolved.payload)
   const replacementOrder = FreshOrderPlacementSchema.parse({ ...source, limitPrice: action.limitPrice })
   const replacementResolved = await resolveFreshOrder(env, replacementOrder)
@@ -142,7 +140,7 @@ async function expandReplacement(
 
 export async function resolveOrderIntent(
   env: AppEnv,
-  untrustedAction: unknown,
+  untrustedAction: JsonValue,
   accountNumber: string,
 ): Promise<ResolvedOrderIntent> {
   const action = OrderPlacementSchema.parse(untrustedAction)
@@ -154,7 +152,7 @@ export async function resolveOrderIntent(
 /** Revalidate a stored confirmation draft without trusting its embedded replacement details. */
 export async function resolveStoredOrderIntent(
   env: AppEnv,
-  untrustedAction: unknown,
+  untrustedAction: JsonValue,
   accountNumber: string,
 ): Promise<ResolvedOrderIntent> {
   const stored = StoredOrderPlacementSchema.parse(untrustedAction)
@@ -169,7 +167,7 @@ export async function resolveStoredOrderIntent(
 /** Build the exact submitted fingerprint for reconciliation without requiring the replaced order to remain live. */
 export async function resolveStoredOrderFingerprint(
   env: AppEnv,
-  untrustedAction: unknown,
+  untrustedAction: JsonValue,
 ): Promise<{ action: StoredOrderPlacement; payload: OrderPayload }> {
   const action = StoredOrderPlacementSchema.parse(untrustedAction)
   const resolved = await resolveFreshOrder(env, effectiveStoredOrder(action))

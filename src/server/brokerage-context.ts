@@ -1,7 +1,7 @@
 import { type Ticker } from '../domain/market'
 import { newYorkClock } from '../domain/market-clock'
 import { type AppEnv } from './env'
-import { resolveAccountNumber, tastyRequest } from './tastytrade'
+import { brokerApi } from './tastytrade'
 import {
   accountBalancesFromPayload,
   type AccountBalances,
@@ -11,7 +11,14 @@ import {
   workingOrderRecords,
 } from './tastytrade-payload'
 
-type JsonRecord = Record<string, unknown>
+import {
+  JsonArraySchema,
+  JsonObjectSchema,
+  NumericSchema,
+  TextSchema,
+  type JsonObject,
+  type JsonValue,
+} from '../domain/json-payload'
 
 type BrokerageBalances = Partial<AccountBalances>
 
@@ -88,46 +95,60 @@ export function buildExpiryAwareness(positions: readonly BrokeragePosition[], no
 type AgentMarketTicker = Pick<Ticker,
   'changePercent' | 'earningsDate' | 'ivIndex' | 'ivPercentile' | 'ivRank' | 'liquidity' | 'price' | 'symbol'>
 
-function record(value: unknown): JsonRecord | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? value as JsonRecord
-    : undefined
+/** The market slice of Dan's runtime context, keyed by the symbols his positions actually touch. */
+type AgentMarketContext = {
+  marketMetrics?: Record<string, Omit<AgentMarketTicker, 'symbol'>>
+  selectedSymbol?: string
 }
 
-function strictItems(value: unknown): JsonRecord[] {
-  const body = record(value)
+/** Positions as Dan sees them: the stored position with absent optional fields left out. */
+function agentPosition(position: BrokeragePosition): BrokeragePosition {
+  const projected: BrokeragePosition = {
+    direction: position.direction,
+    instrumentType: position.instrumentType,
+    quantity: position.quantity,
+    symbol: position.symbol,
+    underlying: position.underlying,
+  }
+  if (position.averageOpenPrice !== undefined) projected.averageOpenPrice = position.averageOpenPrice
+  if (position.expiresAt !== undefined) projected.expiresAt = position.expiresAt
+  return projected
+}
+
+function strictItems(value: JsonValue): JsonObject[] {
+  const body = JsonObjectSchema.safeParse(value).data
   const rawData = body?.data ?? value
-  const data = record(rawData)
-  const candidate = Array.isArray(rawData) ? rawData : data?.items ?? body?.items
-  if (!Array.isArray(candidate)) throw new Error('TastytradeAccount:invalid-collection')
+  const data = JsonObjectSchema.safeParse(rawData).data
+  const candidate = JsonArraySchema.safeParse(rawData).data
+    ?? JsonArraySchema.safeParse(data?.items ?? body?.items).data
+  if (!candidate) throw new Error('TastytradeAccount:invalid-collection')
   return candidate.map((item) => {
-    const row = record(item)
+    const row = JsonObjectSchema.safeParse(item).data
     if (!row) throw new Error('TastytradeAccount:invalid-collection')
     return row
   })
 }
 
-function paginationTotal(value: unknown): number | undefined {
-  const body = record(value)
-  const data = record(body?.data)
-  const pagination = record(body?.pagination) ?? record(data?.pagination)
+function paginationTotal(value: JsonValue): number | undefined {
+  const body = JsonObjectSchema.safeParse(value).data
+  const data = JsonObjectSchema.safeParse(body?.data).data
+  const pagination = JsonObjectSchema.safeParse(body?.pagination).data
+    ?? JsonObjectSchema.safeParse(data?.pagination).data
   const raw = pagination?.['total-items']
   if (raw === undefined || raw === null) return undefined
   const parsed = number(raw)
   return parsed !== undefined && Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined
 }
 
-function text(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+function text(value: JsonValue): string | undefined {
+  return TextSchema.safeParse(value).data
 }
 
-function number(value: unknown): number | undefined {
-  if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return undefined
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : undefined
+function number(value: JsonValue): number | undefined {
+  return NumericSchema.safeParse(value).data
 }
 
-function positionFromRecord(row: JsonRecord): BrokerageContext['positions'][number] | undefined {
+function positionFromRecord(row: JsonObject): BrokerageContext['positions'][number] | undefined {
   const symbol = text(row.symbol)
   const underlying = text(row['underlying-symbol'])?.toUpperCase()
   const quantity = number(row.quantity)
@@ -144,18 +165,13 @@ function positionFromRecord(row: JsonRecord): BrokerageContext['positions'][numb
   const averageOpenPrice = number(row['average-open-price'])
   const rawExpiry = text(row['expires-at'])
   const expiresAt = rawExpiry && Number.isFinite(Date.parse(rawExpiry)) ? rawExpiry : undefined
-  return {
-    direction,
-    instrumentType,
-    quantity,
-    symbol,
-    underlying,
-    ...(averageOpenPrice !== undefined ? { averageOpenPrice } : {}),
-    ...(expiresAt ? { expiresAt } : {}),
-  }
+  const position: BrokeragePosition = { direction, instrumentType, quantity, symbol, underlying }
+  if (averageOpenPrice !== undefined) position.averageOpenPrice = averageOpenPrice
+  if (expiresAt) position.expiresAt = expiresAt
+  return position
 }
 
-function parsedPositions(result: PromiseSettledResult<unknown>) {
+function parsedPositions(result: PromiseSettledResult<JsonValue>) {
   if (result.status !== 'fulfilled') return { available: false, positions: [] }
   try {
     const rows = strictItems(result.value)
@@ -175,8 +191,8 @@ function parsedPositions(result: PromiseSettledResult<unknown>) {
 }
 
 function parsedOrders(
-  orderResult: PromiseSettledResult<unknown>,
-  complexOrderResult: PromiseSettledResult<unknown>,
+  orderResult: PromiseSettledResult<JsonValue>,
+  complexOrderResult: PromiseSettledResult<JsonValue>,
 ) {
   if (orderResult.status !== 'fulfilled' || complexOrderResult.status !== 'fulfilled') {
     return { available: false, orders: [] }
@@ -205,7 +221,7 @@ function parsedOrders(
   }
 }
 
-function parsedTrades(result: PromiseSettledResult<unknown>) {
+function parsedTrades(result: PromiseSettledResult<JsonValue>) {
   if (result.status !== 'fulfilled') return { available: false, trades: [] }
   try {
     const rows = strictItems(result.value)
@@ -218,14 +234,14 @@ function parsedTrades(result: PromiseSettledResult<unknown>) {
 }
 
 export async function loadBrokerageContext(env: AppEnv): Promise<BrokerageContext> {
-  const account = await resolveAccountNumber(env)
+  const account = await brokerApi().resolveAccountNumber(env)
   const recentStartDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1_000).toISOString().slice(0, 10)
   const [positionResult, balanceResult, orderResult, complexOrderResult, tradeResult] = await Promise.allSettled([
-    tastyRequest(env, `/accounts/${encodeURIComponent(account)}/positions?per-page=200`),
-    tastyRequest(env, `/accounts/${encodeURIComponent(account)}/balances`),
-    tastyRequest(env, `/accounts/${encodeURIComponent(account)}/orders/live?per-page=200`),
-    tastyRequest(env, `/accounts/${encodeURIComponent(account)}/complex-orders/live?per-page=200`),
-    tastyRequest(env, `/accounts/${encodeURIComponent(account)}/transactions?type=Trade&sort=Desc&per-page=25&start-date=${recentStartDate}`),
+    brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/positions?per-page=200`),
+    brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/balances`),
+    brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/orders/live?per-page=200`),
+    brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/complex-orders/live?per-page=200`),
+    brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/transactions?type=Trade&sort=Desc&per-page=25&start-date=${recentStartDate}`),
   ])
   const positionSection = parsedPositions(positionResult)
   const orderSection = parsedOrders(orderResult, complexOrderResult)
@@ -278,17 +294,16 @@ export function buildAgentRuntimeContext(
       earningsDate: ticker.earningsDate,
     }]] : []
   }))
-  const marketContext = {
-    ...(selectedTicker ? { selectedSymbol: selectedTicker.symbol } : {}),
-    ...(Object.keys(marketMetrics).length ? { marketMetrics } : {}),
-  }
+  const marketContext: AgentMarketContext = {}
+  if (selectedTicker) marketContext.selectedSymbol = selectedTicker.symbol
+  if (Object.keys(marketMetrics).length) marketContext.marketMetrics = marketMetrics
   if (!context) return marketContext
 
-  const unavailable = (Object.entries(context.availability) as Array<[keyof BrokerageContext['availability'], boolean]>)
+  const unavailable = Object.entries(context.availability)
     .filter(([, available]) => !available)
     .map(([section]) => section)
 
-  return {
+  const runtimeContext = {
     ...marketContext,
     asOf: context.asOf,
     source: context.source,
@@ -303,18 +318,10 @@ export function buildAgentRuntimeContext(
       netLiquidatingValue: context.balances.netLiquidatingValue,
     },
     // tastytrade deprecates REST position marks for P/L; exact live quotes belong in a market-data tool.
-    positions: context.positions.map((position) => ({
-      ...(position.averageOpenPrice === undefined ? {} : { averageOpenPrice: position.averageOpenPrice }),
-      direction: position.direction,
-      ...(position.expiresAt === undefined ? {} : { expiresAt: position.expiresAt }),
-      instrumentType: position.instrumentType,
-      quantity: position.quantity,
-      symbol: position.symbol,
-      underlying: position.underlying,
-    })),
+    positions: context.positions.map(agentPosition),
     orders: context.orders,
     recentTrades: context.recentTrades,
     expiryAwareness: buildExpiryAwareness(context.positions),
-    ...(unavailable.length ? { unavailable } : {}),
   }
+  return unavailable.length ? { ...runtimeContext, unavailable } : runtimeContext
 }

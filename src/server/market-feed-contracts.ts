@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { CandlePointSchema, MAX_INTRADAY_CANDLES } from '../domain/candle'
+import { NumericSchema, type JsonObject, type JsonValue } from '../domain/json-payload'
 
 export const DXLINK_TX_PENDING = 0x1
 export const DXLINK_REMOVE_EVENT = 0x2
@@ -73,14 +74,12 @@ export const OptionGreeksReadResultSchema = z.object({
 
 export type OptionGreeksReadResult = z.infer<typeof OptionGreeksReadResultSchema>
 
-function finiteNumber(value: unknown): number | undefined {
-  if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return undefined
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : undefined
+function finiteNumber(value: JsonValue): number | undefined {
+  return NumericSchema.safeParse(value).data
 }
 
 /** Validate the bounded, exact broker streamer symbols accepted by the public DO RPC. */
-export function parseOptionStreamerSymbols(value: unknown): string[] {
+export function parseOptionStreamerSymbols(value: readonly string[]): string[] {
   const parsed = z.array(OptionStreamerSymbolSchema)
     .min(1)
     .max(MAX_OPTION_GREEKS_SYMBOLS)
@@ -90,7 +89,7 @@ export function parseOptionStreamerSymbols(value: unknown): string[] {
 
 /** Parse one compact dxFeed Greeks row, rejecting partial or non-finite observations. */
 export function optionGreeksFromRow(
-  row: Record<string, unknown>,
+  row: JsonObject,
   receivedAt = new Date(),
 ): OptionGreeksEvent | undefined {
   const streamerSymbol = OptionStreamerSymbolSchema.safeParse(row.eventSymbol)

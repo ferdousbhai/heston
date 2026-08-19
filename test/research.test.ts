@@ -1,13 +1,28 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-
-const dependencies = vi.hoisted(() => ({
-  collectResearchSources: vi.fn(async () => []),
-  loadMarketSnapshot: vi.fn(async () => ({ tickers: [] })),
-}))
-vi.mock('../src/server/research-sources', () => ({ collectResearchSources: dependencies.collectResearchSources }))
-vi.mock('../src/server/tastytrade', () => ({ loadMarketSnapshot: dependencies.loadMarketSnapshot }))
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { generateDailyResearch, shouldRunDailyResearch } from '../src/server/research'
+import {
+  resetResearchSources,
+  setResearchSources,
+  type ResearchSources,
+} from '../src/server/research-sources'
+import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
+import { stubBroker } from './broker-stub'
+import { unsupportedAi } from './fake-ai'
+
+const headlines = { collectResearchSources: vi.fn(async () => []) } satisfies ResearchSources
+const broker = stubBroker()
+
+beforeEach(() => {
+  broker.loadMarketSnapshot.mockResolvedValue({ tickers: [] })
+  setBrokerApi(broker)
+  setResearchSources(headlines)
+})
+
+afterEach(() => {
+  resetBrokerApi()
+  resetResearchSources()
+})
 
 describe('daily research schedule', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -27,17 +42,17 @@ describe('daily research schedule', () => {
   })
 
   it('uses JSON-object generation while Zod remains the structural boundary', async () => {
-    const run = vi.fn(async (_model: string, _request: unknown) => ({ response: JSON.stringify({
+    const run = vi.fn().mockResolvedValue({ response: JSON.stringify({
       id: 'brief-2026-08-14', publishedAt: '2026-08-14T13:30:00.000Z',
       title: 'Daily brief', summary: 'Summary', regime: 'Selective', regimeDetail: 'Defined risk',
       ideas: [{
         symbol: 'SPY', direction: 'Cautiously bullish', setup: 'Call spread', thesis: 'Breadth',
         risk: 'Reversal', horizon: '30 days',
       }], sources: [],
-    }) }))
-    const secret = { get: async () => 'secret' } as SecretsStoreSecret
+    }) })
+    const secret: SecretsStoreSecret = { get: async () => 'secret' }
     const brief = await generateDailyResearch({
-      AI: { run } as unknown as Ai,
+      AI: { ...unsupportedAi(), run },
       TASTYTRADE_CLIENT_SECRET: secret,
       TASTYTRADE_REFRESH_TOKEN: secret,
     }, new Date('2026-08-14T13:30:00.000Z'))

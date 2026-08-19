@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { catalystLabel, nextCatalystForSymbol, sortSymbolsByCatalyst, upcomingInterestedSymbols, type Catalyst } from '../src/domain/catalyst'
 import { catalystsFromMarketMetrics, earningsDateFromMetric, persistAndLoadCatalysts } from '../src/server/catalysts'
+import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
 
 const NOW = new Date('2026-08-13T16:00:00.000Z')
 
@@ -9,18 +10,21 @@ describe('tastytrade catalyst normalization', () => {
   it('stays within the D1 parameter limit when refreshing 100 symbols', async () => {
     const boundParameterCounts: number[] = []
     const batch = vi.fn(async () => [])
-    const database = {
+    const database: D1Database = {
+      ...unsupportedDatabase(),
       batch,
       prepare: vi.fn(() => ({
+        ...unsupportedStatement(),
         bind: (...values: unknown[]) => {
           boundParameterCounts.push(values.length)
           if (values.length > 100) throw new Error('too many SQL variables')
           return {
-            all: async () => ({ results: [] }),
+            ...unsupportedStatement(),
+            all: async () => d1Result([]),
           }
         },
       })),
-    } as unknown as D1Database
+    }
 
     const symbols = Array.from({ length: 100 }, (_, index) => `T${index}`)
     await expect(persistAndLoadCatalysts({ DB: database }, [], symbols, NOW)).resolves.toEqual([])

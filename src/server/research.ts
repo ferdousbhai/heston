@@ -1,10 +1,16 @@
+import { z } from 'zod'
+
 import { ResearchBriefSchema, type ResearchBrief } from '../domain/market'
 import { type AppEnv } from './env'
-import { collectResearchSources } from './research-sources'
-import { hasSecret, readSecret } from './secrets'
-import { loadMarketSnapshot } from './tastytrade'
+import { JsonArraySchema, JsonObjectSchema, type JsonValue } from '../domain/json-payload'
+import { researchSources } from './research-sources'
+import { readStoredSecret } from './secrets'
+import { brokerApi } from './tastytrade'
 
-type AiTextResult = { response?: string }
+const AiTextResultSchema = z.looseObject({ response: z.string().optional() })
+
+/** Model output is compared verbatim, so it is never trimmed on the way in. */
+const ModelTextSchema = z.string()
 
 function newYorkParts(date: Date) {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -18,44 +24,44 @@ export function shouldRunDailyResearch(date: Date): boolean {
   return parts.weekday !== 'Sat' && parts.weekday !== 'Sun' && parts.hour === '09' && parts.minute === '30'
 }
 
-function extractJson(response: string): unknown {
+function extractJson(response: string): JsonValue {
   const fenced = response.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]
   return JSON.parse(fenced ?? response)
 }
 
-function normalizeDirection(value: unknown): unknown {
-  if (typeof value !== 'string') return value
-  const direction = value.toLowerCase()
+function normalizeDirection(value: JsonValue): JsonValue {
+  const raw = ModelTextSchema.safeParse(value).data
+  if (raw === undefined) return value
+  const direction = raw.toLowerCase()
   if (direction.includes('bull') || direction.includes('upside') || direction === 'positive') return 'bullish'
   if (direction.includes('bear') || direction.includes('downside') || direction === 'negative') return 'bearish'
   if (direction.includes('neutral') || direction.includes('range') || direction.includes('mixed') || direction.includes('wait')) return 'neutral'
   return direction
 }
 
-function normalizeModelBrief(value: unknown): unknown {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return value
-  const brief = value as Record<string, unknown>
-  if (!Array.isArray(brief.ideas)) return value
+function normalizeModelBrief(value: JsonValue): JsonValue {
+  const brief = JsonObjectSchema.safeParse(value).data
+  const ideas = brief && JsonArraySchema.safeParse(brief.ideas).data
+  if (!brief || !ideas) return value
   return {
     ...brief,
-    ideas: brief.ideas.map((idea) => {
-      if (typeof idea !== 'object' || idea === null || Array.isArray(idea)) return idea
-      const record = idea as Record<string, unknown>
-      return { ...record, direction: normalizeDirection(record.direction) }
+    ideas: ideas.map((idea) => {
+      const fields = JsonObjectSchema.safeParse(idea).data
+      return fields ? { ...fields, direction: normalizeDirection(fields.direction) } : idea
     }),
   }
 }
 
 export async function generateDailyResearch(env: AppEnv, now = new Date()): Promise<ResearchBrief> {
-  const snapshot = await loadMarketSnapshot(env)
+  const snapshot = await brokerApi().loadMarketSnapshot(env)
   if (!env.AI) throw new Error('ResearchModelUnavailable')
-  const reddit = hasSecret(env.REDDIT_CLIENT_ID) && hasSecret(env.REDDIT_CLIENT_SECRET)
+  const reddit = env.REDDIT_CLIENT_ID && env.REDDIT_CLIENT_SECRET
     ? {
-        clientId: await readSecret(env.REDDIT_CLIENT_ID, 'REDDIT_CLIENT_ID'),
-        clientSecret: await readSecret(env.REDDIT_CLIENT_SECRET, 'REDDIT_CLIENT_SECRET'),
+        clientId: await readStoredSecret(env.REDDIT_CLIENT_ID, 'REDDIT_CLIENT_ID'),
+        clientSecret: await readStoredSecret(env.REDDIT_CLIENT_SECRET, 'REDDIT_CLIENT_SECRET'),
       }
     : undefined
-  const headlines = await collectResearchSources({ reddit })
+  const headlines = await researchSources().collectResearchSources({ reddit })
   const compactMarket = snapshot.tickers.map((ticker) => ({
     symbol: ticker.symbol,
     changePercent: ticker.changePercent,
@@ -80,9 +86,11 @@ export async function generateDailyResearch(env: AppEnv, now = new Date()): Prom
     response_format: { type: 'json_object' },
     max_tokens: 1_200,
     temperature: 0.35,
-  }, { signal: AbortSignal.timeout(90_000) }) as AiTextResult
+  }, { signal: AbortSignal.timeout(90_000) })
+  const modelBrief = JsonObjectSchema
+    .safeParse(normalizeModelBrief(extractJson(AiTextResultSchema.parse(result).response ?? ''))).data ?? {}
   const brief = ResearchBriefSchema.parse({
-    ...normalizeModelBrief(extractJson(result.response ?? '')) as Record<string, unknown>,
+    ...modelBrief,
     sources: [
       { label: 'tastytrade market metrics', url: 'https://developer.tastytrade.com/open-api-spec/market-metrics/' },
       ...headlines.map((headline) => ({ label: `${headline.source} · ${headline.title}`, url: headline.url })),

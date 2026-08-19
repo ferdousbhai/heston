@@ -1,8 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { env } from 'cloudflare:workers'
+
+import { toError } from '../domain/failure'
 
 import { AggregateWatchlistMutationSchema } from '../domain/watchlist'
-import { type AppEnv } from '../server/env'
+import { appEnv } from '../server/worker-env'
 import { authorizePersonalRequest, jsonNoStore, publicError } from '../server/http'
 import { executeAggregateWatchlistAction } from '../server/watchlist-actions'
 
@@ -10,15 +11,14 @@ export const Route = createFileRoute('/api/watchlists')({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const workerEnv = env as unknown as AppEnv
-        const unauthorized = await authorizePersonalRequest(request, workerEnv, true)
+        const unauthorized = await authorizePersonalRequest(request, appEnv, true)
         if (unauthorized) return unauthorized
         const parsed = AggregateWatchlistMutationSchema.safeParse(await request.json().catch(() => null))
         if (!parsed.success) return jsonNoStore({ error: 'Invalid watchlist change' }, { status: 400 })
         try {
-          return jsonNoStore(await executeAggregateWatchlistAction(workerEnv, parsed.data))
+          return jsonNoStore(await executeAggregateWatchlistAction(appEnv, parsed.data))
         } catch (error) {
-          return jsonNoStore({ error: publicError(error) }, { status: 409 })
+          return jsonNoStore({ error: publicError(toError(error)) }, { status: 409 })
         }
       },
     },

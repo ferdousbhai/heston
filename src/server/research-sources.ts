@@ -93,3 +93,31 @@ export async function collectResearchSources(options: {
   const results = await Promise.allSettled(collectors)
   return results.flatMap((result) => result.status === 'fulfilled' ? result.value : [])
 }
+
+/**
+ * The headline collection the daily brief depends on. Production goes through
+ * `researchSources()` so a test can install a stand-in with `setResearchSources`
+ * instead of replacing this module.
+ */
+function createResearchSources() {
+  return { collectResearchSources }
+}
+
+export type ResearchSources = ReturnType<typeof createResearchSources>
+
+let installedResearchSources: ResearchSources = createResearchSources()
+
+/** The headline collection currently in force. */
+export function researchSources(): ResearchSources {
+  return installedResearchSources
+}
+
+/** Install a stand-in collector for a test; pair every call with `resetResearchSources()`. */
+export function setResearchSources(next: ResearchSources): void {
+  installedResearchSources = next
+}
+
+/** Restore the live headline collection. */
+export function resetResearchSources(): void {
+  installedResearchSources = createResearchSources()
+}

@@ -1,15 +1,27 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const tastytrade = vi.hoisted(() => ({
-  resolveAccountNumber: vi.fn(),
-  tastyRequest: vi.fn(),
-}))
-const watchlists = vi.hoisted(() => ({ executeWatchlistAction: vi.fn() }))
-vi.mock('../src/server/tastytrade', () => tastytrade)
-vi.mock('../src/server/watchlist-actions', () => watchlists)
-
+import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
+import {
+  resetWatchlistWriter,
+  setWatchlistWriter,
+  type WatchlistWriter,
+} from '../src/server/watchlist-actions'
+import { stubBroker } from './broker-stub'
 import { createCancelOrderTool, createWatchlistManagementTool } from '../src/server/account-action-tools'
 import { preparePendingAction } from '../src/server/agent'
+
+const tastytrade = stubBroker()
+const watchlists = { executeWatchlistAction: vi.fn() } satisfies WatchlistWriter
+
+beforeEach(() => {
+  setBrokerApi(tastytrade)
+  setWatchlistWriter(watchlists)
+})
+
+afterEach(() => {
+  resetBrokerApi()
+  resetWatchlistWriter()
+})
 
 describe('direct non-placement actions', () => {
   beforeEach(() => {

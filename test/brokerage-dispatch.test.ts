@@ -1,20 +1,29 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { executeOrderPlacement } from '../src/server/brokerage'
+import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
+import { resetTradeGuards, setTradeGuards, type TradeGuards } from '../src/server/trade-guards'
+import { stubBroker } from './broker-stub'
 
-const mocks = vi.hoisted(() => ({
+const guards = {
   assertOrderMarketSafe: vi.fn(),
   assertPortfolioActionAllowed: vi.fn(),
-  resolveAccountNumber: vi.fn(),
-  tastyRequest: vi.fn(),
-}))
+} satisfies TradeGuards
 
-vi.mock('../src/server/order-market', () => ({ assertOrderMarketSafe: mocks.assertOrderMarketSafe }))
-vi.mock('../src/server/portfolio-risk', () => ({ assertPortfolioActionAllowed: mocks.assertPortfolioActionAllowed }))
-vi.mock('../src/server/tastytrade', () => ({
-  resolveAccountNumber: mocks.resolveAccountNumber,
-  tastyRequest: mocks.tastyRequest,
-}))
+const broker = stubBroker()
+
+/** One handle over both stand-ins, so the tests below read as a single broker session. */
+const mocks = { ...broker, ...guards }
+
+beforeEach(() => {
+  setBrokerApi(broker)
+  setTradeGuards(guards)
+})
+
+afterEach(() => {
+  resetBrokerApi()
+  resetTradeGuards()
+})
 
 const action = {
   action: 'Buy to Open' as const,

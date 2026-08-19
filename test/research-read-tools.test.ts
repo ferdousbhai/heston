@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { readCatalysts, readLatestResearch } from '../src/server/research-read-tools'
+import { unsupportedDatabase, unsupportedStatement } from './fake-d1'
 
 const brief = {
   id: 'daily-1', publishedAt: '2026-08-13T13:30:00.000Z', title: 'Wait for the pitch',
@@ -10,10 +11,11 @@ const brief = {
 
 function d1WithResults(results: unknown[]) {
   const all = vi.fn().mockResolvedValue({ results })
-  const bind = vi.fn(() => ({ all }))
+  const bind = vi.fn(() => ({ ...unsupportedStatement(), all }))
   const first = vi.fn().mockResolvedValue(results[0])
-  const prepare = vi.fn(() => ({ bind, first }))
-  return { all, bind, env: { DB: { prepare } as unknown as D1Database }, first, prepare }
+  const prepare = vi.fn(() => ({ ...unsupportedStatement(), bind, first }))
+  const DB: D1Database = { ...unsupportedDatabase(), prepare }
+  return { all, bind, env: { DB }, first, prepare }
 }
 
 describe('Dan research read tools', () => {

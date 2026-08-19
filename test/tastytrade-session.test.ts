@@ -21,7 +21,7 @@ describe('tastytrade OAuth boundary', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
     const { tastyRequest } = await import('../src/server/tastytrade')
-    const secret = { get: vi.fn().mockResolvedValue('secret') } as unknown as SecretsStoreSecret
+    const secret: SecretsStoreSecret = { get: vi.fn().mockResolvedValue('secret') }
     const env = { TASTYTRADE_CLIENT_SECRET: secret, TASTYTRADE_REFRESH_TOKEN: secret }
 
     const requests = Promise.all([
@@ -47,7 +47,7 @@ describe('tastytrade OAuth boundary', () => {
       ? Response.json({ access_token: 'token', expires_in: 900 })
       : new Response('', { status: 404 })))
     const { tastyRequest } = await import('../src/server/tastytrade')
-    const secret = { get: async () => 'secret' } as SecretsStoreSecret
+    const secret: SecretsStoreSecret = { get: async () => 'secret' }
 
     await expect(tastyRequest({
       TASTYTRADE_CLIENT_SECRET: secret,

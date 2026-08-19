@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLiveQuery } from '@tanstack/react-db'
 import { Bot, Newspaper, TrendingUp } from 'lucide-react'
+import { z } from 'zod'
 
 import {
   applyWatchlistMutation,
@@ -28,6 +29,8 @@ import { MarketScreen } from './market-screen'
 import { TickerPicker } from './ticker-picker'
 import { TopBar } from './top-bar'
 import { WatchlistEditor } from './watchlist-editor'
+
+const ApiErrorSchema = z.looseObject({ error: z.string().optional() })
 
 type Tab = 'market' | 'brief' | 'agent'
 
@@ -149,9 +152,9 @@ function AuthenticatedSpiceApp({ viewer }: { viewer: Viewer | null }) {
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify(action),
     })
-    const payload = await response.json().catch(() => ({})) as { error?: unknown }
+    const payload = ApiErrorSchema.safeParse(await response.json().catch(() => ({}))).data
     if (!response.ok) {
-      throw new Error(typeof payload.error === 'string' ? payload.error : 'The watchlist could not be updated')
+      throw new Error(payload?.error ?? 'The watchlist could not be updated')
     }
     await applyWatchlistMutation(action)
     if (snapshotReady) await synchronize(undefined, true)

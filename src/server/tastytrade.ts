@@ -2,6 +2,7 @@ import { type CandlePoint } from '../domain/candle'
 import {
   aggregatePrivateWatchlists,
   MarketSnapshotSchema,
+  ResearchBriefSchema,
   type MarketSnapshot,
   type Ticker,
   type Watchlist,
@@ -9,47 +10,54 @@ import {
 import { type AppEnv } from './env'
 import { readBoundedJson } from './bounded-response'
 import { catalystsFromMarketMetrics, earningsDateFromMetric, persistAndLoadCatalysts } from './catalysts'
-import { readSecret } from './secrets'
+import {
+  JsonArraySchema,
+  JsonObjectArraySchema,
+  JsonObjectSchema,
+  NumericSchema,
+  TextSchema,
+  type JsonObject,
+  type JsonValue,
+} from '../domain/json-payload'
+import { readStoredSecret } from './secrets'
 import { tastytradeApiVersion } from './tastytrade-version'
 
 const USER_AGENT = 'Spice/0.1'
 const MAX_TASTYTRADE_RESPONSE_BYTES = 16 * 1024 * 1024
 
-type JsonRecord = Record<string, unknown>
-
 let cachedAccess: { expiresAt: number; token: string } | undefined
 let accessRefresh: Promise<string> | undefined
 
-function record(value: unknown): JsonRecord {
-  return typeof value === 'object' && value !== null ? value as JsonRecord : {}
+function record(value: JsonValue): JsonObject {
+  return JsonObjectSchema.safeParse(value).data ?? {}
 }
 
-function items(value: unknown): JsonRecord[] {
-  if (Array.isArray(value)) return value.map(record)
+function items(value: JsonValue): JsonObject[] {
+  const rows = JsonArraySchema.safeParse(value).data
+  if (rows) return rows.map(record)
   const body = record(value)
-  if (Array.isArray(body.data)) return body.data.map(record)
+  const dataRows = JsonArraySchema.safeParse(body.data).data
+  if (dataRows) return dataRows.map(record)
   const data = record(body.data)
-  const candidate = data.items ?? body.items
-  if (Array.isArray(candidate)) return candidate.map(record)
+  const candidate = JsonArraySchema.safeParse(data.items ?? body.items).data
+  if (candidate) return candidate.map(record)
   if (stringValue(data.symbol)) return [data]
   return stringValue(body.symbol) ? [body] : []
 }
 
-function numberValue(value: unknown): number | undefined {
-  if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return undefined
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : undefined
+function numberValue(value: JsonValue): number | undefined {
+  return NumericSchema.safeParse(value).data
 }
 
-function stringValue(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+function stringValue(value: JsonValue): string | undefined {
+  return TextSchema.safeParse(value).data
 }
 
 function bounded(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
-function previousCloseValue(quote: JsonRecord | undefined): number | undefined {
+function previousCloseValue(quote: JsonObject | undefined): number | undefined {
   return numberValue(
     quote?.prevClose
     ?? quote?.['prev-close']
@@ -61,7 +69,7 @@ function previousCloseValue(quote: JsonRecord | undefined): number | undefined {
 }
 
 /** tastytrade volatility metrics are decimal ratios; the UI contract uses percentage points. */
-export function percentMetric(value: unknown, max = 100): number | undefined {
+export function percentMetric(value: JsonValue, max = 100): number | undefined {
   const parsed = numberValue(value)
   return parsed === undefined ? undefined : bounded(parsed * 100, 0, max)
 }
@@ -72,8 +80,8 @@ function apiBase(env: AppEnv) {
 
 async function refreshAccessToken(env: AppEnv): Promise<string> {
   const [clientSecret, refreshToken] = await Promise.all([
-    readSecret(env.TASTYTRADE_CLIENT_SECRET, 'TASTYTRADE_CLIENT_SECRET'),
-    readSecret(env.TASTYTRADE_REFRESH_TOKEN, 'TASTYTRADE_REFRESH_TOKEN'),
+    readStoredSecret(env.TASTYTRADE_CLIENT_SECRET, 'TASTYTRADE_CLIENT_SECRET'),
+    readStoredSecret(env.TASTYTRADE_REFRESH_TOKEN, 'TASTYTRADE_REFRESH_TOKEN'),
   ])
   const response = await fetch(`${apiBase(env)}/oauth/token`, {
     method: 'POST',
@@ -132,7 +140,7 @@ export async function tastyRequest(
   env: AppEnv,
   path: string,
   init: RequestInit = {},
-): Promise<unknown> {
+): Promise<JsonValue> {
   let token = await accessToken(env)
   let response = await authorizedRequest(env, path, init, token)
   const method = (init.method ?? 'GET').toUpperCase()
@@ -174,7 +182,7 @@ export async function loadQuoteToken(env: AppEnv): Promise<{ token: string; url:
 
 const CANDLE_FALLBACK_LOOKBACK = 7 * 24 * 60 * 60 * 1_000
 
-export function equityCandleFromTime(payload: unknown, now = Date.now()): number {
+export function equityCandleFromTime(payload: JsonValue, now = Date.now()): number {
   const body = record(payload)
   const session = record(body.data ?? body)
   const currentOpen = Date.parse(stringValue(session['open-at']) ?? '')
@@ -189,25 +197,22 @@ export async function loadEquityCandleFromTime(env: AppEnv): Promise<number> {
   return equityCandleFromTime(await tastyRequest(env, '/market-time/equities/sessions/current'))
 }
 
-function strictRows(payload: unknown, label: string): JsonRecord[] {
+function strictRows(payload: JsonValue, label: string): JsonObject[] {
   const body = record(payload)
   const data = record(body.data)
-  const candidate = Array.isArray(payload) ? payload : Array.isArray(body.data) ? body.data : data.items ?? body.items
-  if (!Array.isArray(candidate)) throw new Error(`${label}:invalid-response`)
-  return candidate.map((value) => {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label}:invalid-response`)
-    return value as JsonRecord
-  })
+  const candidate = JsonArraySchema.safeParse(payload).data
+    ?? JsonArraySchema.safeParse(body.data).data
+    ?? JsonArraySchema.safeParse(data.items ?? body.items).data
+  const rows = candidate && JsonObjectArraySchema.safeParse(candidate).data
+  if (!rows) throw new Error(`${label}:invalid-response`)
+  return rows
 }
 
-function watchlistRows(payload: unknown, kind: Watchlist['kind'], prefix: string): Watchlist[] {
+function watchlistRows(payload: JsonValue, kind: Watchlist['kind'], prefix: string): Watchlist[] {
   return strictRows(payload, 'TastytradeWatchlists').map((row, index) => {
     const name = stringValue(row.name)
-    if (!name || !Array.isArray(row['watchlist-entries'])) throw new Error('TastytradeWatchlists:invalid-response')
-    const entries = row['watchlist-entries'].map((value) => {
-      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('TastytradeWatchlists:invalid-response')
-      return value as JsonRecord
-    })
+    const entries = JsonObjectArraySchema.safeParse(row['watchlist-entries']).data
+    if (!name || !entries) throw new Error('TastytradeWatchlists:invalid-response')
     const symbols = [...new Set(entries
       .map((entry) => stringValue(entry.symbol)?.toUpperCase())
       .filter((symbol): symbol is string => Boolean(symbol && /^[A-Z.]{1,8}$/.test(symbol))))]
@@ -217,8 +222,8 @@ function watchlistRows(payload: unknown, kind: Watchlist['kind'], prefix: string
 
 export function liveTickerFromRecords(
   symbol: string,
-  metrics: JsonRecord | undefined,
-  quote: JsonRecord | undefined,
+  metrics: JsonObject | undefined,
+  quote: JsonObject | undefined,
   position: boolean,
 ): Ticker | undefined {
   if (!metrics || !quote) return undefined
@@ -273,14 +278,17 @@ function emptyResearch(now: string): MarketSnapshot['research'] {
 
 async function loadStoredResearch(env: AppEnv, fallback: MarketSnapshot['research']) {
   if (!env.DB) return fallback
+  let stored: JsonValue
   try {
     const row = await env.DB.prepare(
       'SELECT payload_json FROM research_briefs ORDER BY published_at DESC LIMIT 1',
     ).first<{ payload_json: string }>()
-    return row ? JSON.parse(row.payload_json) as MarketSnapshot['research'] : fallback
+    if (!row) return fallback
+    stored = JSON.parse(row.payload_json)
   } catch {
     return fallback
   }
+  return ResearchBriefSchema.parse(stored)
 }
 
 type MarketSnapshotOptions = {
@@ -405,4 +413,39 @@ export async function loadMarketSnapshot(
     catalysts,
     research: await loadStoredResearch(env, emptyResearch(syncedAt)),
   })
+}
+
+/**
+ * The slice of the Tastytrade API that the rest of the server reaches for. Production
+ * code calls it through `brokerApi()` so a test can install a faithful in-memory broker
+ * with `setBrokerApi` instead of replacing this module. Each entry is the
+ * implementation above, so the contract type cannot drift from the real signatures.
+ */
+function createBrokerApi() {
+  return {
+    loadEquityCandleFromTime,
+    loadMarketSnapshot,
+    loadQuoteToken,
+    resolveAccountNumber,
+    tastyRequest,
+  }
+}
+
+export type BrokerApi = ReturnType<typeof createBrokerApi>
+
+let installedBrokerApi: BrokerApi = createBrokerApi()
+
+/** The broker calls currently in force. */
+export function brokerApi(): BrokerApi {
+  return installedBrokerApi
+}
+
+/** Install a stand-in broker for a test; pair every call with `resetBrokerApi()`. */
+export function setBrokerApi(next: BrokerApi): void {
+  installedBrokerApi = next
+}
+
+/** Restore the live Tastytrade calls. */
+export function resetBrokerApi(): void {
+  installedBrokerApi = createBrokerApi()
 }

@@ -1,10 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const tastytrade = vi.hoisted(() => ({ tastyRequest: vi.fn() }))
-vi.mock('../src/server/tastytrade', () => tastytrade)
-
+import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
+import { stubBroker } from './broker-stub'
 import { buildOrderPayload } from '../src/server/order-payload'
 import { assertReplaceableOrder, resolveOrderIntent } from '../src/server/order-intent'
+import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
+
+const tastytrade = stubBroker()
+
+beforeEach(() => setBrokerApi(tastytrade))
+afterEach(() => resetBrokerApi())
 
 describe('order replacement source boundary', () => {
   const intended = buildOrderPayload({
@@ -37,13 +42,17 @@ describe('order replacement source boundary', () => {
       legs: intended.legs.map((leg) => ({ ...leg, 'remaining-quantity': leg.quantity, fills: [] })),
     }
     tastytrade.tastyRequest.mockResolvedValue({ data: order })
-    const env = {
-      DB: {
-        prepare: () => ({
-          bind: () => ({ all: async () => ({ results: [{ payload_json: JSON.stringify(source) }] }) }),
+    const DB: D1Database = {
+      ...unsupportedDatabase(),
+      prepare: () => ({
+        ...unsupportedStatement(),
+        bind: () => ({
+          ...unsupportedStatement(),
+          all: vi.fn().mockResolvedValue(d1Result([{ payload_json: JSON.stringify(source) }])),
         }),
-      } as unknown as D1Database,
+      }),
     }
+    const env = { DB }
 
     const resolved = await resolveOrderIntent(env, { kind: 'replace_order', orderId: '123', limitPrice: 699.5 }, 'TEST')
     expect(resolved.replaceOrderId).toBe('123')

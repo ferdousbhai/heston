@@ -6,11 +6,13 @@ import {
 } from './agent-contracts'
 import { BrokerageSubmissionUnknownError, executeOrderPlacement } from './brokerage'
 import { reconcileUnknownBrokerageAction } from './brokerage-reconciliation'
+import { type JsonValue } from '../domain/json-payload'
 import { type AppEnv } from './env'
-import { assertPortfolioActionAllowed, PortfolioRiskError } from './portfolio-risk'
+import { PortfolioRiskError } from './portfolio-risk'
 import { resolveOrderIntent } from './order-intent'
-import { assertOrderMarketSafe, orderMarketPreview } from './order-market'
-import { resolveAccountNumber } from './tastytrade'
+import { orderMarketPreview } from './order-market'
+import { tradeGuards } from './trade-guards'
+import { brokerApi } from './tastytrade'
 
 type PendingAction = { expiresAt: string; id: string; preview: string; token: string }
 
@@ -30,7 +32,7 @@ function randomToken(): string {
   return base64Url(bytes)
 }
 
-export async function preparePendingAction(env: AppEnv, untrustedAction: unknown): Promise<PendingAction> {
+export async function preparePendingAction(env: AppEnv, untrustedAction: JsonValue): Promise<PendingAction> {
   const action: OrderPlacement = OrderPlacementSchema.parse(untrustedAction)
   const id = crypto.randomUUID()
   const token = randomToken()
@@ -38,14 +40,14 @@ export async function preparePendingAction(env: AppEnv, untrustedAction: unknown
   const expiresAt = new Date(createdAt.getTime() + 5 * 60_000).toISOString()
   if (!env.DB) throw new PortfolioRiskError("Dan's action store is unavailable.")
   await reconcileUnknownBrokerageAction(env)
-  const accountNumber = await resolveAccountNumber(env)
+  const accountNumber = await brokerApi().resolveAccountNumber(env)
   const intent = await resolveOrderIntent(env, action, accountNumber)
-  await assertPortfolioActionAllowed(env, intent.effectiveAction, {
+  await tradeGuards().assertPortfolioActionAllowed(env, intent.effectiveAction, {
     accountNumber,
     ignoredOrderId: intent.replaceOrderId,
     optionContracts: intent.optionContracts,
   })
-  const marketPreview = orderMarketPreview(await assertOrderMarketSafe(env, intent.effectiveAction, intent.optionContracts))
+  const marketPreview = orderMarketPreview(await tradeGuards().assertOrderMarketSafe(env, intent.effectiveAction, intent.optionContracts))
   await env.DB.prepare(
     "UPDATE brokerage_actions SET status = 'expired' WHERE status = 'pending' AND expires_at <= ?",
   ).bind(createdAt.toISOString()).run()

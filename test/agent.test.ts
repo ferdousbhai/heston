@@ -1,8 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const pi = vi.hoisted(() => ({ stream: vi.fn() }))
-vi.mock('@earendil-works/pi-ai/api/openai-responses', () => pi)
-
+import { resetResponsesApi, setResponsesApi, type ResponsesApi } from '../src/server/pi-runtime'
 import {
   ChatRequestSchema,
   ConfirmRequestSchema,
@@ -10,6 +8,11 @@ import {
   OrderPlacementSchema,
 } from '../src/server/agent-contracts'
 import { createPiRuntime } from '../src/server/pi-runtime'
+
+const pi = { stream: vi.fn() } satisfies ResponsesApi
+
+beforeEach(() => setResponsesApi(pi))
+afterEach(() => resetResponsesApi())
 
 describe('brokerage input boundary', () => {
   it('accepts a fully specified, bounded option order draft', () => {

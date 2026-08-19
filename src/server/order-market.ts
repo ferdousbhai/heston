@@ -1,9 +1,17 @@
 import { type FreshOrderPlacement } from './agent-contracts'
 import { type AppEnv } from './env'
+import {
+  envelopeRows,
+  JsonArraySchema,
+  JsonObjectSchema,
+  NumericSchema,
+  TextSchema,
+  type JsonObject,
+  type JsonValue,
+} from '../domain/json-payload'
 import { type EquityOptionContract } from './option-contract'
-import { tastyRequest } from './tastytrade'
+import { brokerApi } from './tastytrade'
 
-type JsonRecord = Record<string, unknown>
 type OrderAction = FreshOrderPlacement
 
 export type OrderMarket = {
@@ -13,62 +21,46 @@ export type OrderMarket = {
   tickSize: number
 }
 
-function record(value: unknown): JsonRecord | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? value as JsonRecord
-    : undefined
+function finiteNumber(value: JsonValue): number | undefined {
+  return NumericSchema.safeParse(value).data
 }
 
-function finiteNumber(value: unknown): number | undefined {
-  if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return undefined
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : undefined
+function text(value: JsonValue): string | undefined {
+  return TextSchema.safeParse(value).data
 }
 
-function text(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+/** Market-data endpoints may also answer with a single `data` object rather than a collection. */
+function quoteRows(payload: JsonValue): JsonValue[] | undefined {
+  const rows = envelopeRows(payload)
+  if (rows) return rows
+  const body = JsonObjectSchema.safeParse(payload).data
+  const data = JsonObjectSchema.safeParse(body?.data ?? payload).data
+  return data ? [data] : undefined
 }
 
-function exactlyOneRecord(payload: unknown, label: string): JsonRecord {
-  const body = record(payload)
-  const rawData = body?.data ?? payload
-  const data = record(rawData)
-  const rows = Array.isArray(rawData)
-    ? rawData
-    : Array.isArray(data?.items)
-      ? data.items
-      : Array.isArray(body?.items)
-        ? body.items
-        : data ? [data] : undefined
-  if (!rows || rows.length !== 1) throw new Error(`${label}:invalid-response`)
-  const row = record(rows[0])
+function exactlyOneRecord(payload: JsonValue, label: string): JsonObject {
+  const rows = quoteRows(payload)
+  if (rows?.length !== 1) throw new Error(`${label}:invalid-response`)
+  const row = JsonObjectSchema.safeParse(rows[0]).data
   if (!row) throw new Error(`${label}:invalid-response`)
   return row
 }
 
-function recordRows(payload: unknown, label: string): JsonRecord[] {
-  const body = record(payload)
-  const rawData = body?.data ?? payload
-  const data = record(rawData)
-  const rows = Array.isArray(rawData)
-    ? rawData
-    : Array.isArray(data?.items)
-      ? data.items
-      : Array.isArray(body?.items)
-        ? body.items
-        : data ? [data] : undefined
+function recordRows(payload: JsonValue, label: string): JsonObject[] {
+  const rows = quoteRows(payload)
   if (!rows?.length) throw new Error(`${label}:invalid-response`)
   return rows.map((value) => {
-    const row = record(value)
+    const row = JsonObjectSchema.safeParse(value).data
     if (!row) throw new Error(`${label}:invalid-response`)
     return row
   })
 }
 
-function tickSizeAt(rules: unknown, price: number): number {
-  if (!Array.isArray(rules) || !rules.length) throw new Error('OrderMarket:missing-tick-rules')
-  const parsed = rules.map((value) => {
-    const row = record(value)
+function tickSizeAt(rules: JsonValue, price: number): number {
+  const ruleRows = JsonArraySchema.safeParse(rules).data
+  if (!ruleRows?.length) throw new Error('OrderMarket:missing-tick-rules')
+  const parsed = ruleRows.map((value) => {
+    const row = JsonObjectSchema.safeParse(value).data
     const tick = finiteNumber(row?.value)
     const rawThreshold = row?.threshold
     const threshold = rawThreshold === undefined || rawThreshold === null ? undefined : finiteNumber(rawThreshold)
@@ -94,8 +86,8 @@ function isTickAligned(price: number, tickSize: number): boolean {
 
 export function orderMarketFromPayloads(
   action: OrderAction,
-  quotePayload: unknown,
-  instrumentPayload: unknown,
+  quotePayload: JsonValue,
+  instrumentPayload: JsonValue,
   resolvedOption: EquityOptionContract | undefined,
   now = new Date(),
 ): OrderMarket {
@@ -134,8 +126,8 @@ export function orderMarketFromPayloads(
 
 export function spreadOrderMarketFromPayloads(
   action: Extract<OrderAction, { kind: 'place_vertical_spread_order' }>,
-  quotePayload: unknown,
-  instrumentPayload: unknown,
+  quotePayload: JsonValue,
+  instrumentPayload: JsonValue,
   resolvedOptions: readonly EquityOptionContract[],
   now = new Date(),
 ): OrderMarket {
@@ -185,8 +177,8 @@ export async function assertOrderMarketSafe(
     if (resolvedOptions.length !== 2) throw new Error('OrderMarket:missing-spread-contracts')
     const query = resolvedOptions.map((contract) => `equity-option=${encodeURIComponent(contract.symbol)}`).join('&')
     const [quotePayload, instrumentPayload] = await Promise.all([
-      tastyRequest(env, `/market-data/by-type?${query}`),
-      tastyRequest(env, `/instruments/equities/${encodeURIComponent(action.underlying)}`),
+      brokerApi().tastyRequest(env, `/market-data/by-type?${query}`),
+      brokerApi().tastyRequest(env, `/instruments/equities/${encodeURIComponent(action.underlying)}`),
     ])
     return spreadOrderMarketFromPayloads(action, quotePayload, instrumentPayload, resolvedOptions, now)
   }
@@ -198,8 +190,8 @@ export async function assertOrderMarketSafe(
     : `equity=${encodeURIComponent(brokerSymbol)}`
   const instrumentSymbol = action.kind === 'place_option_order' ? action.underlying : action.symbol
   const [quotePayload, instrumentPayload] = await Promise.all([
-    tastyRequest(env, `/market-data/by-type?${quoteQuery}`),
-    tastyRequest(env, `/instruments/equities/${encodeURIComponent(instrumentSymbol)}`),
+    brokerApi().tastyRequest(env, `/market-data/by-type?${quoteQuery}`),
+    brokerApi().tastyRequest(env, `/instruments/equities/${encodeURIComponent(instrumentSymbol)}`),
   ])
   return orderMarketFromPayloads(action, quotePayload, instrumentPayload, resolvedOption, now)
 }

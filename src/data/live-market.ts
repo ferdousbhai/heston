@@ -1,7 +1,12 @@
 import { useEffect } from 'react'
+import { z } from 'zod'
 
+import { type JsonValue } from '../domain/json-payload'
 import { applyLiveMarketEvent } from './collections'
 import { MarketFeedStatusSchema } from '../server/market-feed-contracts'
+
+/** The relay delivers text frames; binary frames are not part of the market protocol. */
+const RelayFrameSchema = z.string()
 
 export function useLiveMarket(symbols: readonly string[], enabled: boolean): void {
   const key = [...new Set(symbols)].sort().join(',')
@@ -20,9 +25,10 @@ export function useLiveMarket(symbols: readonly string[], enabled: boolean): voi
       url.searchParams.set('symbols', key)
       socket = new WebSocket(url)
       socket.addEventListener('message', (event) => {
-        if (typeof event.data !== 'string') return
+        const frame = RelayFrameSchema.safeParse(event.data).data
+        if (frame === undefined) return
         try {
-          const payload: unknown = JSON.parse(event.data)
+          const payload: JsonValue = JSON.parse(frame)
           const status = MarketFeedStatusSchema.safeParse(payload)
           if (status.success) {
             if (status.data.state === 'live') attempts = 0

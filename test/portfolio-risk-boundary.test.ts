@@ -2,19 +2,20 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { executeOrderPlacement } from '../src/server/brokerage'
 import { type AppEnv } from '../src/server/env'
+import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
 
 function secret(value: string): SecretsStoreSecret {
-  return { get: async () => value } as SecretsStoreSecret
+  return { get: async () => value }
 }
 
 function highWaterDb(value: number): D1Database {
-  return {
-    prepare: vi.fn(() => ({
-      bind() { return this },
-      run: async () => ({ success: true, meta: { changes: 1 } }),
-      first: async () => ({ high_water_nlv: value }),
-    })),
-  } as unknown as D1Database
+  const statement = {
+    ...unsupportedStatement(),
+    bind: (): D1PreparedStatement => statement,
+    run: async () => d1Result([], 1),
+    first: async () => ({ high_water_nlv: value }),
+  }
+  return { ...unsupportedDatabase(), prepare: vi.fn(() => statement) }
 }
 
 afterEach(() => vi.unstubAllGlobals())

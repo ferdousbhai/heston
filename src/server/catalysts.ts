@@ -1,21 +1,20 @@
 import { CatalystSchema, marketDate, type Catalyst } from '../domain/catalyst'
 import { type AppEnv } from './env'
-
-type JsonRecord = Record<string, unknown>
+import { JsonObjectSchema, TextSchema, type JsonObject, type JsonValue } from '../domain/json-payload'
 
 const TASTYTRADE_METRICS_URL = 'https://developer.tastytrade.com/open-api-spec/market-metrics/'
 const D1_MAX_BOUND_PARAMETERS = 100
 const DELETE_SYMBOL_CHUNK_SIZE = D1_MAX_BOUND_PARAMETERS - 1
 
-function record(value: unknown): JsonRecord {
-  return typeof value === 'object' && value !== null ? value as JsonRecord : {}
+function record(value: JsonValue): JsonObject {
+  return JsonObjectSchema.safeParse(value).data ?? {}
 }
 
-function text(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+function text(value: JsonValue): string | undefined {
+  return TextSchema.safeParse(value).data
 }
 
-function date(value: unknown): string | undefined {
+function date(value: JsonValue): string | undefined {
   const candidate = text(value)
   if (!candidate || !/^\d{4}-\d{2}-\d{2}$/.test(candidate)) return undefined
   const [year, month, day] = candidate.split('-').map(Number)
@@ -27,12 +26,12 @@ function date(value: unknown): string | undefined {
     : undefined
 }
 
-function iso(value: unknown, fallback: string): string {
+function iso(value: JsonValue, fallback: string): string {
   const candidate = text(value)
   return candidate && !Number.isNaN(Date.parse(candidate)) ? new Date(candidate).toISOString() : fallback
 }
 
-function earningsTiming(value: unknown): Catalyst['timing'] {
+function earningsTiming(value: JsonValue): Catalyst['timing'] {
   const timing = text(value)?.toLowerCase() ?? ''
   if (timing.includes('before') || timing.includes('pre')) return 'pre-market'
   if (timing.includes('after') || timing.includes('post')) return 'after-hours'
@@ -41,7 +40,7 @@ function earningsTiming(value: unknown): Catalyst['timing'] {
 }
 
 /** Normalize only upcoming earnings returned by tastytrade market metrics. */
-export function catalystsFromMarketMetrics(metrics: readonly JsonRecord[], now = new Date()): Catalyst[] {
+export function catalystsFromMarketMetrics(metrics: readonly JsonObject[], now = new Date()): Catalyst[] {
   const observedAt = now.toISOString()
   const today = marketDate(now)
   return metrics.flatMap((metric) => {
@@ -70,7 +69,7 @@ export function catalystsFromMarketMetrics(metrics: readonly JsonRecord[], now =
   })
 }
 
-export function earningsDateFromMetric(metric: JsonRecord | undefined, now = new Date()): string | null {
+export function earningsDateFromMetric(metric: JsonObject | undefined, now = new Date()): string | null {
   const earnings = record(metric?.earnings)
   const candidate = earnings.visible === false ? undefined : date(earnings['expected-report-date'])
   return candidate && candidate >= marketDate(now) ? candidate : null

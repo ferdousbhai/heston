@@ -1,15 +1,18 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { type AppEnv } from '../src/server/env'
-
-const tastytrade = vi.hoisted(() => ({ tastyRequest: vi.fn() }))
-vi.mock('../src/server/tastytrade', () => tastytrade)
-
+import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
+import { stubBroker } from './broker-stub'
 import {
   executeAggregateWatchlistAction,
   executeWatchlistAction,
   mutableWatchlistsFromPayload,
 } from '../src/server/watchlist-actions'
+
+const tastytrade = stubBroker()
+
+beforeEach(() => setBrokerApi(tastytrade))
+afterEach(() => resetBrokerApi())
 
 const existing = {
   data: {

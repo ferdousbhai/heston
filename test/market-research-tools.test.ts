@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
+import { type ChartResultArray } from 'yahoo-finance2/modules/chart'
 import { type QuoteSummaryResult } from 'yahoo-finance2/modules/quoteSummary'
+
+import { type JsonObject } from '../src/domain/json-payload'
 
 import {
   createMarketResearchTools,
@@ -55,7 +58,7 @@ function chartDate(date: string): Date {
   return new Date(`${date}T13:30:00.000Z`)
 }
 
-function chartClient(quotes: unknown[], meta: Record<string, unknown> = {}) {
+function chartClient(quotes: ChartResultArray['quotes'], meta: JsonObject = {}) {
   return {
     chart: vi.fn().mockResolvedValue({
       meta: { currency: 'USD', exchangeName: 'NMS', symbol: 'AAPL', ...meta },

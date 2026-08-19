@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { type AppEnv } from '../src/server/env'
 import {
@@ -6,14 +6,13 @@ import {
   ExactOptionGreeksReadParameters,
   readExactOptionGreeks,
 } from '../src/server/option-greeks-tool'
+import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
+import { stubBroker } from './broker-stub'
 
-const mocks = vi.hoisted(() => ({
-  tastyRequest: vi.fn(),
-}))
+const mocks = stubBroker()
 
-vi.mock('../src/server/tastytrade', () => ({
-  tastyRequest: mocks.tastyRequest,
-}))
+beforeEach(() => setBrokerApi(mocks))
+afterEach(() => resetBrokerApi())
 
 const contracts = [
   { expiry: '2026-08-14', optionType: 'C' as const, strike: 250, underlying: 'NVDA' },
@@ -60,12 +59,9 @@ function environment(greeks: ReturnType<typeof observation>[]) {
     impliedVolatilityUnit: 'decimal_ratio',
     source: 'tastytrade-dxlink',
   })
-  const getByName = vi.fn(() => ({ readOptionGreeks }))
-  return {
-    env: { MARKET_FEED: { getByName } } as unknown as AppEnv,
-    getByName,
-    readOptionGreeks,
-  }
+  const getByName = vi.fn(() => ({ fetch: vi.fn(), readOptionGreeks }))
+  const env: AppEnv = { MARKET_FEED: { get: vi.fn(), getByName, idFromName: vi.fn() } }
+  return { env, getByName, readOptionGreeks }
 }
 
 describe('exact option Greeks tool', () => {
@@ -97,9 +93,8 @@ describe('exact option Greeks tool', () => {
   it('does not expose or accept raw streamer-symbol inputs', async () => {
     expect(JSON.stringify(ExactOptionGreeksReadParameters)).not.toContain('streamer')
     const { env } = environment([observation('.NVDA260814C250', 0.5)])
-    await expect(readExactOptionGreeks(env, {
-      contracts: [{ ...contracts[0], streamerSymbol: '.ATTACKER' }],
-    } as unknown as Parameters<typeof readExactOptionGreeks>[1])).rejects.toThrow()
+    const smuggledStreamerSymbol = { ...contracts[0], streamerSymbol: '.ATTACKER' }
+    await expect(readExactOptionGreeks(env, { contracts: [smuggledStreamerSymbol] })).rejects.toThrow()
     expect(createExactOptionGreeksReadTool(env).name).toBe('read_option_greeks')
   })
 

@@ -3,16 +3,25 @@ import { type AgentTool } from '@earendil-works/pi-agent-core'
 
 import { type OrderPayload } from './order-payload'
 import { type AppEnv } from './env'
+import {
+  JsonArraySchema,
+  JsonObjectSchema,
+  LooseTextSchema,
+  NumericSchema,
+  type JsonObject,
+  type JsonValue,
+} from '../domain/json-payload'
 import { resolveStoredOrderFingerprint } from './order-intent'
-import { resolveAccountNumber, tastyRequest } from './tastytrade'
+import { brokerApi } from './tastytrade'
 
-type JsonRecord = Record<string, unknown>
 type StoredUnknownAction = {
   error_code: string | null
   id: string
   payload_json: string
   resolved_at: string
 }
+
+type OrderHistoryPage = { complete: boolean; rows: JsonObject[] }
 
 export type ReconciliationResult = {
   actionId?: string
@@ -24,38 +33,34 @@ export type ReconciliationResult = {
 const ReconcileParameters = Type.Object({}, { additionalProperties: false })
 const FINAL_ABSENCE_DELAY_MS = 15 * 60_000
 
-function record(value: unknown): JsonRecord | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? value as JsonRecord
-    : undefined
+function text(value: JsonValue): string | undefined {
+  return LooseTextSchema.safeParse(value).data
 }
 
-function text(value: unknown): string | undefined {
-  if (typeof value !== 'string' && typeof value !== 'number') return undefined
-  const result = String(value).trim()
-  return result ? result : undefined
+function number(value: JsonValue): number | undefined {
+  return NumericSchema.safeParse(value).data
 }
 
-function number(value: unknown): number | undefined {
-  if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return undefined
-  const result = Number(value)
-  return Number.isFinite(result) ? result : undefined
-}
-
-function orderRows(payload: unknown): { complete: boolean; rows: JsonRecord[] } {
-  const body = record(payload)
+function orderRows(payload: JsonValue): OrderHistoryPage {
+  const body = JsonObjectSchema.safeParse(payload).data
   const rawData = body?.data ?? payload
-  const data = record(rawData)
-  const candidate = Array.isArray(rawData) ? rawData : data?.items ?? body?.items
-  if (!Array.isArray(candidate) || candidate.length > 100) throw new Error('TastytradeReconciliation:invalid-history')
-  const rows = candidate.map((value) => record(value) ?? (() => { throw new Error('TastytradeReconciliation:invalid-history') })())
-  const pagination = record(body?.pagination) ?? record(data?.pagination)
+  const data = JsonObjectSchema.safeParse(rawData).data
+  const candidate = JsonArraySchema.safeParse(rawData).data
+    ?? JsonArraySchema.safeParse(data?.items ?? body?.items).data
+  if (!candidate || candidate.length > 100) throw new Error('TastytradeReconciliation:invalid-history')
+  const rows = candidate.map((value) => {
+    const row = JsonObjectSchema.safeParse(value).data
+    if (!row) throw new Error('TastytradeReconciliation:invalid-history')
+    return row
+  })
+  const pagination = JsonObjectSchema.safeParse(body?.pagination).data
+    ?? JsonObjectSchema.safeParse(data?.pagination).data
   const total = number(pagination?.['total-items'])
   const complete = total === undefined ? rows.length < 100 : Number.isSafeInteger(total) && total <= rows.length
   return { complete, rows }
 }
 
-function sameLeg(actual: JsonRecord, intended: OrderPayload['legs'][number]): boolean {
+function sameLeg(actual: JsonObject, intended: OrderPayload['legs'][number]): boolean {
   return text(actual.action) === intended.action
     && text(actual['instrument-type']) === intended['instrument-type']
     && number(actual.quantity) === intended.quantity
@@ -64,13 +69,14 @@ function sameLeg(actual: JsonRecord, intended: OrderPayload['legs'][number]): bo
 
 /** Exact order fingerprint match; timestamps keep unrelated duplicate orders from clearing quarantine. */
 export function matchesSubmittedOrder(
-  row: JsonRecord,
+  row: JsonObject,
   intended: OrderPayload,
   submittedAt: Date,
   now = new Date(),
   replacedOrderId?: string,
 ): boolean {
-  if (!Array.isArray(row.legs) || row.legs.length !== intended.legs.length) return false
+  const legs = JsonArraySchema.safeParse(row.legs).data
+  if (legs?.length !== intended.legs.length) return false
   const receivedAt = Date.parse(text(row['received-at']) ?? text(row['updated-at']) ?? '')
   if (!Number.isFinite(receivedAt)
     || receivedAt < submittedAt.getTime() - 2 * 60_000
@@ -80,8 +86,8 @@ export function matchesSubmittedOrder(
     && text(row['time-in-force']) === intended['time-in-force']
     && text(row['price-effect']) === intended['price-effect']
     && number(row.price) === Number(intended.price)
-    && row.legs.every((leg, index) => {
-      const actual = record(leg)
+    && legs.every((leg, index) => {
+      const actual = JsonObjectSchema.safeParse(leg).data
       return Boolean(actual && sameLeg(actual, intended.legs[index]!))
     })
 }
@@ -110,13 +116,13 @@ export async function reconcileUnknownBrokerageAction(
     return { actionId: stored.id, detail: 'The local submission timestamp is invalid; the quarantine remains in place.', status: 'unresolved' }
   }
   const [account, fingerprint] = await Promise.all([
-    resolveAccountNumber(env),
+    brokerApi().resolveAccountNumber(env),
     resolveStoredOrderFingerprint(env, JSON.parse(stored.payload_json)),
   ])
   const intended = fingerprint.payload
   const replacedOrderId = fingerprint.action.kind === 'replace_order' ? fingerprint.action.orderId : undefined
   const startDate = new Date(submittedAt.getTime() - 24 * 60 * 60_000).toISOString().slice(0, 10)
-  const history = orderRows(await tastyRequest(
+  const history = orderRows(await brokerApi().tastyRequest(
     env,
     `/accounts/${encodeURIComponent(account)}/orders?per-page=100&sort=Desc&start-date=${startDate}`,
   ))

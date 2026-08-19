@@ -1,15 +1,14 @@
 import { type ResearchSourceItem } from './research-contracts'
 import { readBoundedJson } from './bounded-response'
+import { JsonArraySchema, JsonObjectSchema, NumericSchema, TextSchema, type JsonObject, type JsonValue } from '../domain/json-payload'
 
 export interface RedditCredentials {
   clientId: string
   clientSecret: string
 }
 
-type JsonRecord = Record<string, unknown>
-
-function record(value: unknown): JsonRecord {
-  return typeof value === 'object' && value !== null ? value as JsonRecord : {}
+function record(value: JsonValue): JsonObject {
+  return JsonObjectSchema.safeParse(value).data ?? {}
 }
 
 function redditUrl(value: string): string | undefined {
@@ -39,8 +38,8 @@ export async function collectRedditSources(
     await tokenResponse.body?.cancel()
     throw new Error(`Reddit OAuth returned ${tokenResponse.status}`)
   }
-  const token = record(await readBoundedJson(tokenResponse, 256_000, 'RedditOAuth')).access_token
-  if (typeof token !== 'string' || !token) throw new Error('Reddit OAuth returned no access token')
+  const token = TextSchema.safeParse(record(await readBoundedJson(tokenResponse, 256_000, 'RedditOAuth')).access_token).data
+  if (!token) throw new Error('Reddit OAuth returned no access token')
 
   const listingResponse = await fetcher('https://oauth.reddit.com/r/options+wallstreetbets+stocks/hot?limit=18&raw_json=1', {
     headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'SpiceMustFlow/0.1 personal-options-research' },
@@ -51,23 +50,25 @@ export async function collectRedditSources(
     throw new Error(`Reddit listing returned ${listingResponse.status}`)
   }
   const listing = record(await readBoundedJson(listingResponse, 2_000_000, 'RedditListing'))
-  const children = record(listing.data).children
-  if (!Array.isArray(children)) return []
+  const children = JsonArraySchema.safeParse(record(listing.data).children).data
+  if (!children) return []
 
   return children
     .map((child) => record(record(child).data))
     .flatMap((post) => {
-      if (typeof post.title !== 'string' || typeof post.permalink !== 'string') return []
-      const url = redditUrl(post.permalink)
-      return url ? [{ post, url }] : []
+      const title = TextSchema.safeParse(post.title).data
+      const permalink = TextSchema.safeParse(post.permalink).data
+      if (title === undefined || permalink === undefined) return []
+      const url = redditUrl(permalink)
+      return url ? [{ post, title, url }] : []
     })
     .sort((left, right) => Number(right.post.score ?? 0) - Number(left.post.score ?? 0))
     .slice(0, 6)
-    .map(({ post, url }) => {
-      const published = new Date(Number(post.created_utc) * 1_000)
+    .map(({ post, title, url }) => {
+      const published = new Date((NumericSchema.safeParse(post.created_utc).data ?? Number.NaN) * 1_000)
       return {
-        source: `Reddit · r/${typeof post.subreddit === 'string' ? post.subreddit : 'markets'}`,
-        title: String(post.title).slice(0, 240),
+        source: `Reddit · r/${TextSchema.safeParse(post.subreddit).data ?? 'markets'}`,
+        title: title.slice(0, 240),
         url,
         publishedAt: Number.isNaN(published.valueOf()) ? undefined : published.toISOString(),
       }

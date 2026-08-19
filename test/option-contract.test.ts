@@ -1,14 +1,18 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
+import { type JsonObject } from '../src/domain/json-payload'
 import {
   equityOptionContractFromChain,
   equityOptionContractFromChainTuple,
   resolveEquityOptionTuples,
 } from '../src/server/option-contract'
+import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
+import { stubBroker } from './broker-stub'
 
-const mocks = vi.hoisted(() => ({ tastyRequest: vi.fn() }))
+const mocks = stubBroker()
 
-vi.mock('../src/server/tastytrade', () => ({ tastyRequest: mocks.tastyRequest }))
+beforeEach(() => setBrokerApi(mocks))
+afterEach(() => resetBrokerApi())
 
 const action = {
   kind: 'place_option_order' as const,
@@ -22,7 +26,7 @@ const action = {
   priceEffect: 'Debit' as const,
 }
 
-function option(overrides: Record<string, unknown> = {}) {
+function option(overrides: JsonObject = {}) {
   return {
     symbol: 'NVDA  260814C00250000',
     'instrument-type': 'Equity Option',
@@ -39,7 +43,7 @@ function option(overrides: Record<string, unknown> = {}) {
   }
 }
 
-function payload(items: Array<Record<string, unknown>>) {
+function payload(items: JsonObject[]) {
   return { data: { items } }
 }
 

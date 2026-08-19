@@ -1,6 +1,10 @@
 import { expect, test } from '@playwright/test'
+import { z } from 'zod'
 
 import { marketSnapshotFixture } from './fixtures/market'
+
+/** `postDataJSON()` hands back an unparsed body; decode it before the route acts on it. */
+const WatchlistMutationRequestSchema = z.object({ kind: z.string(), symbols: z.array(z.string()) })
 
 test('unauthenticated visitors get the branded Google entry point', async ({ page }) => {
   await page.route('**/api/viewer', (route) => route.fulfill({
@@ -34,7 +38,7 @@ test('mobile market, research, picker, and agent flows remain coherent', async (
     body: JSON.stringify(snapshot),
   }))
   await page.route('**/api/watchlists', async (route) => {
-    const action = route.request().postDataJSON() as { kind: string; symbols: string[] }
+    const action = WatchlistMutationRequestSchema.parse(route.request().postDataJSON())
     const watchlist = snapshot.watchlists.find((candidate) => candidate.kind === 'private')!
     const requested = new Set(action.symbols)
     watchlist.symbols = action.kind === 'add_watchlist_symbols'

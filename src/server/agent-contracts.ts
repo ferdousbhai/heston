@@ -37,10 +37,10 @@ export const VerticalSpreadActionSchema = z.object({
   limitPrice: z.number().positive().multipleOf(0.01),
   priceEffect: z.literal('Debit'),
 }).superRefine((action, context) => {
-  const validShape = action.optionType === 'C'
+  const isDebitVertical = action.optionType === 'C'
     ? action.longStrike < action.shortStrike
     : action.longStrike > action.shortStrike
-  if (!validShape) {
+  if (!isDebitVertical) {
     context.addIssue({ code: 'custom', message: 'The long strike must define a debit vertical.', path: ['longStrike'] })
   }
   if (action.limitPrice >= Math.abs(action.shortStrike - action.longStrike)) {
@@ -92,7 +92,6 @@ export const DirectAccountActionSchema = z.discriminatedUnion('kind', [
   RemoveWatchlistActionSchema,
 ])
 
-export const AgentPlanSchema = z.object({ message: z.string().min(1).max(2_000), action: OrderPlacementSchema.nullable() })
 export const ChatRequestSchema = z.object({
   message: z.string().trim().min(1).max(4_000),
   selectedSymbol: z.string().regex(/^[A-Z.]{1,8}$/).optional(),

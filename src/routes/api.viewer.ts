@@ -1,17 +1,15 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { env } from 'cloudflare:workers'
 
 import { getOwnerSession } from '../server/auth'
-import { type AppEnv } from '../server/env'
+import { appEnv } from '../server/worker-env'
 import { jsonNoStore } from '../server/http'
 
 export const Route = createFileRoute('/api/viewer')({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        const workerEnv = env as unknown as AppEnv
         try {
-          const session = await getOwnerSession(request, workerEnv)
+          const session = await getOwnerSession(request, appEnv)
           return jsonNoStore({
             authRequired: true,
             user: session ? { name: session.user.name } : null,

@@ -1,16 +1,18 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
+import { z } from 'zod'
 
 import { authClient } from '../data/auth-client'
+import { toError } from '../domain/failure'
 
-export type Viewer = {
-  name: string
-}
+const ViewerSchema = z.object({ name: z.string() })
 
-type ViewerResponse = {
-  authRequired: boolean
-  user: Viewer | null
-}
+export type Viewer = z.infer<typeof ViewerSchema>
+
+const ViewerResponseSchema = z.object({
+  authRequired: z.boolean(),
+  user: ViewerSchema.nullable(),
+})
 
 type AuthState =
   | { phase: 'checking' }
@@ -29,15 +31,17 @@ export function AuthGate({ children }: { children: (viewer: Viewer | null) => Re
       signal: controller.signal,
     }).then(async (response) => {
       if (!response.ok) throw new Error('Authentication is temporarily unavailable')
-      const result = await response.json() as ViewerResponse
+      const result = ViewerResponseSchema.parse(await response.json())
       setState(result.authRequired && !result.user ? { phase: 'guest' } : { phase: 'ready', user: result.user })
-    }).catch((error: unknown) => {
+    }).catch((cause: unknown) => {
       if (controller.signal.aborted) return
-      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      const hasNavigator = 'navigator' in globalThis
+      if (hasNavigator && !navigator.onLine) {
         setState({ phase: 'ready', user: null })
         return
       }
-      setState({ message: error instanceof Error ? error.message : 'Authentication failed', phase: 'error' })
+      const error = toError(cause)
+      setState({ message: error ? error.message : 'Authentication failed', phase: 'error' })
     })
     return () => controller.abort()
   }, [])

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { useAgent } from 'agents/react'
 import { Bot, Check, ChevronRight, CircleStop, Clock3, Send, ShieldCheck, Trash2, Wrench, X } from 'lucide-react'
+import { z } from 'zod'
 
+import { JsonObjectSchema, type JsonValue } from '../domain/json-payload'
 import {
   isDanAgentEvent,
   type AgentChatMessage,
@@ -10,6 +12,11 @@ import {
   type PendingAction,
 } from '../domain/agent-chat'
 import { volatilityVerdict, type Ticker } from '../domain/market'
+
+/** The relay delivers text frames; binary frames are not part of the agent protocol. */
+const RelayFrameSchema = z.string()
+
+const ActionResponseSchema = z.looseObject({ detail: z.string().optional(), error: z.string().optional() })
 
 type ProvisionalTool = AgentToolCall & { rawInput: string }
 type ProvisionalTurn = { reasoning: string; text: string; tools: ProvisionalTool[] }
@@ -113,12 +120,12 @@ function ActionCard({
         headers: { 'Content-Type': 'application/json' },
         method: 'POST',
       })
-      const payload = await response.json() as { detail?: string; error?: string }
+      const payload = ActionResponseSchema.safeParse(await response.json()).data
       if (!response.ok) {
-        setError(payload.error ?? 'The action could not be resolved')
+        setError(payload?.error ?? 'The action could not be resolved')
         return
       }
-      onResolved(messageId, payload.detail ?? payload.error ?? 'Action resolved')
+      onResolved(messageId, payload?.detail ?? payload?.error ?? 'Action resolved')
     } catch {
       setError('Could not reach the action service')
     } finally {
@@ -199,10 +206,12 @@ export function AgentScreen({
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const onAgentMessage = useCallback((message: MessageEvent) => {
-    if (typeof message.data !== 'string') return
-    let event: unknown
-    try { event = JSON.parse(message.data) } catch { return }
-    if (!isDanAgentEvent(event)) return
+    const frame = RelayFrameSchema.safeParse(message.data).data
+    if (frame === undefined) return
+    let decoded: JsonValue
+    try { decoded = JSON.parse(frame) } catch { return }
+    const event = JsonObjectSchema.safeParse(decoded).data
+    if (!event || !isDanAgentEvent(event)) return
     if (event.type === 'dan:turn_start') {
       setProvisional({ reasoning: '', text: '', tools: [] })
     } else if (event.type === 'dan:text_delta') {
@@ -221,7 +230,7 @@ export function AgentScreen({
           if (tool.id !== event.toolCallId) return tool
           const rawInput = `${tool.rawInput}${event.delta}`
           let parsed = tool.input
-          try { parsed = JSON.parse(rawInput) as Record<string, unknown> } catch { /* partial JSON */ }
+          try { parsed = JsonObjectSchema.parse(JSON.parse(rawInput)) } catch { /* partial JSON */ }
           return { ...tool, input: parsed, rawInput }
         }),
       } : current)

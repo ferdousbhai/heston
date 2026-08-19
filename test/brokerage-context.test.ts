@@ -1,13 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { type JsonValue } from '../src/domain/json-payload'
 
-const tastytrade = vi.hoisted(() => ({
-  resolveAccountNumber: vi.fn(),
-  tastyRequest: vi.fn(),
-}))
-
-vi.mock('../src/server/tastytrade', () => tastytrade)
-
+import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
+import { stubBroker } from './broker-stub'
 import { buildAgentRuntimeContext, loadBrokerageContext } from '../src/server/brokerage-context'
+
+const tastytrade = stubBroker()
+
+beforeEach(() => setBrokerApi(tastytrade))
+afterEach(() => resetBrokerApi())
 
 const balance = {
   'account-number': 'A1',
@@ -20,7 +21,10 @@ const balance = {
   'net-liquidating-value': '100000',
 }
 
-function payloadFor(path: string): unknown {
+/** Every mocked collection endpoint answers with a `data.items` page. */
+type BrokerPage = { data: { items: JsonValue[] } }
+
+function pageFor(path: string): BrokerPage {
   if (path.includes('/positions')) return { data: { items: [{
     symbol: 'SPY option',
     'underlying-symbol': 'SPY',
@@ -31,7 +35,6 @@ function payloadFor(path: string): unknown {
     'mark-price': '1.25',
     'expires-at': '2026-09-18T20:00:00Z',
   }] } }
-  if (path.endsWith('/balances')) return { data: balance }
   if (path.includes('/complex-orders/live')) return { data: { items: [] } }
   if (path.includes('/orders/live')) return { data: { items: [{
     id: '101', status: 'Live', 'order-type': 'Limit', price: '1.20',
@@ -47,6 +50,10 @@ function payloadFor(path: string): unknown {
     symbol: 'SPY option', 'underlying-symbol': 'SPY', 'instrument-type': 'Equity Option',
   }] } }
   throw new Error(`Unexpected path: ${path}`)
+}
+
+function payloadFor(path: string): JsonValue {
+  return path.endsWith('/balances') ? { data: balance } : pageFor(path)
 }
 
 describe('always-on brokerage context', () => {
@@ -111,7 +118,7 @@ describe('always-on brokerage context', () => {
   it('fails working-order completeness closed when the broker reports another page', async () => {
     tastytrade.tastyRequest.mockImplementation((_env, path: string) => {
       if (path.includes('/orders/live')) {
-        const base = payloadFor(path) as { data: { items: unknown[] } }
+        const base = pageFor(path)
         return Promise.resolve({ ...base, pagination: { 'total-items': 2 } })
       }
       return Promise.resolve(payloadFor(path))
@@ -126,7 +133,7 @@ describe('always-on brokerage context', () => {
   it('fails position completeness closed when the broker reports another page', async () => {
     tastytrade.tastyRequest.mockImplementation((_env, path: string) => {
       if (path.includes('/positions')) {
-        const base = payloadFor(path) as { data: { items: unknown[] } }
+        const base = pageFor(path)
         return Promise.resolve({ ...base, pagination: { 'total-items': 2 } })
       }
       return Promise.resolve(payloadFor(path))
@@ -174,7 +181,7 @@ describe('always-on brokerage context', () => {
   it('marks a full recent-trade page as truncated when pagination is unavailable', async () => {
     tastytrade.tastyRequest.mockImplementation((_env, path: string) => {
       if (path.includes('/transactions?')) {
-        const row = (payloadFor(path) as { data: { items: unknown[] } }).data.items[0]
+        const row = pageFor(path).data.items[0]
         return Promise.resolve({ data: { items: Array.from({ length: 25 }, () => row) } })
       }
       return Promise.resolve(payloadFor(path))

@@ -3,8 +3,9 @@ import { z } from 'zod'
 import { CatalystKindSchema, CatalystSchema, marketDate, type Catalyst } from '../domain/catalyst'
 import { type AppEnv } from './env'
 import { readBoundedJson } from './bounded-response'
-import { readSecret } from './secrets'
-import { loadMarketSnapshot } from './tastytrade'
+import { JsonArraySchema, JsonObjectSchema, type JsonObject, type JsonValue } from '../domain/json-payload'
+import { readStoredSecret } from './secrets'
+import { brokerApi } from './tastytrade'
 
 const MODEL = 'grok-4.6'
 const SOURCE = 'Grok 4.6 X research'
@@ -31,10 +32,13 @@ const FindingSchema = z.object({
 
 const FindingsSchema = z.object({ findings: z.array(FindingSchema).max(100) })
 
-type JsonRecord = Record<string, unknown>
+/** Model output text is compared verbatim, so it is never trimmed on the way in. */
+const ModelTextSchema = z.string()
 
-function record(value: unknown): JsonRecord {
-  return typeof value === 'object' && value !== null ? value as JsonRecord : {}
+export type XCatalystResult = { catalysts: Catalyst[]; rejected: number }
+
+function record(value: JsonValue): JsonObject {
+  return JsonObjectSchema.safeParse(value).data ?? {}
 }
 
 function isoDateIsValid(value: string): boolean {
@@ -49,10 +53,11 @@ function addDays(date: string, days: number): string {
   return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10)
 }
 
-export function canonicalXPostUrl(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined
+export function canonicalXPostUrl(value: JsonValue): string | undefined {
+  const raw = ModelTextSchema.safeParse(value).data
+  if (raw === undefined) return undefined
   try {
-    const url = new URL(value)
+    const url = new URL(raw)
     if (url.protocol !== 'https:' || !['x.com', 'www.x.com', 'twitter.com', 'www.twitter.com'].includes(url.hostname.toLowerCase())) return undefined
     if (!/^\/(?:[A-Za-z0-9_]{1,15}|i)\/status\/\d+$/.test(url.pathname)) return undefined
     return `https://x.com${url.pathname}`
@@ -61,47 +66,39 @@ export function canonicalXPostUrl(value: unknown): string | undefined {
   }
 }
 
-function citationUrls(payload: unknown): Set<string> {
+function citationUrls(payload: JsonValue): Set<string> {
   const urls = new Set<string>()
   const body = record(payload)
-  if (Array.isArray(body.citations)) {
-    for (const citation of body.citations) {
-      const url = canonicalXPostUrl(typeof citation === 'string' ? citation : record(citation).url)
-      if (url) urls.add(url)
-    }
+  for (const citation of JsonArraySchema.safeParse(body.citations).data ?? []) {
+    const url = canonicalXPostUrl(ModelTextSchema.safeParse(citation).data ?? record(citation).url)
+    if (url) urls.add(url)
   }
-  if (Array.isArray(body.output)) {
-    for (const output of body.output.map(record)) {
-      if (!Array.isArray(output.content)) continue
-      for (const content of output.content.map(record)) {
-        if (!Array.isArray(content.annotations)) continue
-        for (const annotation of content.annotations.map(record)) {
-          const url = canonicalXPostUrl(annotation.url)
-          if (url) urls.add(url)
-        }
+  for (const output of (JsonArraySchema.safeParse(body.output).data ?? []).map(record)) {
+    for (const content of (JsonArraySchema.safeParse(output.content).data ?? []).map(record)) {
+      for (const annotation of (JsonArraySchema.safeParse(content.annotations).data ?? []).map(record)) {
+        const url = canonicalXPostUrl(annotation.url)
+        if (url) urls.add(url)
       }
     }
   }
   return urls
 }
 
-function outputText(payload: unknown): string | undefined {
-  const output = record(payload).output
-  if (!Array.isArray(output)) return undefined
-  for (const item of output.map(record)) {
-    if (!Array.isArray(item.content)) continue
-    for (const content of item.content.map(record)) {
-      if (content.type === 'output_text' && typeof content.text === 'string') return content.text
+function outputText(payload: JsonValue): string | undefined {
+  for (const item of (JsonArraySchema.safeParse(record(payload).output).data ?? []).map(record)) {
+    for (const content of (JsonArraySchema.safeParse(item.content).data ?? []).map(record)) {
+      const text = ModelTextSchema.safeParse(content.text).data
+      if (content.type === 'output_text' && text !== undefined) return text
     }
   }
   return undefined
 }
 
 export function parseXCatalystResponse(
-  payload: unknown,
+  payload: JsonValue,
   allowedSymbols: readonly string[],
   now = new Date(),
-): { catalysts: Catalyst[]; rejected: number } {
+): XCatalystResult {
   const text = outputText(payload)
   if (!text) throw new Error('XCatalystResponse:missing-output')
   const findings = FindingsSchema.parse(JSON.parse(text)).findings
@@ -154,12 +151,12 @@ export async function discoverXCatalysts(
   symbols: readonly string[],
   now = new Date(),
   fetcher: typeof fetch = fetch,
-): Promise<{ catalysts: Catalyst[]; rejected: number }> {
+): Promise<XCatalystResult> {
   const watched = [...new Set(symbols.map((symbol) => symbol.toUpperCase()))].slice(0, MAX_SYMBOLS)
   if (!watched.length) return { catalysts: [], rejected: 0 }
   const [apiKey, gatewayToken] = await Promise.all([
-    readSecret(env.XAI_API_KEY, 'XAI_API_KEY'),
-    readSecret(env.AI_GATEWAY_TOKEN, 'AI_GATEWAY_TOKEN'),
+    readStoredSecret(env.XAI_API_KEY, 'XAI_API_KEY'),
+    readStoredSecret(env.AI_GATEWAY_TOKEN, 'AI_GATEWAY_TOKEN'),
   ])
   const today = marketDate(now)
   const controller = new AbortController()
@@ -229,7 +226,7 @@ export function shouldRunXCatalystResearch(date: Date): boolean {
 }
 
 export async function runXCatalystResearch(env: AppEnv, now = new Date()): Promise<{ accepted: number; rejected: number }> {
-  const snapshot = await loadMarketSnapshot(env)
+  const snapshot = await brokerApi().loadMarketSnapshot(env)
   const symbols = catalystResearchSymbols(snapshot.watchlists)
   const run = { id: crypto.randomUUID(), startedAt: now.toISOString(), symbols: symbols.length }
   await recordRun(env, { ...run, status: 'running' })

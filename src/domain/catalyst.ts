@@ -22,7 +22,7 @@ export const CatalystSchema = z.object({
 
 export type Catalyst = z.infer<typeof CatalystSchema>
 
-const KIND_PRIORITY: Record<Catalyst['kind'], number> = {
+const KIND_PRIORITY = {
   earnings: 0,
   regulatory: 1,
   clinical: 2,
@@ -30,7 +30,7 @@ const KIND_PRIORITY: Record<Catalyst['kind'], number> = {
   'product-event': 4,
   conference: 5,
   shareholder: 6,
-}
+} satisfies Record<Catalyst['kind'], number>
 
 function dateParts(date: Date, timeZone = 'America/New_York') {
   return Object.fromEntries(new Intl.DateTimeFormat('en-US', {
