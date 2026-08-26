@@ -6,7 +6,7 @@ import { AuthGate } from '../components/auth-gate'
 
 export const Route = createFileRoute('/ops')({
   component: OperationsPage,
-  head: () => ({ meta: [{ title: 'Operations — Spice Must Flow' }] }),
+  head: () => ({ meta: [{ title: 'Operations | Spice Must Flow' }] }),
 })
 
 function OperationsPage() {

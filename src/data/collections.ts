@@ -36,8 +36,11 @@ const SyncStateSchema = z.object({
   syncedAt: z.string(),
 })
 
+const PinnedSymbolSchema = z.string().regex(/^[A-Z.]{1,8}$/)
+
 const PreferenceSchema = z.object({
   id: z.literal('primary'),
+  pinnedSymbols: z.array(PinnedSymbolSchema).max(MAX_LIVE_MARKET_SYMBOLS).default([]),
   selectedSymbol: z.string(),
   selectedWatchlistId: z.string(),
 })
@@ -243,6 +246,7 @@ async function hydrateCollectionsImmediately(snapshot: MarketSnapshot, audience:
   if (!currentPreference) {
     const preference = preferenceCollection.insert({
       id: 'primary',
+      pinnedSymbols: [],
       selectedSymbol: defaultSymbol,
       selectedWatchlistId: defaultWatchlist?.id ?? 'positions',
     })
@@ -346,6 +350,20 @@ export function selectWatchlist(id: string, fallbackSymbol?: string) {
     draft.selectedWatchlistId = id
     if (fallbackSymbol) draft.selectedSymbol = fallbackSymbol
   })
+}
+
+/** Pinning is a device-local display preference, never an internal-watchlist mutation. */
+export async function togglePinnedTicker(symbol: string): Promise<void> {
+  const parsed = PinnedSymbolSchema.safeParse(symbol)
+  const current = preferenceCollection.get('primary')
+  if (!parsed.success || !current) return
+  const mutation = preferenceCollection.update('primary', (draft) => {
+    const pinnedSymbols = draft.pinnedSymbols ?? []
+    draft.pinnedSymbols = pinnedSymbols.includes(parsed.data)
+      ? pinnedSymbols.filter((candidate) => candidate !== parsed.data)
+      : [...pinnedSymbols, parsed.data].slice(-MAX_LIVE_MARKET_SYMBOLS)
+  })
+  await mutation.isPersisted.promise
 }
 
 export async function applyWatchlistMutation(action: WatchlistMutation): Promise<void> {

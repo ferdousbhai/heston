@@ -49,6 +49,16 @@ export async function persistPublicMarketUniverse(env: AppEnv, snapshot: MarketS
   }
 }
 
+/** Replace the derived source-neutral universe without accepting provenance fields. */
+export async function replacePublicMarketUniverseSymbols(
+  env: AppEnv,
+  symbols: readonly string[],
+  updatedAt = new Date(),
+): Promise<void> {
+  const universe = PublicMarketUniverseSchema.parse({ symbols: normalizedSymbols(symbols) })
+  await writePublicMarketUniverse(env, universe, updatedAt.toISOString())
+}
+
 export async function loadStoredPublicMarketUniverse(env: AppEnv): Promise<PublicMarketUniverse | undefined> {
   if (!env.DB) return undefined
   try {

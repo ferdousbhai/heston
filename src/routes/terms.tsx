@@ -6,7 +6,7 @@ export const Route = createFileRoute('/terms')({
   component: TermsPage,
   head: () => ({
     meta: [
-      { title: 'Terms — Spice Must Flow' },
+      { title: 'Terms | Spice Must Flow' },
       { name: 'description', content: 'Terms governing use of the Spice Must Flow options-intelligence application.' },
     ],
   }),

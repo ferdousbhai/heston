@@ -30,7 +30,7 @@ describe('tastytrade catalyst normalization', () => {
     await expect(persistAndLoadCatalysts({ DB: database }, [], symbols, NOW)).resolves.toEqual([])
 
     expect(batch).toHaveBeenCalledOnce()
-    expect(boundParameterCounts).toEqual([100, 2, 1])
+    expect(boundParameterCounts).toEqual([100, 1])
   })
 
   it('extracts upcoming earnings and ignores dividend fields', () => {

@@ -1,0 +1,39 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "spice-instrument-catalog-bootstrap-20260826",
+  "main": "./worker.ts",
+  "compatibility_date": "2026-08-18",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "durable_objects": {
+    "bindings": [
+      { "name": "BROKER_GATE", "class_name": "BrokerGate" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["BrokerGate"] }
+  ],
+  "secrets_store_secrets": [
+    {
+      "binding": "TASTYTRADE_CLIENT_SECRET",
+      "store_id": "a436a6cefedc4acd8bb920cdbc202c1c",
+      "secret_name": "tastytrade-client-secret"
+    },
+    {
+      "binding": "TASTYTRADE_REFRESH_TOKEN",
+      "store_id": "a436a6cefedc4acd8bb920cdbc202c1c",
+      "secret_name": "tastytrade-refresh-token"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "spice-production",
+      "database_id": "e45e35cc-bd01-4e29-8940-b5d2ef5e840c"
+    }
+  ],
+  "vars": {
+    "TASTYTRADE_API_BASE": "https://api.tastyworks.com"
+  }
+}
+

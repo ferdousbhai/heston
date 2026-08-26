@@ -6,7 +6,7 @@ export const Route = createFileRoute('/privacy')({
   component: PrivacyPage,
   head: () => ({
     meta: [
-      { title: 'Privacy — Spice Must Flow' },
+      { title: 'Privacy | Spice Must Flow' },
       { name: 'description', content: 'How Spice Must Flow handles account, brokerage, market, device, and operational data.' },
     ],
   }),

@@ -75,4 +75,81 @@ describe('brokerage action migrations', () => {
     ).run()).toThrow()
     db.close()
   })
+
+  it('stores typed tastytrade Equity fields and normalized tick tiers without raw JSON', async () => {
+    const migration = await readFile(new URL('../migrations/0008_instrument_catalog.sql', import.meta.url), 'utf8')
+    const resolution = await readFile(new URL('../migrations/0009_instrument_catalog_resolution.sql', import.meta.url), 'utf8')
+    const db = new DatabaseSync(':memory:')
+    db.exec(migration)
+    db.exec(resolution)
+
+    expect(db.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'instrument_%' ORDER BY name",
+    ).all()).toEqual([
+      { name: 'instrument_catalog' },
+      { name: 'instrument_tick_sizes' },
+    ])
+    expect(db.prepare('PRAGMA table_info(instrument_catalog)').all().map((column) => column.name))
+      .not.toContain('raw_json')
+    expect(db.prepare('PRAGMA table_info(instrument_catalog)').all().map((column) => column.name))
+      .toEqual(expect.arrayContaining(['resolution_status', 'identity_source']))
+    db.close()
+  })
+
+  it('splits source facts into constrained tables and composes only through views', async () => {
+    const initial = await readFile(new URL('../migrations/0001_spice.sql', import.meta.url), 'utf8')
+    const catalystDescription = await readFile(
+      new URL('../migrations/0004_catalyst_description.sql', import.meta.url),
+      'utf8',
+    )
+    const publicUniverse = await readFile(new URL('../migrations/0003_public_market_universe.sql', import.meta.url), 'utf8')
+    const instrumentCatalog = await readFile(new URL('../migrations/0008_instrument_catalog.sql', import.meta.url), 'utf8')
+    const instrumentResolution = await readFile(
+      new URL('../migrations/0009_instrument_catalog_resolution.sql', import.meta.url),
+      'utf8',
+    )
+    const sourceTables = await readFile(
+      new URL('../migrations/0010_source_specific_market_data.sql', import.meta.url),
+      'utf8',
+    )
+    const db = new DatabaseSync(':memory:')
+    db.exec(initial)
+    db.exec(publicUniverse)
+    db.exec(catalystDescription)
+    db.exec(instrumentCatalog)
+    db.exec(instrumentResolution)
+    db.prepare(
+      `INSERT INTO catalysts
+        (id, symbol, kind, title, event_date, timing, confidence, source_name,
+         source_url, updated_at, last_seen_at)
+       VALUES (
+        'tastytrade:NVDA:earnings', 'NVDA', 'earnings', 'NVDA earnings', '2026-11-01',
+        'after-hours', 'estimated', 'tastytrade market metrics', 'https://example.com', 'now', 'now'
+       )`,
+    ).run()
+
+    db.exec(sourceTables)
+
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'catalysts'").get())
+      .toBeUndefined()
+    expect(db.prepare('SELECT id, source_label FROM tastytrade_catalysts').get()).toEqual({
+      id: 'tastytrade:NVDA:earnings',
+      source_label: 'tastytrade market metrics',
+    })
+    expect(() => db.prepare(
+      `INSERT INTO x_catalysts
+        (id, symbol, kind, title, description, event_date, timing, confidence,
+         source_label, source_url, updated_at, last_seen_at)
+       VALUES (
+        'reddit:wrong-source', 'NVDA', 'conference', 'Event', 'Description', '2026-11-01',
+        'unknown', 'estimated', 'Reddit · r/wallstreetbets', 'https://example.com', 'now', 'now'
+       )`,
+    ).run()).toThrow()
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'view' ORDER BY name").all())
+      .toEqual(expect.arrayContaining([
+        { name: 'public_market_overview' },
+        { name: 'upcoming_catalysts' },
+      ]))
+    db.close()
+  })
 })

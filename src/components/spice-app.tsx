@@ -20,6 +20,7 @@ import {
   syncFromCloud,
   syncStateCollection,
   tickerCollection,
+  togglePinnedTicker,
   watchlistCollection,
 } from '../data/collections'
 import { type Watchlist } from '../domain/market'
@@ -214,8 +215,9 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
                 onOpenPicker={openPicker}
                 onSelectWatchlist={chooseWatchlist}
                 onSelectTicker={chooseSymbol}
+                onTogglePinned={(symbol) => void togglePinnedTicker(symbol)}
+                pinnedSymbols={preference?.pinnedSymbols ?? []}
                 selected={selected}
-                showAccountIntent={Boolean(viewer)}
                 tickers={tickers}
                 watchlists={watchlists}
               />

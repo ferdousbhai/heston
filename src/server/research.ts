@@ -1,6 +1,6 @@
 import { marketDate, type Catalyst } from '../domain/catalyst'
 import { type JsonValue } from '../domain/json-payload'
-import { ResearchBriefSchema, type ResearchBrief } from '../domain/market'
+import { ResearchBriefSchema, type ResearchBrief, type Ticker } from '../domain/market'
 import { persistResearchedCatalysts } from './catalysts'
 import { SPICE_AI_GATEWAY } from './ai-gateway'
 import { type AppEnv } from './env'
@@ -77,16 +77,22 @@ export async function generateDailyResearch(env: AppEnv, now = new Date()): Prom
     marketMoverResearch().collect(now),
   ])
   const focusSymbols = new Set(symbols)
-  const compactMarket = snapshot.tickers.filter((ticker) => focusSymbols.has(ticker.symbol)).map((ticker) => ({
-    symbol: ticker.symbol,
-    name: ticker.name,
-    price: ticker.price,
-    ivRank: ticker.ivRank,
-    ivPercentile: ticker.ivPercentile,
-    ivIndex: ticker.ivIndex,
-    liquidity: ticker.liquidity,
-    earningsDate: ticker.earningsDate,
-  }))
+  const compactMarket = snapshot.tickers.filter((ticker) => focusSymbols.has(ticker.symbol)).map((ticker) => {
+    const compact: Pick<Ticker,
+      'earningsDate' | 'ivIndex' | 'ivPercentile' | 'ivRank' | 'liquidity' | 'marketCap' | 'name' | 'price' | 'symbol' | 'volume'> = {
+        symbol: ticker.symbol,
+        name: ticker.name,
+        price: ticker.price,
+        ivRank: ticker.ivRank,
+        ivPercentile: ticker.ivPercentile,
+        ivIndex: ticker.ivIndex,
+        liquidity: ticker.liquidity,
+        earningsDate: ticker.earningsDate,
+      }
+    if (ticker.marketCap !== undefined) compact.marketCap = ticker.marketCap
+    if (ticker.volume !== undefined) compact.volume = ticker.volume
+    return compact
+  })
   const evidence = bindEvidenceSymbols([
     ...officialEvidence,
     ...redditEvidence,
@@ -158,7 +164,7 @@ export async function generateDailyResearch(env: AppEnv, now = new Date()): Prom
     'scheduled-research',
     now,
   )
-  await persistResearchedCatalysts(env, redditCatalysts, now)
+  await persistResearchedCatalysts(env, 'reddit', redditCatalysts, now)
   if (env.DB) {
     await env.DB.prepare(
       `INSERT INTO research_briefs (id, published_at, payload_json)

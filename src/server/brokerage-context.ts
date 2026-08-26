@@ -93,7 +93,7 @@ export function buildExpiryAwareness(positions: readonly BrokeragePosition[], no
 }
 
 type AgentMarketTicker = Pick<Ticker,
-  'changePercent' | 'earningsDate' | 'ivIndex' | 'ivPercentile' | 'ivRank' | 'liquidity' | 'price' | 'symbol'>
+  'changePercent' | 'earningsDate' | 'ivIndex' | 'ivPercentile' | 'ivRank' | 'liquidity' | 'marketCap' | 'price' | 'symbol' | 'volume'>
 
 /** The market slice of Dan's runtime context, keyed by the symbols his positions actually touch. */
 type AgentMarketContext = {
@@ -275,7 +275,8 @@ export function buildAgentRuntimeContext(
     .map((ticker) => [ticker.symbol.toUpperCase(), ticker]))
   const marketMetrics = Object.fromEntries([...relevantSymbols].flatMap((symbol) => {
     const ticker = tickerBySymbol.get(symbol)
-    return ticker ? [[symbol, {
+    if (!ticker) return []
+    const metrics: Omit<AgentMarketTicker, 'symbol'> = {
       price: ticker.price,
       changePercent: ticker.changePercent,
       ivIndex: ticker.ivIndex,
@@ -283,7 +284,10 @@ export function buildAgentRuntimeContext(
       ivPercentile: ticker.ivPercentile,
       liquidity: ticker.liquidity,
       earningsDate: ticker.earningsDate,
-    }]] : []
+    }
+    if (ticker.marketCap !== undefined) metrics.marketCap = ticker.marketCap
+    if (ticker.volume !== undefined) metrics.volume = ticker.volume
+    return [[symbol, metrics]]
   }))
   const marketContext: AgentMarketContext = {}
   if (selectedTicker) marketContext.selectedSymbol = selectedTicker.symbol

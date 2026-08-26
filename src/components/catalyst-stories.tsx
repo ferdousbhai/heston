@@ -55,7 +55,11 @@ export function CatalystStories({
         ))}
         {!visible.length && (
           <Empty className="story-empty">
-            <EmptyHeader><EmptyDescription>Nothing scheduled in the next 30 days.</EmptyDescription></EmptyHeader>
+            <EmptyHeader>
+              <EmptyDescription>
+                {tickers.length ? 'No pinned catalysts are scheduled in the next 30 days.' : 'Pin a ticker to see its upcoming events.'}
+              </EmptyDescription>
+            </EmptyHeader>
           </Empty>
         )}
       </div>

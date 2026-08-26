@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  fiftyTwoWeekPosition,
   formatMarketMetric,
   MarketSnapshotSchema,
   parseStoredResearchBrief,
@@ -28,6 +29,12 @@ describe('volatility classification', () => {
   it('treats high rank or percentile as rich', () => {
     expect(volatilityVerdict({ ivRank: 75, ivPercentile: 60 })).toBe('rich')
     expect(volatilityVerdict({ ivRank: 50, ivPercentile: 82 })).toBe('rich')
+  })
+
+  it('places the current price within a valid 52-week range', () => {
+    expect(fiftyTwoWeekPosition({ price: 75, yearLow: 50, yearHigh: 100 })).toBe(50)
+    expect(fiftyTwoWeekPosition({ price: 125, yearLow: 50, yearHigh: 100 })).toBe(100)
+    expect(fiftyTwoWeekPosition({ price: 75, yearLow: 50 })).toBeUndefined()
   })
 })
 
@@ -115,15 +122,17 @@ describe('tastytrade normalization', () => {
   it('rejects incomplete live ticker facts instead of filling estimates', () => {
     const quote = {
       symbol: 'SPY', mark: '700', 'previous-close': '695',
+      volume: '12345678',
       'updated-at': '2026-08-13T13:31:00.000Z',
     }
     const metrics = {
       symbol: 'SPY', 'implied-volatility-index': '0.18',
       'implied-volatility-index-rank': '0.25', 'implied-volatility-percentile': '0.3',
-      'liquidity-rating': '5',
+      'liquidity-rating': '5', 'market-cap': '900000000000',
     }
     expect(liveTickerFromRecords('SPY', metrics, quote, true)).toMatchObject({
       symbol: 'SPY', price: 700, ivIndex: 18, ivRank: 25, ivPercentile: 30,
+      marketCap: 900_000_000_000, volume: 12_345_678,
       position: true, updatedAt: '2026-08-13T13:31:00.000Z',
     })
     expect(liveTickerFromRecords('SPCX', metrics, quote, false, {
@@ -134,6 +143,46 @@ describe('tastytrade normalization', () => {
     }, false)?.change).toBe(5)
     expect(liveTickerFromRecords('SPY', undefined, quote, false)).toBeUndefined()
     expect(liveTickerFromRecords('SPY', metrics, { ...quote, 'updated-at': undefined }, false)).toBeUndefined()
+  })
+
+  it('normalizes optional volatility, instrument, borrow, and 52-week enrichment', () => {
+    const ticker = liveTickerFromRecords('SPY', {
+      symbol: 'SPY',
+      'historical-volatility-30-day': '0.14',
+      'implied-volatility-index': '0.18',
+      'implied-volatility-index-5-day-change': '-0.02',
+      'implied-volatility-index-rank': '0.25',
+      'implied-volatility-percentile': '0.3',
+      'iv-hv-30-day-difference': '0.04',
+      'liquidity-rating': '5',
+      'option-expiration-implied-volatilities': [
+        { 'expiration-date': '2026-09-11T20:00:00Z', 'implied-volatility': '0.19', 'option-chain-type': 'Standard' },
+        { 'expiration-date': '2026-09-04T20:00:00Z', 'implied-volatility': '0.21', 'option-chain-type': 'Standard' },
+      ],
+    }, {
+      symbol: 'SPY', mark: '700', 'previous-close': '695',
+      'updated-at': '2026-08-13T13:31:00.000Z',
+      'year-high-price': '710', 'year-low-price': '480',
+    }, false, {
+      symbol: 'SPY', description: 'SPDR S&P 500 ETF', 'borrow-rate': '0.004',
+      lendability: 'Easy To Borrow', 'is-etf': true,
+    })
+
+    expect(ticker).toMatchObject({
+      assetType: 'etf',
+      borrowRate: 0.4,
+      ivHistoricalVolatility30DayDifference: 4,
+      ivIndex5DayChange: -2,
+      ivTermStructure: {
+        frontExpiration: '2026-09-04', frontIv: 21,
+        backExpiration: '2026-09-11', backIv: 19,
+      },
+      lendability: 'Easy To Borrow',
+      name: 'SPDR S&P 500 ETF',
+      yearHigh: 710,
+      yearLow: 480,
+    })
+    expect(ticker?.historicalVolatility30Day).toBeCloseTo(14)
   })
 
   it('starts candle history at the current or most recent equity session open', () => {

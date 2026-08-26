@@ -11,6 +11,43 @@ afterEach(() => {
   vi.resetModules()
 })
 
+function storedCatalogRow(symbol: string) {
+  return {
+    active: 1,
+    borrow_rate: null,
+    bypass_manual_review: 0,
+    country_of_incorporation: null,
+    country_of_taxation: null,
+    created_at: '2026-08-26T12:00:00.000Z',
+    description: symbol,
+    halted_at: null,
+    identity_refreshed_at: '2026-08-26T12:00:00.000Z',
+    identity_source: 'equity-endpoint',
+    instrument_sub_type: null,
+    instrument_type: 'Equity',
+    is_closing_only: 0,
+    is_etf: 0,
+    is_fractional_quantity_eligible: null,
+    is_illiquid: 0,
+    is_index: 0,
+    is_options_closing_only: 0,
+    lendability: null,
+    listed_market: null,
+    market_time_instrument_collection: null,
+    overnight_trading_permitted: null,
+    pre_ipo: 0,
+    resolution_status: 'resolved',
+    short_description: null,
+    source_name: 'tastytrade',
+    status_refreshed_at: '2026-08-26T12:00:00.000Z',
+    stops_trading_at: null,
+    streamer_symbol: symbol,
+    symbol,
+    underlying_product_type: null,
+    updated_at: '2026-08-26T12:00:00.000Z',
+  }
+}
+
 describe('public market boundary', () => {
   it('bounds oversized private universes deterministically without source-priority ordering', async () => {
     const symbols = Array.from({ length: 120 }, (_, index) => {
@@ -65,6 +102,9 @@ describe('public market boundary', () => {
       '../migrations/0003_public_market_universe.sql',
       '../migrations/0004_catalyst_description.sql',
       '../migrations/0006_internal_watchlist.sql',
+      '../migrations/0008_instrument_catalog.sql',
+      '../migrations/0009_instrument_catalog_resolution.sql',
+      '../migrations/0010_source_specific_market_data.sql',
     ]
     const migrations = await Promise.all(migrationUrls.map((url) => readFile(new URL(url, import.meta.url), 'utf8')))
     const store = sqliteD1(migrations)
@@ -100,7 +140,9 @@ describe('public market boundary', () => {
         symbol, mark: '100', 'previous-close': '98', description: symbol,
         'updated-at': '2026-08-26T13:31:00.000Z',
       })) } })
-      if (url.includes('/instruments/equities')) return Response.json({ data: { items: symbols.map((symbol) => ({ symbol, description: symbol })) } })
+      if (url.includes('/instruments/equities')) return Response.json({ data: { items: symbols.map((symbol) => ({
+        active: true, description: symbol, 'instrument-type': 'Equity', symbol,
+      })) } })
       return new Response('', { status: 404 })
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -142,9 +184,6 @@ describe('public market boundary', () => {
         symbol, mark: '100', 'previous-close': '98', description: symbol,
         'updated-at': '2026-08-26T13:31:00.000Z',
       })) } })
-      // Instrument descriptions are optional enrichment. A malformed successful
-      // catalog response must still leave quote descriptions usable.
-      if (url.includes('/instruments/equities')) return Response.json({ data: { unexpected: true } })
       return new Response('', { status: 404 })
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -162,8 +201,14 @@ describe('public market boundary', () => {
         },
         bind: () => ({
           ...unsupportedStatement(),
-          all: async () => {
-            if (sql.includes('FROM catalysts')) return d1Result([])
+          all: async <T>() => {
+            if (sql.includes('FROM upcoming_catalysts')) return d1Result<T>([])
+            if (sql.includes('FROM instrument_catalog')) {
+              const rows = ['BE', 'NVDA'].map(storedCatalogRow)
+              // SAFETY: this branch exactly models the catalog row selected by production SQL.
+              return d1Result(rows as T[])
+            }
+            if (sql.includes('FROM instrument_tick_sizes')) return d1Result<T>([])
             throw new Error(`Unexpected all query: ${sql}`)
           },
         }),
@@ -187,7 +232,6 @@ describe('public market boundary', () => {
     ])
     const requestedUrls = fetchMock.mock.calls.map(([input]) => String(input))
     expect(requestedUrls.some((url) => url.includes('/accounts/') || url.includes('/watchlists'))).toBe(false)
-    expect(requestedUrls.some((url) => url.includes('/instruments/equities')
-      && url.includes('symbol[]=BE') && url.includes('symbol[]=NVDA'))).toBe(true)
+    expect(requestedUrls.some((url) => url.includes('/instruments/equities'))).toBe(false)
   })
 })

@@ -1,4 +1,7 @@
 import { type CandlePoint } from '../domain/candle'
+import { toError } from '../domain/failure'
+import { isValidIsoDate } from '../domain/catalyst'
+import { type InstrumentCatalogItem } from '../domain/instrument'
 import {
   MarketSnapshotSchema,
   parseStoredResearchBrief,
@@ -13,7 +16,7 @@ import {
   ensureInternalWatchlistSeeded,
   previewInternalWatchlistSeed,
   readInternalWatchlist,
-  selectInternalWatchlistFocus,
+  readInternalWatchlistFocus,
   type InternalWatchlistSeedPayloads,
   type InternalWatchlistSeedPreview,
 } from './internal-watchlist'
@@ -21,13 +24,23 @@ import {
   JsonArraySchema,
   jsonNumber,
   JsonObjectArraySchema,
+  jsonObject,
   jsonObjectOrEmpty,
   jsonText,
   type JsonObject,
   type JsonValue,
 } from '../domain/json-payload'
 import { readStoredSecret } from './secrets'
+import {
+  missingInstrumentCatalogSymbols,
+  loadInstrumentCatalog,
+  persistInstrumentCatalog,
+  readInstrumentCatalog,
+  type InstrumentCatalogRefresh,
+  unresolvedInstrumentCatalogItem,
+} from './instrument-catalog'
 import { tastytradeApiVersion } from './tastytrade-version'
+import { persistTastytradeMarketSnapshot } from './tastytrade-market-store'
 import {
   loadStoredPublicMarketUniverse,
   MAX_PUBLIC_MARKET_SYMBOLS,
@@ -73,6 +86,47 @@ function previousCloseValue(quote: JsonObject | undefined): number | undefined {
 export function percentMetric(value: JsonValue, max = 100): number | undefined {
   const parsed = jsonNumber(value)
   return parsed === undefined ? undefined : bounded(parsed * 100, 0, max)
+}
+
+/** Rate deltas and borrow costs use the same decimal-ratio wire format but may be negative. */
+function signedPercentMetric(value: JsonValue, maxAbsolute = 10_000): number | undefined {
+  const parsed = jsonNumber(value)
+  return parsed === undefined ? undefined : bounded(parsed * 100, -maxAbsolute, maxAbsolute)
+}
+
+function optionTermStructure(metrics: JsonObject): Ticker['ivTermStructure'] {
+  const rows = JsonArraySchema.safeParse(
+    metrics['option-expiration-implied-volatilities'] ?? metrics.optionExpirationImpliedVolatilities,
+  ).data ?? []
+  const candidates = rows.flatMap((value) => {
+    const row = jsonObject(value)
+    const rawExpiration = jsonText(row?.['expiration-date'] ?? row?.expirationDate)
+    const expiration = rawExpiration?.slice(0, 10)
+    const impliedVolatility = percentMetric(row?.['implied-volatility'] ?? row?.impliedVolatility, 1_000)
+    if (!expiration || !isValidIsoDate(expiration) || impliedVolatility === undefined) return []
+    return [{
+      chainType: jsonText(row?.['option-chain-type'] ?? row?.optionChainType) ?? '',
+      expiration,
+      impliedVolatility,
+    }]
+  }).sort((left, right) => left.expiration.localeCompare(right.expiration)
+    || Number(right.chainType === 'Standard') - Number(left.chainType === 'Standard')
+    || left.chainType.localeCompare(right.chainType))
+  const distinct = [...new Map(candidates.map((candidate) => [candidate.expiration, candidate])).values()]
+  const [front, back] = distinct
+  return front && back ? {
+    backExpiration: back.expiration,
+    backIv: back.impliedVolatility,
+    frontExpiration: front.expiration,
+    frontIv: front.impliedVolatility,
+  } : undefined
+}
+
+function assetType(instrument: JsonObject | undefined): Ticker['assetType'] {
+  if (!instrument) return undefined
+  if (instrument['is-index'] === true || instrument.isIndex === true) return 'index'
+  if (instrument['is-etf'] === true || instrument.isEtf === true) return 'etf'
+  return 'stock'
 }
 
 function apiBase(env: AppEnv) {
@@ -254,14 +308,6 @@ function strictRows(payload: JsonValue, label: string): JsonObject[] {
   return rows
 }
 
-function optionalRows(payload: JsonValue, label: string): JsonObject[] {
-  try {
-    return strictRows(payload, label)
-  } catch {
-    return []
-  }
-}
-
 export function liveTickerFromRecords(
   symbol: string,
   metrics: JsonObject | undefined,
@@ -278,6 +324,12 @@ export function liveTickerFromRecords(
   const ivRank = percentMetric(metrics['implied-volatility-index-rank'] ?? metrics['implied-volatility-rank'])
   const ivPercentile = percentMetric(metrics['implied-volatility-percentile'])
   const liquidityValue = jsonNumber(metrics['liquidity-rating'])
+  const marketCap = jsonNumber(metrics['market-cap'] ?? metrics.marketCap)
+  const volume = jsonNumber(quote.volume ?? quote['day-volume'])
+  const candidateYearLow = jsonNumber(quote.yearLowPrice ?? quote['year-low-price'])
+  const candidateYearHigh = jsonNumber(quote.yearHighPrice ?? quote['year-high-price'])
+  const hasYearRange = candidateYearLow !== undefined && candidateYearLow > 0
+    && candidateYearHigh !== undefined && candidateYearHigh > candidateYearLow
   const quoteUpdatedAt = jsonText(quote?.updatedAt ?? quote?.['updated-at'])
   const quoteTime = Date.parse(quoteUpdatedAt ?? '')
   if (price === undefined || price <= 0 || previousClose === undefined || previousClose <= 0
@@ -292,6 +344,10 @@ export function liveTickerFromRecords(
   return {
     symbol,
     name: jsonText(instrument?.description ?? instrument?.['short-description'] ?? quote.description) ?? symbol,
+    assetType: assetType(instrument),
+    borrowRate: signedPercentMetric(metrics['borrow-rate'] ?? instrument?.['borrow-rate'] ?? instrument?.borrowRate),
+    lendability: jsonText(metrics.lendability ?? instrument?.lendability),
+    marketCap: marketCap !== undefined && marketCap >= 0 ? marketCap : undefined,
     price,
     change,
     changePercent,
@@ -299,10 +355,38 @@ export function liveTickerFromRecords(
     ivRank,
     ivPercentile,
     ivIndex,
+    ivIndex5DayChange: signedPercentMetric(
+      metrics['implied-volatility-index-5-day-change'] ?? metrics.impliedVolatilityIndex5DayChange,
+      1_000,
+    ),
+    historicalVolatility30Day: percentMetric(
+      metrics['historical-volatility-30-day'] ?? metrics.historicalVolatility30Day,
+      1_000,
+    ),
+    ivHistoricalVolatility30DayDifference: signedPercentMetric(
+      metrics['iv-hv-30-day-difference'] ?? metrics.ivHv30DayDifference,
+      1_000,
+    ),
+    ivTermStructure: optionTermStructure(metrics),
     liquidity: bounded(liquidityValue, 0, 5),
+    volume: volume !== undefined && volume >= 0 ? volume : undefined,
+    yearHigh: hasYearRange ? candidateYearHigh : undefined,
+    yearLow: hasYearRange ? candidateYearLow : undefined,
     earningsDate: earningsDateFromMetric(metrics),
     position,
     updatedAt: new Date(quoteTime).toISOString(),
+  }
+}
+
+function catalogTickerInstrument(item: InstrumentCatalogItem | undefined): JsonObject | undefined {
+  if (!item) return undefined
+  return {
+    'borrow-rate': item.borrowRate,
+    description: item.description,
+    'is-etf': item.isEtf,
+    'is-index': item.isIndex,
+    lendability: item.lendability,
+    'short-description': item.shortDescription,
   }
 }
 
@@ -362,11 +446,12 @@ async function loadMarketFacts(
 ): Promise<Pick<MarketSnapshot, 'catalysts' | 'tickers'>> {
   const metricQuery = symbols.map(encodeURIComponent).join(',')
   const marketDataQuery = symbols.map((symbol) => `equity=${encodeURIComponent(symbol)}`).join('&')
-  const instrumentQuery = symbols.map((symbol) => `symbol[]=${encodeURIComponent(symbol)}`).join('&')
-  const [metricsResult, marketDataResult, instrumentsResult] = await Promise.allSettled([
-    symbols.length ? tastyRequest(env, `/market-metrics?symbols=${metricQuery}`) : Promise.resolve([]),
-    symbols.length ? tastyRequest(env, `/market-data/by-type?${marketDataQuery}`) : Promise.resolve([]),
-    symbols.length ? tastyRequest(env, `/instruments/equities?${instrumentQuery}`) : Promise.resolve([]),
+  const [[metricsResult, marketDataResult], instrumentCatalog] = await Promise.all([
+    Promise.allSettled([
+      symbols.length ? tastyRequest(env, `/market-metrics?symbols=${metricQuery}`) : Promise.resolve([]),
+      symbols.length ? tastyRequest(env, `/market-data/by-type?${marketDataQuery}`) : Promise.resolve([]),
+    ]),
+    readInstrumentCatalog(env, symbols),
   ])
   if (symbols.length && (metricsResult.status !== 'fulfilled' || marketDataResult.status !== 'fulfilled')) {
     throw new Error('TastytradeSnapshot:market-data-unavailable')
@@ -377,21 +462,15 @@ async function loadMarketFacts(
   const quotes = symbols.length
     ? strictRows(marketDataResult.status === 'fulfilled' ? marketDataResult.value : [], 'TastytradeMarketData')
     : []
-  // Instrument names improve identity checks, but a transient catalog failure
-  // or malformed optional response must not take the public volatility snapshot offline.
-  const instruments = symbols.length && instrumentsResult.status === 'fulfilled'
-    ? optionalRows(instrumentsResult.value, 'TastytradeInstruments')
-    : []
   const metricBySymbol = new Map(metrics.map((row) => [jsonText(row.symbol), row]))
   const quoteBySymbol = new Map(quotes.map((row) => [jsonText(row.symbol), row]))
-  const instrumentBySymbol = new Map(instruments.map((row) => [jsonText(row.symbol), row]))
   const tickers = symbols.flatMap((symbol) => {
     const ticker = liveTickerFromRecords(
       symbol,
       metricBySymbol.get(symbol),
       quoteBySymbol.get(symbol),
       positionSymbols.has(symbol),
-      instrumentBySymbol.get(symbol),
+      catalogTickerInstrument(instrumentCatalog.get(symbol)),
     )
     return ticker ? [ticker] : []
   })
@@ -424,6 +503,9 @@ async function loadMarketFacts(
     catalystsFromMarketMetrics(metrics),
     metricSymbols,
   )
+  await persistTastytradeMarketSnapshot(env, tickers).catch((cause) => {
+    console.error('TastytradeMarketStoreFailed', toError(cause)?.message ?? 'UnknownError')
+  })
   const allowedSymbols = new Set(symbols)
   return {
     tickers,
@@ -441,6 +523,92 @@ export function selectSnapshotSymbols(
     ...positionSymbols,
     ...internalWatchlistSymbols,
   ])].slice(0, MAX_PUBLIC_MARKET_SYMBOLS)
+}
+
+function equityInstrumentPath(symbols: readonly string[]): string {
+  const query = symbols.map((symbol) => `symbol[]=${encodeURIComponent(symbol)}`).join('&')
+  return `/instruments/equities?per-page=${symbols.length}&${query}`
+}
+
+async function loadTastytradeInstrumentCatalog(
+  env: AppEnv,
+  symbols: readonly string[],
+  now: Date,
+) {
+  const bulk = await loadInstrumentCatalog(
+    symbols,
+    (chunk) => tastyRequest(env, equityInstrumentPath(chunk)),
+    now,
+  )
+  const recovered: InstrumentCatalogItem[] = []
+  for (const symbol of bulk.missingSymbols) {
+    try {
+      const single = await loadInstrumentCatalog(
+        [symbol],
+        () => tastyRequest(env, `/instruments/equities/${encodeURIComponent(symbol)}`),
+        now,
+      )
+      recovered.push(...single.items)
+    } catch {
+      // Missing or non-Equity watchlist rows remain explicit in the operation result.
+    }
+  }
+  const items = [...bulk.items, ...recovered]
+  const received = new Set(items.map((item) => item.symbol))
+  return {
+    items,
+    missingSymbols: symbols.filter((symbol) => !received.has(symbol)),
+    requestedCount: bulk.requestedCount,
+  }
+}
+
+export async function previewInternalInstrumentCatalogFromTastytrade(
+  env: AppEnv,
+  now = new Date(),
+): Promise<{ missingSymbols: string[]; receivedCount: number; requestedCount: number }> {
+  const symbols = (await readInternalWatchlist(env)).map((item) => item.symbol)
+  const result = await loadTastytradeInstrumentCatalog(env, symbols, now)
+  return {
+    missingSymbols: result.missingSymbols,
+    receivedCount: result.items.length,
+    requestedCount: result.requestedCount,
+  }
+}
+
+/** Refresh the typed catalog from tastytrade without retaining its raw response. */
+export async function refreshTastytradeInstrumentCatalog(
+  env: AppEnv,
+  symbols: readonly string[],
+  now = new Date(),
+): Promise<InstrumentCatalogRefresh> {
+  const result = await loadTastytradeInstrumentCatalog(env, symbols, now)
+  await persistInstrumentCatalog(env, [
+    ...result.items,
+    ...result.missingSymbols.map((symbol) => unresolvedInstrumentCatalogItem(symbol, now)),
+  ])
+  return {
+    missingSymbols: result.missingSymbols,
+    receivedCount: result.items.length,
+    requestedCount: result.requestedCount,
+  }
+}
+
+/** Daily catalog job covers the full private list, not only the public 100-symbol working set. */
+export async function refreshInternalInstrumentCatalogFromTastytrade(
+  env: AppEnv,
+  now = new Date(),
+): Promise<InstrumentCatalogRefresh> {
+  const symbols = (await readInternalWatchlist(env)).map((item) => item.symbol)
+  return refreshTastytradeInstrumentCatalog(env, symbols, now)
+}
+
+async function refreshMissingTastytradeInstruments(
+  env: AppEnv,
+  symbols: readonly string[],
+  now = new Date(),
+): Promise<void> {
+  const missing = await missingInstrumentCatalogSymbols(env, symbols)
+  if (missing.length) await refreshTastytradeInstrumentCatalog(env, missing, now)
 }
 
 async function loadTastytradeWatchlistSeedPayloads(env: AppEnv): Promise<InternalWatchlistSeedPayloads> {
@@ -465,8 +633,7 @@ async function loadMarketSnapshot(
   options: MarketSnapshotOptions = {},
 ): Promise<MarketSnapshot> {
   const accountNumber = await resolveAccountNumber(env)
-  const [internalItems, positionPayload, sessionPayload] = await Promise.all([
-    readInternalWatchlist(env),
+  const [positionPayload, sessionPayload] = await Promise.all([
     tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/positions`),
     tastyRequest(env, '/market-time/equities/sessions/current').catch(() => undefined),
   ])
@@ -478,7 +645,7 @@ async function loadMarketSnapshot(
   const positionList: Watchlist = {
     id: 'positions', kind: 'positions', name: 'Active Positions', symbols: positionSymbols,
   }
-  const focusSymbols = selectInternalWatchlistFocus(internalItems, positionSymbols, MAX_PUBLIC_MARKET_SYMBOLS)
+  const focusSymbols = await readInternalWatchlistFocus(env, positionSymbols, MAX_PUBLIC_MARKET_SYMBOLS)
   const privateWatchlist: Watchlist = {
     id: 'watchlist',
     kind: 'private',
@@ -490,6 +657,9 @@ async function loadMarketSnapshot(
     .map((symbol) => symbol.trim().toUpperCase())
     .filter((symbol) => /^[A-Z.]{1,8}$/.test(symbol))
   const symbols = selectSnapshotSymbols(positionSymbols, requestedSymbols, privateWatchlist.symbols)
+  // New owner, agent, research, and position symbols get an authoritative name
+  // immediately; existing catalog rows wait for the daily full status refresh.
+  await refreshMissingTastytradeInstruments(env, symbols)
   const { catalysts, tickers } = await loadMarketFacts(env, symbols, new Set(positionSymbols))
   const marketState = marketStateFromSession(sessionPayload)
 

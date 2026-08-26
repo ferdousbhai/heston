@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { CatalystSchema } from './catalyst'
+import { CatalystSchema, isValidIsoDate } from './catalyst'
 import { CandlePointSchema } from './candle'
 import { type JsonValue } from './json-payload'
 
@@ -13,9 +13,22 @@ export const WatchlistSchema = z.object({
   symbols: z.array(z.string()),
 })
 
+const MarketDateSchema = z.string().refine(isValidIsoDate, 'Use a real YYYY-MM-DD date')
+
+const IvTermStructureSchema = z.object({
+  backExpiration: MarketDateSchema,
+  backIv: z.number().min(0),
+  frontExpiration: MarketDateSchema,
+  frontIv: z.number().min(0),
+})
+
 export const TickerSchema = z.object({
   symbol: z.string(),
   name: z.string(),
+  assetType: z.enum(['stock', 'etf', 'index']).optional(),
+  borrowRate: z.number().optional(),
+  lendability: z.string().optional(),
+  marketCap: z.number().nonnegative().optional(),
   price: z.number(),
   change: z.number(),
   changePercent: z.number(),
@@ -23,7 +36,14 @@ export const TickerSchema = z.object({
   ivRank: z.number().min(0).max(100),
   ivPercentile: z.number().min(0).max(100),
   ivIndex: z.number().min(0),
+  ivIndex5DayChange: z.number().optional(),
+  historicalVolatility30Day: z.number().min(0).optional(),
+  ivHistoricalVolatility30DayDifference: z.number().optional(),
+  ivTermStructure: IvTermStructureSchema.optional(),
   liquidity: z.number().min(0).max(5),
+  volume: z.number().nonnegative().optional(),
+  yearHigh: z.number().positive().optional(),
+  yearLow: z.number().positive().optional(),
   earningsDate: z.string().nullable(),
   position: z.boolean(),
   updatedAt: z.string(),
@@ -159,6 +179,15 @@ const marketMetricFormatter = new Intl.NumberFormat('en-US', { maximumFractionDi
 
 export function formatMarketMetric(value: number): string {
   return marketMetricFormatter.format(value)
+}
+
+export function fiftyTwoWeekPosition(
+  ticker: Pick<Ticker, 'price' | 'yearHigh' | 'yearLow'>,
+): number | undefined {
+  if (ticker.yearLow === undefined || ticker.yearHigh === undefined || ticker.yearHigh <= ticker.yearLow) {
+    return undefined
+  }
+  return Math.min(100, Math.max(0, ((ticker.price - ticker.yearLow) / (ticker.yearHigh - ticker.yearLow)) * 100))
 }
 
 export function volatilityVerdict(ticker: Pick<Ticker, 'ivRank' | 'ivPercentile'>): VolatilityVerdict {

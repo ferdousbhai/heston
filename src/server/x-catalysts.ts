@@ -213,7 +213,7 @@ async function runXCatalystResearchForSymbols(
   await recordRun(env, { ...run, status: 'running' })
   try {
     const result = await discoverXCatalysts(env, symbols, now, fetch, run.id, parentRunId)
-    await persistResearchedCatalysts(env, result.catalysts, now)
+    await persistResearchedCatalysts(env, 'x', result.catalysts, now)
     await recordRun(env, { ...run, status: 'completed', accepted: result.catalysts.length, rejected: result.rejected, completedAt: new Date().toISOString() })
     return result
   } catch (error) {

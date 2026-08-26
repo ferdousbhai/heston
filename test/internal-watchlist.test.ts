@@ -8,18 +8,24 @@ import {
   readInternalWatchlist,
   readInternalWatchlistSeedAudit,
   readInternalWatchlistSymbolDetails,
+  pruneInternalWatchlistToFocus,
+  removeInternalWatchlistSymbols,
   selectInternalWatchlistFocus,
 } from '../src/server/internal-watchlist'
 import { sqliteD1 } from './sqlite-d1'
 
 let publicUniverseMigration: string
 let internalWatchlistMigration: string
+let instrumentCatalogMigration: string
+let instrumentResolutionMigration: string
 let store: ReturnType<typeof sqliteD1>
 
 beforeAll(async () => {
-  [publicUniverseMigration, internalWatchlistMigration] = await Promise.all([
+  [publicUniverseMigration, internalWatchlistMigration, instrumentCatalogMigration, instrumentResolutionMigration] = await Promise.all([
     readFile(new URL('../migrations/0003_public_market_universe.sql', import.meta.url), 'utf8'),
     readFile(new URL('../migrations/0006_internal_watchlist.sql', import.meta.url), 'utf8'),
+    readFile(new URL('../migrations/0008_instrument_catalog.sql', import.meta.url), 'utf8'),
+    readFile(new URL('../migrations/0009_instrument_catalog_resolution.sql', import.meta.url), 'utf8'),
   ])
 })
 
@@ -151,6 +157,80 @@ describe('one-time tastytrade watchlist seed', () => {
     expect(focus).toEqual(['PLTR', 'ZZZ', 'NVDA'])
     expect(JSON.stringify(focus)).not.toContain('private')
     expect(JSON.stringify(focus)).not.toContain('tastytrade')
+  })
+
+  it('uses retained high-options-volume order only after personal symbols', async () => {
+    const env = { DB: store.database }
+    await ensureInternalWatchlistSeeded(env, async () => payloads(), new Date('2026-08-26T10:00:00.000Z'))
+    const [nvda, pltr] = await readInternalWatchlist(env)
+    const publicSeedItem = (symbol: string) => ({
+      ...pltr!,
+      metadata: { seedSourceIds: ['tastytrade-public-0'] },
+      symbol,
+    })
+    const spiceItem = (symbol: string, origin: 'owner' | 'scheduled-research') => ({
+      ...pltr!,
+      origin,
+      symbol,
+      updatedAt: '2026-08-25T10:00:00.000Z',
+    })
+
+    const focus = selectInternalWatchlistFocus(
+      [
+        nvda!,
+        pltr!,
+        publicSeedItem('AAPL'),
+        publicSeedItem('TSLA'),
+        spiceItem('MSFT', 'owner'),
+        spiceItem('GOOG', 'scheduled-research'),
+      ],
+      [],
+      4,
+      ['TSLA', 'AAPL', 'PLTR'],
+    )
+
+    expect(focus).toEqual(['MSFT', 'GOOG', 'NVDA', 'TSLA'])
+  })
+
+  it('prunes only the maintained list and does not repopulate an explicit deletion', async () => {
+    const boundedStore = sqliteD1([
+      publicUniverseMigration,
+      internalWatchlistMigration,
+      instrumentCatalogMigration,
+      instrumentResolutionMigration,
+    ])
+    const symbolAt = (index: number) => {
+      let value = index + 1
+      let symbol = ''
+      while (value > 0) {
+        value--
+        symbol = String.fromCharCode(65 + value % 26) + symbol
+        value = Math.floor(value / 26)
+      }
+      return symbol
+    }
+    const symbols = Array.from({ length: 105 }, (_, index) => symbolAt(index))
+    const env = { DB: boundedStore.database }
+    await ensureInternalWatchlistSeeded(env, async () => ({
+      privatePayload: [{
+        name: 'Legacy private list',
+        'watchlist-entries': symbols.map((symbol) => ({ symbol, 'instrument-type': 'Equity' })),
+      }],
+      publicPayload: [],
+    }))
+
+    await expect(pruneInternalWatchlistToFocus(env, 100)).resolves.toMatchObject({ removedCount: 5 })
+    expect(await readInternalWatchlist(env)).toHaveLength(100)
+    expect(boundedStore.sqlite.prepare('SELECT count(*) AS count FROM internal_watchlist_seed_entries').get())
+      .toEqual({ count: 105 })
+
+    await removeInternalWatchlistSymbols(env, [symbols[0]!])
+    await expect(pruneInternalWatchlistToFocus(env, 100)).resolves.toMatchObject({
+      kept: expect.not.arrayContaining([symbols[0]!]),
+      removedCount: 0,
+    })
+    expect(await readInternalWatchlist(env)).toHaveLength(99)
+    boundedStore.close()
   })
 
   it('promotes an existing public-seed member without losing retained seed provenance', async () => {

@@ -16,7 +16,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "watchlist:seed": "bash tools/seed-internal-watchlist.sh"
+    "watchlist:seed": "bash tools/seed-internal-watchlist.sh",
+    "catalog:refresh": "bash ops/instrument-catalog/run.sh",
+    "research-focus:publish": "bash ops/research-focus/run.sh",
+    "catalysts:bootstrap": "bash ops/catalyst-research/run.sh"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

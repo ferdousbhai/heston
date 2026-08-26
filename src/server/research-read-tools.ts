@@ -65,8 +65,8 @@ export async function readCatalysts(
   const start = marketDate(now)
   const result = await env.DB.prepare(
     `SELECT id, symbol, kind, title, description, event_date AS date, timing, confidence,
-      source_name AS source, source_url AS "sourceUrl", updated_at AS "updatedAt"
-     FROM catalysts
+      source_label AS source, source_url AS "sourceUrl", updated_at AS "updatedAt"
+     FROM upcoming_catalysts
      WHERE symbol IN (${symbols.map(() => '?').join(', ')})
        AND event_date BETWEEN ? AND ?
      ORDER BY event_date ASC, symbol ASC

@@ -7,8 +7,8 @@ export const Route = createFileRoute('/support')({
   component: SupportPage,
   head: () => ({
     meta: [
-      { title: 'Support — Spice Must Flow' },
-      { name: 'description', content: 'Get help with Spice Must Flow, account access, privacy, or legal questions.' },
+      { title: 'Support | Spice Must Flow' },
+      { name: 'description', content: 'Get help with the public market page or the private Spice Must Flow owner workspace.' },
     ],
   }),
 })
@@ -16,24 +16,24 @@ export const Route = createFileRoute('/support')({
 function SupportPage() {
   return (
     <SitePage
-      intro="A direct line for account access, product questions, and responsible disclosure."
+      intro="Help with the public market page or the private owner workspace."
       title="Support"
     >
       <section>
-        <h2>Product and account help</h2>
-        <p>Email <a href="mailto:support@tryspice.xyz">support@tryspice.xyz</a>. Include the page you were on, what you expected, and what happened. Never send passwords, API keys, brokerage credentials, or full account numbers.</p>
+        <h2>What this site is</h2>
+        <p>Spice Must Flow is a single-owner application with a public, information-only market page. Visitors can read the watchlist, option metrics, catalysts, and daily research. Brokerage positions, balances, Dan, and every trading action are available only inside the owner workspace. There is no public registration or public trading access.</p>
       </section>
       <section>
-        <h2>Privacy and legal</h2>
-        <p>For privacy requests, email <a href="mailto:privacy@tryspice.xyz">privacy@tryspice.xyz</a>. For terms or other legal notices, email <a href="mailto:legal@tryspice.xyz">legal@tryspice.xyz</a>.</p>
+        <h2>Report a problem</h2>
+        <p>Email <a href="mailto:support@tryspice.xyz">support@tryspice.xyz</a> with the page you were viewing, what you expected, and what happened. Never send passwords, API keys, brokerage credentials, confirmation codes, or full account numbers.</p>
       </section>
       <section>
-        <h2>Security reports</h2>
-        <p>Send suspected vulnerabilities privately to <a href="mailto:support@tryspice.xyz?subject=Security%20report">support@tryspice.xyz</a>. Do not access another person’s data, disrupt service, or publish sensitive details before there is time to investigate.</p>
+        <h2>Privacy and security</h2>
+        <p>Send privacy requests to <a href="mailto:privacy@tryspice.xyz">privacy@tryspice.xyz</a> and suspected vulnerabilities privately to <a href="mailto:support@tryspice.xyz?subject=Security%20report">support@tryspice.xyz</a>. Legal notices may be sent to <a href="mailto:legal@tryspice.xyz">legal@tryspice.xyz</a>.</p>
       </section>
       <Alert className="site-callout">
-        <AlertTitle>Before trading</AlertTitle>
-        <AlertDescription>Spice Must Flow is an analysis and workflow tool, not an investment adviser or broker. Review the <Link to="/disclosures">risk disclosures</Link> before relying on market data or drafting an order.</AlertDescription>
+        <AlertTitle>Public information is read-only</AlertTitle>
+        <AlertDescription>The public page cannot access brokerage data or place trades. Market data and research remain informational and may be delayed or wrong. Review the <Link to="/disclosures">risk disclosures</Link>.</AlertDescription>
       </Alert>
     </SitePage>
   )

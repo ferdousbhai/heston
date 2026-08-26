@@ -6,7 +6,7 @@ export const Route = createFileRoute('/disclosures')({
   component: DisclosuresPage,
   head: () => ({
     meta: [
-      { title: 'Risk disclosures — Spice Must Flow' },
+      { title: 'Risk disclosures | Spice Must Flow' },
       { name: 'description', content: 'Important market-data, options-trading, and automated-analysis disclosures for Spice Must Flow.' },
     ],
   }),

@@ -4,7 +4,15 @@ import { jsonObjectOrEmpty, jsonText, type JsonObject, type JsonValue } from '..
 
 const TASTYTRADE_METRICS_URL = 'https://developer.tastytrade.com/open-api-spec/market-metrics/'
 const D1_MAX_BOUND_PARAMETERS = 100
-const DELETE_SYMBOL_CHUNK_SIZE = D1_MAX_BOUND_PARAMETERS - 1
+const DELETE_SYMBOL_CHUNK_SIZE = D1_MAX_BOUND_PARAMETERS
+
+export type ResearchCatalystSource = 'codex-web' | 'reddit' | 'x'
+
+const RESEARCH_CATALYST_TABLES = {
+  'codex-web': 'codex_web_catalysts',
+  reddit: 'reddit_catalysts',
+  x: 'x_catalysts',
+} as const satisfies Record<ResearchCatalystSource, string>
 
 function date(value: JsonValue): string | undefined {
   const candidate = jsonText(value)
@@ -80,19 +88,19 @@ export async function persistAndLoadCatalysts(
     for (let start = 0; start < normalizedSymbols.length; start += DELETE_SYMBOL_CHUNK_SIZE) {
       const symbols = normalizedSymbols.slice(start, start + DELETE_SYMBOL_CHUNK_SIZE)
       statements.push(env.DB.prepare(
-        `DELETE FROM catalysts
-         WHERE source_name = ? AND symbol IN (${symbols.map(() => '?').join(', ')})`,
-      ).bind('tastytrade market metrics', ...symbols))
+        `DELETE FROM tastytrade_catalysts
+         WHERE symbol IN (${symbols.map(() => '?').join(', ')})`,
+      ).bind(...symbols))
     }
     statements.push(...observed.map((catalyst) => env.DB!.prepare(
-        `INSERT INTO catalysts
-          (id, symbol, kind, title, description, event_date, timing, confidence, source_name, source_url, updated_at, last_seen_at)
+        `INSERT INTO tastytrade_catalysts
+          (id, symbol, kind, title, description, event_date, timing, confidence, source_label, source_url, updated_at, last_seen_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
           symbol = excluded.symbol, kind = excluded.kind, title = excluded.title,
           description = excluded.description,
           event_date = excluded.event_date, timing = excluded.timing,
-          confidence = excluded.confidence, source_name = excluded.source_name,
+          confidence = excluded.confidence, source_label = excluded.source_label,
           source_url = excluded.source_url, updated_at = excluded.updated_at,
           last_seen_at = excluded.last_seen_at`,
       ).bind(
@@ -103,8 +111,8 @@ export async function persistAndLoadCatalysts(
     if (statements.length) await env.DB.batch(statements)
     const result = await env.DB.prepare(
       `SELECT id, symbol, kind, title, description, event_date AS date, timing, confidence,
-        source_name AS source, source_url AS "sourceUrl", updated_at AS "updatedAt"
-       FROM catalysts
+        source_label AS source, source_url AS "sourceUrl", updated_at AS "updatedAt"
+       FROM upcoming_catalysts
        WHERE event_date >= ?
        ORDER BY event_date ASC, symbol ASC`,
     ).bind(marketDate(now)).all()
@@ -122,19 +130,21 @@ export async function persistAndLoadCatalysts(
  */
 export async function persistResearchedCatalysts(
   env: AppEnv,
+  source: ResearchCatalystSource,
   catalysts: readonly Catalyst[],
   now = new Date(),
 ): Promise<void> {
   if (!env.DB || !catalysts.length) return
+  const table = RESEARCH_CATALYST_TABLES[source]
   await env.DB.batch(catalysts.map((catalyst) => env.DB!.prepare(
-    `INSERT INTO catalysts
-      (id, symbol, kind, title, description, event_date, timing, confidence, source_name, source_url, updated_at, last_seen_at)
+    `INSERT INTO ${table}
+      (id, symbol, kind, title, description, event_date, timing, confidence, source_label, source_url, updated_at, last_seen_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
       symbol = excluded.symbol, kind = excluded.kind, title = excluded.title,
       description = excluded.description, event_date = excluded.event_date,
       timing = excluded.timing, confidence = excluded.confidence,
-      source_name = excluded.source_name, source_url = excluded.source_url,
+      source_label = excluded.source_label, source_url = excluded.source_url,
       updated_at = excluded.updated_at, last_seen_at = excluded.last_seen_at`,
   ).bind(
     catalyst.id, catalyst.symbol, catalyst.kind, catalyst.title, catalyst.description ?? null,

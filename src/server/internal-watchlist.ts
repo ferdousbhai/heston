@@ -16,6 +16,7 @@ const MAX_SOURCE_LISTS_PER_KIND = 100
 const MAX_ENTRIES_PER_SOURCE = 5_000
 const MAX_TOTAL_SEED_ENTRIES = 50_000
 const MAX_INTERNAL_ITEMS = 10_000
+const MAX_MAINTAINED_ITEMS = 100
 const MAX_SOURCE_METADATA_BYTES = 256_000
 const MAX_ENTRY_METADATA_BYTES = 64_000
 const SEED_STALE_AFTER_MS = 10 * 60_000
@@ -347,6 +348,9 @@ export async function ensureInternalWatchlistSymbols(
      ON CONFLICT(symbol) DO UPDATE SET
        origin = excluded.origin, updated_at = excluded.updated_at`,
   ).bind(symbol, InternalWatchlistOriginSchema.parse(origin), timestamp, timestamp)))
+  if (existing.size + additions.length > MAX_MAINTAINED_ITEMS) {
+    await pruneInternalWatchlistToFocus(env, MAX_MAINTAINED_ITEMS)
+  }
   await mergePublicMarketUniverseSymbols(env, normalized)
   return normalized
 }
@@ -411,19 +415,86 @@ export function selectInternalWatchlistFocus(
   items: readonly InternalWatchlistItem[],
   positionSymbols: readonly string[],
   limit = 100,
+  highOptionsVolumeSymbols: readonly string[] = [],
 ): string[] {
   const positions = new Set(normalizedSymbols(positionSymbols))
+  const volumeRank = new Map(normalizedSymbols(highOptionsVolumeSymbols)
+    .map((symbol, index) => [symbol, index]))
   const priority = (item: InternalWatchlistItem) => positions.has(item.symbol)
     ? 0
-    : item.origin !== 'tastytrade-seed'
+    : item.origin === 'owner'
       ? 1
-      : hasPrivateSeedMembership(item) ? 2 : 3
+      : item.origin !== 'tastytrade-seed'
+        ? 2
+        : hasPrivateSeedMembership(item)
+          ? 3
+          : volumeRank.has(item.symbol) ? 4 : 5
   return [...items]
     .sort((left, right) => priority(left) - priority(right)
+      || (volumeRank.get(left.symbol) ?? Number.MAX_SAFE_INTEGER)
+        - (volumeRank.get(right.symbol) ?? Number.MAX_SAFE_INTEGER)
       || right.updatedAt.localeCompare(left.updatedAt)
       || left.symbol.localeCompare(right.symbol))
     .slice(0, Math.max(0, limit))
     .map((item) => item.symbol)
+}
+
+/**
+ * Select the source-neutral 100-name working set. The one-time retained broker
+ * provenance supplies an options-volume rank, but neither the rank nor its
+ * source crosses the server boundary.
+ */
+export async function readInternalWatchlistFocus(
+  env: AppEnv,
+  positionSymbols: readonly string[],
+  limit = 100,
+): Promise<string[]> {
+  const db = requiredDatabase(env)
+  const [items, result] = await Promise.all([
+    readInternalWatchlist(env),
+    db.prepare(
+      `SELECT upper(e.broker_symbol) AS symbol
+       FROM internal_watchlist_seed_entries e
+       JOIN internal_watchlist_seed_sources s ON s.id = e.source_id
+       JOIN instrument_catalog c ON c.symbol = upper(e.broker_symbol)
+       WHERE s.source_kind = 'public'
+         AND s.name = 'High Options Volume'
+         AND e.instrument_type = 'Equity'
+         AND c.resolution_status = 'resolved'
+         AND c.active = 1
+         AND coalesce(c.is_etf, 0) = 0
+         AND coalesce(c.is_index, 0) = 0
+         AND coalesce(c.is_illiquid, 0) = 0
+         AND coalesce(c.is_closing_only, 0) = 0
+         AND coalesce(c.is_options_closing_only, 0) = 0
+       ORDER BY e.entry_index ASC
+       LIMIT 500`,
+    ).all<{ symbol: string }>(),
+  ])
+  const highOptionsVolumeSymbols = z.array(z.object({ symbol: SymbolSchema }))
+    .max(500)
+    .parse(result.results)
+    .map((row) => row.symbol)
+  return selectInternalWatchlistFocus(items, positionSymbols, limit, highOptionsVolumeSymbols)
+}
+
+/**
+ * Remove only live maintained-list rows. The full one-time broker provenance and
+ * instrument catalog remain intact, so this bounded operation is recoverable.
+ */
+export async function pruneInternalWatchlistToFocus(
+  env: AppEnv,
+  limit = MAX_MAINTAINED_ITEMS,
+): Promise<{ kept: string[]; removedCount: number }> {
+  const db = requiredDatabase(env)
+  await requireReadySeed(db)
+  const kept = await readInternalWatchlistFocus(env, [], limit)
+  if (!kept.length) throw new Error('InternalWatchlist:empty-focus')
+  const result = await db.prepare(
+    `DELETE FROM internal_watchlist_items
+     WHERE symbol NOT IN (${kept.map(() => '?').join(', ')})`,
+  ).bind(...kept).run()
+  return { kept, removedCount: result.meta.changes }
 }
 
 export async function readInternalWatchlistSymbolDetails(

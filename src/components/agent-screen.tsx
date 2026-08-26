@@ -266,7 +266,7 @@ function RuntimeFooter({ state }: { state: DanAgentState | undefined }) {
   return (
     <div className="runtime-footer" aria-label="Agent runtime usage">
       <span>↑{formatTokens(totals.input)} ↓{formatTokens(totals.output)}{totals.cacheRead ? ` R${formatTokens(totals.cacheRead)}` : ''}{totals.cost ? ` $${totals.cost.toFixed(3)}` : ''}</span>
-      <span>{state?.contextWindow ? `${contextPercent.toFixed(1)}%/${formatTokens(state.contextWindow)}` : 'context —'} · {state?.model ?? 'pi'}</span>
+      <span>{state?.contextWindow ? `${contextPercent.toFixed(1)}%/${formatTokens(state.contextWindow)}` : 'context n/a'} · {state?.model ?? 'pi'}</span>
     </div>
   )
 }

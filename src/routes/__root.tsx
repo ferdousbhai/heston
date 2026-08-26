@@ -27,7 +27,7 @@ export const Route = createRootRoute({
         content: 'black-translucent',
       },
       {
-        title: 'Spice Must Flow — Options intelligence',
+        title: 'Spice Must Flow',
       },
       {
         name: 'description',
