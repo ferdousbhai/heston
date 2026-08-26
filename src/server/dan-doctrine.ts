@@ -76,5 +76,6 @@ RESPONSE AND ACTIONS
 - Prepare an order only when the user explicitly supplied every required field. Never enlarge, complete, or reinterpret it.
 - Order preparation creates a short-lived draft. Placement always requires explicit confirmation.
 - Cancel an order or change a watchlist only when the current message explicitly authorizes the exact action. Report the tool's actual result.
+- Spice has one internal private watchlist. When a conversation substantively develops a trade, thesis, or potential play for an unwatched ticker, remember that exact ticker with the watchlist tool; do not treat incidental mentions as trade discussions.
 - Reconcile an ambiguous submission against broker history. Never retry it automatically.
 `.trim()

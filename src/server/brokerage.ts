@@ -90,14 +90,14 @@ export class BrokerageSubmissionUnknownError extends Error {
   }
 }
 
-export class TastytradeOrderRejectedError extends Error {
+class TastytradeOrderRejectedError extends Error {
   constructor(message: string) {
     super(`TastytradeOrderRejected:${message}`)
     this.name = 'TastytradeOrderRejectedError'
   }
 }
 
-export class TastytradeOrderWarningError extends Error {
+class TastytradeOrderWarningError extends Error {
   constructor(warnings: readonly string[]) {
     super(`Tastytrade returned a preflight warning, so the order was not submitted: ${warnings.join('; ')}`)
     this.name = 'TastytradeOrderWarningError'
@@ -151,41 +151,45 @@ export function validatePlacedOrderResponse(payload: JsonValue, intended: OrderP
 }
 
 export async function executeOrderPlacement(env: AppEnv, untrustedAction: JsonValue): Promise<{ detail: string; orderId?: string }> {
-  const account = await brokerApi().resolveAccountNumber(env)
-  const intent = await resolveStoredOrderIntent(env, untrustedAction, account)
-  await tradeGuards().assertPortfolioActionAllowed(env, intent.effectiveAction, {
-    accountNumber: account,
-    ignoredOrderId: intent.replaceOrderId,
-    optionContracts: intent.optionContracts,
-  })
-  await tradeGuards().assertOrderMarketSafe(env, intent.effectiveAction, intent.optionContracts)
-  const dryRunPath = intent.replaceOrderId
-    ? `/accounts/${encodeURIComponent(account)}/orders/${encodeURIComponent(intent.replaceOrderId)}/dry-run`
-    : `/accounts/${encodeURIComponent(account)}/orders/dry-run`
-  const dryRunBody = intent.replaceOrderId ? replacementOrderPayload(intent.payload) : intent.payload
-  const dryRun = await brokerApi().tastyRequest(env, dryRunPath, { method: 'POST', body: JSON.stringify(dryRunBody) })
-  rejectDryRunWarnings(validateOrderResponse(dryRun, intent.payload, false).warnings)
-  let placed: JsonValue
-  try {
-    const path = intent.replaceOrderId
-      ? `/accounts/${encodeURIComponent(account)}/orders/${encodeURIComponent(intent.replaceOrderId)}`
-      : `/accounts/${encodeURIComponent(account)}/orders`
-    const body = intent.replaceOrderId
-      ? JSON.stringify(replacementOrderPayload(intent.payload))
-      : JSON.stringify(intent.payload)
-    placed = await brokerApi().tastyRequest(env, path, {
-      method: intent.replaceOrderId ? 'PUT' : 'POST',
-      body,
+  return brokerApi().withBrokerMutationLease(env, async (lease) => {
+    const account = await brokerApi().resolveAccountNumber(env)
+    const intent = await resolveStoredOrderIntent(env, untrustedAction, account)
+    await tradeGuards().assertPortfolioActionAllowed(env, intent.effectiveAction, {
+      accountNumber: account,
+      ignoredOrderId: intent.replaceOrderId,
+      optionContracts: intent.optionContracts,
     })
-  } catch (error) {
-    if (error instanceof Error && error.name === 'TastytradeApiError') throw error
-    throw new BrokerageSubmissionUnknownError()
-  }
-  if (intent.replaceOrderId) {
-    const receipt = validateReplacementReceipt(placed, intent.replaceOrderId, intent.payload)
-    return { detail: `Order #${intent.replaceOrderId} replaced by order #${receipt.id}.`, orderId: receipt.id }
-  }
-  const receipt = validatePlacedOrderResponse(placed, intent.payload)
-  const warningDetail = receipt.warnings.length ? ` Broker warning: ${receipt.warnings.join('; ')}` : ''
-  return { detail: `Order #${receipt.id} accepted by tastytrade.${warningDetail}`, orderId: receipt.id }
+    await tradeGuards().assertOrderMarketSafe(env, intent.effectiveAction, intent.optionContracts)
+    const dryRunPath = intent.replaceOrderId
+      ? `/accounts/${encodeURIComponent(account)}/orders/${encodeURIComponent(intent.replaceOrderId)}/dry-run`
+      : `/accounts/${encodeURIComponent(account)}/orders/dry-run`
+    const dryRunBody = intent.replaceOrderId ? replacementOrderPayload(intent.payload) : intent.payload
+    await lease.renew()
+    const dryRun = await brokerApi().tastyRequest(env, dryRunPath, { method: 'POST', body: JSON.stringify(dryRunBody) })
+    rejectDryRunWarnings(validateOrderResponse(dryRun, intent.payload, false).warnings)
+    let placed: JsonValue
+    try {
+      const path = intent.replaceOrderId
+        ? `/accounts/${encodeURIComponent(account)}/orders/${encodeURIComponent(intent.replaceOrderId)}`
+        : `/accounts/${encodeURIComponent(account)}/orders`
+      const body = intent.replaceOrderId
+        ? JSON.stringify(replacementOrderPayload(intent.payload))
+        : JSON.stringify(intent.payload)
+      await lease.renew()
+      placed = await brokerApi().tastyRequest(env, path, {
+        method: intent.replaceOrderId ? 'PUT' : 'POST',
+        body,
+      })
+    } catch (error) {
+      if (error instanceof Error && error.name === 'TastytradeApiError') throw error
+      throw new BrokerageSubmissionUnknownError()
+    }
+    if (intent.replaceOrderId) {
+      const receipt = validateReplacementReceipt(placed, intent.replaceOrderId, intent.payload)
+      return { detail: `Order #${intent.replaceOrderId} replaced by order #${receipt.id}.`, orderId: receipt.id }
+    }
+    const receipt = validatePlacedOrderResponse(placed, intent.payload)
+    const warningDetail = receipt.warnings.length ? ` Broker warning: ${receipt.warnings.join('; ')}` : ''
+    return { detail: `Order #${receipt.id} accepted by tastytrade.${warningDetail}`, orderId: receipt.id }
+  })
 }

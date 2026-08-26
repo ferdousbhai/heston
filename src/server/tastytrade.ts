@@ -1,8 +1,7 @@
 import { type CandlePoint } from '../domain/candle'
 import {
-  aggregatePrivateWatchlists,
   MarketSnapshotSchema,
-  ResearchBriefSchema,
+  parseStoredResearchBrief,
   type MarketSnapshot,
   type Ticker,
   type Watchlist,
@@ -10,6 +9,14 @@ import {
 import { type AppEnv } from './env'
 import { readBoundedJson } from './bounded-response'
 import { catalystsFromMarketMetrics, earningsDateFromMetric, persistAndLoadCatalysts } from './catalysts'
+import {
+  ensureInternalWatchlistSeeded,
+  previewInternalWatchlistSeed,
+  readInternalWatchlist,
+  selectInternalWatchlistFocus,
+  type InternalWatchlistSeedPayloads,
+  type InternalWatchlistSeedPreview,
+} from './internal-watchlist'
 import {
   JsonArraySchema,
   jsonNumber,
@@ -21,10 +28,16 @@ import {
 } from '../domain/json-payload'
 import { readStoredSecret } from './secrets'
 import { tastytradeApiVersion } from './tastytrade-version'
+import {
+  loadStoredPublicMarketUniverse,
+  MAX_PUBLIC_MARKET_SYMBOLS,
+  persistPublicMarketUniverse,
+} from './public-market-universe'
+
+export { publicMarketUniverseFromSnapshot } from './public-market-universe'
 
 const USER_AGENT = 'Spice/0.1'
 const MAX_TASTYTRADE_RESPONSE_BYTES = 16 * 1024 * 1024
-
 let cachedAccess: { expiresAt: number; token: string } | undefined
 let accessRefresh: Promise<string> | undefined
 
@@ -110,8 +123,52 @@ function safeEndpoint(path: string): string {
   return path.split('?')[0]!.replace(/\/accounts\/[^/]+/g, '/accounts/[redacted]')
 }
 
-async function authorizedRequest(env: AppEnv, path: string, init: RequestInit, token: string): Promise<Response> {
-  await env.BROKER_GATE?.getByName('primary-account').acquire()
+type BrokerRequestGate = ReturnType<NonNullable<AppEnv['BROKER_GATE']>['getByName']>
+
+export type BrokerMutationLease = {
+  renew(): Promise<void>
+}
+
+function requestGate(env: AppEnv): BrokerRequestGate {
+  // Broker coordination is part of the provider safety boundary. Validate the
+  // binding before reading credentials so a misbound deployment cannot silently
+  // bypass request throttling.
+  const namespace = env.BROKER_GATE
+  if (!namespace) throw new Error('TastytradeCoordinatorUnavailable')
+  return namespace.getByName('primary-account')
+}
+
+/**
+ * Serialize one broker read-modify-write sequence across Worker isolates. Renewals
+ * are explicit so callers can prove the durable lease is still theirs immediately
+ * before each broker mutation. A failed cleanup must not obscure an accepted or
+ * ambiguous broker result; the persisted lease expires on its own as a backstop.
+ */
+export async function withBrokerMutationLease<T>(
+  env: AppEnv,
+  operation: (lease: BrokerMutationLease) => Promise<T>,
+): Promise<T> {
+  const gate = requestGate(env)
+  const token = await gate.acquireMutation()
+  try {
+    return await operation({ renew: () => gate.renewMutation(token) })
+  } finally {
+    try {
+      await gate.releaseMutation(token)
+    } catch {
+      console.error('BrokerMutationLeaseReleaseFailed')
+    }
+  }
+}
+
+async function authorizedRequest(
+  env: AppEnv,
+  path: string,
+  init: RequestInit,
+  token: string,
+  gate: BrokerRequestGate,
+): Promise<Response> {
+  await gate.acquire()
   const headers = new Headers(init.headers)
   headers.set('Accept', 'application/json')
   const apiVersion = tastytradeApiVersion(path)
@@ -129,13 +186,14 @@ export async function tastyRequest(
   path: string,
   init: RequestInit = {},
 ): Promise<JsonValue> {
+  const gate = requestGate(env)
   let token = await accessToken(env)
-  let response = await authorizedRequest(env, path, init, token)
+  let response = await authorizedRequest(env, path, init, token, gate)
   const method = (init.method ?? 'GET').toUpperCase()
   if (response.status === 401 && (method === 'GET' || method === 'HEAD')) {
     if (cachedAccess?.token === token) cachedAccess = undefined
     token = await accessToken(env)
-    response = await authorizedRequest(env, path, init, token)
+    response = await authorizedRequest(env, path, init, token, gate)
   }
   if (!response.ok) {
     await response.body?.cancel()
@@ -149,7 +207,7 @@ export async function tastyRequest(
   return readBoundedJson(response, MAX_TASTYTRADE_RESPONSE_BYTES, 'TastytradeApi')
 }
 
-export async function resolveAccountNumber(env: AppEnv): Promise<string> {
+async function resolveAccountNumber(env: AppEnv): Promise<string> {
   const payload = await tastyRequest(env, '/customers/me/accounts')
   const accounts = items(payload)
   if (accounts.length !== 1) throw new Error('TastytradeAccount:explicit-account-required')
@@ -159,7 +217,7 @@ export async function resolveAccountNumber(env: AppEnv): Promise<string> {
   return accountNumber
 }
 
-export async function loadQuoteToken(env: AppEnv): Promise<{ token: string; url: string }> {
+async function loadQuoteToken(env: AppEnv): Promise<{ token: string; url: string }> {
   const payload = jsonObjectOrEmpty(await tastyRequest(env, '/api-quote-tokens'))
   const data = jsonObjectOrEmpty(payload.data ?? payload)
   const token = jsonText(data.token)
@@ -181,7 +239,7 @@ export function equityCandleFromTime(payload: JsonValue, now = Date.now()): numb
   return now - CANDLE_FALLBACK_LOOKBACK
 }
 
-export async function loadEquityCandleFromTime(env: AppEnv): Promise<number> {
+async function loadEquityCandleFromTime(env: AppEnv): Promise<number> {
   return equityCandleFromTime(await tastyRequest(env, '/market-time/equities/sessions/current'))
 }
 
@@ -196,16 +254,12 @@ function strictRows(payload: JsonValue, label: string): JsonObject[] {
   return rows
 }
 
-function watchlistRows(payload: JsonValue, kind: Watchlist['kind'], prefix: string): Watchlist[] {
-  return strictRows(payload, 'TastytradeWatchlists').map((row, index) => {
-    const name = jsonText(row.name)
-    const entries = JsonObjectArraySchema.safeParse(row['watchlist-entries']).data
-    if (!name || !entries) throw new Error('TastytradeWatchlists:invalid-response')
-    const symbols = [...new Set(entries
-      .map((entry) => jsonText(entry.symbol)?.toUpperCase())
-      .filter((symbol): symbol is string => Boolean(symbol && /^[A-Z.]{1,8}$/.test(symbol))))]
-    return { id: `${prefix}-${index}-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, kind, name, symbols }
-  })
+function optionalRows(payload: JsonValue, label: string): JsonObject[] {
+  try {
+    return strictRows(payload, label)
+  } catch {
+    return []
+  }
 }
 
 export function liveTickerFromRecords(
@@ -213,6 +267,7 @@ export function liveTickerFromRecords(
   metrics: JsonObject | undefined,
   quote: JsonObject | undefined,
   position: boolean,
+  instrument?: JsonObject,
 ): Ticker | undefined {
   if (!metrics || !quote) return undefined
   const price = jsonNumber(quote.mark ?? quote['mark-price'] ?? quote.last ?? quote['last-price'] ?? quote.close)
@@ -236,7 +291,7 @@ export function liveTickerFromRecords(
   ]
   return {
     symbol,
-    name: jsonText(quote.description) ?? symbol,
+    name: jsonText(instrument?.description ?? instrument?.['short-description'] ?? quote.description) ?? symbol,
     price,
     change,
     changePercent,
@@ -260,6 +315,7 @@ function emptyResearch(now: string): MarketSnapshot['research'] {
     regime: 'Waiting for research',
     regimeDetail: 'No stored live brief',
     ideas: [],
+    marketMovers: [],
     sources: [],
   }
 }
@@ -276,81 +332,66 @@ async function loadStoredResearch(env: AppEnv, fallback: MarketSnapshot['researc
   } catch {
     return fallback
   }
-  return ResearchBriefSchema.parse(stored)
+  try {
+    return parseStoredResearchBrief(stored)
+  } catch {
+    return fallback
+  }
 }
 
 type MarketSnapshotOptions = {
-  includeWatchlists?: boolean
   symbols?: readonly string[]
 }
 
-export function selectSnapshotSymbols(
-  positionSymbols: readonly string[],
-  requestedSymbols: readonly string[],
-  privateLists: readonly Watchlist[],
-  publicLists: readonly Watchlist[],
-): string[] {
-  return [...new Set([
-    ...positionSymbols,
-    ...requestedSymbols,
-    ...privateLists.flatMap((watchlist) => watchlist.symbols),
-    ...publicLists.flatMap((watchlist) => watchlist.symbols),
-  ])].slice(0, 100)
+function marketStateFromSession(payload: JsonValue | undefined): MarketSnapshot['marketState'] {
+  const session = payload === undefined
+    ? {}
+    : jsonObjectOrEmpty(jsonObjectOrEmpty(payload).data ?? payload)
+  const rawState = (jsonText(session.state) ?? '').toLowerCase()
+  return rawState === 'open'
+    ? 'open'
+    : rawState.includes('pre') ? 'pre'
+      : rawState.includes('after') || rawState.includes('extended') ? 'after'
+        : rawState === 'closed' ? 'closed' : 'unknown'
 }
 
-export async function loadMarketSnapshot(
+async function loadMarketFacts(
   env: AppEnv,
-  options: MarketSnapshotOptions = {},
-): Promise<MarketSnapshot> {
-  const accountNumber = await resolveAccountNumber(env)
-  const includeWatchlists = options.includeWatchlists !== false
-  const [privateResult, publicResult, positionResult, sessionResult] = await Promise.allSettled([
-    includeWatchlists ? tastyRequest(env, '/watchlists') : Promise.resolve(undefined),
-    includeWatchlists ? tastyRequest(env, '/public-watchlists') : Promise.resolve(undefined),
-    tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/positions`),
-    tastyRequest(env, '/market-time/equities/sessions/current'),
-  ])
-  if (includeWatchlists && privateResult.status !== 'fulfilled') throw new Error('TastytradeSnapshot:private-watchlists-unavailable')
-  if (positionResult.status !== 'fulfilled') throw new Error('TastytradeSnapshot:positions-unavailable')
-  const privateLists = includeWatchlists
-    ? watchlistRows(privateResult.status === 'fulfilled' ? privateResult.value : [], 'private', 'private')
-    : []
-  const publicLists = includeWatchlists && publicResult.status === 'fulfilled'
-    ? watchlistRows(publicResult.value, 'public', 'public').slice(0, 8)
-    : []
-  const positions = strictRows(positionResult.value, 'TastytradePositions')
-  const positionSymbols = [...new Set(positions
-    .filter((position) => (jsonNumber(position.quantity) ?? 0) !== 0)
-    .map((position) => jsonText(position['underlying-symbol']) ?? jsonText(position.symbol))
-    .filter((symbol): symbol is string => Boolean(symbol)))]
-  const positionList: Watchlist = {
-    id: 'positions', kind: 'positions', name: 'Active Positions', symbols: positionSymbols,
-  }
-  const privateWatchlist = aggregatePrivateWatchlists(privateLists)
-  const watchlists = includeWatchlists ? [positionList, privateWatchlist, ...publicLists] : [positionList]
-  const requestedSymbols = (options.symbols ?? [])
-    .map((symbol) => symbol.trim().toUpperCase())
-    .filter((symbol) => /^[A-Z.]{1,8}$/.test(symbol))
-  const symbols = selectSnapshotSymbols(positionSymbols, requestedSymbols, privateLists, publicLists)
+  symbols: readonly string[],
+  positionSymbols: ReadonlySet<string>,
+): Promise<Pick<MarketSnapshot, 'catalysts' | 'tickers'>> {
   const metricQuery = symbols.map(encodeURIComponent).join(',')
   const marketDataQuery = symbols.map((symbol) => `equity=${encodeURIComponent(symbol)}`).join('&')
-  const [metricsResult, marketDataResult] = await Promise.allSettled([
+  const instrumentQuery = symbols.map((symbol) => `symbol[]=${encodeURIComponent(symbol)}`).join('&')
+  const [metricsResult, marketDataResult, instrumentsResult] = await Promise.allSettled([
     symbols.length ? tastyRequest(env, `/market-metrics?symbols=${metricQuery}`) : Promise.resolve([]),
     symbols.length ? tastyRequest(env, `/market-data/by-type?${marketDataQuery}`) : Promise.resolve([]),
+    symbols.length ? tastyRequest(env, `/instruments/equities?${instrumentQuery}`) : Promise.resolve([]),
   ])
   if (symbols.length && (metricsResult.status !== 'fulfilled' || marketDataResult.status !== 'fulfilled')) {
     throw new Error('TastytradeSnapshot:market-data-unavailable')
   }
-  const metrics = symbols.length ? strictRows(metricsResult.status === 'fulfilled' ? metricsResult.value : [], 'TastytradeMetrics') : []
-  const quotes = symbols.length ? strictRows(marketDataResult.status === 'fulfilled' ? marketDataResult.value : [], 'TastytradeMarketData') : []
+  const metrics = symbols.length
+    ? strictRows(metricsResult.status === 'fulfilled' ? metricsResult.value : [], 'TastytradeMetrics')
+    : []
+  const quotes = symbols.length
+    ? strictRows(marketDataResult.status === 'fulfilled' ? marketDataResult.value : [], 'TastytradeMarketData')
+    : []
+  // Instrument names improve identity checks, but a transient catalog failure
+  // or malformed optional response must not take the public volatility snapshot offline.
+  const instruments = symbols.length && instrumentsResult.status === 'fulfilled'
+    ? optionalRows(instrumentsResult.value, 'TastytradeInstruments')
+    : []
   const metricBySymbol = new Map(metrics.map((row) => [jsonText(row.symbol), row]))
   const quoteBySymbol = new Map(quotes.map((row) => [jsonText(row.symbol), row]))
+  const instrumentBySymbol = new Map(instruments.map((row) => [jsonText(row.symbol), row]))
   const tickers = symbols.flatMap((symbol) => {
     const ticker = liveTickerFromRecords(
       symbol,
       metricBySymbol.get(symbol),
       quoteBySymbol.get(symbol),
-      positionSymbols.includes(symbol),
+      positionSymbols.has(symbol),
+      instrumentBySymbol.get(symbol),
     )
     return ticker ? [ticker] : []
   })
@@ -378,27 +419,124 @@ export async function loadMarketSnapshot(
   const metricSymbols = metrics
     .map((metric) => jsonText(metric.symbol)?.toUpperCase())
     .filter((symbol): symbol is string => Boolean(symbol))
-  const catalysts = await persistAndLoadCatalysts(
+  const allCatalysts = await persistAndLoadCatalysts(
     env,
     catalystsFromMarketMetrics(metrics),
     metricSymbols,
   )
-  const session = sessionResult.status === 'fulfilled' ? jsonObjectOrEmpty(jsonObjectOrEmpty(sessionResult.value).data ?? sessionResult.value) : {}
-  const rawState = (jsonText(session.state) ?? '').toLowerCase()
-  const marketState: MarketSnapshot['marketState'] = rawState === 'open'
-    ? 'open'
-    : rawState.includes('pre') ? 'pre'
-      : rawState.includes('after') || rawState.includes('extended') ? 'after'
-        : rawState === 'closed' ? 'closed' : 'unknown'
+  const allowedSymbols = new Set(symbols)
+  return {
+    tickers,
+    catalysts: allCatalysts.filter((catalyst) => allowedSymbols.has(catalyst.symbol)),
+  }
+}
+
+export function selectSnapshotSymbols(
+  positionSymbols: readonly string[],
+  requestedSymbols: readonly string[],
+  internalWatchlistSymbols: readonly string[],
+): string[] {
+  return [...new Set([
+    ...requestedSymbols,
+    ...positionSymbols,
+    ...internalWatchlistSymbols,
+  ])].slice(0, MAX_PUBLIC_MARKET_SYMBOLS)
+}
+
+async function loadTastytradeWatchlistSeedPayloads(env: AppEnv): Promise<InternalWatchlistSeedPayloads> {
+  const [privatePayload, publicPayload] = await Promise.all([
+    tastyRequest(env, '/watchlists'),
+    tastyRequest(env, '/public-watchlists'),
+  ])
+  return { privatePayload, publicPayload }
+}
+
+export async function previewInternalWatchlistFromTastytrade(env: AppEnv): Promise<InternalWatchlistSeedPreview> {
+  return previewInternalWatchlistSeed(await loadTastytradeWatchlistSeedPayloads(env))
+}
+
+/** The only code path that reads tastytrade watchlists: the explicit one-time bootstrap Worker. */
+export async function seedInternalWatchlistFromTastytrade(env: AppEnv): Promise<void> {
+  await ensureInternalWatchlistSeeded(env, () => loadTastytradeWatchlistSeedPayloads(env))
+}
+
+async function loadMarketSnapshot(
+  env: AppEnv,
+  options: MarketSnapshotOptions = {},
+): Promise<MarketSnapshot> {
+  const accountNumber = await resolveAccountNumber(env)
+  const [internalItems, positionPayload, sessionPayload] = await Promise.all([
+    readInternalWatchlist(env),
+    tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/positions`),
+    tastyRequest(env, '/market-time/equities/sessions/current').catch(() => undefined),
+  ])
+  const positions = strictRows(positionPayload, 'TastytradePositions')
+  const positionSymbols = [...new Set(positions
+    .filter((position) => (jsonNumber(position.quantity) ?? 0) !== 0)
+    .map((position) => jsonText(position['underlying-symbol']) ?? jsonText(position.symbol))
+    .filter((symbol): symbol is string => Boolean(symbol)))]
+  const positionList: Watchlist = {
+    id: 'positions', kind: 'positions', name: 'Active Positions', symbols: positionSymbols,
+  }
+  const focusSymbols = selectInternalWatchlistFocus(internalItems, positionSymbols, MAX_PUBLIC_MARKET_SYMBOLS)
+  const privateWatchlist: Watchlist = {
+    id: 'watchlist',
+    kind: 'private',
+    name: 'Watchlist',
+    symbols: focusSymbols,
+  }
+  const watchlists = [positionList, privateWatchlist]
+  const requestedSymbols = (options.symbols ?? [])
+    .map((symbol) => symbol.trim().toUpperCase())
+    .filter((symbol) => /^[A-Z.]{1,8}$/.test(symbol))
+  const symbols = selectSnapshotSymbols(positionSymbols, requestedSymbols, privateWatchlist.symbols)
+  const { catalysts, tickers } = await loadMarketFacts(env, symbols, new Set(positionSymbols))
+  const marketState = marketStateFromSession(sessionPayload)
 
   const syncedAt = new Date().toISOString()
-  return MarketSnapshotSchema.parse({
+  const snapshot = MarketSnapshotSchema.parse({
     source: 'tastytrade',
     syncedAt,
     marketState,
     watchlists,
     tickers,
     catalysts,
+    research: await loadStoredResearch(env, emptyResearch(syncedAt)),
+  })
+  await persistPublicMarketUniverse(env, snapshot)
+  return snapshot
+}
+
+/**
+ * Account-free public surface. Its read-only watchlist universe is published by owner/server sync;
+ * this path never calls account, position, or private-watchlist endpoints. `position` is always false.
+ */
+export async function loadPublicMarketSnapshot(
+  env: AppEnv,
+): Promise<MarketSnapshot> {
+  const storedUniverse = await loadStoredPublicMarketUniverse(env)
+  const publicSymbols = [...new Set((storedUniverse?.symbols ?? [])
+    .map((symbol) => symbol.trim().toUpperCase())
+    .filter((symbol) => /^[A-Z.]{1,8}$/.test(symbol)))]
+    .slice(0, MAX_PUBLIC_MARKET_SYMBOLS)
+  const [sessionResult, marketFacts] = await Promise.all([
+    tastyRequest(env, '/market-time/equities/sessions/current').catch(() => undefined),
+    loadMarketFacts(env, publicSymbols, new Set()),
+  ])
+  const syncedAt = new Date().toISOString()
+  const watchlists = [{
+    id: 'public-options-watch',
+    kind: 'public' as const,
+    name: 'Options Watch',
+    symbols: storedUniverse?.symbols ?? [],
+  }]
+  return MarketSnapshotSchema.parse({
+    source: 'tastytrade',
+    syncedAt,
+    marketState: marketStateFromSession(sessionResult),
+    watchlists,
+    tickers: marketFacts.tickers,
+    catalysts: marketFacts.catalysts,
     research: await loadStoredResearch(env, emptyResearch(syncedAt)),
   })
 }
@@ -413,9 +551,11 @@ function createBrokerApi() {
   return {
     loadEquityCandleFromTime,
     loadMarketSnapshot,
+    loadPublicMarketSnapshot,
     loadQuoteToken,
     resolveAccountNumber,
     tastyRequest,
+    withBrokerMutationLease,
   }
 }
 

@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 
+import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import { SitePage } from '../components/site-page'
 
 export const Route = createFileRoute('/support')({
@@ -30,10 +31,10 @@ function SupportPage() {
         <h2>Security reports</h2>
         <p>Send suspected vulnerabilities privately to <a href="mailto:support@tryspice.xyz?subject=Security%20report">support@tryspice.xyz</a>. Do not access another person’s data, disrupt service, or publish sensitive details before there is time to investigate.</p>
       </section>
-      <aside className="site-callout">
-        <strong>Before trading</strong>
-        <p>Spice Must Flow is an analysis and workflow tool, not an investment adviser or broker. Review the <Link to="/disclosures">risk disclosures</Link> before relying on market data or drafting an order.</p>
-      </aside>
+      <Alert className="site-callout">
+        <AlertTitle>Before trading</AlertTitle>
+        <AlertDescription>Spice Must Flow is an analysis and workflow tool, not an investment adviser or broker. Review the <Link to="/disclosures">risk disclosures</Link> before relying on market data or drafting an order.</AlertDescription>
+      </Alert>
     </SitePage>
   )
 }

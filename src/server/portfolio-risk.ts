@@ -135,7 +135,7 @@ async function loadRiskAccount(env: AppEnv, accountNumber: string, ignoredOrderI
   }
 }
 
-export async function recordPortfolioHighWater(env: AppEnv, accountNumber: string, netLiquidatingValue: number): Promise<number> {
+async function recordPortfolioHighWater(env: AppEnv, accountNumber: string, netLiquidatingValue: number): Promise<number> {
   if (!env.DB || !accountNumber || !Number.isFinite(netLiquidatingValue) || netLiquidatingValue <= 0) {
     throw new PortfolioRiskError("Dan's high-water portfolio guard is unavailable.")
   }

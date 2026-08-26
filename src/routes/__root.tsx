@@ -1,5 +1,7 @@
 import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
+import { useEffect } from 'react'
 
+import { TooltipProvider } from '#/components/ui/tooltip'
 import appCss from '../styles.css?url'
 
 export const Route = createRootRoute({
@@ -29,13 +31,17 @@ export const Route = createRootRoute({
       },
       {
         name: 'description',
-        content: 'Private options intelligence, market research, and confirmation-gated order placement.',
+        content: 'Public options intelligence and market research with owner-gated order placement.',
       },
     ],
     links: [
       {
         rel: 'stylesheet',
         href: appCss,
+      },
+      {
+        rel: 'manifest',
+        href: '/manifest.webmanifest',
       },
       {
         rel: 'icon',
@@ -52,15 +58,26 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html className="dark" lang="en">
       <head>
         <HeadContent />
       </head>
       <body>
-        {children}
+        <TooltipProvider>{children}</TooltipProvider>
+        <ServiceWorkerRegistration />
 
         <Scripts />
       </body>
     </html>
   )
+}
+
+function ServiceWorkerRegistration() {
+  useEffect(() => {
+    // The SSR integration does not transform an index.html, so own registration
+    // here and keep development sessions free of persistent worker caches.
+    if (!import.meta.env.PROD || !('serviceWorker' in navigator)) return
+    void navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => undefined)
+  }, [])
+  return null
 }

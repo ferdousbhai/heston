@@ -86,22 +86,23 @@ export async function persistAndLoadCatalysts(
     }
     statements.push(...observed.map((catalyst) => env.DB!.prepare(
         `INSERT INTO catalysts
-          (id, symbol, kind, title, event_date, timing, confidence, source_name, source_url, updated_at, last_seen_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (id, symbol, kind, title, description, event_date, timing, confidence, source_name, source_url, updated_at, last_seen_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
           symbol = excluded.symbol, kind = excluded.kind, title = excluded.title,
+          description = excluded.description,
           event_date = excluded.event_date, timing = excluded.timing,
           confidence = excluded.confidence, source_name = excluded.source_name,
           source_url = excluded.source_url, updated_at = excluded.updated_at,
           last_seen_at = excluded.last_seen_at`,
       ).bind(
-        catalyst.id, catalyst.symbol, catalyst.kind, catalyst.title, catalyst.date,
+        catalyst.id, catalyst.symbol, catalyst.kind, catalyst.title, catalyst.description ?? null, catalyst.date,
         catalyst.timing, catalyst.confidence, catalyst.source, catalyst.sourceUrl,
         catalyst.updatedAt, now.toISOString(),
       )))
     if (statements.length) await env.DB.batch(statements)
     const result = await env.DB.prepare(
-      `SELECT id, symbol, kind, title, event_date AS date, timing, confidence,
+      `SELECT id, symbol, kind, title, description, event_date AS date, timing, confidence,
         source_name AS source, source_url AS "sourceUrl", updated_at AS "updatedAt"
        FROM catalysts
        WHERE event_date >= ?
@@ -112,4 +113,32 @@ export async function persistAndLoadCatalysts(
     console.error('CatalystStoreFailed', error instanceof Error ? error.message : 'UnknownError')
     return [...observed]
   }
+}
+
+/**
+ * Research sources are additive: unlike a fresh tastytrade earnings snapshot, one
+ * source going quiet is not proof that a previously observed event was cancelled.
+ * Keep each source's stable row and only refresh it when that source sees it again.
+ */
+export async function persistResearchedCatalysts(
+  env: AppEnv,
+  catalysts: readonly Catalyst[],
+  now = new Date(),
+): Promise<void> {
+  if (!env.DB || !catalysts.length) return
+  await env.DB.batch(catalysts.map((catalyst) => env.DB!.prepare(
+    `INSERT INTO catalysts
+      (id, symbol, kind, title, description, event_date, timing, confidence, source_name, source_url, updated_at, last_seen_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+      symbol = excluded.symbol, kind = excluded.kind, title = excluded.title,
+      description = excluded.description, event_date = excluded.event_date,
+      timing = excluded.timing, confidence = excluded.confidence,
+      source_name = excluded.source_name, source_url = excluded.source_url,
+      updated_at = excluded.updated_at, last_seen_at = excluded.last_seen_at`,
+  ).bind(
+    catalyst.id, catalyst.symbol, catalyst.kind, catalyst.title, catalyst.description ?? null,
+    catalyst.date, catalyst.timing, catalyst.confidence, catalyst.source,
+    catalyst.sourceUrl, catalyst.updatedAt, now.toISOString(),
+  )))
 }

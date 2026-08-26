@@ -1,0 +1,309 @@
+import { z } from 'zod'
+
+import { CatalystKindSchema, CatalystSchema, isValidIsoDate, marketDate, type Catalyst } from '../domain/catalyst'
+import { JsonArraySchema, jsonObject, jsonObjectOrEmpty, type JsonValue } from '../domain/json-payload'
+import { MarketMoverInsightSchema, ResearchIdeaSchema, type ResearchBrief } from '../domain/market'
+import { type ResearchSourceItem } from './research-contracts'
+import { REDDIT_RESEARCH_SOURCE } from './research-reddit'
+
+const GeneratedRedditCatalystSchema = z.object({
+  sourceIndex: z.number().int().nonnegative(),
+  symbol: z.string().regex(/^[A-Z.]{1,8}$/),
+  kind: CatalystKindSchema.exclude(['earnings']),
+  title: z.string().trim().min(1).max(160),
+  description: z.string().trim().min(1).max(500),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  timing: z.enum(['pre-market', 'intraday', 'after-hours', 'unknown']),
+})
+
+const GeneratedMarketMoverInsightSchema = z.object({
+  description: z.string().trim().min(1).max(360),
+  headline: z.string().trim().min(1).max(100),
+  sourceIndices: z.array(z.number().int().nonnegative()).min(1).max(3),
+  symbol: z.string().regex(/^[A-Z.]{1,8}$/),
+})
+
+const GeneratedResearchIdeaSchema = z.object({
+  description: z.string().trim().min(1).max(360),
+  direction: z.enum(['bullish', 'bearish', 'neutral']),
+  headline: z.string().trim().min(1).max(100),
+  play: z.string().trim().max(40).regex(
+    /^[A-Z.]{1,8} \d+(?:\.\d+)?[cp] (?:1[0-2]|[1-9])\/(?:3[01]|[12]\d|[1-9])$/,
+  ),
+  risk: z.string().trim().min(1).max(240),
+  sourceIndices: z.array(z.number().int().nonnegative()).min(1).max(3),
+  symbol: z.string().regex(/^[A-Z.]{1,8}$/),
+}).refine((idea) => idea.play.startsWith(`${idea.symbol} `), {
+  message: 'Potential play must use the idea symbol',
+  path: ['play'],
+})
+
+const GeneratedResearchSchema = z.object({
+  title: z.string().trim().min(1).max(100),
+  summary: z.string().trim().min(1).max(360),
+  regime: z.string().trim().min(1).max(80),
+  regimeDetail: z.string().trim().min(1).max(180),
+  ideas: z.array(GeneratedResearchIdeaSchema).max(5),
+  marketMovers: z.array(GeneratedMarketMoverInsightSchema).max(6),
+  catalysts: z.array(GeneratedRedditCatalystSchema).max(20),
+})
+
+export type GeneratedResearch = z.infer<typeof GeneratedResearchSchema>
+
+/** Model output text is compared verbatim, so it is never trimmed on the way in. */
+const ModelTextSchema = z.string()
+
+export function addDays(date: string, days: number): string {
+  const [year, month, day] = date.split('-').map(Number)
+  return new Date(Date.UTC(year!, month! - 1, day! + days)).toISOString().slice(0, 10)
+}
+
+function playExpiryDate(play: string, today: string): string | undefined {
+  const rawMonthDay = play.split(' ').at(-1)
+  const [month, day] = (rawMonthDay ?? '').split('/').map(Number)
+  const year = Number(today.slice(0, 4))
+  if (!month || !day || !Number.isSafeInteger(year)) return undefined
+  for (const candidateYear of [year, year + 1]) {
+    const date = new Date(Date.UTC(candidateYear, month - 1, day))
+    if (date.getUTCFullYear() !== candidateYear || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) continue
+    const isoDate = date.toISOString().slice(0, 10)
+    if (isoDate >= today) return isoDate
+  }
+  return undefined
+}
+
+/** Enforce the prompt's expiry horizon in code; a valid-looking model date can still be impossible or stale. */
+export function researchIdeasForDate(
+  ideas: readonly GeneratedResearch['ideas'][number][],
+  today: string,
+  evidence: readonly ResearchSourceItem[],
+  allowedSymbols: readonly string[],
+): ResearchBrief['ideas'] {
+  const minimum = addDays(today, 21)
+  const maximum = addDays(today, 90)
+  const symbols = new Set(allowedSymbols)
+  return ideas.flatMap((idea) => {
+    const expiry = playExpiryDate(idea.play, today)
+    if (!symbols.has(idea.symbol) || expiry === undefined || expiry < minimum || expiry > maximum) return []
+    const selected = [...new Set(idea.sourceIndices)].map((index) => evidence[index])
+    if (!selected.length || selected.some((source) => !source?.symbols?.includes(idea.symbol))) return []
+    const sources = [...new Map(selected.map((source) => {
+      const link = evidenceSourceLink(source!)
+      return [link.url, link]
+    })).values()].slice(0, 3)
+    return [ResearchIdeaSchema.parse({ ...idea, sources })]
+  })
+}
+
+function extractJson(response: string): JsonValue {
+  const fenced = response.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]
+  return JSON.parse(fenced ?? response)
+}
+
+function modelOutputText(payload: JsonValue): string | undefined {
+  const body = jsonObjectOrEmpty(payload)
+  const direct = ModelTextSchema.safeParse(body.output_text ?? body.response).data
+  if (direct !== undefined) return direct
+  if (jsonObject(body.response)) return JSON.stringify(body.response)
+
+  for (const choice of (JsonArraySchema.safeParse(body.choices).data ?? []).map(jsonObjectOrEmpty)) {
+    const content = ModelTextSchema.safeParse(jsonObjectOrEmpty(choice.message).content).data
+    if (content !== undefined) return content
+  }
+  for (const item of (JsonArraySchema.safeParse(body.output).data ?? []).map(jsonObjectOrEmpty)) {
+    for (const content of (JsonArraySchema.safeParse(item.content).data ?? []).map(jsonObjectOrEmpty)) {
+      const text = ModelTextSchema.safeParse(content.text).data
+      if (content.type === 'output_text' && text !== undefined) return text
+    }
+  }
+  return undefined
+}
+
+function normalizeDirection(value: JsonValue): JsonValue {
+  const raw = ModelTextSchema.safeParse(value).data
+  if (raw === undefined) return value
+  const direction = raw.toLowerCase()
+  if (direction.includes('bull') || direction.includes('upside') || direction === 'positive') return 'bullish'
+  if (direction.includes('bear') || direction.includes('downside') || direction === 'negative') return 'bearish'
+  if (direction.includes('neutral') || direction.includes('range') || direction.includes('mixed') || direction.includes('wait')) return 'neutral'
+  return direction
+}
+
+function normalizeModelResearch(value: JsonValue): JsonValue {
+  const research = jsonObject(value)
+  const ideas = research && JsonArraySchema.safeParse(research.ideas).data
+  if (!research || !ideas) return value
+  return {
+    ...research,
+    ideas: ideas.map((idea) => {
+      const fields = jsonObject(idea)
+      return fields ? { ...fields, direction: normalizeDirection(fields.direction) } : idea
+    }),
+  }
+}
+
+export function parseGeneratedResearch(payload: JsonValue): GeneratedResearch {
+  return GeneratedResearchSchema.parse(
+    normalizeModelResearch(extractJson(modelOutputText(payload) ?? '')),
+  )
+}
+
+export function dailyResearchResponseSchema() {
+  return {
+    type: 'object', additionalProperties: false,
+    required: ['title', 'summary', 'regime', 'regimeDetail', 'ideas', 'marketMovers', 'catalysts'],
+    properties: {
+      title: { type: 'string', minLength: 1, maxLength: 100 },
+      summary: { type: 'string', minLength: 1, maxLength: 360 },
+      regime: { type: 'string', minLength: 1, maxLength: 80 },
+      regimeDetail: { type: 'string', minLength: 1, maxLength: 180 },
+      ideas: {
+        type: 'array', maxItems: 5,
+        items: {
+          type: 'object', additionalProperties: false,
+          required: ['symbol', 'direction', 'headline', 'description', 'play', 'risk', 'sourceIndices'],
+          properties: {
+            symbol: { type: 'string', pattern: '^[A-Z.]{1,8}$' },
+            direction: { type: 'string', enum: ['bullish', 'bearish', 'neutral'] },
+            headline: { type: 'string', minLength: 1, maxLength: 100 },
+            description: { type: 'string', minLength: 1, maxLength: 360 },
+            play: { type: 'string', pattern: '^[A-Z.]{1,8} \\d+(?:\\.\\d+)?[cp] (?:1[0-2]|[1-9])\\/(?:3[01]|[12]\\d|[1-9])$' },
+            risk: { type: 'string', minLength: 1, maxLength: 240 },
+            sourceIndices: {
+              type: 'array', minItems: 1, maxItems: 3,
+              items: { type: 'integer', minimum: 0 },
+            },
+          },
+        },
+      },
+      marketMovers: {
+        type: 'array', maxItems: 6,
+        items: {
+          type: 'object', additionalProperties: false,
+          required: ['symbol', 'sourceIndices', 'headline', 'description'],
+          properties: {
+            symbol: { type: 'string', pattern: '^[A-Z.]{1,8}$' },
+            sourceIndices: {
+              // Workers AI's structured-output grammar does not implement uniqueItems.
+              // The deterministic binder below removes duplicate indices before use.
+              type: 'array', minItems: 1, maxItems: 3,
+              items: { type: 'integer', minimum: 0 },
+            },
+            headline: { type: 'string', minLength: 1, maxLength: 100 },
+            description: { type: 'string', minLength: 1, maxLength: 360 },
+          },
+        },
+      },
+      catalysts: {
+        type: 'array', maxItems: 20,
+        items: {
+          type: 'object', additionalProperties: false,
+          required: ['sourceIndex', 'symbol', 'kind', 'title', 'description', 'date', 'timing'],
+          properties: {
+            sourceIndex: { type: 'integer', minimum: 0 },
+            symbol: { type: 'string', pattern: '^[A-Z.]{1,8}$' },
+            kind: { type: 'string', enum: ['investor-event', 'product-event', 'regulatory', 'clinical', 'conference', 'shareholder'] },
+            title: { type: 'string', minLength: 1, maxLength: 160 },
+            description: { type: 'string', minLength: 1, maxLength: 500 },
+            date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+            timing: { type: 'string', enum: ['pre-market', 'intraday', 'after-hours', 'unknown'] },
+          },
+        },
+      },
+    },
+  }
+}
+
+function redditPostId(url: string): string | undefined {
+  try {
+    return new URL(url).pathname.match(/\/comments\/([a-z0-9]+)(?:\/|$)/i)?.[1]?.toLowerCase()
+  } catch {
+    return undefined
+  }
+}
+
+/** Bind model candidates to a watched symbol and the exact same-symbol Reddit post selected by code. */
+export function redditCatalystsFromCandidates(
+  value: JsonValue,
+  evidence: readonly ResearchSourceItem[],
+  allowedSymbols: readonly string[],
+  now = new Date(),
+): Catalyst[] {
+  const candidates = z.array(GeneratedRedditCatalystSchema).max(20).parse(value)
+  const symbols = new Set(allowedSymbols.map((symbol) => symbol.toUpperCase()))
+  const today = marketDate(now)
+  const horizon = addDays(today, 180)
+  const accepted = new Map<string, Catalyst>()
+  for (const candidate of candidates) {
+    const source = evidence[candidate.sourceIndex]
+    const postId = source && source.source === REDDIT_RESEARCH_SOURCE ? redditPostId(source.url) : undefined
+    if (!source || !postId || !source.symbols?.includes(candidate.symbol)
+      || !symbols.has(candidate.symbol) || !isValidIsoDate(candidate.date)
+      || candidate.date < today || candidate.date > horizon) continue
+    const id = `reddit:${postId}:${candidate.symbol}:${candidate.kind}:${candidate.date}`
+    accepted.set(id, CatalystSchema.parse({
+      ...candidate,
+      id,
+      confidence: 'estimated',
+      source: REDDIT_RESEARCH_SOURCE,
+      sourceUrl: source.url,
+      updatedAt: now.toISOString(),
+    }))
+  }
+  return [...accepted.values()]
+}
+
+/** Cite the fetched article when it supplied the evidence, not its aggregator row. */
+function evidenceSourceLink(source: ResearchSourceItem): ResearchBrief['sources'][number] {
+  return source.outbound
+    ? { label: source.outbound.label, url: source.outbound.url }
+    : { label: `${source.source} · ${source.title}`, url: source.url }
+}
+
+/**
+ * The editor explains possible drivers, but code supplies every move metric and
+ * binds every citation to evidence for the same symbol. Missing/invalid editor
+ * output becomes an explicit unconfirmed driver so detected moves still surface.
+ */
+export function marketMoverInsightsFromCandidates(
+  value: JsonValue,
+  evidence: readonly ResearchSourceItem[],
+): ResearchBrief['marketMovers'] {
+  const candidates = z.array(GeneratedMarketMoverInsightSchema).max(6).parse(value)
+  const moverEvidence = new Map<string, ResearchSourceItem[]>()
+  for (const source of evidence) {
+    const symbol = source.marketMover?.symbol
+    if (symbol) moverEvidence.set(symbol, [...(moverEvidence.get(symbol) ?? []), source])
+  }
+  const insights = new Map<string, ResearchBrief['marketMovers'][number]>()
+
+  for (const candidate of candidates) {
+    const sources = [...new Set(candidate.sourceIndices)].map((index) => evidence[index])
+    if (sources.some((source) => source?.marketMover?.symbol !== candidate.symbol)) continue
+    const metadata = sources[0]?.marketMover
+    if (!metadata) continue
+    const links = [...new Map(sources.map((source) => {
+      const link = evidenceSourceLink(source!)
+      return [link.url, link]
+    })).values()].slice(0, 3)
+    insights.set(candidate.symbol, MarketMoverInsightSchema.parse({
+      ...metadata,
+      description: candidate.description,
+      headline: candidate.headline,
+      sources: links,
+    }))
+  }
+
+  for (const [symbol, sources] of moverEvidence) {
+    if (insights.has(symbol)) continue
+    const metadata = sources[0]?.marketMover
+    if (!metadata) continue
+    insights.set(symbol, MarketMoverInsightSchema.parse({
+      ...metadata,
+      description: `${metadata.name} moved ${metadata.changePercent >= 0 ? '+' : ''}${metadata.changePercent.toFixed(2)}% to $${metadata.price.toFixed(2)}. The reviewed evidence did not establish a sufficiently clear cause, so the driver remains unconfirmed.`,
+      headline: 'Move detected; driver not established',
+      sources: [evidenceSourceLink(sources[0]!)],
+    }))
+  }
+  return [...insights.values()].slice(0, 6)
+}

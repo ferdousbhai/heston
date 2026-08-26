@@ -1,5 +1,9 @@
 import { Link } from '@tanstack/react-router'
 
+import { Avatar, AvatarFallback } from '#/components/ui/avatar'
+import { Button } from '#/components/ui/button'
+import { GoogleSignInButton } from './auth-gate'
+
 export function TopBar({
   viewerName,
 }: {
@@ -12,12 +16,13 @@ export function TopBar({
         <small>MUST FLOW</small>
       </Link>
       <div className="top-actions">
-        <Link className="top-link" to="/support">Support</Link>
+        <Button nativeButton={false} render={<Link className="top-link" to="/support" />} size="sm" variant="link">Support</Button>
         {viewerName && (
-          <span aria-label={`Signed in as ${viewerName}`} className="viewer-avatar" title={viewerName}>
-            {viewerName.trim().charAt(0).toUpperCase()}
-          </span>
+          <Avatar aria-label={`Signed in as ${viewerName}`} className="viewer-avatar" title={viewerName}>
+            <AvatarFallback>{viewerName.trim().charAt(0).toUpperCase()}</AvatarFallback>
+          </Avatar>
         )}
+        {!viewerName && <GoogleSignInButton compact />}
       </div>
     </header>
   )

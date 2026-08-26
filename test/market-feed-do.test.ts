@@ -166,6 +166,39 @@ describe('MarketFeed option Greeks RPC', () => {
     await context.drain()
   })
 
+  it('does not turn an absent trade change into a false zero-percent move', async () => {
+    const client = downstream(['SPY'])
+    const context = new FakeContext([client])
+    new MarketFeedCore(context, liveEnvironment())
+    await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(1))
+    const socket = FakeUpstreamWebSocket.instances[0]!
+    socket.open()
+    await context.drain()
+    socket.message({ type: 'SETUP' })
+    await context.drain()
+    socket.message({ type: 'AUTH_STATE', state: 'AUTHORIZED' })
+    await context.drain()
+    socket.message({ type: 'CHANNEL_OPENED', channel: 3 })
+    await context.drain()
+
+    socket.message({
+      type: 'FEED_DATA',
+      data: ['Trade', [
+        'SPY', 1_786_629_600_000, 1_786_629_600_000, null, 1, 'Q',
+        1, 'Up', false, 700, null, 10, 1_000, 700_000,
+      ]],
+    })
+    await context.drain()
+
+    const marketFrame = vi.mocked(client.send).mock.calls
+      .map(([frame]) => JsonObjectSchema.parse(JSON.parse(frame)))
+      .find((frame) => frame.type === 'market')
+    expect(marketFrame).toMatchObject({ price: 700, symbol: 'SPY', type: 'market' })
+    expect(marketFrame).not.toHaveProperty('change')
+    socket.close()
+    await context.drain()
+  })
+
   it('reconnects when the upstream never completes setup', async () => {
     vi.useFakeTimers()
     const context = new FakeContext([downstream(['SPY'])])
@@ -178,5 +211,23 @@ describe('MarketFeed option Greeks RPC', () => {
     expect(FakeUpstreamWebSocket.instances[0]?.readyState).toBe(FakeUpstreamWebSocket.CLOSED)
     expect(context.setAlarm).toHaveBeenCalled()
     vi.useRealTimers()
+  })
+
+  it('does not expose provider-supplied protocol details to logs or clients', async () => {
+    const client = downstream(['SPY'])
+    const context = new FakeContext([client])
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    new MarketFeedCore(context, liveEnvironment())
+    await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(1))
+
+    const socket = FakeUpstreamWebSocket.instances[0]!
+    socket.open()
+    await context.drain()
+    socket.message({ type: 'ERROR', message: 'private-provider-payload' })
+    await context.drain()
+
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('private-provider-payload')
+    expect(JSON.stringify(vi.mocked(client.send).mock.calls)).not.toContain('private-provider-payload')
+    expect(vi.mocked(client.send).mock.calls.some(([frame]) => frame.includes('Upstream feed error'))).toBe(true)
   })
 })

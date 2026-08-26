@@ -2,13 +2,14 @@ import { Type } from '@earendil-works/pi-ai'
 import { type AgentTool } from '@earendil-works/pi-agent-core'
 
 import { CatalystSchema, marketDate, type Catalyst } from '../domain/catalyst'
-import { ResearchBriefSchema, type ResearchBrief } from '../domain/market'
+import { type JsonValue } from '../domain/json-payload'
+import { parseStoredResearchBrief, type ResearchBrief } from '../domain/market'
 import { type AppEnv } from './env'
 
 const MAX_CATALYST_SYMBOLS = 20
 const MAX_CATALYSTS = 100
 
-export const CatalystReadParameters = Type.Object({
+const CatalystReadParameters = Type.Object({
   horizonDays: Type.Optional(Type.Integer({
     description: 'Number of calendar days ahead to search. Defaults to 90.',
     maximum: 365,
@@ -21,7 +22,7 @@ export const CatalystReadParameters = Type.Object({
   }),
 }, { additionalProperties: false })
 
-export const DailyResearchReadParameters = Type.Object({}, { additionalProperties: false })
+const DailyResearchReadParameters = Type.Object({}, { additionalProperties: false })
 
 export type CatalystReadResult = {
   catalysts: Catalyst[]
@@ -63,7 +64,7 @@ export async function readCatalysts(
   if (boundedHorizon < 1 || boundedHorizon > 365) throw new Error('Catalyst horizon is invalid.')
   const start = marketDate(now)
   const result = await env.DB.prepare(
-    `SELECT id, symbol, kind, title, event_date AS date, timing, confidence,
+    `SELECT id, symbol, kind, title, description, event_date AS date, timing, confidence,
       source_name AS source, source_url AS "sourceUrl", updated_at AS "updatedAt"
      FROM catalysts
      WHERE symbol IN (${symbols.map(() => '?').join(', ')})
@@ -95,13 +96,13 @@ export async function readLatestResearch(
   if (!row) {
     return { brief: null, fetchedAt: now.toISOString(), source: 'spice-research-store', status: 'not_found' }
   }
-  let payload: unknown
+  let payload: JsonValue
   try {
     payload = JSON.parse(row.payload_json)
   } catch {
     throw new Error('Daily research returned an invalid response.')
   }
-  const brief = ResearchBriefSchema.parse(payload)
+  const brief = parseStoredResearchBrief(payload)
   return { brief, fetchedAt: now.toISOString(), source: 'spice-research-store', status: 'ok' }
 }
 

@@ -1,6 +1,7 @@
 import {
   OrderPlacementSchema,
   previewAction,
+  type FreshOrderPlacement,
   type OrderPlacement,
   type ConfirmRequest,
 } from './agent-contracts'
@@ -13,8 +14,12 @@ import { resolveOrderIntent } from './order-intent'
 import { orderMarketPreview } from './order-market'
 import { tradeGuards } from './trade-guards'
 import { brokerApi } from './tastytrade'
+import { internalWatchlistWriter } from './internal-watchlist'
 
 type PendingAction = { expiresAt: string; id: string; preview: string; token: string }
+type CloudflareSubtleCrypto = SubtleCrypto & {
+  timingSafeEqual(left: ArrayBuffer | ArrayBufferView, right: ArrayBuffer | ArrayBufferView): boolean
+}
 
 function base64Url(bytes: Uint8Array): string {
   let binary = ''
@@ -26,10 +31,27 @@ async function digest(value: string): Promise<string> {
   return base64Url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))))
 }
 
+async function timingSafeDigestMatch(provided: string, expected: string): Promise<boolean> {
+  // SAFETY: Cloudflare Workers extends the standard SubtleCrypto implementation with
+  // timingSafeEqual; this module runs only in that Worker runtime outside test stubs.
+  const subtle = crypto.subtle as CloudflareSubtleCrypto
+  const encoder = new TextEncoder()
+  const [providedHash, expectedHash] = await Promise.all([
+    subtle.digest('SHA-256', encoder.encode(provided)),
+    subtle.digest('SHA-256', encoder.encode(expected)),
+  ])
+  return subtle.timingSafeEqual(providedHash, expectedHash)
+}
+
 function randomToken(): string {
   const bytes = new Uint8Array(32)
   crypto.getRandomValues(bytes)
   return base64Url(bytes)
+}
+
+export async function rememberTradeIntentSymbol(env: AppEnv, action: FreshOrderPlacement): Promise<void> {
+  const symbol = action.kind === 'place_equity_order' ? action.symbol : action.underlying
+  await internalWatchlistWriter().ensureSymbols(env, [symbol], 'trade-intent')
 }
 
 export async function preparePendingAction(env: AppEnv, untrustedAction: JsonValue): Promise<PendingAction> {
@@ -42,6 +64,9 @@ export async function preparePendingAction(env: AppEnv, untrustedAction: JsonVal
   await reconcileUnknownBrokerageAction(env)
   const accountNumber = await brokerApi().resolveAccountNumber(env)
   const intent = await resolveOrderIntent(env, action, accountNumber)
+  // Exact contract/order resolution is the deterministic point where a discussed
+  // trade becomes a trusted ticker, including price-only replacements.
+  await rememberTradeIntentSymbol(env, intent.effectiveAction)
   await tradeGuards().assertPortfolioActionAllowed(env, intent.effectiveAction, {
     accountNumber,
     ignoredOrderId: intent.replaceOrderId,
@@ -87,7 +112,9 @@ export async function resolvePendingAction(
     await env.DB.prepare("UPDATE brokerage_actions SET status = 'expired' WHERE id = ? AND status = 'pending'").bind(actionId).run()
     throw new Error('This confirmation has expired')
   }
-  if (await digest(input.token) !== row.token_digest) throw new Error('Invalid confirmation token')
+  if (!await timingSafeDigestMatch(await digest(input.token), row.token_digest)) {
+    throw new Error('Invalid confirmation token')
+  }
   if (input.decision === 'deny') {
     const result = await env.DB.prepare(
       "UPDATE brokerage_actions SET status = 'denied', resolved_at = ? WHERE id = ? AND status = 'pending'",

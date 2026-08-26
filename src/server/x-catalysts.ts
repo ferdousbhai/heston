@@ -1,11 +1,12 @@
 import { z } from 'zod'
 
-import { CatalystKindSchema, CatalystSchema, marketDate, type Catalyst } from '../domain/catalyst'
+import { aiGatewayHeaders, grokGatewayBaseUrl } from './ai-gateway'
+import { CatalystKindSchema, CatalystSchema, isValidIsoDate, marketDate, type Catalyst } from '../domain/catalyst'
 import { type AppEnv } from './env'
 import { readBoundedJson } from './bounded-response'
 import { JsonArraySchema, jsonObjectOrEmpty, type JsonValue } from '../domain/json-payload'
 import { readStoredSecret } from './secrets'
-import { brokerApi } from './tastytrade'
+import { persistResearchedCatalysts } from './catalysts'
 
 const MODEL = 'grok-4.6'
 const SOURCE = 'Grok 4.6 X research'
@@ -24,6 +25,7 @@ const FindingSchema = z.object({
   symbol: z.string(),
   kind: CatalystKindSchema.exclude(['earnings']),
   title: z.string().trim().min(1).max(160),
+  description: z.string().trim().min(1).max(500),
   date: z.string(),
   timing: z.enum(['pre-market', 'intraday', 'after-hours', 'unknown']),
   confidence: z.enum(['confirmed', 'estimated']),
@@ -36,13 +38,6 @@ const FindingsSchema = z.object({ findings: z.array(FindingSchema).max(100) })
 const ModelTextSchema = z.string()
 
 export type XCatalystResult = { catalysts: Catalyst[]; rejected: number }
-
-function isoDateIsValid(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
-  const [year, month, day] = value.split('-').map(Number)
-  const parsed = new Date(Date.UTC(year, month - 1, day))
-  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day
-}
 
 function addDays(date: string, days: number): string {
   const [year, month, day] = date.split('-').map(Number)
@@ -107,7 +102,7 @@ export function parseXCatalystResponse(
   for (const finding of findings) {
     const symbol = finding.symbol.toUpperCase()
     const sourceUrl = canonicalXPostUrl(finding.sourceUrl)
-    if (!symbols.has(symbol) || !isoDateIsValid(finding.date) || finding.date < today || finding.date > horizon || !sourceUrl || !citations.has(sourceUrl)) {
+    if (!symbols.has(symbol) || !isValidIsoDate(finding.date) || finding.date < today || finding.date > horizon || !sourceUrl || !citations.has(sourceUrl)) {
       rejected++
       continue
     }
@@ -127,11 +122,13 @@ function responseSchema() {
         type: 'array', maxItems: 100,
         items: {
           type: 'object', additionalProperties: false,
-          required: ['symbol', 'kind', 'title', 'date', 'timing', 'confidence', 'sourceUrl'],
+          required: ['symbol', 'kind', 'title', 'description', 'date', 'timing', 'confidence', 'sourceUrl'],
           properties: {
             symbol: { type: 'string' },
             kind: { type: 'string', enum: ['investor-event', 'product-event', 'regulatory', 'clinical', 'conference', 'shareholder'] },
-            title: { type: 'string' }, date: { type: 'string' },
+            title: { type: 'string', minLength: 1, maxLength: 160 },
+            description: { type: 'string', minLength: 1, maxLength: 500 },
+            date: { type: 'string' },
             timing: { type: 'string', enum: ['pre-market', 'intraday', 'after-hours', 'unknown'] },
             confidence: { type: 'string', enum: ['confirmed', 'estimated'] },
             sourceUrl: { type: 'string' },
@@ -147,30 +144,35 @@ export async function discoverXCatalysts(
   symbols: readonly string[],
   now = new Date(),
   fetcher: typeof fetch = fetch,
+  gatewayRunId = crypto.randomUUID(),
+  parentRunId?: string,
 ): Promise<XCatalystResult> {
   const watched = [...new Set(symbols.map((symbol) => symbol.toUpperCase()))].slice(0, MAX_SYMBOLS)
   if (!watched.length) return { catalysts: [], rejected: 0 }
-  const [apiKey, gatewayToken] = await Promise.all([
+  const [apiKey, gatewayToken, gatewayBaseUrl] = await Promise.all([
     readStoredSecret(env.XAI_API_KEY, 'XAI_API_KEY'),
     readStoredSecret(env.AI_GATEWAY_TOKEN, 'AI_GATEWAY_TOKEN'),
+    grokGatewayBaseUrl(env),
   ])
   const today = marketDate(now)
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 5 * 60_000)
   try {
-    const response = await fetcher('https://gateway.ai.cloudflare.com/v1/0af9e0921b880657d84a6c07307f8aef/spice/grok/v1/responses', {
+    const response = await fetcher(`${gatewayBaseUrl}/responses`, {
       method: 'POST', signal: controller.signal,
       headers: {
         Authorization: `Bearer ${apiKey}`,
-        'cf-aig-authorization': `Bearer ${gatewayToken}`,
-        'cf-aig-collect-log': 'false', 'cf-aig-collect-log-payload': 'false',
-        'cf-aig-skip-cache': 'true', 'Content-Type': 'application/json',
+        ...aiGatewayHeaders(gatewayToken, {
+          app: 'spice', feature: 'x-catalyst-research', market_date: today,
+          parent_run_id: parentRunId ?? gatewayRunId, run_id: gatewayRunId,
+        }),
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         model: MODEL,
         input: [
-          { role: 'system', content: 'Find only material, scheduled, ticker-specific future catalysts announced in public X posts. Do not include earnings or dividends. Never infer a date that the cited post does not support. confirmed means a first-party company, executive, regulator, trial sponsor, exchange, or event organizer states an exact date; otherwise use estimated. Return an empty array when evidence is weak.' },
-          { role: 'user', content: `Search X for scheduled catalysts from ${today} through ${addDays(today, 180)} for only these tickers: ${watched.join(', ')}. Each sourceUrl must be the direct cited X status URL. Deduplicate equivalent events.` },
+          { role: 'system', content: 'Find only material, scheduled, ticker-specific future catalysts announced in public X posts. Do not include earnings or dividends. Never infer a date or claim that the cited post does not support. confirmed means a first-party company, executive, regulator, trial sponsor, exchange, or event organizer states an exact date; otherwise use estimated. Write a concise factual description of what is scheduled and why it may matter, using only the cited post. Return an empty array when evidence is weak.' },
+          { role: 'user', content: `Search X for scheduled catalysts from ${today} through ${addDays(today, 180)} for only these tickers: ${watched.join(', ')}. Each sourceUrl must be the direct cited X status URL. Each description must be no more than 500 characters. Deduplicate equivalent events.` },
         ],
         tools: [{ type: 'x_search', from_date: addDays(today, -3), to_date: today }],
         text: { format: { type: 'json_schema', name: 'spice_upcoming_catalysts', strict: true, schema: responseSchema() } },
@@ -201,38 +203,41 @@ async function recordRun(env: AppEnv, values: {
     values.error ?? null, values.startedAt, values.completedAt ?? null).run()
 }
 
-async function persist(env: AppEnv, catalysts: readonly Catalyst[], now: Date): Promise<void> {
-  if (!env.DB || !catalysts.length) return
-  await env.DB.batch(catalysts.map((catalyst) => env.DB!.prepare(
-    `INSERT INTO catalysts
-      (id, symbol, kind, title, event_date, timing, confidence, source_name, source_url, updated_at, last_seen_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET title = excluded.title, timing = excluded.timing,
-      confidence = excluded.confidence, source_url = excluded.source_url,
-      updated_at = excluded.updated_at, last_seen_at = excluded.last_seen_at`,
-  ).bind(catalyst.id, catalyst.symbol, catalyst.kind, catalyst.title, catalyst.date, catalyst.timing,
-    catalyst.confidence, catalyst.source, catalyst.sourceUrl, catalyst.updatedAt, now.toISOString())))
-}
-
-export function shouldRunXCatalystResearch(date: Date): boolean {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false,
-  }).formatToParts(date).map((part) => [part.type, part.value]))
-  return parts.weekday !== 'Sat' && parts.weekday !== 'Sun' && parts.hour === '18' && parts.minute === '30'
-}
-
-export async function runXCatalystResearch(env: AppEnv, now = new Date()): Promise<{ accepted: number; rejected: number }> {
-  const snapshot = await brokerApi().loadMarketSnapshot(env)
-  const symbols = catalystResearchSymbols(snapshot.watchlists)
+async function runXCatalystResearchForSymbols(
+  env: AppEnv,
+  symbols: readonly string[],
+  now = new Date(),
+  parentRunId?: string,
+): Promise<XCatalystResult> {
   const run = { id: crypto.randomUUID(), startedAt: now.toISOString(), symbols: symbols.length }
   await recordRun(env, { ...run, status: 'running' })
   try {
-    const result = await discoverXCatalysts(env, symbols, now)
-    await persist(env, result.catalysts, now)
+    const result = await discoverXCatalysts(env, symbols, now, fetch, run.id, parentRunId)
+    await persistResearchedCatalysts(env, result.catalysts, now)
     await recordRun(env, { ...run, status: 'completed', accepted: result.catalysts.length, rejected: result.rejected, completedAt: new Date().toISOString() })
-    return { accepted: result.catalysts.length, rejected: result.rejected }
+    return result
   } catch (error) {
     await recordRun(env, { ...run, status: 'failed', error: error instanceof Error ? error.message.slice(0, 160) : 'UnknownError', completedAt: new Date().toISOString() })
     throw error
   }
+}
+
+function createXCatalystResearch() {
+  return { runForSymbols: runXCatalystResearchForSymbols }
+}
+
+export type XCatalystResearch = ReturnType<typeof createXCatalystResearch>
+
+let installedXCatalystResearch: XCatalystResearch = createXCatalystResearch()
+
+export function xCatalystResearch(): XCatalystResearch {
+  return installedXCatalystResearch
+}
+
+export function setXCatalystResearch(next: XCatalystResearch): void {
+  installedXCatalystResearch = next
+}
+
+export function resetXCatalystResearch(): void {
+  installedXCatalystResearch = createXCatalystResearch()
 }

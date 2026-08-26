@@ -5,7 +5,6 @@ import { type AppEnv } from './server/env'
 import { authorizePersonalRequest, canonicalHostRedirect } from './server/http'
 import { shouldRunDailyResearch } from './server/research'
 import { runScheduledJobKind } from './server/scheduled-jobs'
-import { shouldRunXCatalystResearch } from './server/x-catalysts'
 
 export { DanAgent } from './server/dan-agent'
 export { BrokerGate } from './server/broker-gate'
@@ -28,9 +27,6 @@ export default {
     const tasks: Promise<unknown>[] = []
     if (shouldRunDailyResearch(scheduledAt)) {
       tasks.push(runScheduledJobKind(env, 'daily-research', scheduledAt))
-    }
-    if (shouldRunXCatalystResearch(scheduledAt)) {
-      tasks.push(runScheduledJobKind(env, 'x-catalysts', scheduledAt))
     }
     if (tasks.length) context.waitUntil(Promise.all(tasks).then(() => undefined))
   },

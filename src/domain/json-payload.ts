@@ -26,15 +26,15 @@ export const JsonArraySchema = z.array(z.custom<JsonValue>())
 export const JsonObjectArraySchema = z.array(JsonObjectSchema)
 
 /** Broker and model payloads quote numbers as JSON numbers or decimal strings; both must resolve to a finite value. */
-export const NumericSchema = z.union([z.number(), z.string().trim().min(1)])
+const NumericSchema = z.union([z.number(), z.string().trim().min(1)])
   .transform(Number)
   .refine(Number.isFinite)
 
 /** Non-empty trimmed text. Values that are not strings are treated as absent. */
-export const TextSchema = z.string().trim().min(1)
+const TextSchema = z.string().trim().min(1)
 
 /** Text that a payload may encode as either a JSON string or a JSON number. */
-export const LooseTextSchema = z.union([z.string(), z.number()])
+const LooseTextSchema = z.union([z.string(), z.number()])
   .transform(String)
   .pipe(TextSchema)
 

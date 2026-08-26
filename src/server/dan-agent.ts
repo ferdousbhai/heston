@@ -28,13 +28,19 @@ import { jsonObject, jsonObjectOrEmpty, type JsonValue } from '../domain/json-pa
 import { newYorkClock } from '../domain/market-clock'
 import { preparePendingAction } from './agent'
 import { ChatRequestSchema, OrderPlacementSchema } from './agent-contracts'
-import { createCancelOrderTool, createWatchlistManagementTool } from './account-action-tools'
+import {
+  createCancelOrderTool,
+  createRememberTradeSymbolsTool,
+  createWatchlistManagementTool,
+} from './account-action-tools'
 import { createBrokerageReadTools, readMarketStatus } from './brokerage-read-tools'
 import { buildAgentRuntimeContext, loadBrokerageContext } from './brokerage-context'
 import { createBrokerageReconciliationTool } from './brokerage-reconciliation'
 import { DAN_SYSTEM_PROMPT } from './dan-doctrine'
 import { type AppEnv } from './env'
 import { createPiRuntime } from './pi-runtime'
+import { grokGatewayBaseUrl } from './ai-gateway'
+import { readStoredSecret } from './secrets'
 import { buildPortfolioPolicyContext } from './portfolio-risk'
 import { createMarketResearchTools } from './market-research-tools'
 import { createResearchReadTools } from './research-read-tools'
@@ -146,6 +152,7 @@ function agentToolLabel(name: string): string {
   if (name === 'read_company_fundamentals') return 'Reading company fundamentals'
   if (name === 'read_price_history') return 'Reading price history'
   if (name === 'manage_watchlist') return 'Updating watchlist'
+  if (name === 'remember_trade_symbols') return 'Remembering symbols'
   if (name === 'cancel_order') return 'Cancelling order'
   if (name === 'reconcile_brokerage_action') return 'Reconciling order'
   return name
@@ -273,7 +280,11 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
       startedAt: new Date().toISOString(),
       status: 'running',
     })
-    const run = this.runTurn(parsed.data.selectedSymbol, parsed.data.message).catch((cause: unknown) => {
+    // Model/tool turns can span minutes; the SDK heartbeat prevents idle eviction while waitUntil
+    // keeps the WebSocket event alive. onStart still closes any truly interrupted turn after restart.
+    const run = this.keepAliveWhile(
+      () => this.runTurn(parsed.data.selectedSymbol, parsed.data.message, userMessage.id),
+    ).catch((cause: unknown) => {
       const error = toError(cause)
       console.error('DanAgentTurnFailed', error ? error.message.slice(0, 500) : 'UnknownError')
     })
@@ -284,7 +295,7 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
     this.broadcast(JSON.stringify(event))
   }
 
-  private async runTurn(selectedSymbol: string | undefined, currentUserMessage: string) {
+  private async runTurn(selectedSymbol: string | undefined, currentUserMessage: string, runId: string) {
     const controller = new AbortController()
     this.abortController = controller
     let turnFailure: string | undefined
@@ -303,14 +314,19 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
         }),
       ])
       const portfolioPolicy = await buildPortfolioPolicyContext(this.env, account)
-      let apiKey: string | undefined
+      let apiKey: string
+      let gatewayToken: string
+      let gatewayBaseUrl: string
       try {
-        apiKey = await this.env.XAI_API_KEY?.get()
+        [apiKey, gatewayToken, gatewayBaseUrl] = await Promise.all([
+          readStoredSecret(this.env.XAI_API_KEY, 'XAI_API_KEY'),
+          readStoredSecret(this.env.AI_GATEWAY_TOKEN, 'AI_GATEWAY_TOKEN'),
+          grokGatewayBaseUrl(this.env),
+        ])
       } catch {
         throw new Error("Dan's model credential is unavailable.")
       }
-      if (!apiKey) throw new Error("Dan's model credential is unavailable.")
-      const runtime = createPiRuntime(apiKey)
+      const runtime = createPiRuntime(apiKey, gatewayToken, gatewayBaseUrl, runId)
       this.setState({ ...this.state, contextWindow: runtime.model.contextWindow, model: `pi · ${runtime.model.id}` })
 
       const pendingActions = new Map<string, PendingAction>()
@@ -346,6 +362,7 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
         createBrokerageReconciliationTool(this.env),
         createCancelOrderTool(this.env, currentUserMessage),
         createWatchlistManagementTool(this.env, currentUserMessage),
+        createRememberTradeSymbolsTool(this.env),
         createWatchlistReadTool(this.env),
         createExactOptionGreeksReadTool(this.env),
         ...createBrokerageReadTools(this.env),

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { catalystLabel, nextCatalystForSymbol, sortSymbolsByCatalyst, upcomingInterestedSymbols, type Catalyst } from '../src/domain/catalyst'
+import { catalystLabel, nextCatalystForSymbol, sortSymbolsByCatalyst, upcomingCatalystSymbols, type Catalyst } from '../src/domain/catalyst'
 import { catalystsFromMarketMetrics, earningsDateFromMetric, persistAndLoadCatalysts } from '../src/server/catalysts'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
 
@@ -100,7 +100,7 @@ describe('catalyst ordering', () => {
     expect(nextCatalystForSymbol('NVDA', [catalyst('NVDA', '2026-08-12')], NOW)).toBeUndefined()
   })
 
-  it('builds a 30-day catalyst rail with positions before private watchlists', () => {
+  it('builds a source-neutral 30-day catalyst rail with deterministic ordering and deduplication', () => {
     const rows = [
       catalyst('AAPL', '2026-08-20'),
       catalyst('NVDA', '2026-08-26'),
@@ -108,11 +108,10 @@ describe('catalyst ordering', () => {
       catalyst('TSLA', '2026-09-20'),
     ]
 
-    expect(upcomingInterestedSymbols(
-      ['NVDA', 'AAPL'],
-      ['META', 'AAPL', 'TSLA', 'SPY'],
+    expect(upcomingCatalystSymbols(
+      ['NVDA', 'AAPL', 'META', 'AAPL', 'TSLA', 'SPY'],
       rows,
       NOW,
-    )).toEqual(['AAPL', 'NVDA', 'META'])
+    )).toEqual(['META', 'AAPL', 'NVDA'])
   })
 })

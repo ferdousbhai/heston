@@ -1,370 +1,68 @@
-import { Type } from '@earendil-works/pi-ai'
 import { type AgentTool } from '@earendil-works/pi-agent-core'
-import { z } from 'zod'
 
 import { type AppEnv } from './env'
 import {
-  envelopeRows,
-  jsonNumber,
-  jsonObject,
-  type JsonObject,
-  type JsonValue,
-} from '../domain/json-payload'
+  AccountHistoryReadParameters,
+  EQUITY_SYMBOL,
+  InstrumentQuoteReadParameters,
+  MAX_CHAIN_ROWS,
+  MAX_HISTORY_DAYS,
+  MAX_HISTORY_ITEMS,
+  MAX_HISTORY_OFFSET,
+  MAX_MARKET_SYMBOLS,
+  MAX_OPTION_CONTRACTS,
+  MAX_OPTION_EXPIRATIONS,
+  MAX_SEARCH_RESULTS,
+  MAX_SEARCH_ROWS,
+  MarketMetricsReadParameters,
+  MarketStatusReadParameters,
+  OptionContractFindParameters,
+  SymbolSearchParameters,
+  UNDERLYING_SYMBOL,
+  type AccountHistoryReadResult,
+  type CompactMarketMetric,
+  type CompactOptionContract,
+  type CompactOrder,
+  type CompactOrderLeg,
+  type CompactTransaction,
+  type HistoryKind,
+  type InstrumentQuoteReadResult,
+  type MarketMetricsReadResult,
+  type MarketStatusReadResult,
+  type OptionContractFindResult,
+  type SymbolSearchItem,
+  type SymbolSearchResult,
+  type TransactionType,
+} from './brokerage-read-contracts'
+import { jsonObject, type JsonObject, type JsonValue } from '../domain/json-payload'
+import {
+  dataRecord,
+  finiteNumber,
+  invalidResponse,
+  itemEnvelope,
+  optionalBoolean,
+  optionalDate,
+  optionalNumber,
+  optionalRatioPercent,
+  optionalText,
+  optionalTimestamp,
+  requiredIdentifier,
+  requiredText,
+  requiredTimestamp,
+  validDate,
+} from './brokerage-read-normalization'
 import { resolveEquityOptionTuples } from './option-contract'
 import { textResult } from './agent-tool-result'
 import { brokerApi } from './tastytrade'
 
-type HistoryKind = 'orders' | 'transactions'
-type TransactionType = 'Money Movement' | 'Trade'
-
-const MAX_HISTORY_DAYS = 365
-const MAX_HISTORY_ITEMS = 50
-const MAX_HISTORY_OFFSET = 1_000
-const MAX_MARKET_SYMBOLS = 20
-const MAX_SEARCH_RESULTS = 20
-const MAX_SEARCH_ROWS = 200
-const MAX_CHAIN_ROWS = 50_000
-const MAX_OPTION_EXPIRATIONS = 12
-const MAX_OPTION_CONTRACTS = 60
-const EQUITY_SYMBOL = /^[A-Z][A-Z0-9.]{0,7}$/
-const UNDERLYING_SYMBOL = /^\/?[A-Z0-9.]{1,31}$/
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
-
-export const AccountHistoryReadParameters = Type.Object({
-  days: Type.Optional(Type.Integer({
-    description: 'Calendar-day lookback. Defaults to 90 for transactions and 7 for orders.',
-    maximum: MAX_HISTORY_DAYS,
-    minimum: 0,
-  })),
-  limit: Type.Optional(Type.Integer({
-    description: 'Maximum rows to return. Defaults to 25.',
-    maximum: MAX_HISTORY_ITEMS,
-    minimum: 1,
-  })),
-  pageOffset: Type.Optional(Type.Integer({
-    description: 'Zero-based broker page offset. Defaults to 0.',
-    maximum: MAX_HISTORY_OFFSET,
-    minimum: 0,
-  })),
-  transactionType: Type.Optional(Type.Union([
-    Type.Literal('Trade'),
-    Type.Literal('Money Movement'),
-  ], { description: 'Transactions only: optionally restrict to trades or cash movements.' })),
-  type: Type.Union([Type.Literal('transactions'), Type.Literal('orders')]),
-  underlyingSymbol: Type.Optional(Type.String({
-    description: 'Exact underlying equity or futures symbol.',
-    maxLength: 32,
-    pattern: '^\\/?[A-Z0-9.]{1,31}$',
-  })),
-}, { additionalProperties: false })
-
-export const MarketMetricsReadParameters = Type.Object({
-  symbols: Type.Array(Type.String({ pattern: '^[A-Z][A-Z0-9.]{0,7}$' }), {
-    description: 'One to twenty exact equity ticker symbols.',
-    maxItems: MAX_MARKET_SYMBOLS,
-    minItems: 1,
-  }),
-}, { additionalProperties: false })
-
-export const MarketStatusReadParameters = Type.Object({}, { additionalProperties: false })
-
-export const SymbolSearchParameters = Type.Object({
-  limit: Type.Optional(Type.Integer({ maximum: MAX_SEARCH_RESULTS, minimum: 1 })),
-  query: Type.String({
-    description: 'Ticker or company-name fragment.',
-    maxLength: 64,
-    minLength: 1,
-    pattern: '^(?=.*\\S)[\\x20-\\x7E]+$',
-  }),
-}, { additionalProperties: false })
-
-export const OptionContractFindParameters = Type.Object({
-  expiry: Type.Optional(Type.String({
-    description: 'Exact expiration date in YYYY-MM-DD form.',
-    pattern: '^\\d{4}-\\d{2}-\\d{2}$',
-  })),
-  optionType: Type.Optional(Type.Union([Type.Literal('C'), Type.Literal('P')])),
-  strike: Type.Optional(Type.Number({ exclusiveMinimum: 0, maximum: 1_000_000 })),
-  underlying: Type.String({ description: 'Exact equity ticker.', pattern: '^[A-Z][A-Z0-9.]{0,7}$' }),
-}, { additionalProperties: false })
-
-export const InstrumentQuoteReadParameters = Type.Object({
-  contracts: Type.Optional(Type.Array(Type.Object({
-    expiry: Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }),
-    optionType: Type.Union([Type.Literal('C'), Type.Literal('P')]),
-    strike: Type.Number({ exclusiveMinimum: 0, maximum: 1_000_000 }),
-    underlying: Type.String({ pattern: '^[A-Z][A-Z0-9.]{0,7}$' }),
-  }, { additionalProperties: false }), { maxItems: 10, minItems: 1 })),
-  symbols: Type.Optional(Type.Array(Type.String({ pattern: '^[A-Z][A-Z0-9.]{0,7}$' }), {
-    maxItems: 10,
-    minItems: 1,
-  })),
-}, { additionalProperties: false })
-
-export type CompactTransaction = {
-  action?: string
-  id: string
-  instrumentType?: string
-  netValue?: number
-  occurredAt: string
-  orderId?: string
-  price?: number
-  quantity?: number
-  symbol?: string
-  transactionSubType?: string
-  transactionType: string
-  underlyingSymbol?: string
-  value?: number
-}
-
-export type CompactOrderLeg = {
-  action: string
-  instrumentType: string
-  quantity: number
-  remainingQuantity?: number
-  symbol: string
-}
-
-export type CompactOrder = {
-  id: string
-  legs: CompactOrderLeg[]
-  orderType: string
-  price?: number
-  priceEffect?: string
-  receivedAt?: string
-  rejectReason?: string
-  size?: number
-  status: string
-  timeInForce: string
-  underlyingInstrumentType: string
-  underlyingSymbol: string
-  updatedAt: string
-}
-
-export type AccountHistoryReadResult = {
-  asOf: string
-  days: number
-  items: CompactOrder[] | CompactTransaction[]
-  limit: number
-  pageOffset: number
-  returnedItemCount: number
-  totalItemCount?: number
-  truncated: boolean
-  type: HistoryKind
-  source: 'tastytrade'
-}
-
-export type CompactMarketMetric = {
-  beta?: number
-  earningsDate?: string
-  earningsEstimated?: boolean
-  earningsPerShare?: number
-  earningsTimeOfDay?: string
-  historicalVolatility30Day?: number
-  impliedHistoricalVolatility30DayDifference?: number
-  impliedVolatility30Day?: number
-  impliedVolatilityIndex?: number
-  impliedVolatilityPercentile?: number
-  impliedVolatilityRank?: number
-  liquidityRank?: number
-  liquidityRating?: number
-  liquidityValue?: number
-  marketCap?: number
-  priceEarningsRatio?: number
-  symbol: string
-  updatedAt?: string
-}
-
-export type MarketMetricsReadResult = {
-  asOf: string
-  metrics: CompactMarketMetric[]
-  missingSymbols: string[]
-  requestedSymbols: string[]
-  truncated: false
-  source: 'tastytrade'
-  volatilityUnit: 'percentage_points'
-}
-
-export type MarketStatusReadResult = {
-  asOf: string
-  closesAt?: string
-  extendedClosesAt?: string
-  instrumentCollection?: string
-  nextOpenAt?: string
-  opensAt?: string
-  previousCloseAt?: string
-  startsAt?: string
-  state: string
-  truncated: false
-  source: 'tastytrade'
-}
-
-export type SymbolSearchItem = {
-  description: string
-  hasOptions?: boolean
-  instrumentType?: string
-  listedMarket?: string
-  symbol: string
-}
-
-export type SymbolSearchResult = {
-  asOf: string
-  query: string
-  results: SymbolSearchItem[]
-  returnedResultCount: number
-  totalResultCount: number
-  truncated: boolean
-  source: 'tastytrade'
-}
-
-export type CompactOptionContract = {
-  expirationDate: string
-  isClosingOnly?: boolean
-  optionType: 'C' | 'P'
-  sharesPerContract: number
-  streamerSymbol?: string
-  strikePrice: number
-  symbol: string
-}
-
-export type OptionContractFindResult = {
-  asOf: string
-  contracts: CompactOptionContract[]
-  expirationDates: string[]
-  filters: { expiry?: string; optionType?: 'C' | 'P'; strike?: number }
-  returnedContractCount: number
-  returnedExpirationCount: number
-  totalContractCount: number
-  totalExpirationCount: number
-  truncated: boolean
-  underlying: string
-  source: 'tastytrade'
-  mode: 'contracts' | 'expirations'
-}
-
-export type InstrumentQuoteReadResult = {
-  asOf: string
-  quotes: Array<{
-    ask: number
-    askSize?: number
-    bid: number
-    bidSize?: number
-    instrumentType: 'Equity' | 'Equity Option'
-    mid: number
-    observedAt: string
-    symbol: string
-    underlying?: string
-  }>
-  source: 'tastytrade-rest-market-data'
-}
-
-type ItemEnvelope = { rows: JsonObject[]; totalItems?: number }
-
-/** Broker text fields are compared and length-checked verbatim, so they are not trimmed on the way in. */
-const BrokerTextSchema = z.string()
-
-function invalidResponse(label: string): never {
-  throw new Error(`${label} returned an invalid response.`)
-}
-
-function itemEnvelope(payload: JsonValue, label: string, maximumRows: number): ItemEnvelope {
-  const body = jsonObject(payload)
-  const data = jsonObject(body?.data ?? payload)
-  const candidate = envelopeRows(payload)
-  if (!candidate || candidate.length > maximumRows) return invalidResponse(label)
-  const rows = candidate.map((value) => jsonObject(value) ?? invalidResponse(label))
-
-  const rawPagination = body?.pagination ?? data?.pagination
-  if (rawPagination === undefined || rawPagination === null) return { rows }
-  const pagination = jsonObject(rawPagination) ?? invalidResponse(label)
-  const rawTotal = pagination['total-items']
-  if (rawTotal === undefined || rawTotal === null) return { rows }
-  const totalItems = finiteNumber(rawTotal, label)
-  if (!Number.isSafeInteger(totalItems) || totalItems < 0) return invalidResponse(label)
-  return { rows, totalItems }
-}
-
-function dataRecord(payload: JsonValue, label: string): JsonObject {
-  const body = jsonObject(payload) ?? invalidResponse(label)
-  const rawData = body.data ?? body
-  return jsonObject(rawData) ?? invalidResponse(label)
-}
-
-function optionalText(row: JsonObject, keys: readonly string[], label: string, maxLength = 160): string | undefined {
-  for (const key of keys) {
-    const value = row[key]
-    if (value === undefined || value === null || value === '') continue
-    const raw = BrokerTextSchema.safeParse(value).data
-    if (raw === undefined) return invalidResponse(label)
-    const normalized = raw.trim()
-    if (!normalized || normalized.length > maxLength) return invalidResponse(label)
-    return normalized
-  }
-  return undefined
-}
-
-function requiredText(row: JsonObject, keys: readonly string[], label: string, maxLength = 160): string {
-  return optionalText(row, keys, label, maxLength) ?? invalidResponse(label)
-}
-
-function finiteNumber(value: JsonValue, label: string): number {
-  return jsonNumber(value) ?? invalidResponse(label)
-}
-
-function optionalNumber(row: JsonObject, keys: readonly string[], label: string): number | undefined {
-  for (const key of keys) {
-    const value = row[key]
-    if (value === undefined || value === null || value === '') continue
-    return finiteNumber(value, label)
-  }
-  return undefined
-}
-
-function optionalRatioPercent(row: JsonObject, keys: readonly string[], label: string): number | undefined {
-  const value = optionalNumber(row, keys, label)
-  return value === undefined ? undefined : Math.round(value * 10_000) / 100
-}
-
-function optionalBoolean(row: JsonObject, keys: readonly string[], label: string): boolean | undefined {
-  for (const key of keys) {
-    const value = row[key]
-    if (value === undefined || value === null) continue
-    return z.boolean().safeParse(value).data ?? invalidResponse(label)
-  }
-  return undefined
-}
-
-function requiredIdentifier(row: JsonObject, key: string, label: string): string {
-  const value = row[key]
-  const numeric = z.number().safeParse(value).data
-  if (numeric !== undefined && Number.isSafeInteger(numeric)) return String(numeric)
-  const normalized = BrokerTextSchema.safeParse(value).data?.trim()
-  if (normalized && normalized.length <= 64) return normalized
-  return invalidResponse(label)
-}
-
-function validDate(value: string): boolean {
-  if (!ISO_DATE.test(value)) return false
-  const date = new Date(`${value}T00:00:00.000Z`)
-  return !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value
-}
-
-function optionalDate(row: JsonObject, keys: readonly string[], label: string): string | undefined {
-  const value = optionalText(row, keys, label, 40)
-  if (value === undefined) return undefined
-  return validDate(value) ? value : invalidResponse(label)
-}
-
-function optionalTimestamp(row: JsonObject, keys: readonly string[], label: string): string | undefined {
-  const value = optionalText(row, keys, label, 40)
-  if (value === undefined) return undefined
-  if (!/^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(value) || Number.isNaN(Date.parse(value))) return invalidResponse(label)
-  return value
-}
-
-function requiredTimestamp(row: JsonObject, keys: readonly string[], label: string): string {
-  return optionalTimestamp(row, keys, label) ?? invalidResponse(label)
-}
+export type {
+  AccountHistoryReadResult,
+  InstrumentQuoteReadResult,
+  MarketMetricsReadResult,
+  MarketStatusReadResult,
+  OptionContractFindResult,
+  SymbolSearchResult,
+} from './brokerage-read-contracts'
 
 function dateDaysAgo(now: Date, days: number): string {
   const result = new Date(now)
@@ -823,7 +521,7 @@ export async function findOptionContracts(
   }
 }
 
-export function createAccountHistoryReadTool(
+function createAccountHistoryReadTool(
   env: AppEnv,
 ): AgentTool<typeof AccountHistoryReadParameters, AccountHistoryReadResult> {
   return {
@@ -836,7 +534,7 @@ export function createAccountHistoryReadTool(
   }
 }
 
-export function createMarketMetricsReadTool(
+function createMarketMetricsReadTool(
   env: AppEnv,
 ): AgentTool<typeof MarketMetricsReadParameters, MarketMetricsReadResult> {
   return {
@@ -849,7 +547,7 @@ export function createMarketMetricsReadTool(
   }
 }
 
-export function createMarketStatusReadTool(
+function createMarketStatusReadTool(
   env: AppEnv,
 ): AgentTool<typeof MarketStatusReadParameters, MarketStatusReadResult> {
   return {
@@ -862,7 +560,7 @@ export function createMarketStatusReadTool(
   }
 }
 
-export function createSymbolSearchTool(
+function createSymbolSearchTool(
   env: AppEnv,
 ): AgentTool<typeof SymbolSearchParameters, SymbolSearchResult> {
   return {
@@ -875,7 +573,7 @@ export function createSymbolSearchTool(
   }
 }
 
-export function createOptionContractFindTool(
+function createOptionContractFindTool(
   env: AppEnv,
 ): AgentTool<typeof OptionContractFindParameters, OptionContractFindResult> {
   return {
@@ -888,7 +586,7 @@ export function createOptionContractFindTool(
   }
 }
 
-export function createInstrumentQuoteReadTool(
+function createInstrumentQuoteReadTool(
   env: AppEnv,
 ): AgentTool<typeof InstrumentQuoteReadParameters, InstrumentQuoteReadResult> {
   return {

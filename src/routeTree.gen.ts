@@ -16,6 +16,7 @@ import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as SupportRouteImport } from './routes/support'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
+import { Route as ApiPublicSnapshotRouteImport } from './routes/api.public-snapshot'
 import { Route as ApiSnapshotRouteImport } from './routes/api.snapshot'
 import { Route as ApiStreamRouteImport } from './routes/api.stream'
 import { Route as ApiViewerRouteImport } from './routes/api.viewer'
@@ -57,6 +58,11 @@ const TermsRoute = TermsRouteImport.update({
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
   path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicSnapshotRoute = ApiPublicSnapshotRouteImport.update({
+  id: '/api/public-snapshot',
+  path: '/api/public-snapshot',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiSnapshotRoute = ApiSnapshotRouteImport.update({
@@ -103,6 +109,7 @@ export interface FileRoutesByFullPath {
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/public-snapshot': typeof ApiPublicSnapshotRoute
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
   '/api/viewer': typeof ApiViewerRoute
@@ -119,6 +126,7 @@ export interface FileRoutesByTo {
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/public-snapshot': typeof ApiPublicSnapshotRoute
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
   '/api/viewer': typeof ApiViewerRoute
@@ -136,6 +144,7 @@ export interface FileRoutesById {
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/public-snapshot': typeof ApiPublicSnapshotRoute
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
   '/api/viewer': typeof ApiViewerRoute
@@ -154,6 +163,7 @@ export interface FileRouteTypes {
     | '/support'
     | '/terms'
     | '/api/health'
+    | '/api/public-snapshot'
     | '/api/snapshot'
     | '/api/stream'
     | '/api/viewer'
@@ -170,6 +180,7 @@ export interface FileRouteTypes {
     | '/support'
     | '/terms'
     | '/api/health'
+    | '/api/public-snapshot'
     | '/api/snapshot'
     | '/api/stream'
     | '/api/viewer'
@@ -186,6 +197,7 @@ export interface FileRouteTypes {
     | '/support'
     | '/terms'
     | '/api/health'
+    | '/api/public-snapshot'
     | '/api/snapshot'
     | '/api/stream'
     | '/api/viewer'
@@ -203,6 +215,7 @@ export interface RootRouteChildren {
   SupportRoute: typeof SupportRoute
   TermsRoute: typeof TermsRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  ApiPublicSnapshotRoute: typeof ApiPublicSnapshotRoute
   ApiSnapshotRoute: typeof ApiSnapshotRoute
   ApiStreamRoute: typeof ApiStreamRoute
   ApiViewerRoute: typeof ApiViewerRoute
@@ -261,6 +274,13 @@ declare module '@tanstack/react-router' {
       path: '/api/health'
       fullPath: '/api/health'
       preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public-snapshot': {
+      id: '/api/public-snapshot'
+      path: '/api/public-snapshot'
+      fullPath: '/api/public-snapshot'
+      preLoaderRoute: typeof ApiPublicSnapshotRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/snapshot': {
@@ -323,6 +343,7 @@ const rootRouteChildren: RootRouteChildren = {
   SupportRoute: SupportRoute,
   TermsRoute: TermsRoute,
   ApiHealthRoute: ApiHealthRoute,
+  ApiPublicSnapshotRoute: ApiPublicSnapshotRoute,
   ApiSnapshotRoute: ApiSnapshotRoute,
   ApiStreamRoute: ApiStreamRoute,
   ApiViewerRoute: ApiViewerRoute,

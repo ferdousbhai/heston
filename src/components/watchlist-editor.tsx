@@ -1,8 +1,40 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { Plus, Trash2, X } from 'lucide-react'
+import { z } from 'zod'
 
+import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
+import { Button } from '#/components/ui/button'
+import { ButtonGroup } from '#/components/ui/button-group'
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from '#/components/ui/combobox'
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from '#/components/ui/drawer'
+import { Empty, EmptyDescription, EmptyHeader } from '#/components/ui/empty'
+import { Field, FieldGroup, FieldLabel } from '#/components/ui/field'
+import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemTitle } from '#/components/ui/item'
+import { Spinner } from '#/components/ui/spinner'
 import { type Ticker, type Watchlist } from '../domain/market'
-import { type AggregateWatchlistMutation } from '../domain/watchlist'
+import { type WatchlistMutation } from '../domain/watchlist'
+
+const ComboboxValueSchema = z.string().min(1)
+
+function getActiveHtmlElement(): HTMLElement | null {
+  if (!globalThis.document || !globalThis.HTMLElement) return null
+  const activeElement = globalThis.document.activeElement
+  return activeElement instanceof globalThis.HTMLElement ? activeElement : null
+}
 
 export function WatchlistEditor({
   onClose,
@@ -11,55 +43,20 @@ export function WatchlistEditor({
   watchlist,
 }: {
   onClose: () => void
-  onMutation: (action: AggregateWatchlistMutation) => Promise<void>
+  onMutation: (action: WatchlistMutation) => Promise<void>
   tickers: Ticker[]
   watchlist: Watchlist
 }) {
+  const finalFocusRef = useRef<HTMLElement | null>(getActiveHtmlElement())
   const [symbol, setSymbol] = useState('')
   const [pending, setPending] = useState<string>()
   const [error, setError] = useState<string>()
-  const dialogRef = useRef<HTMLElement>(null)
-  const symbolRef = useRef<HTMLInputElement>(null)
   const tickerBySymbol = new Map(tickers.map((ticker) => [ticker.symbol, ticker]))
   const availableSymbols = tickers
     .map((ticker) => ticker.symbol)
     .filter((candidate) => !watchlist.symbols.includes(candidate))
 
-  useEffect(() => {
-    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : undefined
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    symbolRef.current?.focus()
-    const keyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onClose()
-        return
-      }
-      if (event.key !== 'Tab') return
-      const focusable = [...(dialogRef.current?.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      ) ?? [])].filter((element) => !element.hidden)
-      const first = focusable[0]
-      const last = focusable.at(-1)
-      if (!first || !last) return
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault()
-        last.focus()
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault()
-        first.focus()
-      }
-    }
-    document.addEventListener('keydown', keyDown)
-    return () => {
-      document.removeEventListener('keydown', keyDown)
-      document.body.style.overflow = previousOverflow
-      previouslyFocused?.focus()
-    }
-  }, [onClose])
-
-  const mutate = async (key: string, action: AggregateWatchlistMutation): Promise<boolean> => {
+  const mutate = async (key: string, action: WatchlistMutation): Promise<boolean> => {
     setPending(key)
     setError(undefined)
     try {
@@ -76,7 +73,7 @@ export function WatchlistEditor({
   const add = (event: FormEvent) => {
     event.preventDefault()
     const nextSymbol = symbol.trim().toUpperCase()
-    if (!/^[A-Z.]{1,8}$/.test(nextSymbol)) {
+    if (!/^[A-Z][A-Z.]{0,7}$/.test(nextSymbol)) {
       setError('Enter a valid equity symbol')
       return
     }
@@ -95,62 +92,98 @@ export function WatchlistEditor({
 
   const busy = Boolean(pending)
   return (
-    <div className="sheet-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target && !busy) onClose() }}>
-      <section className="ticker-sheet watchlist-sheet" ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="watchlist-editor-title">
-        <div className="sheet-handle" aria-hidden="true" />
-        <header className="sheet-header">
-          <div>
-            <h2 id="watchlist-editor-title">Manage watchlist</h2>
-          </div>
-          <button className="icon-button" disabled={busy} onClick={onClose} aria-label="Close watchlist editor" type="button"><X size={20} /></button>
-        </header>
+    <Drawer onOpenChange={(open) => { if (!open && !busy) onClose() }} open showSwipeHandle>
+      <DrawerContent className="ticker-sheet watchlist-sheet" finalFocus={finalFocusRef}>
+        <DrawerHeader className="sheet-header">
+          <DrawerTitle id="watchlist-editor-title">Manage watchlist</DrawerTitle>
+          <DrawerDescription>Add or remove symbols from {watchlist.name}.</DrawerDescription>
+          <DrawerClose disabled={busy} render={<Button aria-label="Close watchlist editor" className="icon-button" size="icon-lg" type="button" variant="outline" />}>
+            <X /><span className="sr-only">Close watchlist editor</span>
+          </DrawerClose>
+        </DrawerHeader>
 
         <form className="watchlist-add-form" onSubmit={add}>
-          <label htmlFor="watchlist-symbol">Add a symbol</label>
-          <div>
-            <input
-              autoCapitalize="characters"
-              id="watchlist-symbol"
-              list="available-watchlist-symbols"
-              maxLength={8}
-              placeholder="e.g. META"
-              ref={symbolRef}
-              value={symbol}
-              onChange={(event) => setSymbol(event.target.value.toUpperCase())}
-            />
-            <datalist id="available-watchlist-symbols">
-              {availableSymbols.map((candidate) => <option key={candidate} value={candidate} />)}
-            </datalist>
-            <button aria-label="Add symbol" disabled={busy || !symbol.trim()} type="submit"><Plus size={18} /></button>
-          </div>
+          <FieldGroup>
+            <Field data-invalid={Boolean(error)}>
+              <FieldLabel htmlFor="watchlist-symbol">Add a symbol</FieldLabel>
+              <ButtonGroup className="watchlist-add-row">
+                <Combobox
+                  inputValue={symbol}
+                  items={availableSymbols}
+                  onInputValueChange={(value) => setSymbol(value.toUpperCase())}
+                  onValueChange={(value) => {
+                    const parsed = ComboboxValueSchema.safeParse(value)
+                    if (parsed.success) setSymbol(parsed.data)
+                  }}
+                >
+                  <ComboboxInput
+                    aria-invalid={Boolean(error)}
+                    autoCapitalize="characters"
+                    autoFocus
+                    id="watchlist-symbol"
+                    maxLength={8}
+                    placeholder="e.g. META"
+                    showClear
+                  />
+                  <ComboboxContent>
+                    <ComboboxEmpty>No loaded symbol matches. You can still add the typed equity symbol.</ComboboxEmpty>
+                    <ComboboxList>
+                      {(candidate) => <ComboboxItem key={candidate} value={candidate}>{candidate}</ComboboxItem>}
+                    </ComboboxList>
+                  </ComboboxContent>
+                </Combobox>
+                <Button aria-label="Add symbol" disabled={busy || !symbol.trim()} size="icon-lg" type="submit" variant="default">
+                  {pending === 'add' ? <Spinner /> : <Plus />}<span className="sr-only">Add symbol</span>
+                </Button>
+              </ButtonGroup>
+            </Field>
+          </FieldGroup>
         </form>
 
-        {error && <p className="watchlist-error" role="alert">{error}</p>}
+        {error && (
+          <Alert className="watchlist-error" variant="destructive">
+            <AlertTitle>Watchlist update failed</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
 
-        <div className="watchlist-members">
+        <section className="watchlist-members" aria-labelledby="watchlist-members-title">
           <div className="watchlist-members-heading">
-            <h3>Items</h3>
+            <h3 id="watchlist-members-title">Items</h3>
             <span>{watchlist.symbols.length}</span>
           </div>
-          {watchlist.symbols.map((member) => (
-            <div className="watchlist-member" key={member}>
-              <div><strong>{member}</strong><span>{tickerBySymbol.get(member)?.name ?? 'Equity'}</span></div>
-              <button
-                aria-label={`Remove ${member} from ${watchlist.name}`}
-                disabled={busy}
-                onClick={() => void mutate(`remove-${member}`, {
-                  kind: 'remove_watchlist_symbols',
-                  symbols: [member],
-                })}
-                type="button"
-              >
-                {pending === `remove-${member}` ? <span className="mini-spinner" /> : <Trash2 size={16} />}
-              </button>
-            </div>
-          ))}
-          {!watchlist.symbols.length && <p className="watchlist-empty">Add a symbol to start this watchlist.</p>}
-        </div>
-      </section>
-    </div>
+          <ItemGroup>
+            {watchlist.symbols.map((member) => (
+              <Item className="watchlist-member" key={member} size="sm">
+                <ItemContent>
+                  <ItemTitle>{member}</ItemTitle>
+                  <ItemDescription>{tickerBySymbol.get(member)?.name ?? 'Equity'}</ItemDescription>
+                </ItemContent>
+                <ItemActions>
+                  <Button
+                    aria-label={`Remove ${member} from ${watchlist.name}`}
+                    disabled={busy}
+                    onClick={() => void mutate(`remove-${member}`, {
+                      kind: 'remove_watchlist_symbols',
+                      symbols: [member],
+                    })}
+                    size="icon"
+                    type="button"
+                    variant="destructive"
+                  >
+                    {pending === `remove-${member}` ? <Spinner /> : <Trash2 />}<span className="sr-only">Remove {member} from {watchlist.name}</span>
+                  </Button>
+                </ItemActions>
+              </Item>
+            ))}
+          </ItemGroup>
+          {!watchlist.symbols.length && (
+            <Empty className="watchlist-empty">
+              <EmptyHeader><EmptyDescription>Add a symbol to start this watchlist.</EmptyDescription></EmptyHeader>
+            </Empty>
+          )}
+        </section>
+      </DrawerContent>
+    </Drawer>
   )
 }

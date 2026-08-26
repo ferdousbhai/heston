@@ -2,8 +2,9 @@ import { z } from 'zod'
 
 import { CatalystSchema } from './catalyst'
 import { CandlePointSchema } from './candle'
+import { type JsonValue } from './json-payload'
 
-export const WatchlistKindSchema = z.enum(['private', 'positions', 'public'])
+const WatchlistKindSchema = z.enum(['private', 'positions', 'public'])
 
 export const WatchlistSchema = z.object({
   id: z.string(),
@@ -28,13 +29,55 @@ export const TickerSchema = z.object({
   updatedAt: z.string(),
 })
 
-export const ResearchIdeaSchema = z.object({
-  symbol: z.string(),
+const PotentialPlaySchema = z.string().trim().max(40).regex(
+  /^[A-Z.]{1,8} \d+(?:\.\d+)?[cp] (?:1[0-2]|[1-9])\/(?:3[01]|[12]\d|[1-9])$/,
+  'Use TICKER STRIKE(c/p) M/D',
+)
+
+const ResearchIdeaFields = {
+  symbol: z.string().regex(/^[A-Z.]{1,8}$/),
   direction: z.enum(['bullish', 'bearish', 'neutral']),
-  setup: z.string(),
-  thesis: z.string(),
-  risk: z.string(),
-  horizon: z.string(),
+  headline: z.string().trim().min(1).max(100),
+  description: z.string().trim().min(1).max(360),
+  risk: z.string().trim().min(1).max(240),
+}
+
+const ResearchSourceLinkSchema = z.object({
+  label: z.string(),
+  // Stored briefs predate the current evidence binder. Only web citations may
+  // cross that persistence boundary into owner or public anchor elements.
+  url: z.string().url().refine((url) => new URL(url).protocol === 'https:', 'Use an HTTPS source URL'),
+})
+
+export const ResearchIdeaSchema = z.object({
+  ...ResearchIdeaFields,
+  play: PotentialPlaySchema,
+  sources: z.array(ResearchSourceLinkSchema).max(3),
+}).refine((idea) => idea.play.startsWith(`${idea.symbol} `), {
+  message: 'Potential play must use the idea symbol',
+  path: ['play'],
+})
+
+const StoredResearchIdeaSchema = z.object({
+  ...ResearchIdeaFields,
+  play: PotentialPlaySchema.nullable(),
+  sources: z.array(ResearchSourceLinkSchema).max(3),
+}).refine((idea) => idea.play === null || idea.play.startsWith(`${idea.symbol} `), {
+  message: 'Potential play must use the idea symbol',
+  path: ['play'],
+})
+
+export const MarketMoverInsightSchema = z.object({
+  averageVolume3Month: z.number().nonnegative().optional(),
+  category: z.enum(['gainer', 'loser', 'most-active']),
+  changePercent: z.number(),
+  description: z.string().trim().min(1).max(360),
+  headline: z.string().trim().min(1).max(100),
+  name: z.string().trim().min(1).max(160),
+  price: z.number().positive(),
+  sources: z.array(ResearchSourceLinkSchema).min(1).max(3),
+  symbol: z.string().regex(/^[A-Z.]{1,8}$/),
+  volume: z.number().nonnegative(),
 })
 
 export const ResearchBriefSchema = z.object({
@@ -44,9 +87,56 @@ export const ResearchBriefSchema = z.object({
   summary: z.string(),
   regime: z.string(),
   regimeDetail: z.string(),
-  ideas: z.array(ResearchIdeaSchema),
-  sources: z.array(z.object({ label: z.string(), url: z.string().url() })),
+  ideas: z.array(StoredResearchIdeaSchema).max(5),
+  marketMovers: z.array(MarketMoverInsightSchema).max(6),
+  sources: z.array(ResearchSourceLinkSchema),
 })
+
+const BackwardCompatibleResearchIdeaSchema = z.object({
+  ...ResearchIdeaFields,
+  play: PotentialPlaySchema.nullable(),
+  sources: z.array(ResearchSourceLinkSchema).max(3).default([]),
+}).refine((idea) => idea.play === null || idea.play.startsWith(`${idea.symbol} `), {
+  message: 'Potential play must use the idea symbol',
+  path: ['play'],
+})
+
+const CurrentStoredResearchBriefSchema = ResearchBriefSchema.extend({
+  ideas: z.array(BackwardCompatibleResearchIdeaSchema).max(5),
+  marketMovers: z.array(MarketMoverInsightSchema).max(6).default([]),
+})
+
+const PreEvidenceResearchIdeaSchema = z.object({
+  symbol: z.string().regex(/^[A-Z.]{1,8}$/),
+  direction: z.enum(['bullish', 'bearish', 'neutral']),
+  setup: z.string().trim().min(1),
+  thesis: z.string().trim().min(1),
+  risk: z.string().trim().min(1),
+  horizon: z.string().trim().min(1),
+}).transform((idea) => ({
+  symbol: idea.symbol,
+  direction: idea.direction,
+  headline: idea.setup.slice(0, 100),
+  description: `${idea.thesis} Horizon: ${idea.horizon}.`.slice(0, 360),
+  risk: idea.risk.slice(0, 240),
+  play: null,
+  sources: [],
+}))
+
+const PreEvidenceStoredResearchBriefSchema = ResearchBriefSchema
+  .omit({ ideas: true, marketMovers: true })
+  .extend({ ideas: z.array(PreEvidenceResearchIdeaSchema).max(5) })
+  .transform((brief) => ({ ...brief, marketMovers: [] }))
+
+const StoredResearchBriefSchema = z.union([
+  CurrentStoredResearchBriefSchema,
+  PreEvidenceStoredResearchBriefSchema,
+])
+
+/** Normalize every historical D1 payload shape only at the persistence boundary. */
+export function parseStoredResearchBrief(value: JsonValue): ResearchBrief {
+  return StoredResearchBriefSchema.parse(value)
+}
 
 export const MarketSnapshotSchema = z.object({
   source: z.literal('tastytrade'),
@@ -62,17 +152,6 @@ export type Watchlist = z.infer<typeof WatchlistSchema>
 export type Ticker = z.infer<typeof TickerSchema>
 export type ResearchBrief = z.infer<typeof ResearchBriefSchema>
 export type MarketSnapshot = z.infer<typeof MarketSnapshotSchema>
-
-export function aggregatePrivateWatchlists(watchlists: readonly Watchlist[]): Watchlist {
-  return {
-    id: 'watchlist',
-    kind: 'private',
-    name: 'Watchlist',
-    symbols: [...new Set(watchlists
-      .filter((watchlist) => watchlist.kind === 'private')
-      .flatMap((watchlist) => watchlist.symbols))],
-  }
-}
 
 export type VolatilityVerdict = 'cheap' | 'fair' | 'rich'
 

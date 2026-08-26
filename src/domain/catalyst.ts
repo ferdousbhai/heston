@@ -4,19 +4,29 @@ export const CatalystKindSchema = z.enum([
   'earnings', 'investor-event', 'product-event', 'regulatory', 'clinical',
   'conference', 'shareholder',
 ])
-export const CatalystConfidenceSchema = z.enum(['confirmed', 'estimated'])
-export const CatalystTimingSchema = z.enum(['pre-market', 'intraday', 'after-hours', 'unknown'])
+const CatalystConfidenceSchema = z.enum(['confirmed', 'estimated'])
+const CatalystTimingSchema = z.enum(['pre-market', 'intraday', 'after-hours', 'unknown'])
+
+export function isValidIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const [year, month, day] = value.split('-').map(Number)
+  const parsed = new Date(Date.UTC(year, month - 1, day))
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day
+}
 
 export const CatalystSchema = z.object({
   id: z.string(),
   symbol: z.string(),
   kind: CatalystKindSchema,
   title: z.string(),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  description: z.string().trim().min(1).max(500).nullable().optional(),
+  date: z.string().refine(isValidIsoDate, 'Use a real YYYY-MM-DD date'),
   timing: CatalystTimingSchema,
   confidence: CatalystConfidenceSchema,
   source: z.string(),
-  sourceUrl: z.string().url(),
+  sourceUrl: z.string().url().refine((url) => new URL(url).protocol === 'https:', 'Use an HTTPS source URL'),
   updatedAt: z.string(),
 })
 
@@ -51,7 +61,7 @@ function epochDay(date: string): number {
   return Math.floor(Date.UTC(year, month - 1, day) / 86_400_000)
 }
 
-export function daysUntilCatalyst(catalyst: Catalyst, now = new Date()): number {
+function daysUntilCatalyst(catalyst: Catalyst, now = new Date()): number {
   return epochDay(catalyst.date) - epochDay(marketDate(now))
 }
 
@@ -99,23 +109,23 @@ export function sortSymbolsByCatalyst(
   })
 }
 
-export function upcomingInterestedSymbols(
-  positionSymbols: readonly string[],
-  privateWatchlistSymbols: readonly string[],
+export function upcomingCatalystSymbols(
+  symbols: readonly string[],
   catalysts: readonly Catalyst[],
   now = new Date(),
   horizonDays = 30,
+  limit = 12,
 ): string[] {
-  const positions = [...new Set(positionSymbols)]
-  const positionSet = new Set(positions)
-  const privateOnly = [...new Set(privateWatchlistSymbols)].filter((symbol) => !positionSet.has(symbol))
-  const upcoming = (symbols: readonly string[]) => symbols
-    .map((symbol, index) => ({ catalyst: nextCatalystForSymbol(symbol, catalysts, now), index, symbol }))
+  return [...new Set(symbols)]
+    .map((symbol) => ({ catalyst: nextCatalystForSymbol(symbol, catalysts, now), symbol }))
     .filter((item): item is typeof item & { catalyst: Catalyst } => Boolean(
-      item.catalyst && daysUntilCatalyst(item.catalyst, now) <= horizonDays,
+      item.catalyst
+      && daysUntilCatalyst(item.catalyst, now) >= 0
+      && daysUntilCatalyst(item.catalyst, now) <= horizonDays,
     ))
-    .sort((left, right) => left.catalyst.date.localeCompare(right.catalyst.date) || left.index - right.index)
+    .sort((left, right) => left.catalyst.date.localeCompare(right.catalyst.date)
+      || KIND_PRIORITY[left.catalyst.kind] - KIND_PRIORITY[right.catalyst.kind]
+      || left.symbol.localeCompare(right.symbol))
+    .slice(0, Math.max(0, limit))
     .map(({ symbol }) => symbol)
-
-  return [...upcoming(positions), ...upcoming(privateOnly)]
 }

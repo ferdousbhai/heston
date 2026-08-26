@@ -38,8 +38,10 @@ const FEED_TYPES = ['Quote', 'Trade', 'Candle', 'Greeks'] as const satisfies rea
 const OPTION_GREEKS_TIMEOUT_MS = 10_000
 const UPSTREAM_SETUP_TIMEOUT_MS = 15_000
 
-/** dxFeed COMPACT rows encode absent numeric slots as null or empty strings, which coerce to 0. */
-const CoercedNumberSchema = z.coerce.number().refine(Number.isFinite)
+/** dxFeed COMPACT rows encode absent numeric slots as null or empty strings; keep them absent. */
+const CoercedNumberSchema = z.union([z.number(), z.string().trim().min(1)])
+  .transform(Number)
+  .refine(Number.isFinite)
 
 function finite(value: JsonValue): number | undefined {
   return CoercedNumberSchema.safeParse(value).data
@@ -341,7 +343,8 @@ export class MarketFeedCore {
       return
     }
     if (message.type === 'AUTH_STATE') {
-      await this.failProtocol(socket, `Authorization ${String(message.state ?? 'failed')}`)
+      // Provider frames are untrusted and may echo credentials or private payloads.
+      await this.failProtocol(socket, 'Upstream authorization failed')
       return
     }
     if (message.type === 'CHANNEL_OPENED') {
@@ -363,7 +366,7 @@ export class MarketFeedCore {
     const feedData = JsonArraySchema.safeParse(message.data).data
     if (message.type === 'FEED_DATA' && feedData) this.broadcastFeedData(feedData)
     if (message.type === 'ERROR' || message.type === 'CHANNEL_CLOSED') {
-      await this.failProtocol(socket, String(message.message ?? message.type).slice(0, 160))
+      await this.failProtocol(socket, message.type === 'ERROR' ? 'Upstream feed error' : 'Upstream channel closed')
     }
   }
 

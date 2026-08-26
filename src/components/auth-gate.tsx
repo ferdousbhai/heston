@@ -2,6 +2,9 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import { z } from 'zod'
 
+import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
+import { Button } from '#/components/ui/button'
+import { Spinner } from '#/components/ui/spinner'
 import { authClient } from '../data/auth-client'
 import { toError } from '../domain/failure'
 
@@ -14,13 +17,12 @@ const ViewerResponseSchema = z.object({
   user: ViewerSchema.nullable(),
 })
 
-type AuthState =
+export type AuthState =
   | { phase: 'checking' }
   | { phase: 'ready'; user: Viewer | null }
   | { message: string; phase: 'error' }
-  | { phase: 'guest' }
 
-export function AuthGate({ children }: { children: (viewer: Viewer | null) => ReactNode }) {
+export function useViewer(): AuthState {
   const [state, setState] = useState<AuthState>({ phase: 'checking' })
 
   useEffect(() => {
@@ -32,7 +34,7 @@ export function AuthGate({ children }: { children: (viewer: Viewer | null) => Re
     }).then(async (response) => {
       if (!response.ok) throw new Error('Authentication is temporarily unavailable')
       const result = ViewerResponseSchema.parse(await response.json())
-      setState(result.authRequired && !result.user ? { phase: 'guest' } : { phase: 'ready', user: result.user })
+      setState({ phase: 'ready', user: result.user })
     }).catch((cause: unknown) => {
       if (controller.signal.aborted) return
       const hasNavigator = 'navigator' in globalThis
@@ -46,15 +48,21 @@ export function AuthGate({ children }: { children: (viewer: Viewer | null) => Re
     return () => controller.abort()
   }, [])
 
+  return state
+}
+
+export function AuthGate({ children }: { children: (viewer: Viewer) => ReactNode }) {
+  const state = useViewer()
+
   if (state.phase === 'checking') return <AuthScreen checking />
-  if (state.phase === 'guest') return <AuthScreen />
   if (state.phase === 'error') return <AuthScreen error={state.message} />
+  if (!state.user) return <AuthScreen />
   return children(state.user)
 }
 
 function GoogleMark() {
   return (
-    <svg aria-hidden="true" viewBox="0 0 24 24">
+    <svg aria-hidden="true" data-icon="inline-start" viewBox="0 0 24 24">
       <path d="M21.6 12.23c0-.71-.06-1.4-.18-2.07H12v3.91h5.38a4.6 4.6 0 0 1-2 3.02v2.54h3.24c1.9-1.75 2.98-4.33 2.98-7.4Z" fill="#4285F4" />
       <path d="M12 22c2.7 0 4.98-.9 6.63-2.43l-3.24-2.54c-.9.6-2.05.96-3.39.96-2.61 0-4.82-1.76-5.61-4.13H3.04v2.62A10 10 0 0 0 12 22Z" fill="#34A853" />
       <path d="M6.39 13.86A6 6 0 0 1 6.08 12c0-.65.11-1.28.31-1.86V7.52H3.04A10 10 0 0 0 2 12c0 1.61.39 3.14 1.04 4.48l3.35-2.62Z" fill="#FBBC05" />
@@ -62,7 +70,7 @@ function GoogleMark() {
     </svg>
   )
 }
-function AuthScreen({ checking = false, error }: { checking?: boolean; error?: string }) {
+export function GoogleSignInButton({ compact = false }: { compact?: boolean }) {
   const [submitting, setSubmitting] = useState(false)
   const [signInError, setSignInError] = useState<string>()
   const beginSignIn = async () => {
@@ -78,34 +86,73 @@ function AuthScreen({ checking = false, error }: { checking?: boolean; error?: s
   }
 
   return (
+    <>
+      <Button
+        className={compact ? 'owner-sign-in' : 'google-sign-in'}
+        disabled={submitting}
+        onClick={() => void beginSignIn()}
+        size={compact ? 'sm' : 'auth'}
+        type="button"
+        variant={compact ? 'outline' : 'inverted'}
+      >
+        {!compact && !submitting && <GoogleMark />}
+        {submitting && <Spinner data-icon="inline-start" />}
+        <span>{submitting ? 'Opening Google…' : compact ? 'Owner sign in' : 'Continue with Google'}</span>
+      </Button>
+      {signInError && (
+        <Alert className="auth-inline-error" variant="destructive">
+          <AlertTitle>Google sign-in failed</AlertTitle>
+          <AlertDescription>{signInError}</AlertDescription>
+        </Alert>
+      )}
+    </>
+  )
+}
+
+export function OwnerAccessScreen({ authError }: { authError?: string }) {
+  return (
+    <section className="owner-access" aria-labelledby="owner-access-title">
+      <p className="owner-access-kicker">Private account workspace</p>
+      <h1 id="owner-access-title">Dan can trade.<br />Only for <em>you.</em></h1>
+      <p>Sign in with the invited Google account to open the trading chat, account context, live positions, and watchlist controls.</p>
+      {authError && (
+        <Alert className="owner-access-error" variant="destructive">
+          <AlertTitle>Owner sign-in unavailable</AlertTitle>
+          <AlertDescription>{authError}</AlertDescription>
+        </Alert>
+      )}
+      <GoogleSignInButton />
+      <small>Watch and Daily read remain public. Trade actions still require an explicit confirmation before submission.</small>
+    </section>
+  )
+}
+
+export function AuthScreen({ checking = false, error }: { checking?: boolean; error?: string }) {
+
+  return (
     <main className="auth-shell">
       <div className="auth-grain" />
       <header className="auth-brand" aria-label="Spice Must Flow">
         <img alt="" src="/spice-mark.svg" />
         <span>SPICE<small>MUST FLOW</small></span>
       </header>
-      <section className="auth-copy" aria-busy={checking || submitting}>
+      <section className="auth-copy" aria-busy={checking}>
         <h1>Your market.<br /><em>In motion.</em></h1>
-        <p>Private options intelligence, live positions, and an agent that can act when you say so.</p>
+        <p>Public options intelligence and a daily market read. Your account, positions, and trading agent stay private.</p>
         {checking ? (
-          <div className="auth-checking" role="status"><span />Checking your session</div>
+          <div className="auth-checking" role="status"><Spinner />Checking your session</div>
         ) : error ? (
-          <div className="auth-error" role="alert">
-            <span>{error}</span>
-            <button onClick={() => window.location.reload()} type="button">Try again</button>
-          </div>
+          <Alert className="auth-error" variant="destructive">
+            <AlertTitle>Session check failed</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+            <Button onClick={() => window.location.reload()} size="sm" type="button" variant="outline">Try again</Button>
+          </Alert>
         ) : (
-          <>
-            <button className="google-sign-in" disabled={submitting} onClick={() => void beginSignIn()} type="button">
-              <GoogleMark />
-              <span>{submitting ? 'Opening Google…' : 'Continue with Google'}</span>
-            </button>
-            {signInError && <p className="auth-inline-error" role="alert">{signInError}</p>}
-          </>
+          <GoogleSignInButton />
         )}
       </section>
       <footer className="auth-footer">
-        <span>Private workspace</span>
+        <span>Public reads · owner-only trading</span>
         <nav aria-label="Legal and support">
           <Link to="/support">Support</Link>
           <Link to="/terms">Terms</Link>

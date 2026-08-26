@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { authorizePersonalRequest, canonicalHostRedirect, publicError } from '../src/server/http'
+import { authorizePersonalRequest, canonicalHostRedirect, jsonPublic, publicError } from '../src/server/http'
 
 describe('canonical host redirect', () => {
   it('preserves the path and query when redirecting www to the canonical host', () => {
@@ -23,5 +23,12 @@ describe('public errors', () => {
     const error = new Error('Tastytrade returned a preflight warning, so the order was not submitted: Review position effect')
     error.name = 'TastytradeOrderWarningError'
     expect(publicError(error)).toContain('order was not submitted')
+  })
+})
+
+describe('public responses', () => {
+  it('allows only a short shared cache window for account-free market data', () => {
+    const response = jsonPublic({ status: 'ok' })
+    expect(response.headers.get('cache-control')).toBe('public, max-age=30, s-maxage=60, stale-while-revalidate=120')
   })
 })

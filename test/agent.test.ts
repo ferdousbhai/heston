@@ -7,12 +7,18 @@ import {
   DirectAccountActionSchema,
   OrderPlacementSchema,
 } from '../src/server/agent-contracts'
+import { resolvePendingAction } from '../src/server/agent'
 import { createPiRuntime } from '../src/server/pi-runtime'
+import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
 
 const pi = { stream: vi.fn() } satisfies ResponsesApi
 
 beforeEach(() => setResponsesApi(pi))
-afterEach(() => resetResponsesApi())
+afterEach(() => {
+  resetResponsesApi()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
 
 describe('brokerage input boundary', () => {
   it('accepts a fully specified, bounded option order draft', () => {
@@ -60,9 +66,50 @@ describe('brokerage input boundary', () => {
     expect(ConfirmRequestSchema.safeParse({ decision: 'confirm', token: 'a'.repeat(32) }).success).toBe(true)
   })
 
-  it('accepts bounded tastytrade watchlist mutations', () => {
+  it('compares confirmation-token digests in constant time', async () => {
+    const token = 'opaque-confirmation-token-1234567890'
+    const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token)))
+    let binary = ''
+    for (const byte of bytes) binary += String.fromCharCode(byte)
+    const tokenDigest = btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '')
+    const digest = crypto.subtle.digest.bind(crypto.subtle)
+    const timingSafeEqual = vi.fn((left: ArrayBuffer | ArrayBufferView, right: ArrayBuffer | ArrayBufferView) => {
+      const leftBytes = new Uint8Array(ArrayBuffer.isView(left) ? left.buffer : left)
+      const rightBytes = new Uint8Array(ArrayBuffer.isView(right) ? right.buffer : right)
+      return leftBytes.length === rightBytes.length && leftBytes.every((value, index) => value === rightBytes[index])
+    })
+    vi.stubGlobal('crypto', { subtle: { digest, timingSafeEqual } })
+    const db: D1Database = {
+      ...unsupportedDatabase(),
+      prepare: (sql: string) => ({
+        ...unsupportedStatement(),
+        bind: () => ({
+          ...unsupportedStatement(),
+          first: async () => {
+            if (!sql.startsWith('SELECT payload_json')) throw new Error(`Unexpected first query: ${sql}`)
+            return {
+              expires_at: new Date(Date.now() + 60_000).toISOString(),
+              payload_json: JSON.stringify({ kind: 'place_equity_order' }),
+              status: 'pending',
+              token_digest: tokenDigest,
+            }
+          },
+          run: async () => {
+            if (!sql.includes("SET status = 'denied'")) throw new Error(`Unexpected run query: ${sql}`)
+            return d1Result([], 1)
+          },
+        }),
+      }),
+    }
+
+    await expect(resolvePendingAction({ DB: db }, 'action-1', { decision: 'deny', token }))
+      .resolves.toEqual({ detail: 'Action draft discarded', status: 'denied' })
+    expect(timingSafeEqual).toHaveBeenCalledTimes(1)
+  })
+
+  it('accepts only bounded mutations for the single internal watchlist', () => {
     expect(DirectAccountActionSchema.parse({
-      kind: 'add_watchlist_symbols', watchlistName: 'Long vol', symbols: ['NVDA', 'SPY'],
+      kind: 'add_watchlist_symbols', symbols: ['NVDA', 'SPY'],
     }).kind).toBe('add_watchlist_symbols')
     expect(DirectAccountActionSchema.safeParse({
       kind: 'remove_watchlist_symbols', watchlistName: '../private', symbols: ['NVDA'],
@@ -83,7 +130,12 @@ describe('brokerage input boundary', () => {
 
 describe('pi runtime protocol', () => {
   it('uses Grok 4.6 with high reasoning through the Pi Responses adapter', () => {
-    const runtime = createPiRuntime('xai-test-key')
+    const runtime = createPiRuntime(
+      'xai-test-key',
+      'gateway-test-key',
+      'https://gateway.ai.cloudflare.com/v1/account/spice/grok/v1',
+      'dan-run-123',
+    )
     const context = {
       messages: [],
       systemPrompt: 'Test',
@@ -91,11 +143,21 @@ describe('pi runtime protocol', () => {
     }
     runtime.stream(runtime.model, context, {})
 
-    expect(runtime.model).toMatchObject({ id: 'grok-4.6', name: 'Grok 4.6', reasoning: true })
+    expect(runtime.model).toMatchObject({
+      baseUrl: 'https://gateway.ai.cloudflare.com/v1/account/spice/grok/v1',
+      id: 'grok-4.6', name: 'Grok 4.6', reasoning: true,
+    })
     expect(pi.stream).toHaveBeenCalledWith(runtime.model, context, expect.objectContaining({
       apiKey: 'xai-test-key',
+      headers: expect.objectContaining({
+        'cf-aig-authorization': 'Bearer gateway-test-key',
+        'cf-aig-collect-log': 'true',
+        'cf-aig-collect-log-payload': 'true',
+        'cf-aig-metadata': JSON.stringify({ app: 'spice', feature: 'dan-agent', run_id: 'dan-run-123' }),
+      }),
       reasoningEffort: 'high',
       reasoningSummary: 'auto',
+      sessionId: 'dan-run-123',
     }))
   })
 })

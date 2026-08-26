@@ -5,7 +5,7 @@ import {
   RemoveWatchlistSymbolsSchema,
 } from '../domain/watchlist'
 
-export const OptionActionSchema = z.object({
+const OptionActionSchema = z.object({
   kind: z.literal('place_option_order'),
   underlying: z.string().regex(/^[A-Z.]{1,8}$/),
   optionType: z.enum(['C', 'P']),
@@ -17,7 +17,7 @@ export const OptionActionSchema = z.object({
   priceEffect: z.enum(['Debit', 'Credit']),
 })
 
-export const EquityActionSchema = z.object({
+const EquityActionSchema = z.object({
   kind: z.literal('place_equity_order'),
   symbol: z.string().regex(/^[A-Z.]{1,8}$/),
   action: z.enum(['Buy to Open', 'Sell to Open', 'Buy to Close', 'Sell to Close']),
@@ -26,7 +26,7 @@ export const EquityActionSchema = z.object({
   priceEffect: z.enum(['Debit', 'Credit']),
 })
 
-export const VerticalSpreadActionSchema = z.object({
+const VerticalSpreadActionSchema = z.object({
   kind: z.literal('place_vertical_spread_order'),
   underlying: z.string().regex(/^[A-Z.]{1,8}$/),
   optionType: z.enum(['C', 'P']),
@@ -48,19 +48,19 @@ export const VerticalSpreadActionSchema = z.object({
   }
 })
 
-export const ReplaceOrderActionSchema = z.object({
+const ReplaceOrderActionSchema = z.object({
   kind: z.literal('replace_order'),
   orderId: z.string().regex(/^\d{1,40}$/),
   limitPrice: z.number().positive().multipleOf(0.01),
 })
 
-export const CancelActionSchema = z.object({
+const CancelActionSchema = z.object({
   kind: z.literal('cancel_order'),
   orderId: z.string().regex(/^\d{1,40}$/),
 })
 
-export const AddWatchlistActionSchema = AddWatchlistSymbolsSchema
-export const RemoveWatchlistActionSchema = RemoveWatchlistSymbolsSchema
+const AddWatchlistActionSchema = AddWatchlistSymbolsSchema
+const RemoveWatchlistActionSchema = RemoveWatchlistSymbolsSchema
 
 export const FreshOrderPlacementSchema = z.discriminatedUnion('kind', [
   OptionActionSchema,
@@ -101,11 +101,9 @@ export const ConfirmRequestSchema = z.object({
   token: z.string().min(20).max(200),
 })
 
-export type DirectAccountAction = z.infer<typeof DirectAccountActionSchema>
 export type FreshOrderPlacement = z.infer<typeof FreshOrderPlacementSchema>
 export type OrderPlacement = z.infer<typeof OrderPlacementSchema>
 export type StoredOrderPlacement = z.infer<typeof StoredOrderPlacementSchema>
-export type ChatRequest = z.infer<typeof ChatRequestSchema>
 export type ConfirmRequest = z.infer<typeof ConfirmRequestSchema>
 
 export function previewAction(action: OrderPlacement): string {

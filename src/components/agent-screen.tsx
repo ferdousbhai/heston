@@ -1,8 +1,42 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { useCallback, useMemo, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { useAgent } from 'agents/react'
 import { Bot, Check, ChevronRight, CircleStop, Clock3, Send, ShieldCheck, Trash2, Wrench, X } from 'lucide-react'
 import { z } from 'zod'
 
+import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '#/components/ui/alert-dialog'
+import { Avatar, AvatarFallback } from '#/components/ui/avatar'
+import { Badge } from '#/components/ui/badge'
+import { Bubble, BubbleContent } from '#/components/ui/bubble'
+import { Button } from '#/components/ui/button'
+import { ButtonGroup } from '#/components/ui/button-group'
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '#/components/ui/card'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '#/components/ui/collapsible'
+import { Field, FieldGroup, FieldLabel } from '#/components/ui/field'
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from '#/components/ui/input-group'
+import { Marker, MarkerContent, MarkerIcon } from '#/components/ui/marker'
+import { Message, MessageAvatar, MessageContent, MessageFooter, MessageGroup, MessageHeader } from '#/components/ui/message'
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from '#/components/ui/message-scroller'
+import { Spinner } from '#/components/ui/spinner'
+import { Tooltip, TooltipContent, TooltipTrigger } from '#/components/ui/tooltip'
+import { cn } from '#/lib/utils'
 import { jsonObject, JsonObjectSchema, type JsonValue } from '../domain/json-payload'
 import {
   isDanAgentEvent,
@@ -75,28 +109,35 @@ function RichText({ text }: { text: string }) {
   return <div className="agent-markdown">{nodes}</div>
 }
 
+function ReasoningTrace({ defaultOpen = false, text }: { defaultOpen?: boolean; text: string }) {
+  return (
+    <Collapsible className="reasoning-trace" defaultOpen={defaultOpen}>
+      <CollapsibleTrigger render={<Button size="sm" type="button" variant="ghost" />}>Thinking</CollapsibleTrigger>
+      <CollapsibleContent><RichText text={text} /></CollapsibleContent>
+    </Collapsible>
+  )
+}
+
 function ToolCallRow({ tool }: { tool: AgentToolCall }) {
   const [open, setOpen] = useState(false)
   const duration = formatDuration(tool.durationMs)
   return (
-    <div className={`tool-call ${tool.status}`}>
-      <button aria-expanded={open} onClick={() => setOpen((value) => !value)} type="button">
-        <span className="tool-call-icon"><Wrench size={13} aria-hidden="true" /></span>
+    <Collapsible className={cn('tool-call', tool.status)} onOpenChange={setOpen} open={open}>
+      <CollapsibleTrigger render={<Button aria-expanded={open} type="button" variant="ghost" />}>
+        <span className="tool-call-icon"><Wrench aria-hidden="true" /></span>
         <span className="tool-call-label">{tool.label}</span>
         {duration && <span className="tool-call-duration">{duration}</span>}
         <span className="tool-call-status" aria-label={tool.status}>
-          {tool.status === 'running' ? <i /> : tool.status === 'error' ? <X size={13} /> : <Check size={13} />}
+          {tool.status === 'running' ? <Spinner /> : tool.status === 'error' ? <X /> : <Check />}
         </span>
-        <ChevronRight className={open ? 'open' : ''} size={13} aria-hidden="true" />
-      </button>
-      {open && (
-        <div className="tool-call-detail">
+        <ChevronRight className={open ? 'open' : ''} aria-hidden="true" />
+      </CollapsibleTrigger>
+      <CollapsibleContent className="tool-call-detail">
           <span>Input</span>
           <pre>{JSON.stringify(tool.input, null, 2)}</pre>
           {(tool.output || tool.error) && <><span>{tool.error ? 'Error' : 'Output'}</span><pre>{tool.error ?? tool.output}</pre></>}
-        </div>
-      )}
-    </div>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
 
@@ -133,16 +174,44 @@ function ActionCard({
     }
   }
   return (
-    <div className="action-card">
-      <div className="action-label"><ShieldCheck size={15} aria-hidden="true" /><span>Order confirmation</span></div>
-      <strong>{action.preview}</strong>
-      <small>Short-lived draft · validated again before dispatch</small>
-      {error && <small className="action-error" role="alert">{error}</small>}
-      <div className="action-buttons">
-        <button disabled={working} onClick={() => resolve('deny')} type="button">Discard</button>
-        <button disabled={working} onClick={() => resolve('confirm')} type="button">{working ? 'Working…' : 'Place order'}</button>
-      </div>
-    </div>
+    <Card className="action-card" size="sm" variant="feature">
+      <CardHeader>
+        <Badge className="action-label" variant="cheap"><ShieldCheck data-icon="inline-start" aria-hidden="true" />Order confirmation</Badge>
+        <CardTitle>{action.preview}</CardTitle>
+        <CardDescription>Short-lived draft · validated again before dispatch</CardDescription>
+      </CardHeader>
+      {error && (
+        <CardContent>
+          <Alert className="action-error" variant="destructive">
+            <AlertTitle>Order action failed</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        </CardContent>
+      )}
+      <CardFooter className="action-buttons">
+        <ButtonGroup aria-label="Resolve order draft">
+          <Button disabled={working} onClick={() => void resolve('deny')} type="button" variant="outline">Discard</Button>
+          <AlertDialog>
+            <AlertDialogTrigger render={<Button disabled={working} type="button" variant="success" />}>
+              Place order
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Place this order?</AlertDialogTitle>
+                <AlertDialogDescription>{action.preview}. The draft will be validated once more immediately before dispatch.</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={working}>Back</AlertDialogCancel>
+                <AlertDialogAction disabled={working} onClick={() => void resolve('confirm')} variant="success">
+                  {working && <Spinner data-icon="inline-start" />}
+                  {working ? 'Placing…' : 'Confirm and place'}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </ButtonGroup>
+      </CardFooter>
+    </Card>
   )
 }
 
@@ -152,24 +221,33 @@ function TranscriptMessage({ message, onResolved }: {
 }) {
   if (message.role === 'user') {
     return (
-      <article className="agent-message user">
-        <div className="agent-message-meta"><span>you</span><time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>
-        <div className="user-prompt">{message.text}</div>
-      </article>
+      <Message align="end" className="agent-message user">
+        <MessageContent>
+          <MessageHeader className="agent-message-meta"><span>you</span><time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></MessageHeader>
+          <Bubble align="end" variant="tinted"><BubbleContent className="user-prompt">{message.text}</BubbleContent></Bubble>
+        </MessageContent>
+      </Message>
     )
   }
   return (
-    <article className="agent-message assistant">
-      <div className="agent-message-meta"><span>dan</span><time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>
-      {message.reasoning && <details className="reasoning-trace"><summary>Thinking</summary><RichText text={message.reasoning} /></details>}
-      {message.text && <RichText text={message.text} />}
-      {message.toolCalls?.map((tool) => <ToolCallRow key={tool.id} tool={tool} />)}
-      {message.pendingAction && <ActionCard action={message.pendingAction} messageId={message.id} onResolved={onResolved} />}
-      {message.actionStatus && <div className="action-status"><ShieldCheck size={14} aria-hidden="true" />{message.actionStatus}</div>}
-      {message.usage && message.usage.totalTokens > 0 && (
-        <div className="message-usage">↑{formatTokens(message.usage.input)} ↓{formatTokens(message.usage.output)} · {message.stopReason ?? 'stop'}</div>
-      )}
-    </article>
+    <Message align="start" className="agent-message assistant">
+      <MessageAvatar>
+        <Avatar size="sm"><AvatarFallback><Bot aria-hidden="true" /></AvatarFallback></Avatar>
+      </MessageAvatar>
+      <MessageContent>
+        <MessageHeader className="agent-message-meta"><span>dan</span><time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></MessageHeader>
+        {message.reasoning && <ReasoningTrace text={message.reasoning} />}
+        {message.text && <Bubble variant="ghost"><BubbleContent><RichText text={message.text} /></BubbleContent></Bubble>}
+        {message.toolCalls?.map((tool) => <ToolCallRow key={tool.id} tool={tool} />)}
+        {message.pendingAction && <ActionCard action={message.pendingAction} messageId={message.id} onResolved={onResolved} />}
+        {message.actionStatus && (
+          <Marker className="action-status" variant="border"><MarkerIcon><ShieldCheck aria-hidden="true" /></MarkerIcon><MarkerContent>{message.actionStatus}</MarkerContent></Marker>
+        )}
+        {message.usage && message.usage.totalTokens > 0 && (
+          <MessageFooter className="message-usage">↑{formatTokens(message.usage.input)} ↓{formatTokens(message.usage.output)} · {message.stopReason ?? 'stop'}</MessageFooter>
+        )}
+      </MessageContent>
+    </Message>
   )
 }
 
@@ -203,7 +281,6 @@ export function AgentScreen({
   const [connected, setConnected] = useState(false)
   const [input, setInput] = useState('')
   const [provisional, setProvisional] = useState<ProvisionalTurn | null>(null)
-  const scrollRef = useRef<HTMLDivElement>(null)
 
   const onAgentMessage = useCallback((message: MessageEvent) => {
     const frame = RelayFrameSchema.safeParse(message.data).data
@@ -237,7 +314,13 @@ export function AgentScreen({
     } else if (event.type === 'dan:tool_execution_start') {
       setProvisional((current) => current ? { ...current, tools: current.tools.map((tool) => tool.id === event.toolCallId ? { ...tool, input: event.input } : tool) } : current)
     } else if (event.type === 'dan:tool_execution_end') {
-      if (!event.error && event.toolName === 'manage_watchlist') void onAccountMutation?.()
+      if (!event.error && (
+        event.toolName === 'manage_watchlist'
+        || event.toolName === 'remember_trade_symbols'
+        || event.toolName === 'prepare_brokerage_action'
+      )) {
+        void onAccountMutation?.()
+      }
       setProvisional((current) => current ? { ...current, tools: current.tools.map((tool) => tool.id === event.toolCallId ? { ...tool, durationMs: event.durationMs, error: event.error, output: event.output, status: event.error ? 'error' : 'complete' } : tool) } : current)
     } else if (event.type === 'dan:turn_end' || event.type === 'dan:agent_end') {
       setProvisional(null)
@@ -254,14 +337,6 @@ export function AgentScreen({
   })
   const state = agent.state
   const running = state?.status === 'running'
-
-  useEffect(() => {
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    scrollRef.current?.scrollTo({
-      top: scrollRef.current.scrollHeight,
-      behavior: reducedMotion ? 'auto' : 'smooth',
-    })
-  }, [provisional, state?.messages])
 
   const send = (text: string) => {
     const trimmed = text.trim()
@@ -285,39 +360,86 @@ export function AgentScreen({
     'Explain the safest bullish structure',
   ]
   const hasUserMessage = state?.messages.some((message) => message.role === 'user')
+  const messageGroups = useMemo(() => (state?.messages ?? []).reduce<AgentChatMessage[][]>((groups, message) => {
+    const current = groups.at(-1)
+    if (current?.[0]?.role === message.role) current.push(message)
+    else groups.push([message])
+    return groups
+  }, []), [state?.messages])
 
   return (
     <div className="agent-screen">
       <header className="agent-header">
-        <span className="dan-avatar"><Bot size={21} aria-hidden="true" /></span>
-        <div><h1>Dan</h1><p><i className={connected ? 'connected' : ''} />{connected ? `${state?.model ?? 'pi'} runtime` : 'Reconnecting…'}</p></div>
-        <button className="icon-button" disabled={running} onClick={() => agent.send(JSON.stringify({ type: 'clear' }))} type="button" aria-label="Clear conversation"><Trash2 size={17} /></button>
+        <Avatar className="dan-avatar" size="lg"><AvatarFallback><Bot aria-hidden="true" /></AvatarFallback></Avatar>
+        <div><h1>Dan</h1><Badge variant={connected ? 'cheap' : 'secondary'}>{connected ? `${state?.model ?? 'pi'} runtime` : 'Reconnecting…'}</Badge></div>
+        <Tooltip>
+          <TooltipTrigger render={<Button className="icon-button" disabled={running} onClick={() => agent.send(JSON.stringify({ type: 'clear' }))} size="icon-lg" type="button" variant="outline" />}>
+            <Trash2 />
+            <span className="sr-only">Clear conversation</span>
+          </TooltipTrigger>
+          <TooltipContent>Clear conversation</TooltipContent>
+        </Tooltip>
       </header>
 
-      <div className="chat-scroll" ref={scrollRef} aria-live="polite">
-        {(state?.messages ?? []).map((message) => <TranscriptMessage key={message.id} message={message} onResolved={resolved} />)}
-        {running && provisional && (
-          <article className="agent-message assistant provisional">
-            <div className="agent-message-meta"><span>dan</span><span className="streaming-label">streaming</span></div>
-            {!provisional.text && !provisional.reasoning && provisional.tools.length === 0 && <div className="thinking-shimmer">Thinking</div>}
-            {provisional.reasoning && <details className="reasoning-trace" open><summary>Thinking</summary><RichText text={provisional.reasoning} /></details>}
-            {provisional.text && <RichText text={provisional.text} />}
-            {provisional.tools.map((tool) => <ToolCallRow key={tool.id} tool={tool} />)}
-          </article>
-        )}
-        {running && !provisional && <div className="thinking-shimmer">Thinking</div>}
-        {state?.error && !running && <div className="agent-runtime-error">{state.error}</div>}
-      </div>
+      <MessageScrollerProvider autoScroll>
+        <MessageScroller className="chat-scroll">
+          <MessageScrollerViewport aria-live="polite">
+            <MessageScrollerContent>
+              {messageGroups.map((group) => (
+                <MessageScrollerItem key={group[0].id} messageId={group[0].id} scrollAnchor={group[0].role === 'user'}>
+                  <MessageGroup>
+                    {group.map((message) => <TranscriptMessage key={message.id} message={message} onResolved={resolved} />)}
+                  </MessageGroup>
+                </MessageScrollerItem>
+              ))}
+              {running && provisional && (
+                <MessageScrollerItem messageId="provisional-turn">
+                  <Message align="start" className="agent-message assistant provisional">
+                    <MessageAvatar><Avatar size="sm"><AvatarFallback><Bot aria-hidden="true" /></AvatarFallback></Avatar></MessageAvatar>
+                    <MessageContent>
+                      <MessageHeader className="agent-message-meta"><span>dan</span><Badge variant="secondary">streaming</Badge></MessageHeader>
+                      {!provisional.text && !provisional.reasoning && provisional.tools.length === 0 && (
+                        <Marker><MarkerContent className="shimmer">Thinking</MarkerContent></Marker>
+                      )}
+                      {provisional.reasoning && <ReasoningTrace defaultOpen text={provisional.reasoning} />}
+                      {provisional.text && <Bubble variant="ghost"><BubbleContent><RichText text={provisional.text} /></BubbleContent></Bubble>}
+                      {provisional.tools.map((tool) => <ToolCallRow key={tool.id} tool={tool} />)}
+                    </MessageContent>
+                  </Message>
+                </MessageScrollerItem>
+              )}
+              {running && !provisional && (
+                <MessageScrollerItem messageId="agent-thinking"><Marker><MarkerContent className="shimmer">Thinking</MarkerContent></Marker></MessageScrollerItem>
+              )}
+              {state?.error && !running && (
+                <MessageScrollerItem messageId="agent-runtime-error">
+                  <Alert className="agent-runtime-error" variant="destructive"><AlertTitle>Dan stopped</AlertTitle><AlertDescription>{state.error}</AlertDescription></Alert>
+                </MessageScrollerItem>
+              )}
+            </MessageScrollerContent>
+          </MessageScrollerViewport>
+          <MessageScrollerButton />
+        </MessageScroller>
+      </MessageScrollerProvider>
 
-      {!hasUserMessage && <div className="suggestion-row">{suggestions.map((suggestion) => <button disabled={!connected} onClick={() => send(suggestion)} key={suggestion} type="button">{suggestion}</button>)}</div>}
+      {!hasUserMessage && <div className="suggestion-row">{suggestions.map((suggestion) => <Button disabled={!connected} onClick={() => send(suggestion)} key={suggestion} size="sm" type="button" variant="outline">{suggestion}</Button>)}</div>}
       <div className="composer-shell">
-        <form className="chat-composer" onSubmit={submit}>
-          <label><span className="sr-only">Message Dan</span><textarea onChange={(event) => setInput(event.target.value)} onKeyDown={keyDown} placeholder="Ask about a ticker or draft an order…" rows={1} value={input} /></label>
-          {running
-            ? <button className="stop-button" onClick={() => agent.send(JSON.stringify({ type: 'cancel' }))} type="button" aria-label="Stop agent"><CircleStop size={18} /></button>
-            : <button disabled={!input.trim() || !connected} type="submit" aria-label="Send message"><Send size={17} /></button>}
+        <form className="composer-form" onSubmit={submit}>
+          <FieldGroup>
+            <Field>
+              <FieldLabel className="sr-only" htmlFor="dan-message">Message Dan</FieldLabel>
+              <InputGroup className="chat-composer">
+                <InputGroupTextarea id="dan-message" onChange={(event) => setInput(event.target.value)} onKeyDown={keyDown} placeholder="Ask about a ticker or draft an order…" rows={1} value={input} />
+                <InputGroupAddon align="inline-end">
+                  {running
+                    ? <InputGroupButton aria-label="Stop agent" className="stop-button" onClick={() => agent.send(JSON.stringify({ type: 'cancel' }))} size="icon-sm" type="button" variant="destructive"><CircleStop /></InputGroupButton>
+                    : <InputGroupButton aria-label="Send message" disabled={!input.trim() || !connected} size="icon-sm" type="submit" variant="default"><Send /></InputGroupButton>}
+                </InputGroupAddon>
+              </InputGroup>
+            </Field>
+          </FieldGroup>
         </form>
-        <div className="composer-hints"><span><Clock3 size={11} /> durable history</span><span><ShieldCheck size={11} /> orders require confirmation</span></div>
+        <div className="composer-hints"><span><Clock3 /> durable history</span><span><ShieldCheck /> orders require confirmation</span></div>
         <RuntimeFooter state={state} />
       </div>
     </div>

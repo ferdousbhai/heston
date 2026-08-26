@@ -31,7 +31,7 @@ export type ResolvedOrderIntent = {
   storedAction: StoredOrderPlacement
 }
 
-export function effectiveStoredOrder(action: StoredOrderPlacement): FreshOrderPlacement {
+function effectiveStoredOrder(action: StoredOrderPlacement): FreshOrderPlacement {
   return action.kind === 'replace_order' ? action.replacementOrder : action
 }
 

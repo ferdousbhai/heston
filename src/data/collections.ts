@@ -21,12 +21,14 @@ import {
   type MarketSnapshot,
   type Ticker,
 } from '../domain/market'
-import { type AggregateWatchlistMutation } from '../domain/watchlist'
+import { type WatchlistMutation } from '../domain/watchlist'
 
-export const OFFLINE_SNAPSHOT_VERSION = 2
+export const OFFLINE_SNAPSHOT_VERSION = 5
 export const MAX_LIVE_MARKET_SYMBOLS = 100
+export type SnapshotAudience = 'owner' | 'public'
 
 const SyncStateSchema = z.object({
+  audience: z.enum(['owner', 'public']),
   id: z.literal('snapshot'),
   marketState: z.enum(['open', 'closed', 'pre', 'after', 'unknown']),
   schemaVersion: z.literal(OFFLINE_SNAPSHOT_VERSION),
@@ -41,7 +43,6 @@ const PreferenceSchema = z.object({
 })
 
 export type SyncState = z.infer<typeof SyncStateSchema>
-export type Preference = z.infer<typeof PreferenceSchema>
 
 type SnapshotCollectionName = 'catalysts' | 'research' | 'sync-state' | 'tickers' | 'watchlists'
 
@@ -114,7 +115,7 @@ export const syncStateCollection = createCollection(
 export const preferenceCollection = createCollection(
   localStorageCollectionOptions({
     id: 'spice-preferences',
-    storageKey: 'spice.preferences.v1',
+    storageKey: 'spice.preferences.v2',
     schema: PreferenceSchema,
     getKey: (preference) => preference.id,
     startSync: true,
@@ -130,8 +131,8 @@ type MutableCollection<T extends object, TKey extends string> = {
 }
 
 type PersistedMutation = { isPersisted: { promise: Promise<unknown> } }
-export function isSnapshotInitialized(state: SyncState | undefined): boolean {
-  return Boolean(state)
+export function isSnapshotInitialized(state: SyncState | undefined, audience?: SnapshotAudience): boolean {
+  return Boolean(state && (!audience || state.audience === audience))
 }
 
 export function selectLiveMarketSymbols(
@@ -153,7 +154,9 @@ async function replaceRows<T extends object, TKey extends string>(
 ): Promise<void> {
   const mutations: PersistedMutation[] = []
   const incoming = new Set(rows.map(getKey))
-  for (const key of collection.keys()) {
+  // TanStack applies deletes optimistically, so snapshot the iterator before mutating it.
+  const existingKeys = Array.from(collection.keys())
+  for (const key of existingKeys) {
     if (!incoming.has(key)) mutations.push(collection.delete(key))
   }
   for (const row of rows) {
@@ -167,10 +170,15 @@ async function replaceRows<T extends object, TKey extends string>(
   await Promise.all(mutations.map((mutation) => mutation.isPersisted.promise))
 }
 
-async function replaceLiveTickers(rows: readonly Ticker[], preserveNewerMarketFields = false): Promise<void> {
+async function replaceLiveTickers(
+  rows: readonly Ticker[],
+  preserveNewerMarketFields = false,
+  replaceExisting = false,
+): Promise<void> {
   const mutations: PersistedMutation[] = []
   const incoming = new Set(rows.map((ticker) => ticker.symbol))
-  for (const key of tickerCollection.keys()) {
+  const existingKeys = Array.from(tickerCollection.keys())
+  for (const key of existingKeys) {
     if (!incoming.has(key)) mutations.push(tickerCollection.delete(key))
   }
   for (const ticker of rows) {
@@ -179,6 +187,10 @@ async function replaceLiveTickers(rows: readonly Ticker[], preserveNewerMarketFi
       continue
     }
     mutations.push(tickerCollection.update(ticker.symbol, (draft) => {
+      if (replaceExisting) {
+        Object.assign(draft, ticker)
+        return
+      }
       const sparkline = reconcileCandleSeries(draft.sparkline, ticker.sparkline)
       if (preserveNewerMarketFields && Date.parse(draft.updatedAt) > Date.parse(ticker.updatedAt)) {
         const { change, changePercent, price, updatedAt } = draft
@@ -191,7 +203,7 @@ async function replaceLiveTickers(rows: readonly Ticker[], preserveNewerMarketFi
   await Promise.all(mutations.map((mutation) => mutation.isPersisted.promise))
 }
 
-export async function hydrateCollections(snapshot: MarketSnapshot) {
+async function hydrateCollectionsImmediately(snapshot: MarketSnapshot, audience: SnapshotAudience) {
   await Promise.all([
     persistedTickerCollection.preload(),
     tickerCollection.preload(),
@@ -202,26 +214,53 @@ export async function hydrateCollections(snapshot: MarketSnapshot) {
     preferenceCollection.preload(),
   ])
 
+  const previousMarker = syncStateCollection.get('snapshot')
+  const audienceChanged = Boolean(previousMarker && previousMarker.audience !== audience)
+  if (audienceChanged) {
+    // Invalidate the old audience before any rows change. If persistence then fails
+    // halfway through, the UI cannot treat a mixed owner/public cache as renderable.
+    await syncStateCollection.delete('snapshot').isPersisted.promise
+  }
+  // The marker can be absent after storage eviction or an interrupted transition. Every
+  // public hydrate must therefore scrub owner-only quote and partial-candle state even
+  // when there is no previous audience value to compare.
+  const scrubLiveOverlay = audience === 'public' || audienceChanged
+  if (scrubLiveOverlay) pendingCandleSnapshots.clear()
+
   await Promise.all([
     replaceRows(persistedTickerCollection, snapshot.tickers, (ticker) => ticker.symbol),
-    replaceLiveTickers(snapshot.tickers, true),
+    replaceLiveTickers(snapshot.tickers, true, scrubLiveOverlay),
     replaceRows(watchlistCollection, snapshot.watchlists, (watchlist) => watchlist.id),
     replaceRows(catalystCollection, snapshot.catalysts, (catalyst) => catalyst.id),
     replaceRows(researchCollection, [snapshot.research], (brief) => brief.id),
   ])
 
-  if (!preferenceCollection.get('primary')) {
+  const defaultWatchlist = snapshot.watchlists.find((watchlist) => watchlist.kind === 'private')
+    ?? snapshot.watchlists.find((watchlist) => watchlist.kind === 'positions')
+    ?? snapshot.watchlists[0]
+  const defaultSymbol = defaultWatchlist?.symbols[0] ?? snapshot.tickers[0]?.symbol ?? 'SPY'
+  const currentPreference = preferenceCollection.get('primary')
+  if (!currentPreference) {
     const preference = preferenceCollection.insert({
       id: 'primary',
-      selectedSymbol: snapshot.tickers[0]?.symbol ?? 'SPY',
-      selectedWatchlistId: snapshot.watchlists.find((watchlist) => watchlist.kind === 'positions')?.id
-        ?? snapshot.watchlists[0]?.id
-        ?? 'positions',
+      selectedSymbol: defaultSymbol,
+      selectedWatchlistId: defaultWatchlist?.id ?? 'positions',
     })
     await preference.isPersisted.promise
+  } else {
+    const watchlistIds = new Set(snapshot.watchlists.map((watchlist) => watchlist.id))
+    const tickerSymbols = new Set(snapshot.tickers.map((ticker) => ticker.symbol))
+    if (!watchlistIds.has(currentPreference.selectedWatchlistId) || !tickerSymbols.has(currentPreference.selectedSymbol)) {
+      const preference = preferenceCollection.update('primary', (draft) => {
+        draft.selectedSymbol = defaultSymbol
+        draft.selectedWatchlistId = defaultWatchlist?.id ?? 'positions'
+      })
+      await preference.isPersisted.promise
+    }
   }
 
   const syncState: SyncState = {
+    audience,
     id: 'snapshot',
     marketState: snapshot.marketState,
     schemaVersion: OFFLINE_SNAPSHOT_VERSION,
@@ -234,7 +273,21 @@ export async function hydrateCollections(snapshot: MarketSnapshot) {
   await marker.isPersisted.promise
 }
 
-export async function restoreOfflineSnapshot() {
+let snapshotHydrationTail: Promise<void> = Promise.resolve()
+
+export function hydrateCollections(
+  snapshot: MarketSnapshot,
+  audience: SnapshotAudience = 'owner',
+): Promise<void> {
+  // Serialize whole-snapshot replacements. An owner request can be aborted after persistence has
+  // started; allowing its row writes to overlap a succeeding public replacement could otherwise
+  // restore private rows after the public audience marker becomes renderable.
+  const hydration = snapshotHydrationTail.then(() => hydrateCollectionsImmediately(snapshot, audience))
+  snapshotHydrationTail = hydration.catch(() => undefined)
+  return hydration
+}
+
+export async function restoreOfflineSnapshot(audience: SnapshotAudience = 'owner') {
   await Promise.all([
     persistedTickerCollection.preload(),
     tickerCollection.preload(),
@@ -244,7 +297,7 @@ export async function restoreOfflineSnapshot() {
     syncStateCollection.preload(),
   ])
   const current = syncStateCollection.get('snapshot')
-  if (isSnapshotInitialized(current)) {
+  if (isSnapshotInitialized(current, audience)) {
     const persisted = [...persistedTickerCollection.keys()]
       .flatMap((key) => persistedTickerCollection.get(key) ?? [])
     await replaceLiveTickers(persisted)
@@ -265,15 +318,16 @@ export async function requestPersistentLocalStorage(): Promise<boolean> {
 export async function syncFromCloud(
   signal?: AbortSignal,
   isCurrent: () => boolean = () => true,
+  audience: SnapshotAudience = 'owner',
 ): Promise<MarketSnapshot> {
-  const response = await fetch('/api/snapshot', {
+  const response = await fetch(audience === 'owner' ? '/api/snapshot' : '/api/public-snapshot', {
     headers: { Accept: 'application/json' },
     signal,
   })
   if (!response.ok) throw new Error(`Snapshot sync failed (${response.status})`)
   const snapshot = MarketSnapshotSchema.parse(await response.json())
   if (signal?.aborted || !isCurrent()) throw new DOMException('Snapshot was superseded', 'AbortError')
-  await hydrateCollections(snapshot)
+  await hydrateCollections(snapshot, audience)
   return snapshot
 }
 
@@ -294,7 +348,7 @@ export function selectWatchlist(id: string, fallbackSymbol?: string) {
   })
 }
 
-export async function applyWatchlistMutation(action: AggregateWatchlistMutation): Promise<void> {
+export async function applyWatchlistMutation(action: WatchlistMutation): Promise<void> {
   const watchlist = [...watchlistCollection.keys()]
     .map((key) => watchlistCollection.get(key))
     .find((candidate) => candidate?.kind === 'private')
@@ -312,6 +366,9 @@ type PendingCandleSnapshot = { endSeen: boolean; points: CandlePoint[] }
 const pendingCandleSnapshots = new Map<string, PendingCandleSnapshot>()
 
 export function applyLiveMarketEvent(untrusted: JsonValue): void {
+  // A closing owner stream may still deliver a queued frame after the public snapshot
+  // has replaced it. Never apply that private in-memory overlay outside the owner audience.
+  if (syncStateCollection.get('snapshot')?.audience !== 'owner') return
   const parsed = LiveMarketEventSchema.safeParse(untrusted)
   if (!parsed.success || !tickerCollection.get(parsed.data.symbol)) return
   const event: LiveMarketEvent = parsed.data

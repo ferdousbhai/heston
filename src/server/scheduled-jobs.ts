@@ -2,11 +2,10 @@ import { toError } from '../domain/failure'
 import { newYorkClock } from '../domain/market-clock'
 import { type AppEnv } from './env'
 import { generateDailyResearch } from './research'
-import { runXCatalystResearch } from './x-catalysts'
 
-export type ScheduledJobKind = 'daily-research' | 'x-catalysts'
+export type ScheduledJobKind = 'daily-research'
 
-export const SCHEDULED_JOB_KINDS = ['daily-research', 'x-catalysts'] as const
+export const SCHEDULED_JOB_KINDS = ['daily-research'] as const
 
 function errorCode(error: Error | undefined): string {
   if (!error) return 'UnknownError'
@@ -38,16 +37,18 @@ export async function runScheduledJob(
   if (claim.meta.changes !== 1) return 'skipped'
   try {
     await task()
+    // A stale run may finish after a newer invocation has reclaimed the same daily row.
+    // Only the invocation that owns the current started_at claim may resolve it.
     const completed = await env.DB.prepare(
-      "UPDATE scheduled_runs SET status = 'completed', completed_at = ?, error_code = NULL WHERE id = ? AND status = 'running'",
-    ).bind(new Date().toISOString(), id).run()
+      "UPDATE scheduled_runs SET status = 'completed', completed_at = ?, error_code = NULL WHERE id = ? AND status = 'running' AND started_at = ?",
+    ).bind(new Date().toISOString(), id, startedAt).run()
     if (completed.meta.changes !== 1) throw new Error('ScheduledJobReceiptNotRecorded')
     return 'completed'
   } catch (error) {
     const code = errorCode(toError(error))
     await env.DB.prepare(
-      "UPDATE scheduled_runs SET status = 'failed', completed_at = ?, error_code = ? WHERE id = ? AND status = 'running'",
-    ).bind(new Date().toISOString(), code, id).run().catch(() => undefined)
+      "UPDATE scheduled_runs SET status = 'failed', completed_at = ?, error_code = ? WHERE id = ? AND status = 'running' AND started_at = ?",
+    ).bind(new Date().toISOString(), code, id, startedAt).run().catch(() => undefined)
     console.error(JSON.stringify({ event: 'ScheduledJobFailed', id, kind, error: code }))
     throw error
   }
@@ -60,7 +61,6 @@ export function runScheduledJobKind(
   scheduledAt = new Date(),
 ): Promise<'completed' | 'skipped'> {
   return runScheduledJob(env, kind, scheduledAt, async () => {
-    if (kind === 'daily-research') await generateDailyResearch(env, scheduledAt)
-    else await runXCatalystResearch(env, scheduledAt)
+    await generateDailyResearch(env, scheduledAt)
   })
 }

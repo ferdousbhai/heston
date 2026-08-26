@@ -15,7 +15,7 @@ export const Route = createFileRoute('/privacy')({
 function PrivacyPage() {
   return (
     <SitePage intro="What Spice Must Flow processes, why it is needed, and the choices available to you." title="Privacy policy">
-      <p className="site-effective">Effective <time dateTime="2026-08-14">August 14, 2026</time></p>
+      <p className="site-effective">Effective <time dateTime="2026-08-26">August 26, 2026</time></p>
       <section>
         <h2>Information processed</h2>
         <p>Spice Must Flow may process your Google account identity for sign-in; account, position, order, balance, transaction, and watchlist data from a connected brokerage; symbols, prompts, preferences, confirmations, and research you submit; market and research data requested on your behalf; and limited technical records needed to secure, operate, and diagnose the service.</p>
@@ -26,7 +26,7 @@ function PrivacyPage() {
       </section>
       <section>
         <h2>Local and cloud storage</h2>
-        <p>Some preferences and validated market snapshots are stored on your device for responsiveness and offline access. Server-side application state is hosted on Cloudflare. Clearing browser storage removes local data but may not remove server records or data held by connected providers.</p>
+        <p>Some preferences and validated market snapshots are stored on your device for responsiveness and offline access. Public and owner snapshots carry separate audience markers so signed-out pages do not render owner-cached rows. Server-side application state is hosted on Cloudflare. Clearing browser storage removes local data but may not remove server records or data held by connected providers.</p>
       </section>
       <section>
         <h2>Service providers</h2>

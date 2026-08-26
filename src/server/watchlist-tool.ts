@@ -2,158 +2,85 @@ import { Type } from '@earendil-works/pi-ai'
 import { type AgentTool } from '@earendil-works/pi-agent-core'
 
 import { type AppEnv } from './env'
-import { envelopeRows, JsonArraySchema, jsonObject, jsonText, type JsonValue } from '../domain/json-payload'
-import { brokerApi } from './tastytrade'
+import {
+  readInternalWatchlist,
+  readInternalWatchlistSymbolDetails,
+  type InternalWatchlistItem,
+  type InternalWatchlistSymbolDetails,
+} from './internal-watchlist'
 
-type WatchlistEntry = {
-  instrumentType: string
-  symbol: string
-}
-
-type NormalizedWatchlist = {
-  entries: WatchlistEntry[]
-  name: string
-  totalEntryCount: number
-}
-
-type WatchlistType = 'private' | 'public'
+const MAX_RETURNED_ITEMS = 100
+type WatchlistItemSummary = Pick<InternalWatchlistItem, 'instrumentType' | 'origin' | 'symbol'>
 
 export type WatchlistReadResult =
   | {
     fetchedAt: string
+    items: WatchlistItemSummary[]
     mode: 'index'
-    source: 'tastytrade'
+    source: 'spice'
     status: 'ok'
-    watchlistType: WatchlistType
-    watchlists: Array<{ entryCount: number; name: string }>
-  }
-  | {
-    fetchedAt: string
-    mode: 'detail'
-    source: 'tastytrade'
-    status: 'not_found'
-    watchlistName: string
-    watchlistType: WatchlistType
-  }
-  | {
-    entries: WatchlistEntry[]
-    fetchedAt: string
-    mode: 'detail'
-    source: 'tastytrade'
-    status: 'ok'
-    totalEntryCount: number
+    totalItemCount: number
     truncated: boolean
-    watchlistName: string
-    watchlistType: WatchlistType
   }
-
-const MAX_WATCHLISTS = 100
-const MAX_RETURNED_ENTRIES = 200
+  | {
+    fetchedAt: string
+    mode: 'detail'
+    source: 'spice'
+    status: 'not_found'
+    symbol: string
+  }
+  | {
+    details: InternalWatchlistSymbolDetails
+    fetchedAt: string
+    mode: 'detail'
+    source: 'spice'
+    status: 'ok'
+  }
 
 export const WatchlistReadParameters = Type.Object({
-  watchlistName: Type.Optional(Type.String({
-    description: 'Exact tastytrade watchlist name. Omit to list names without their symbols.',
-    maxLength: 64,
-    minLength: 1,
-    pattern: '^(?=.*\\S)[^/]+$',
+  symbol: Type.Optional(Type.String({
+    description: 'Exact equity symbol. Omit to read the consolidated internal watchlist.',
+    pattern: '^[A-Z][A-Z.]{0,7}$',
   })),
-  watchlistType: Type.Optional(Type.Union([
-    Type.Literal('private'),
-    Type.Literal('public'),
-  ], { description: 'Private tastytrade watchlists by default, or notable public watchlists.' })),
 }, { additionalProperties: false })
 
-/** Strictly normalize the tastytrade envelope before any private data reaches the model. */
-export function watchlistsFromPayload(payload: JsonValue): NormalizedWatchlist[] {
-  const candidate = envelopeRows(payload)
-  if (!candidate || candidate.length > MAX_WATCHLISTS) throw new Error('Watchlists:invalid-response')
-
-  return candidate.map((value) => {
-    const row = jsonObject(value)
-    const name = jsonText(row?.name)
-    const rawEntries = JsonArraySchema.safeParse(row?.['watchlist-entries']).data
-    if (!row || !name || name.length > 64 || !rawEntries) {
-      throw new Error('Watchlists:invalid-response')
-    }
-    const entries = rawEntries.slice(0, MAX_RETURNED_ENTRIES).map((rawEntry) => {
-      const entry = jsonObject(rawEntry)
-      const symbol = jsonText(entry?.symbol)
-      const instrumentType = jsonText(entry?.['instrument-type'])
-      if (!symbol || symbol.length > 64 || !instrumentType || instrumentType.length > 64) {
-        throw new Error('Watchlists:invalid-response')
-      }
-      return { instrumentType, symbol }
-    })
-    return { entries, name, totalEntryCount: rawEntries.length }
-  })
-}
-
-export async function readWatchlists(
-  env: AppEnv,
-  requestedName?: string,
-  watchlistType: WatchlistType = 'private',
-  now = new Date(),
-): Promise<WatchlistReadResult> {
-  let payload: JsonValue
-  try {
-    payload = await brokerApi().tastyRequest(env, watchlistType === 'public' ? '/public-watchlists' : '/watchlists')
-  } catch {
-    throw new Error(`${watchlistType === 'public' ? 'Public' : 'Private'} tastytrade watchlists are unavailable.`)
-  }
-
-  let watchlists: NormalizedWatchlist[]
-  try {
-    watchlists = watchlistsFromPayload(payload)
-  } catch {
-    throw new Error(`${watchlistType === 'public' ? 'Public' : 'Private'} tastytrade watchlists returned an invalid response.`)
-  }
-
-  const watchlistName = requestedName?.trim()
+async function readWatchlist(env: AppEnv, symbol?: string, now = new Date()): Promise<WatchlistReadResult> {
   const fetchedAt = now.toISOString()
-  if (!watchlistName) {
+  if (!symbol) {
+    const allItems = await readInternalWatchlist(env)
+    const items = allItems.slice(0, MAX_RETURNED_ITEMS).map((item) => ({
+      instrumentType: item.instrumentType,
+      origin: item.origin,
+      symbol: item.symbol,
+    }))
     return {
       fetchedAt,
+      items,
       mode: 'index',
-      source: 'tastytrade',
+      source: 'spice',
       status: 'ok',
-      watchlistType,
-      watchlists: watchlists.map((watchlist) => ({
-        entryCount: watchlist.totalEntryCount,
-        name: watchlist.name,
-      })),
+      totalItemCount: allItems.length,
+      truncated: allItems.length > items.length,
     }
   }
-
-  const matches = watchlists.filter((watchlist) => watchlist.name === watchlistName)
-  if (matches.length !== 1) {
-    return { fetchedAt, mode: 'detail', source: 'tastytrade', status: 'not_found', watchlistName, watchlistType }
-  }
-  const [watchlist] = matches
-  return {
-    entries: watchlist!.entries,
-    fetchedAt,
-    mode: 'detail',
-    source: 'tastytrade',
-    status: 'ok',
-    totalEntryCount: watchlist!.totalEntryCount,
-    truncated: watchlist!.totalEntryCount > watchlist!.entries.length,
-    watchlistName: watchlist!.name,
-    watchlistType,
-  }
+  const details = await readInternalWatchlistSymbolDetails(env, symbol)
+  return details
+    ? { details, fetchedAt, mode: 'detail', source: 'spice', status: 'ok' }
+    : { fetchedAt, mode: 'detail', source: 'spice', status: 'not_found', symbol }
 }
 
 export function createWatchlistReadTool(env: AppEnv): AgentTool<typeof WatchlistReadParameters, WatchlistReadResult> {
   return {
-    description: 'Read tastytrade watchlists on demand. Private lists are the default; public lists are also available. Omit watchlistName to retrieve names and entry counts only, then provide one exact name to retrieve that list. This tool is read-only.',
+    description: "Read Spice's consolidated internal private watchlist. Omit symbol for the list; provide one exact symbol for its retained one-time tastytrade seed provenance. This tool never reads tastytrade watchlist endpoints.",
     execute: async (_toolCallId, params) => {
-      const result = await readWatchlists(env, params.watchlistName, params.watchlistType)
+      const result = await readWatchlist(env, params.symbol)
       return {
         content: [{ text: JSON.stringify(result), type: 'text' }],
         details: result,
       }
     },
     executionMode: 'sequential',
-    label: 'Reading watchlists',
+    label: 'Reading watchlist',
     name: 'read_watchlists',
     parameters: WatchlistReadParameters,
   }

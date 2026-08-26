@@ -9,7 +9,7 @@ export const DXLINK_SNAPSHOT_BEGIN = 0x4
 export const DXLINK_SNAPSHOT_END = 0x8
 export const DXLINK_SNAPSHOT_SNIP = 0x10
 
-export const MarketSymbolSchema = z.string().trim().toUpperCase().regex(/^[A-Z.]{1,8}$/)
+const MarketSymbolSchema = z.string().trim().toUpperCase().regex(/^[A-Z.]{1,8}$/)
 
 export const LiveMarketEventSchema = z.object({
   type: z.literal('market'),
@@ -48,7 +48,7 @@ export const OptionStreamerSymbolSchema = z.string()
   .max(128)
   .regex(/^\.[A-Z0-9.]{1,127}$/)
 
-export const OptionGreeksEventSchema = z.object({
+const OptionGreeksEventSchema = z.object({
   delta: z.number().finite(),
   eventAt: z.string().datetime(),
   gamma: z.number().finite(),

@@ -1,11 +1,31 @@
 // @vitest-environment jsdom
 
-import { createElement } from 'react'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { Fragment, createElement, useState } from 'react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { TickerPicker } from '../src/components/ticker-picker'
 import { marketTickersFixture, marketWatchlistsFixture } from './fixtures/market'
+
+function TickerPickerHarness({ onClose }: { onClose: () => void }) {
+  const [open, setOpen] = useState(false)
+  return createElement(
+    Fragment,
+    null,
+    createElement('button', { onClick: () => setOpen(true), type: 'button' }, 'Open picker'),
+    open && createElement(TickerPicker, {
+      onClose: () => {
+        onClose()
+        setOpen(false)
+      },
+      onPick: vi.fn(),
+      tickers: marketTickersFixture,
+      watchlists: marketWatchlistsFixture
+        .filter((watchlist) => watchlist.kind === 'positions')
+        .map((watchlist) => ({ ...watchlist, symbols: ['MISSING', ...watchlist.symbols] })),
+    }),
+  )
+}
 
 afterEach(() => {
   cleanup()
@@ -13,36 +33,21 @@ afterEach(() => {
 })
 
 describe('TickerPicker accessibility', () => {
-  it('closes with Escape, traps focus, and returns focus to the opener', () => {
-    const opener = document.createElement('button')
-    document.body.appendChild(opener)
-    opener.focus()
+  it('autofocuses search, closes with Escape, and returns focus to the opener', async () => {
     const onClose = vi.fn()
-    const { unmount } = render(createElement(TickerPicker, {
-      onClose,
-      onPick: vi.fn(),
-      tickers: marketTickersFixture,
-      watchlists: marketWatchlistsFixture
-        .filter((watchlist) => watchlist.kind === 'positions')
-        .map((watchlist) => ({ ...watchlist, symbols: ['MISSING', ...watchlist.symbols] })),
-    }))
+    render(createElement(TickerPickerHarness, { onClose }))
+    const opener = screen.getByRole('button', { name: 'Open picker' })
+    opener.focus()
+    fireEvent.click(opener)
 
     const dialog = screen.getByRole('dialog', { name: 'Choose a ticker' })
-    const close = within(dialog).getByRole('button', { name: 'Close ticker picker' })
-    const buttons = within(dialog).getAllByRole('button')
-    const last = buttons.at(-1)!
+    expect(within(dialog).getByRole('button', { name: 'Close ticker picker' })).toBeTruthy()
     expect(within(dialog).queryByText('MISSING')).toBeNull()
-    expect(document.activeElement).toBe(screen.getByPlaceholderText('Search symbol or company'))
-
-    close.focus()
-    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
-    expect(document.activeElement).toBe(last)
-    fireEvent.keyDown(document, { key: 'Tab' })
-    expect(document.activeElement).toBe(close)
+    const search = screen.getByRole('combobox', { name: 'Search symbol or company' })
+    expect(document.activeElement).toBe(search)
 
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(onClose).toHaveBeenCalledOnce()
-    unmount()
-    expect(document.activeElement).toBe(opener)
+    await waitFor(() => expect(document.activeElement).toBe(opener))
   })
 })

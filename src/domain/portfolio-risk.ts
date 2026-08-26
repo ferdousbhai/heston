@@ -1,6 +1,6 @@
-export const MAX_PORTFOLIO_DRAWDOWN = 0.40
-export const RETAINED_PORTFOLIO_FLOOR = 1 - MAX_PORTFOLIO_DRAWDOWN
-export const DEFAULT_KELLY_MULTIPLIER = 0.25
+const MAX_PORTFOLIO_DRAWDOWN = 0.40
+const RETAINED_PORTFOLIO_FLOOR = 1 - MAX_PORTFOLIO_DRAWDOWN
+const DEFAULT_KELLY_MULTIPLIER = 0.25
 
 function finitePositive(value: number): boolean {
   return Number.isFinite(value) && value > 0

@@ -1,0 +1,47 @@
+# Spice agent index
+
+Spice is a single-owner options app on Cloudflare. Public visitors may read a neutral Options Watch, option metrics, catalysts, and the Daily Brief. Only the exact Google-authenticated owner may access positions, balances, transactions, source watchlists, Dan, operations, live account streams, or any mutation.
+
+This file is an index, not an architecture essay. Read the relevant code and its adjacent comments before changing behavior; durable design decisions belong beside the enforcement code.
+
+## Start here
+
+| Concern | Authoritative code |
+| --- | --- |
+| Worker entry, routing, Cron | `src/server.ts`, `src/server/scheduled-jobs.ts` |
+| Public/owner HTTP boundary | `src/server/http.ts`, `src/server/auth.ts`, `src/routes/api.public-snapshot.ts` |
+| Internal watchlist, one-time broker seed, public universe | `src/server/internal-watchlist.ts`, `src/server/public-market-universe.ts`, `src/server/tastytrade.ts`, `migrations/0006_internal_watchlist.sql`, `tools/seed-internal-watchlist.sh` |
+| Client cache audience and live overlay | `src/data/collections.ts`, `src/data/live-market.ts` |
+| Market UI and volatility verdict | `src/components/market-screen.tsx`, `src/domain/market.ts` |
+| Daily intelligence | `src/server/research.ts`, `src/server/research-output.ts`, `src/server/research-evidence.ts`, `src/server/research-market-movers.ts`, `src/server/research-sources.ts`, `src/server/research-reddit.ts`, `src/server/x-catalysts.ts` |
+| AI Gateway run observability | `src/server/ai-gateway.ts`, `src/server/pi-runtime.ts` |
+| Catalyst contract and D1 persistence | `src/domain/catalyst.ts`, `src/server/catalysts.ts`, `migrations/` |
+| Dan composition and doctrine | `src/server/dan-agent.ts`, `src/server/dan-doctrine.ts` |
+| Dan read tools | `src/server/brokerage-read-tools.ts`, `src/server/brokerage-read-contracts.ts`, `src/server/brokerage-read-normalization.ts`, `src/server/market-research-tools.ts`, `src/server/market-research-contracts.ts`, `src/server/technical-studies.ts`, `src/server/watchlist-tool.ts`, `src/server/research-read-tools.ts`, `src/server/option-greeks-tool.ts` |
+| Trade intent, risk, confirmation, execution | `src/server/order-intent.ts`, `src/server/portfolio-risk.ts`, `src/server/agent.ts`, `src/server/brokerage.ts`, `src/server/brokerage-reconciliation.ts` |
+| Durable Objects | `src/server/broker-gate.ts`, `src/server/market-feed.ts`, `src/server/dan-agent.ts` |
+| UI primitives | `src/components/ui/`, `components.json`, `src/styles.css` |
+| Deployment bindings and generated runtime types | `wrangler.jsonc`, `worker-configuration.d.ts` |
+
+## Invariants
+
+- Never expose account identity, account-derived categories, position flags, source watchlist names/membership/order, balances, orders, transactions, chat, operations, tokens, or mutations publicly.
+- Spice's D1 internal watchlist is authoritative. Its explicit one-time bootstrap imports every tastytrade private and public list, preserving full raw list and entry metadata privately; after `ready`, normal code must never read or mutate tastytrade watchlist endpoints.
+- The full internal watchlist may exceed tastytrade's 100-symbol bulk market-data limit. The private working set prioritizes active positions, Spice-native additions, former private-list members, then public-only seed members; only its source-neutral, alphabetized union is stored for public reads. No public field or ordering reveals that priority or ticker provenance.
+- Public responses and persisted browser snapshots are audience-separated. API routes are excluded from service-worker caching. Live DXLink data is owner-only and stays in the in-memory overlay.
+- Tastytrade is authoritative for instrument names, executable contracts, quotes, Greeks, dry-runs, and orders. Yahoo data is bounded, delayed secondary research context only.
+- Model and social content are untrusted. Zod and deterministic code bind symbols, dates, provenance, URLs, and actions. A model never chooses a trusted citation or authorizes a trade.
+- The weekday 09:30 New York daily job starts X, Reddit, and broad Yahoo market-mover research in the same `Promise.all`. X and Reddit feed both the catalyst calendar and Daily Brief and may not silently fail; bounded Yahoo mover/news and official feeds are best-effort secondary context. Mover causes stay explicitly uncertain unless the evidence establishes them.
+- Dan remembers trusted symbols from substantive trade discussions; resolved trade intents and deterministically validated scheduled ideas/movers are also added idempotently to the internal watchlist. Never infer tickers by scraping arbitrary model prose.
+- X catalysts require a watched symbol, a valid date within 180 days, and a direct X status URL present in provider citation metadata. Reddit catalyst candidates require an exact Reddit evidence index, watched symbol, valid future date, and are always `estimated`. Earnings come from tastytrade; dividends are excluded.
+- Only explicit order placement creates a five-minute confirmation draft. Exact option resolution, fresh portfolio/market guards, and tastytrade dry-run run again before submission. Ambiguous broker mutations are never retried automatically.
+- The executable multi-leg scope is limited to two-leg long call or put debit verticals. The high-water portfolio guard and server state machine are authoritative over Dan's advice.
+- Secrets and account numbers stay server-side. Missing bindings fail closed; do not add local secret files or write provider bodies, credentials, or tokens to Worker logs. Model requests intentionally use the authenticated `spice` AI Gateway with payload logging so the owner can inspect runs; Dan logs therefore contain private account context and must remain Cloudflare-account-only. Gateway metadata uses opaque run IDs, never account IDs or email.
+
+## Working rules
+
+- Keep domain schemas and pure logic in `src/domain/`, Cloudflare/provider code in `src/server/`, thin HTTP adapters in `src/routes/api.*`, reactive persistence in `src/data/`, and product surfaces in `src/components/`.
+- Add or amend an adjacent comment when a non-obvious privacy, trust, persistence, concurrency, or execution decision changes. Do not recreate parallel prose documentation.
+- Preserve unrelated dirty-worktree changes. Use `rg` for discovery and `apply_patch` for edits.
+- Before handoff run `git diff --check`, `npm run lint`, `npm test`, `npm run build`, and relevant Playwright tests. Never hit live order endpoints from tests.
+- Before Wrangler use, read the local Wrangler skill. Apply D1 migrations before deploying code that reads new columns, then verify public and private boundaries in production.

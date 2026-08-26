@@ -17,6 +17,13 @@ export function jsonNoStore(value: JsonValue, init: ResponseInit = {}): Response
   return Response.json(value, { ...init, headers })
 }
 
+/** Public, account-free market data. Shared caches may retain it briefly to protect broker limits. */
+export function jsonPublic(value: JsonValue, init: ResponseInit = {}): Response {
+  const headers = new Headers(init.headers)
+  headers.set('Cache-Control', 'public, max-age=30, s-maxage=60, stale-while-revalidate=120')
+  return Response.json(value, { ...init, headers })
+}
+
 export async function authorizePersonalRequest(request: Request, env: AppEnv, write = false): Promise<Response | undefined> {
   try {
     if (!await getOwnerSession(request, env)) {
@@ -45,6 +52,6 @@ export function publicError(error: Error | undefined): string {
   if (error.name === 'PortfolioRiskError') return error.message
   if (error.name === 'BrokerageSubmissionUnknownError') return error.message
   if (error.name === 'TastytradeOrderWarningError') return error.message
-  if (error.message.includes('WatchlistMutation:not-found')) return 'No private watchlist is available to update'
+  if (error.message.includes('InternalWatchlist:not-seeded')) return 'The internal watchlist has not been initialized'
   return 'The request could not be completed'
 }

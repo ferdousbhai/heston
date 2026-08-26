@@ -7,7 +7,9 @@ import {
   MAX_LIVE_MARKET_SYMBOLS,
   OFFLINE_SNAPSHOT_VERSION,
   selectLiveMarketSymbols,
+  syncStateCollection,
   tickerCollection,
+  watchlistCollection,
   type SyncState,
 } from '../src/data/collections'
 import { marketSnapshotFixture } from './fixtures/market'
@@ -15,6 +17,7 @@ import { marketSnapshotFixture } from './fixtures/market'
 describe('offline snapshot boundary', () => {
   it('treats a version marker, not collection row counts, as initialization', () => {
     const liveState: SyncState = {
+      audience: 'owner',
       id: 'snapshot',
       marketState: 'closed',
       schemaVersion: OFFLINE_SNAPSHOT_VERSION,
@@ -23,7 +26,94 @@ describe('offline snapshot boundary', () => {
     }
 
     expect(isSnapshotInitialized(liveState)).toBe(true)
+    expect(isSnapshotInitialized(liveState, 'owner')).toBe(true)
+    expect(isSnapshotInitialized(liveState, 'public')).toBe(false)
     expect(isSnapshotInitialized(undefined)).toBe(false)
+  })
+
+  it('replaces owner cache and live overlay with only public rows before marking it public', async () => {
+    const owner = marketSnapshotFixture()
+    const original = owner.tickers.find((ticker) => ticker.position)!
+    await hydrateCollections({ ...owner, tickers: [original] }, 'owner')
+    const liveAt = new Date(Date.parse(original.updatedAt) + 60_000).toISOString()
+    applyLiveMarketEvent({
+      candleSnapshot: [
+        ...original.sparkline,
+        { close: original.price + 10, sequence: 1, time: Date.parse(liveAt) },
+      ],
+      price: original.price + 10,
+      symbol: original.symbol,
+      timestamp: liveAt,
+      type: 'market',
+    })
+    // Simulate the audience marker being evicted independently while owner-only
+    // in-memory quote data remains alive in the current page.
+    await syncStateCollection.delete('snapshot').isPersisted.promise
+    const publicTicker = {
+      ...original,
+      change: 1,
+      changePercent: 0.5,
+      position: false,
+      price: original.price - 5,
+      sparkline: original.sparkline.slice(-2),
+    }
+    const publicSnapshot = {
+      ...owner,
+      tickers: [publicTicker],
+      watchlists: [{ id: 'public-options-watch', kind: 'public' as const, name: 'Options Watch', symbols: ['NVDA'] }],
+    }
+
+    await hydrateCollections(publicSnapshot, 'public')
+
+    expect(syncStateCollection.get('snapshot')?.audience).toBe('public')
+    expect([...watchlistCollection.keys()]).toEqual(['public-options-watch'])
+    expect(tickerCollection.get(original.symbol)).toMatchObject(publicTicker)
+
+    applyLiveMarketEvent({
+      price: original.price + 20,
+      symbol: original.symbol,
+      timestamp: new Date(Date.parse(liveAt) + 60_000).toISOString(),
+      type: 'market',
+    })
+    expect(tickerCollection.get(original.symbol)).toMatchObject(publicTicker)
+  })
+
+  it('serializes overlapping audience replacements so the last requested snapshot wins', async () => {
+    const owner = marketSnapshotFixture()
+    const privateTicker = owner.tickers.find((ticker) => ticker.position)!
+    const publicTicker = {
+      ...owner.tickers.find((ticker) => !ticker.position)!,
+      position: false,
+    }
+    const publicSnapshot = {
+      ...owner,
+      tickers: [publicTicker],
+      watchlists: [{
+        id: 'public-options-watch',
+        kind: 'public' as const,
+        name: 'Options Watch',
+        symbols: [publicTicker.symbol],
+      }],
+    }
+
+    const ownerHydration = hydrateCollections({
+      ...owner,
+      tickers: [privateTicker],
+      watchlists: [{
+        id: 'private-watchlist',
+        kind: 'private' as const,
+        name: 'Private',
+        symbols: [privateTicker.symbol],
+      }],
+    }, 'owner')
+    const publicHydration = hydrateCollections(publicSnapshot, 'public')
+
+    await Promise.all([ownerHydration, publicHydration])
+
+    expect(syncStateCollection.get('snapshot')?.audience).toBe('public')
+    expect([...watchlistCollection.keys()]).toEqual(['public-options-watch'])
+    expect([...tickerCollection.keys()]).toEqual([publicTicker.symbol])
+    expect(tickerCollection.get(privateTicker.symbol)).toBeUndefined()
   })
 })
 

@@ -6,23 +6,26 @@ import { type AppEnv } from './env'
 import { brokerApi } from './tastytrade'
 import { textResult } from './agent-tool-result'
 import { watchlistWriter } from './watchlist-actions'
+import { internalWatchlistWriter } from './internal-watchlist'
 
-export const CancelOrderParameters = Type.Object({
+const CancelOrderParameters = Type.Object({
   orderId: Type.String({ description: 'Exact tastytrade working-order ID.', pattern: '^\\d{1,40}$' }),
 }, { additionalProperties: false })
 
-export const WatchlistManagementParameters = Type.Union([
+const WatchlistManagementParameters = Type.Union([
   Type.Object({
     action: Type.Literal('add'),
-    symbols: Type.Array(Type.String({ pattern: '^[A-Z.]{1,8}$' }), { maxItems: 50, minItems: 1 }),
-    watchlistName: Type.String({ maxLength: 64, minLength: 1, pattern: '^(?=.*\\S)[^/]+$' }),
+    symbols: Type.Array(Type.String({ pattern: '^[A-Z][A-Z.]{0,7}$' }), { maxItems: 50, minItems: 1 }),
   }, { additionalProperties: false }),
   Type.Object({
     action: Type.Literal('remove'),
-    symbols: Type.Array(Type.String({ pattern: '^[A-Z.]{1,8}$' }), { maxItems: 50, minItems: 1 }),
-    watchlistName: Type.String({ maxLength: 64, minLength: 1, pattern: '^(?=.*\\S)[^/]+$' }),
+    symbols: Type.Array(Type.String({ pattern: '^[A-Z][A-Z.]{0,7}$' }), { maxItems: 50, minItems: 1 }),
   }, { additionalProperties: false }),
 ])
+
+const RememberTradeSymbolsParameters = Type.Object({
+  symbols: Type.Array(Type.String({ pattern: '^[A-Z][A-Z.]{0,7}$' }), { maxItems: 10, minItems: 1 }),
+}, { additionalProperties: false })
 
 function commandText(message: string): string {
   let command = message.normalize('NFKC').trim()
@@ -36,43 +39,32 @@ function commandText(message: string): string {
   }
 }
 
-function cleanName(value: string): string {
-  return value
-    .trim()
-    .replace(/\s+please[.!?]*$/i, '')
-    .replace(/[.!?]+$/, '')
-    .trim()
-    .replace(/^["'“”‘’]+|["'“”‘’]+$/g, '')
-    .trim()
-    .replace(/\s+/g, ' ')
-    .toLocaleLowerCase('en-US')
-}
-
 function requestedSymbols(value: string): string[] | undefined {
   const fragment = value.trim().replace(/^(?:stocks?|tickers?|symbols?)\s+/i, '')
   const parts = fragment.replace(/\s+(?:and|&)\s+/gi, ',').split(',').map((part) => part.trim())
-  if (!parts.length || parts.some((part) => !/^[A-Z.]{1,8}$/i.test(part))) return undefined
+  if (!parts.length || parts.some((part) => !/^[A-Z][A-Z.]{0,7}$/i.test(part))) return undefined
   return parts.map((part) => part.toUpperCase())
 }
 
-export function authorizesCancel(message: string, orderId: string): boolean {
+function authorizesCancel(message: string, orderId: string): boolean {
   const match = commandText(message).match(
     /^cancel(?:\s+(?:the|my))?(?:\s+(?:working|live))?(?:\s+order)?\s+#?(\d{1,40})(?:\s+please)?[.!?]*$/i,
   )
   return match?.[1] === orderId
 }
 
-export function authorizesWatchlistChange(
+function authorizesWatchlistChange(
   message: string,
   action: 'add' | 'remove',
-  watchlistName: string,
   symbols: readonly string[],
 ): boolean {
   const command = commandText(message)
   const preposition = action === 'add' ? 'to' : 'from'
-  const match = command.match(new RegExp(`^${action}\\s+(.+?)\\s+${preposition}\\s+(?:(?:my|the|private)\\s+)?(.+?)\\s+watchlist(?:\\s+please)?[.!?]*$`, 'i'))
-    ?? command.match(new RegExp(`^${action}\\s+(.+?)\\s+${preposition}\\s+(?:(?:my|the|private)\\s+)?watchlist\\s+(.+?)(?:\\s+please)?[.!?]*$`, 'i'))
-  if (!match?.[1] || !match[2] || cleanName(match[2]) !== cleanName(watchlistName)) return false
+  const match = command.match(new RegExp(
+    `^${action}\\s+(.+?)\\s+${preposition}\\s+(?:(?:my|the|private|spice)\\s+)?watchlist(?:\\s+please)?[.!?]*$`,
+    'i',
+  ))
+  if (!match?.[1]) return false
   const authorizedSymbols = requestedSymbols(match[1])
   const normalizedSymbols = symbols.map((symbol) => symbol.toUpperCase())
   return Boolean(authorizedSymbols
@@ -86,15 +78,23 @@ export function createCancelOrderTool(
   env: AppEnv,
   currentUserMessage: string,
 ): AgentTool<typeof CancelOrderParameters, { orderId: string; status: 'cancelled' }> {
+  let attempted = false
   return {
     description: 'Cancel one exact working tastytrade order immediately. Use only when the user explicitly asks to cancel that order in the current message. This does not require a confirmation step.',
     execute: async (_toolCallId, params) => {
       if (!authorizesCancel(currentUserMessage, params.orderId)) throw new Error('DirectActionIntentMismatch')
       const parsed = DirectAccountActionSchema.parse({ kind: 'cancel_order', orderId: params.orderId })
       if (parsed.kind !== 'cancel_order') throw new Error('CancelOrder:invalid-action')
-      const account = await brokerApi().resolveAccountNumber(env)
-      await brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/orders/${parsed.orderId}`, { method: 'DELETE' })
-      return textResult({ orderId: parsed.orderId, status: 'cancelled' as const })
+      // A provider timeout after DELETE is ambiguous. One tool instance represents one
+      // user turn, so the model cannot turn an uncertain outcome into an automatic retry.
+      if (attempted) throw new Error('DirectActionAlreadyAttempted')
+      attempted = true
+      return brokerApi().withBrokerMutationLease(env, async (lease) => {
+        const account = await brokerApi().resolveAccountNumber(env)
+        await lease.renew()
+        await brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/orders/${parsed.orderId}`, { method: 'DELETE' })
+        return textResult({ orderId: parsed.orderId, status: 'cancelled' as const })
+      })
     },
     executionMode: 'sequential',
     label: 'Cancelling order',
@@ -107,27 +107,45 @@ export function createWatchlistManagementTool(
   env: AppEnv,
   currentUserMessage: string,
 ): AgentTool<typeof WatchlistManagementParameters, { detail: string }> {
+  let attempted = false
   return {
-    description: 'Add or remove equity symbols in an existing private tastytrade watchlist immediately. Use only when the user explicitly requests the exact change in the current message. This does not require a confirmation step.',
+    description: "Add or remove equity symbols in Spice's single internal private watchlist immediately. Use only when the user explicitly requests the exact change in the current message. This does not require a confirmation step.",
     execute: async (_toolCallId, params) => {
       if (!authorizesWatchlistChange(
         currentUserMessage,
         params.action,
-        params.watchlistName,
         params.symbols,
       )) throw new Error('DirectActionIntentMismatch')
       const action = DirectAccountActionSchema.parse({
         kind: params.action === 'add' ? 'add_watchlist_symbols' : 'remove_watchlist_symbols',
         symbols: params.symbols,
-        watchlistName: params.watchlistName,
       })
       if (action.kind !== 'add_watchlist_symbols' && action.kind !== 'remove_watchlist_symbols'
       ) throw new Error('WatchlistMutation:invalid-action')
+      // One direct mutation attempt per user turn keeps model tool loops bounded.
+      if (attempted) throw new Error('DirectActionAlreadyAttempted')
+      attempted = true
       return textResult(await watchlistWriter().executeWatchlistAction(env, action))
     },
     executionMode: 'sequential',
     label: 'Updating watchlist',
     name: 'manage_watchlist',
     parameters: WatchlistManagementParameters,
+  }
+}
+
+export function createRememberTradeSymbolsTool(
+  env: AppEnv,
+): AgentTool<typeof RememberTradeSymbolsParameters, { remembered: string[] }> {
+  return {
+    description: "Remember symbols in Spice's internal watchlist when this conversation substantively discusses a trade, thesis, or potential play for a symbol that may not already be watched. This is idempotent and does not place a trade. Do not use it for incidental ticker mentions.",
+    execute: async (_toolCallId, params) => {
+      const remembered = await internalWatchlistWriter().ensureSymbols(env, params.symbols, 'agent-discussion')
+      return textResult({ remembered })
+    },
+    executionMode: 'sequential',
+    label: 'Remembering symbols',
+    name: 'remember_trade_symbols',
+    parameters: RememberTradeSymbolsParameters,
   }
 }

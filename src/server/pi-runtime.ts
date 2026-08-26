@@ -2,6 +2,8 @@ import { type Model, type StreamFunction } from '@earendil-works/pi-ai'
 import { stream as streamOpenAIResponses } from '@earendil-works/pi-ai/api/openai-responses'
 import { XAI_MODELS } from '@earendil-works/pi-ai/providers/xai.models'
 
+import { aiGatewayHeaders } from './ai-gateway'
+
 const XAI_MODEL: Model<'openai-responses'> = {
   ...XAI_MODELS['grok-4.5'],
   id: 'grok-4.6',
@@ -28,7 +30,7 @@ export type ResponsesApi = ReturnType<typeof createResponsesApi>
 let installedResponsesApi: ResponsesApi = createResponsesApi()
 
 /** The Responses transport currently in force. */
-export function responsesApi(): ResponsesApi {
+function responsesApi(): ResponsesApi {
   return installedResponsesApi
 }
 
@@ -42,9 +44,15 @@ export function resetResponsesApi(): void {
   installedResponsesApi = createResponsesApi()
 }
 
-export function createPiRuntime(apiKey: string): PiRuntime {
+export function createPiRuntime(
+  apiKey: string,
+  gatewayToken: string,
+  gatewayBaseUrl: string,
+  runId: string,
+): PiRuntime {
+  const model = { ...XAI_MODEL, baseUrl: gatewayBaseUrl }
   return {
-    model: XAI_MODEL,
+    model,
     stream: (model, context, options) => responsesApi().stream(
       // SAFETY: the runtime only ever streams XAI_MODEL, the single model this factory returns.
       model as typeof XAI_MODEL,
@@ -52,8 +60,13 @@ export function createPiRuntime(apiKey: string): PiRuntime {
       {
         ...options,
         apiKey,
+        headers: {
+          ...options?.headers,
+          ...aiGatewayHeaders(gatewayToken, { app: 'spice', feature: 'dan-agent', run_id: runId }),
+        },
         reasoningEffort: 'high',
         reasoningSummary: 'auto',
+        sessionId: runId,
         timeoutMs: 360_000,
       },
     ),

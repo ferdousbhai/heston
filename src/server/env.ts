@@ -1,21 +1,22 @@
 import { type OptionGreeksReadResult } from './market-feed-contracts'
 
-export interface BrokerGateRpcStub {
+interface BrokerGateRpcStub {
   acquire(): Promise<void>
   acquireMutation(): Promise<string>
+  renewMutation(token: string): Promise<void>
   releaseMutation(token: string): Promise<void>
 }
 
-export interface BrokerGateNamespace {
+interface BrokerGateNamespace {
   getByName(name: string): BrokerGateRpcStub
 }
 
-export interface MarketFeedRpcStub {
+interface MarketFeedRpcStub {
   fetch(request: Request): Promise<Response>
   readOptionGreeks(streamerSymbols: readonly string[]): Promise<OptionGreeksReadResult>
 }
 
-export interface MarketFeedNamespace {
+interface MarketFeedNamespace {
   get(id: DurableObjectId): MarketFeedRpcStub
   getByName(name: string): MarketFeedRpcStub
   idFromName(name: string): DurableObjectId

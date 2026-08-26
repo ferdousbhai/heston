@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { collectResearchSources, parseResearchFeed } from '../src/server/research-sources'
+import { collectOfficialSources, parseResearchFeed } from '../src/server/research-sources'
 
 describe('research sources', () => {
   it('parses RSS safely and rejects non-HTTPS links', () => {
@@ -23,7 +23,7 @@ describe('research sources', () => {
       return new Response('<rss><channel><item><title>Policy update</title><link>https://www.federalreserve.gov/newsevents/pressreleases/test.htm</link></item></channel></rss>')
     })
 
-    await expect(collectResearchSources({ fetcher })).resolves.toEqual([{
+    await expect(collectOfficialSources(fetcher)).resolves.toEqual([{
       source: 'Federal Reserve',
       title: 'Policy update',
       url: 'https://www.federalreserve.gov/newsevents/pressreleases/test.htm',

@@ -67,6 +67,8 @@ describe('brokerage dispatch warnings', () => {
     await expect(executeOrderPlacement({}, action)).rejects.toThrow('order was not submitted')
     expect(mocks.tastyRequest).toHaveBeenCalledTimes(1)
     expect(mocks.tastyRequest.mock.calls[0]?.[1]).toContain('/orders/dry-run')
+    expect(mocks.withBrokerMutationLease).toHaveBeenCalledTimes(1)
+    expect(mocks.renewBrokerMutationLease).toHaveBeenCalledTimes(1)
   })
 
   it('retains warnings returned with an already-accepted order', async () => {
@@ -78,5 +80,7 @@ describe('brokerage dispatch warnings', () => {
       detail: 'Order #123 accepted by tastytrade. Broker warning: Order queued for review',
       orderId: '123',
     })
+    expect(mocks.withBrokerMutationLease).toHaveBeenCalledTimes(1)
+    expect(mocks.renewBrokerMutationLease).toHaveBeenCalledTimes(2)
   })
 })

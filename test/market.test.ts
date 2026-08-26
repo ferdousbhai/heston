@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  aggregatePrivateWatchlists,
   formatMarketMetric,
   MarketSnapshotSchema,
+  parseStoredResearchBrief,
   volatilityVerdict,
 } from '../src/domain/market'
 import { marketSnapshotFixture } from './fixtures/market'
@@ -11,6 +11,7 @@ import {
   equityCandleFromTime,
   liveTickerFromRecords,
   percentMetric,
+  publicMarketUniverseFromSnapshot,
   selectSnapshotSymbols,
 } from '../src/server/tastytrade'
 
@@ -42,26 +43,67 @@ describe('snapshot contract', () => {
     expect(marketSnapshotFixture().watchlists[0]!.symbols).not.toContain('MUTATED')
   })
 
-  it('collapses every private list into one deduplicated Watchlist', () => {
-    expect(aggregatePrivateWatchlists([
-      { id: 'one', kind: 'private', name: 'Core', symbols: ['SPY', 'NVDA'] },
-      { id: 'two', kind: 'private', name: 'Ideas', symbols: ['NVDA', 'META'] },
-      { id: 'public', kind: 'public', name: 'Public', symbols: ['AAPL'] },
-    ])).toEqual({
-      id: 'watchlist', kind: 'private', name: 'Watchlist', symbols: ['SPY', 'NVDA', 'META'],
+  it('normalizes the pre-evidence D1 brief shape after an application upgrade', () => {
+    const brief = parseStoredResearchBrief({
+      id: 'brief-2026-08-12',
+      publishedAt: '2026-08-12T13:35:00.000Z',
+      title: 'Legacy daily brief',
+      summary: 'A stored brief from the earlier research contract.',
+      regime: 'Selective',
+      regimeDetail: 'Defined risk',
+      ideas: [{
+        symbol: 'NVDA',
+        direction: 'bullish',
+        setup: 'Defined-risk call spread',
+        thesis: 'Demand remains resilient.',
+        risk: 'A guide-down would break the thesis.',
+        horizon: '45–75 DTE',
+      }],
+      sources: [{ label: 'tastytrade market metrics', url: 'https://example.com/metrics' }],
     })
+
+    expect(brief.marketMovers).toEqual([])
+    expect(brief.ideas).toEqual([{
+      symbol: 'NVDA',
+      direction: 'bullish',
+      headline: 'Defined-risk call spread',
+      description: 'Demand remains resilient. Horizon: 45–75 DTE.',
+      risk: 'A guide-down would break the thesis.',
+      play: null,
+      sources: [],
+    }])
+  })
+
+  it('rejects non-HTTPS links in historical briefs before they reach anchor elements', () => {
+    const legacy = {
+      ...marketSnapshotFixture().research,
+      sources: [{ label: 'Untrusted legacy source', url: 'javascript:alert(1)' }],
+    }
+
+    expect(() => parseStoredResearchBrief(legacy)).toThrow(/HTTPS source URL/)
+  })
+
+  it('publishes one source-free union of position and private-watchlist symbols', () => {
+    const snapshot = marketSnapshotFixture()
+    snapshot.tickers.push({ ...snapshot.tickers[0]!, symbol: 'ONLYPOS', position: true })
+    snapshot.watchlists.find((watchlist) => watchlist.kind === 'positions')?.symbols.push('ONLYPOS')
+
+    const universe = publicMarketUniverseFromSnapshot(snapshot)
+
+    expect(universe.symbols).toEqual([
+      'AAPL', 'AMD', 'BE', 'INTC', 'IWM', 'META', 'NVDA', 'ONLYPOS', 'QQQ', 'SPCX', 'SPY', 'TSLA',
+    ])
+    expect(universe).toEqual({ symbols: universe.symbols })
   })
 })
 
 describe('tastytrade normalization', () => {
-  it('keeps active positions and explicitly requested symbols inside the snapshot bound', () => {
-    const privateSymbols = Array.from({ length: 100 }, (_, index) => `P${index}`)
+  it('keeps requested symbols and positions ahead of the bounded internal focus', () => {
     expect(selectSnapshotSymbols(
-      ['ACTIVE'],
-      ['REQUEST'],
-      [{ id: 'private', kind: 'private', name: 'Private', symbols: privateSymbols }],
-      [{ id: 'public', kind: 'public', name: 'Public', symbols: ['PUBLIC'] }],
-    ).slice(0, 3)).toEqual(['ACTIVE', 'REQUEST', 'P0'])
+      ['ZZPOS'],
+      ['AAREQ'],
+      ['MMWATCH', 'ZZPOS'],
+    )).toEqual(['AAREQ', 'ZZPOS', 'MMWATCH'])
   })
 
   it('normalizes tastytrade decimal ratios into percentage points', () => {
@@ -84,6 +126,9 @@ describe('tastytrade normalization', () => {
       symbol: 'SPY', price: 700, ivIndex: 18, ivRank: 25, ivPercentile: 30,
       position: true, updatedAt: '2026-08-13T13:31:00.000Z',
     })
+    expect(liveTickerFromRecords('SPCX', metrics, quote, false, {
+      symbol: 'SPCX', description: 'SpaceX Corporation',
+    })).toMatchObject({ name: 'SpaceX Corporation' })
     expect(liveTickerFromRecords('SPY', metrics, {
       symbol: 'SPY', mark: '700', prevDayClose: '695', updatedAt: '2026-08-13T13:31:00.000Z',
     }, false)?.change).toBe(5)

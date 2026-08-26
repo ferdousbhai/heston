@@ -1,5 +1,5 @@
 import { type ResearchSourceItem } from './research-contracts'
-import { collectRedditSources, type RedditCredentials } from './research-reddit'
+import { collectRedditSources as collectRedditEvidence } from './research-reddit'
 import { readBoundedText } from './bounded-response'
 
 export { type ResearchSourceItem } from './research-contracts'
@@ -82,15 +82,9 @@ async function fetchFeed(feed: FeedDefinition, fetcher: typeof fetch): Promise<R
   return parseResearchFeed(body, feed)
 }
 
-/** One unavailable publisher must not prevent the daily issue from being generated. */
-export async function collectResearchSources(options: {
-  fetcher?: typeof fetch
-  reddit?: RedditCredentials
-} = {}): Promise<ResearchSourceItem[]> {
-  const fetcher = options.fetcher ?? fetch
-  const collectors: Promise<ResearchSourceItem[]>[] = OFFICIAL_FEEDS.map((feed) => fetchFeed(feed, fetcher))
-  if (options.reddit) collectors.push(collectRedditSources(options.reddit, fetcher))
-  const results = await Promise.allSettled(collectors)
+/** One unavailable official publisher must not hide successful official evidence. */
+export async function collectOfficialSources(fetcher: typeof fetch = fetch): Promise<ResearchSourceItem[]> {
+  const results = await Promise.allSettled(OFFICIAL_FEEDS.map((feed) => fetchFeed(feed, fetcher)))
   return results.flatMap((result) => result.status === 'fulfilled' ? result.value : [])
 }
 
@@ -100,7 +94,10 @@ export async function collectResearchSources(options: {
  * instead of replacing this module.
  */
 function createResearchSources() {
-  return { collectResearchSources }
+  return {
+    collectOfficialSources,
+    collectRedditSources: collectRedditEvidence,
+  }
 }
 
 export type ResearchSources = ReturnType<typeof createResearchSources>
