@@ -129,7 +129,7 @@ export function OwnerAccessScreen({
       </h1>
       <p>{signedIn
         ? 'Your ticker favorites sync across devices. Trading chat, brokerage context, live positions, and operations remain restricted to the owner account.'
-        : 'Sign in with the owner Google account to open the trading chat, account context, live positions, and watchlist controls.'}</p>
+        : 'Sign in with the owner Google account to open the trading chat, account context, and live positions.'}</p>
       {authError && (
         <Alert className="owner-access-error" variant="destructive">
           <AlertTitle>Owner sign-in unavailable</AlertTitle>
@@ -137,7 +137,6 @@ export function OwnerAccessScreen({
         </Alert>
       )}
       {!signedIn && <GoogleSignInButton />}
-      <small>Watch and Daily read remain public. Trade actions still require an explicit confirmation before submission.</small>
     </section>
   )
 }

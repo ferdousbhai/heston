@@ -1,5 +1,6 @@
 import { type ResearchSourceItem } from './research-contracts'
 import { collectRedditSources as collectRedditEvidence } from './research-reddit'
+import { collectTickerResearchSources as collectTickerEvidence } from './research-ticker-sources'
 import { readBoundedText } from './bounded-response'
 
 export { type ResearchSourceItem } from './research-contracts'
@@ -97,6 +98,7 @@ function createResearchSources() {
   return {
     collectOfficialSources,
     collectRedditSources: collectRedditEvidence,
+    collectTickerSources: (symbols: readonly string[], now?: Date) => collectTickerEvidence(symbols, undefined, now),
   }
 }
 

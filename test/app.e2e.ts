@@ -82,7 +82,7 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
   await page.getByRole('tab', { name: 'Dan' }).click()
   await expect(page.getByRole('heading', { name: 'Dan can trade. Only for you.' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeVisible()
-  await expect(page.getByText('Watch and Daily read remain public.')).toBeVisible()
+  await expect(page.getByText('Watch and Daily read remain public.')).toHaveCount(0)
 
   await page.goto('/support')
   await expect(page.getByRole('heading', { name: 'Support' })).toBeVisible()

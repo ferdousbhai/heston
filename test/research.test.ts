@@ -8,6 +8,7 @@ import {
 } from '../src/server/research-market-movers'
 import {
   marketMoverInsightsFromCandidates,
+  parseGeneratedResearch,
   redditCatalystsFromCandidates,
   researchIdeasForDate,
 } from '../src/server/research-output'
@@ -30,6 +31,7 @@ import {
 const sources = {
   collectOfficialSources: vi.fn<ResearchSources['collectOfficialSources']>(async () => []),
   collectRedditSources: vi.fn<ResearchSources['collectRedditSources']>(async () => []),
+  collectTickerSources: vi.fn<ResearchSources['collectTickerSources']>(async () => []),
 } satisfies ResearchSources
 const runXResearch = vi.fn<XCatalystResearch['runForSymbols']>(async () => ({ catalysts: [], rejected: 0 }))
 const xResearch = { runForSymbols: runXResearch } satisfies XCatalystResearch
@@ -52,10 +54,9 @@ function generatedResearch() {
       symbol: 'NVDA', direction: 'Cautiously bullish', headline: 'Breadth keeps improving',
       description: 'Participation is broadening. Cheap index premium keeps convexity accessible.',
       play: 'NVDA 225c 10/16', risk: 'Breadth reverses while the index stalls.',
-      sourceIndices: [0],
+      recentCoverageIndices: [], sourceIndices: [0], thesisChange: '',
     }],
     marketMovers,
-    catalysts: [],
   }
 }
 
@@ -122,6 +123,27 @@ describe('daily intelligence pipeline', () => {
     await expect(pending).resolves.toMatchObject({ id: 'brief-2026-08-14' })
   })
 
+  it('skips catalyst extraction when discussion has no bound focus symbol', async () => {
+    sources.collectRedditSources.mockResolvedValueOnce([{
+      context: 'A broad market conversation without a watched company.',
+      source: 'Reddit · r/wallstreetbets',
+      title: 'General market discussion',
+      url: 'https://www.reddit.com/r/wallstreetbets/comments/abc123/general_discussion/',
+    }])
+    const output = generatedResearch()
+    output.ideas = []
+    const run = vi.fn().mockResolvedValue({ output_text: JSON.stringify(output) })
+
+    await generateDailyResearch({
+      AI: { ...unsupportedAi(), run },
+      REDDIT_CLIENT_ID: secret,
+      REDDIT_CLIENT_SECRET: secret,
+    }, new Date('2026-08-14T13:30:00.000Z'))
+
+    expect(run).toHaveBeenCalledOnce()
+    expect(sources.collectTickerSources).toHaveBeenCalledWith([], new Date('2026-08-14T13:30:00.000Z'))
+  })
+
   it('uses a strict Responses API schema and never exposes position provenance', async () => {
     const xUrl = 'https://x.com/nvidia/status/1234567890'
     runXResearch.mockResolvedValueOnce({
@@ -144,25 +166,44 @@ describe('daily intelligence pipeline', () => {
       source: 'Yahoo Finance market movers', title: 'PLTR +8.41% · Palantir wins new contract',
       url: 'https://finance.yahoo.com/quote/PLTR',
     }])
+    const discoveryUrl = 'https://www.reddit.com/r/wallstreetbets/comments/abc123/nvda_discussion/'
+    sources.collectRedditSources.mockResolvedValueOnce([{
+      context: 'NVDA demand is drawing renewed attention.',
+      source: 'Reddit · r/wallstreetbets', symbols: ['NVDA'], title: 'NVDA demand discussion',
+      url: discoveryUrl,
+    }])
+    sources.collectTickerSources.mockResolvedValueOnce([{
+      context: 'Reuters reports a new NVIDIA supply agreement.',
+      outbound: { label: 'Reuters · NVIDIA supply agreement', url: 'https://www.reuters.com/technology/nvidia-supply' },
+      publishedAt: '2026-08-14T12:00:00.000Z', source: 'Yahoo Finance ticker research',
+      symbols: ['NVDA'], title: 'NVDA · NVIDIA supply agreement', url: 'https://finance.yahoo.com/quote/NVDA',
+    }])
     const output = generatedResearch()
     output.marketMovers = [{
-      symbol: 'PLTR', sourceIndices: [1], headline: 'Contract news may explain the spike',
+      symbol: 'PLTR', sourceIndices: [2], headline: 'Contract news may explain the spike',
       description: 'Palantir rose on heavy volume. The reported contract is a possible driver.',
     }]
-    const run = vi.fn().mockResolvedValue({
-      output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(output) }] }],
-    })
+    const run = vi.fn().mockImplementation(async (_model, options) => ({
+      output: [{
+        type: 'message',
+        content: [{
+          type: 'output_text',
+          text: JSON.stringify(options.text.format.name === 'spice_reddit_catalysts' ? { catalysts: [] } : output),
+        }],
+      }],
+    }))
     const brief = await generateDailyResearch({
       AI: { ...unsupportedAi(), run },
       REDDIT_CLIENT_ID: secret,
       REDDIT_CLIENT_SECRET: secret,
     }, new Date('2026-08-14T13:30:00.000Z'))
 
-    expect(run.mock.calls[0]?.[0]).toBe('@cf/openai/gpt-oss-120b')
-    expect(run.mock.calls[0]?.[1]).toMatchObject({
+    const briefCall = run.mock.calls.find((call) => call[1].text.format.name === 'spice_daily_intelligence')
+    expect(briefCall?.[0]).toBe('@cf/openai/gpt-oss-120b')
+    expect(briefCall?.[1]).toMatchObject({
       text: { format: { type: 'json_schema', name: 'spice_daily_intelligence', strict: true } },
     })
-    expect(run.mock.calls[0]?.[2]).toMatchObject({
+    expect(briefCall?.[2]).toMatchObject({
       gateway: {
         collectLog: true,
         id: 'spice',
@@ -171,10 +212,12 @@ describe('daily intelligence pipeline', () => {
       },
       tags: ['spice', 'daily-research'],
     })
-    expect(JSON.stringify(run.mock.calls[0]?.[1]?.text?.format.schema)).not.toContain('uniqueItems')
-    const modelRequest = JSON.stringify(run.mock.calls[0]?.[1])
+    expect(JSON.stringify(briefCall?.[1]?.text?.format.schema)).not.toContain('uniqueItems')
+    const modelRequest = JSON.stringify(briefCall?.[1])
     expect(modelRequest).toContain(xUrl)
     expect(modelRequest).toContain('NVIDIA')
+    expect(modelRequest).not.toContain(discoveryUrl)
+    expect(modelRequest.toLowerCase()).not.toContain('reddit')
     expect(modelRequest).not.toContain('"position"')
     expect(modelRequest).not.toContain('Active Positions')
     expect(brief.ideas[0]?.direction).toBe('bullish')
@@ -186,6 +229,7 @@ describe('daily intelligence pipeline', () => {
       expect.anything(), ['NVDA', 'PLTR'], 'scheduled-research', new Date('2026-08-14T13:30:00.000Z'),
     )
     expect(brief.sources).toContainEqual({ label: 'Grok 4.6 X research · NVIDIA product event', url: xUrl })
+    expect(brief.sources.some((source) => source.url === discoveryUrl)).toBe(false)
   })
 
   it('rejects ideas for watched symbols that lack complete tastytrade metrics', async () => {
@@ -272,7 +316,12 @@ describe('daily intelligence pipeline', () => {
     const evidence = [{
       source: 'Example', symbols: ['NVDA'], title: 'NVIDIA update', url: 'https://example.com/nvda',
     }]
-    const { sourceIndices: _sourceIndices, ...ideaWithoutIndices } = idea
+    const {
+      recentCoverageIndices: _recentCoverageIndices,
+      sourceIndices: _sourceIndices,
+      thesisChange: _thesisChange,
+      ...ideaWithoutIndices
+    } = idea
     const accepted = { ...ideaWithoutIndices, sources: [{ label: 'Example · NVIDIA update', url: 'https://example.com/nvda' }] }
     expect(researchIdeasForDate([
       { ...idea, play: 'NVDA 225c 2/30' },
@@ -285,6 +334,61 @@ describe('daily intelligence pipeline', () => {
       .toEqual([{ ...accepted, play: 'NVDA 225c 1/15' }])
     expect(researchIdeasForDate([idea], '2026-08-14', [{ ...evidence[0], symbols: ['SPCX'] }], ['NVDA']))
       .toEqual([])
+  })
+
+  it('requires every recent same-symbol coverage row and newer evidence for a changed thesis', () => {
+    const base = { ...generatedResearch().ideas[0]!, direction: 'bullish' as const }
+    const evidence = [{
+      publishedAt: '2026-08-14T12:00:00.000Z', source: 'Independent wire', symbols: ['NVDA'],
+      title: 'NVIDIA supply agreement', url: 'https://example.com/nvda',
+    }]
+    const recentCoverage = [{
+      description: base.description,
+      direction: 'bullish' as const,
+      headline: base.headline,
+      publishedAt: '2026-08-12T13:30:00.000Z',
+      risk: base.risk,
+      symbol: 'NVDA',
+    }]
+    const changed = {
+      ...base,
+      description: 'A signed supply agreement improves near-term visibility. The contracted volume changes the demand evidence.',
+      headline: 'Signed supply agreement changes demand visibility',
+      recentCoverageIndices: [0],
+      thesisChange: 'The prior thesis relied on breadth; a signed supply agreement now adds company-specific demand evidence.',
+    }
+
+    expect(researchIdeasForDate([base], '2026-08-14', evidence, ['NVDA'], recentCoverage)).toEqual([])
+    expect(researchIdeasForDate([
+      { ...changed, recentCoverageIndices: [] },
+    ], '2026-08-14', evidence, ['NVDA'], recentCoverage)).toEqual([])
+    expect(researchIdeasForDate([changed], '2026-08-14', [
+      { ...evidence[0], publishedAt: '2026-08-11T12:00:00.000Z' },
+    ], ['NVDA'], recentCoverage)).toEqual([])
+    expect(researchIdeasForDate([changed], '2026-08-14', evidence, ['NVDA'], recentCoverage))
+      .toEqual([expect.objectContaining({
+        description: changed.description,
+        headline: changed.headline,
+        sources: [{ label: 'Independent wire · NVIDIA supply agreement', url: 'https://example.com/nvda' }],
+      })])
+  })
+
+  it('does not publish discovery-provider names in an idea', () => {
+    const idea = {
+      ...generatedResearch().ideas[0]!,
+      description: 'Reddit attention supports the setup. Premium remains affordable.',
+      direction: 'bullish' as const,
+    }
+    const evidence = [{
+      source: 'Independent wire', symbols: ['NVDA'], title: 'NVIDIA update', url: 'https://example.com/nvda',
+    }]
+    expect(researchIdeasForDate([idea], '2026-08-14', evidence, ['NVDA'])).toEqual([])
+  })
+
+  it('caps generated Daily Read output at three theses', () => {
+    const output = generatedResearch()
+    output.ideas = Array.from({ length: 4 }, () => ({ ...output.ideas[0]! }))
+    expect(() => parseGeneratedResearch({ output_text: JSON.stringify(output) })).toThrow()
   })
 
   it('cites the fetched article that supplied an idea instead of its aggregator page', () => {

@@ -1,3 +1,6 @@
+export const MAX_DAILY_RESEARCH_IDEAS = 3
+export const MAX_DAILY_RESEARCH_LEADS = 6
+
 export interface ResearchSourceItem {
   context?: string
   marketMover?: {

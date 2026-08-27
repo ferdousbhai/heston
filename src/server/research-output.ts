@@ -4,7 +4,8 @@ import { CatalystKindSchema, CatalystSchema, isValidIsoDate, marketDate, type Ca
 import { EQUITY_SYMBOL_PATTERN, EquitySymbolSchema } from '../domain/instrument'
 import { JsonArraySchema, jsonObject, jsonObjectOrEmpty, type JsonValue } from '../domain/json-payload'
 import { MarketMoverInsightSchema, ResearchIdeaSchema, type ResearchBrief } from '../domain/market'
-import { type ResearchSourceItem } from './research-contracts'
+import { type RecentTickerCoverage } from './research-coverage'
+import { MAX_DAILY_RESEARCH_IDEAS, type ResearchSourceItem } from './research-contracts'
 import { REDDIT_RESEARCH_SOURCE } from './research-reddit'
 
 const GeneratedRedditCatalystSchema = z.object({
@@ -31,9 +32,11 @@ const GeneratedResearchIdeaSchema = z.object({
   play: z.string().trim().max(40).regex(
     /^[A-Z][A-Z.]{0,7} \d+(?:\.\d+)?[cp] (?:1[0-2]|[1-9])\/(?:3[01]|[12]\d|[1-9])$/,
   ),
+  recentCoverageIndices: z.array(z.number().int().nonnegative()).max(3),
   risk: z.string().trim().min(1).max(240),
   sourceIndices: z.array(z.number().int().nonnegative()).min(1).max(3),
   symbol: EquitySymbolSchema,
+  thesisChange: z.string().trim().max(240),
 }).refine((idea) => idea.play.startsWith(`${idea.symbol} `), {
   message: 'Potential play must use the idea symbol',
   path: ['play'],
@@ -44,8 +47,13 @@ const GeneratedResearchSchema = z.object({
   summary: z.string().trim().min(1).max(360),
   regime: z.string().trim().min(1).max(80),
   regimeDetail: z.string().trim().min(1).max(180),
-  ideas: z.array(GeneratedResearchIdeaSchema).max(5),
+  // Stored briefs retain the historical max of five; new issues deliberately
+  // narrow the editor to the highest-quality zero-to-three theses.
+  ideas: z.array(GeneratedResearchIdeaSchema).max(MAX_DAILY_RESEARCH_IDEAS),
   marketMovers: z.array(GeneratedMarketMoverInsightSchema).max(6),
+})
+
+const GeneratedRedditCatalystResponseSchema = z.object({
   catalysts: z.array(GeneratedRedditCatalystSchema).max(20),
 })
 
@@ -73,12 +81,44 @@ function playExpiryDate(play: string, today: string): string | undefined {
   return undefined
 }
 
+function normalizedThesis(headline: string, description: string): string {
+  return `${headline} ${description}`.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+}
+
+function coverageReviewIsValid(
+  idea: GeneratedResearch['ideas'][number],
+  selectedEvidence: readonly (ResearchSourceItem | undefined)[],
+  recentCoverage: readonly RecentTickerCoverage[],
+): boolean {
+  const expectedIndices = recentCoverage.flatMap((coverage, index) => (
+    coverage.symbol === idea.symbol ? [index] : []
+  ))
+  const reviewedIndices = [...new Set(idea.recentCoverageIndices)]
+  if (!expectedIndices.length) return !reviewedIndices.length && !idea.thesisChange
+  if (!idea.thesisChange || reviewedIndices.length !== expectedIndices.length
+    || reviewedIndices.some((index) => !expectedIndices.includes(index))) return false
+
+  const latestPriorCoverage = Math.max(...expectedIndices.map((index) => (
+    Date.parse(recentCoverage[index]!.publishedAt)
+  )))
+  if (!selectedEvidence.some((source) => (
+    source?.publishedAt !== undefined && Date.parse(source.publishedAt) > latestPriorCoverage
+  ))) return false
+
+  const currentThesis = normalizedThesis(idea.headline, idea.description)
+  return expectedIndices.every((index) => {
+    const prior = recentCoverage[index]!
+    return normalizedThesis(prior.headline, prior.description) !== currentThesis
+  })
+}
+
 /** Enforce the prompt's expiry horizon in code; a valid-looking model date can still be impossible or stale. */
 export function researchIdeasForDate(
   ideas: readonly GeneratedResearch['ideas'][number][],
   today: string,
   evidence: readonly ResearchSourceItem[],
   allowedSymbols: readonly string[],
+  recentCoverage: readonly RecentTickerCoverage[] = [],
 ): ResearchBrief['ideas'] {
   const minimum = addDays(today, 21)
   const maximum = addDays(today, 90)
@@ -88,12 +128,25 @@ export function researchIdeasForDate(
     if (!symbols.has(idea.symbol) || expiry === undefined || expiry < minimum || expiry > maximum) return []
     const selected = [...new Set(idea.sourceIndices)].map((index) => evidence[index])
     if (!selected.length || selected.some((source) => !source?.symbols?.includes(idea.symbol))) return []
+    if ([idea.headline, idea.description, idea.risk].some(mentionsDiscoverySource)) return []
+    if (!coverageReviewIsValid(idea, selected, recentCoverage)) return []
     const sources = [...new Map(selected.map((source) => {
       const link = evidenceSourceLink(source!)
       return [link.url, link]
     })).values()].slice(0, 3)
-    return [ResearchIdeaSchema.parse({ ...idea, sources })]
+    const {
+      recentCoverageIndices: _recentCoverageIndices,
+      sourceIndices: _sourceIndices,
+      thesisChange: _thesisChange,
+      ...publicIdea
+    } = idea
+    return [ResearchIdeaSchema.parse({ ...publicIdea, sources })]
   })
+}
+
+/** Discovery providers shape private search scope but are never named in Daily Read prose. */
+export function mentionsDiscoverySource(value: string): boolean {
+  return /\breddit\b|wallstreetbets|r\/wallstreetbets/i.test(value)
 }
 
 function extractJson(response: string): JsonValue {
@@ -149,31 +202,42 @@ export function parseGeneratedResearch(payload: JsonValue): GeneratedResearch {
   )
 }
 
+export function parseGeneratedRedditCatalysts(payload: JsonValue): JsonValue {
+  return GeneratedRedditCatalystResponseSchema.parse(
+    extractJson(modelOutputText(payload) ?? ''),
+  ).catalysts
+}
+
 export function dailyResearchResponseSchema() {
   return {
     type: 'object', additionalProperties: false,
-    required: ['title', 'summary', 'regime', 'regimeDetail', 'ideas', 'marketMovers', 'catalysts'],
+    required: ['title', 'summary', 'regime', 'regimeDetail', 'ideas', 'marketMovers'],
     properties: {
       title: { type: 'string', minLength: 1, maxLength: 100 },
       summary: { type: 'string', minLength: 1, maxLength: 360 },
       regime: { type: 'string', minLength: 1, maxLength: 80 },
       regimeDetail: { type: 'string', minLength: 1, maxLength: 180 },
       ideas: {
-        type: 'array', maxItems: 5,
+        type: 'array', maxItems: MAX_DAILY_RESEARCH_IDEAS,
         items: {
           type: 'object', additionalProperties: false,
-          required: ['symbol', 'direction', 'headline', 'description', 'play', 'risk', 'sourceIndices'],
+          required: ['symbol', 'direction', 'headline', 'description', 'play', 'risk', 'sourceIndices', 'recentCoverageIndices', 'thesisChange'],
           properties: {
             symbol: { type: 'string', pattern: EQUITY_SYMBOL_PATTERN },
             direction: { type: 'string', enum: ['bullish', 'bearish', 'neutral'] },
             headline: { type: 'string', minLength: 1, maxLength: 100 },
             description: { type: 'string', minLength: 1, maxLength: 360 },
             play: { type: 'string', pattern: '^[A-Z][A-Z.]{0,7} \\d+(?:\\.\\d+)?[cp] (?:1[0-2]|[1-9])\\/(?:3[01]|[12]\\d|[1-9])$' },
+            recentCoverageIndices: {
+              type: 'array', maxItems: 3,
+              items: { type: 'integer', minimum: 0 },
+            },
             risk: { type: 'string', minLength: 1, maxLength: 240 },
             sourceIndices: {
               type: 'array', minItems: 1, maxItems: 3,
               items: { type: 'integer', minimum: 0 },
             },
+            thesisChange: { type: 'string', maxLength: 240 },
           },
         },
       },
@@ -195,6 +259,15 @@ export function dailyResearchResponseSchema() {
           },
         },
       },
+    },
+  }
+}
+
+export function redditCatalystResponseSchema() {
+  return {
+    type: 'object', additionalProperties: false,
+    required: ['catalysts'],
+    properties: {
       catalysts: {
         type: 'array', maxItems: 20,
         items: {
@@ -279,6 +352,7 @@ export function marketMoverInsightsFromCandidates(
   const insights = new Map<string, ResearchBrief['marketMovers'][number]>()
 
   for (const candidate of candidates) {
+    if ([candidate.headline, candidate.description].some(mentionsDiscoverySource)) continue
     const sources = [...new Set(candidate.sourceIndices)].map((index) => evidence[index])
     if (sources.some((source) => source?.marketMover?.symbol !== candidate.symbol)) continue
     const metadata = sources[0]?.marketMover
