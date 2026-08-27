@@ -17,6 +17,7 @@ import {
   redditCatalystResponseSchema,
   redditCatalystsFromCandidates,
   researchIdeasForDate,
+  UNCONFIRMED_MOVER_HEADLINE,
 } from './research-output'
 import { searchRecentTickerCoverage } from './research-coverage'
 import { researchSources } from './research-sources'
@@ -48,6 +49,17 @@ function catalystEvidence(catalysts: readonly Catalyst[]): ResearchSourceItem[] 
   }))
 }
 
+/**
+ * A model citing an item by index must otherwise count array positions in a long
+ * serialized packet, and a miscount is indistinguishable from a fabricated index
+ * once the deterministic binder rejects it. Every packet item therefore carries
+ * its own index field. The emitted index is always the array position, so the
+ * binders keep resolving citations positionally against the same array.
+ */
+function indexedPacket<T extends object>(items: readonly T[]): Array<{ index: number } & T> {
+  return items.map((item, index) => ({ index, ...item }))
+}
+
 function researchSourceLinks(evidence: readonly ResearchSourceItem[]): ResearchBrief['sources'] {
   const links: ResearchBrief['sources'] = [
     { label: 'tastytrade market metrics', url: 'https://developer.tastytrade.com/open-api-spec/market-metrics/' },
@@ -77,7 +89,7 @@ async function researchRedditCatalysts(
       },
       {
         role: 'user',
-        content: `Evidence packet, indexed from zero: ${JSON.stringify(evidence)}. A catalyst may be emitted only when one exact evidence item supports a material scheduled event and date from ${today} through ${addDays(today, 180)} for one of these watched symbols: ${allowedSymbols.join(', ')}. sourceIndex must be that exact evidence index. Every candidate remains estimated. Do not return source URLs; the application binds trusted URLs by sourceIndex.`,
+        content: `Evidence packet; cite an item by copying its own index field: ${JSON.stringify(indexedPacket(evidence))}. A catalyst may be emitted only when one exact evidence item supports a material scheduled event and date from ${today} through ${addDays(today, 180)} for one of these watched symbols: ${allowedSymbols.join(', ')}. sourceIndex must be copied from that exact evidence item's own index field; never count positions. Every candidate remains estimated. Do not return source URLs; the application binds trusted URLs by sourceIndex.`,
       },
     ],
     text: { format: { type: 'json_schema', name: 'spice_reddit_catalysts', strict: true, schema: redditCatalystResponseSchema() } },
@@ -171,7 +183,7 @@ export async function generateDailyResearch(env: AppEnv, now = new Date()): Prom
       },
       {
         role: 'user',
-        content: `Edit the byte-size daily options read for ${now.toISOString()}. Focus-list tastytrade metrics: ${JSON.stringify(compactMarket)}. Independently researched idea symbols, capped at six: ${JSON.stringify(discussionLeadSymbols)}. Evidence packet, indexed from zero: ${JSON.stringify(evidence)}. Recent ticker coverage from the prior 14 days, indexed from zero: ${JSON.stringify(recentCoverage)}. Return title, summary, regime, regimeDetail, zero to three highest-quality ideas, and one marketMovers item per distinct supplied market-mover symbol (or zero when none were supplied). Rank aggressively; one excellent thesis is better than three merely plausible ones. Keep every prose field comfortably below its limit and end sentences cleanly. Each idea must contain symbol, direction, headline, description, play, risk, one to three sourceIndices, recentCoverageIndices, and thesisChange. The symbol must exist in both the independently researched idea symbols and focus-list metrics, and every sourceIndex must refer only to an evidence item whose symbols array contains that exact symbol. Never infer ticker identity from a similar company or product name. Review every recent-coverage row for the idea symbol. If that ticker was covered, skip it unless newer evidence materially changes the thesis, direction, catalyst, or invalidation; a new option strike, expiry, price, or volatility reading alone is not a thesis change. For a materially changed thesis, recentCoverageIndices must contain every same-symbol coverage index and thesisChange must concisely state what changed. For a ticker with no recent coverage, return an empty recentCoverageIndices array and an empty thesisChange string. Headline is the development in one short line. Description is two concise sentences: your thesis and why it matters now, without mentioning how the ticker entered the research scope. Play is an illustrative single option in exactly TICKER STRIKE(c/p) M/D form, for example SPY 725p 9/18; use lowercase c or p, no dollar sign or year, and an expiry 21-90 days after ${today}. The play ticker must equal symbol. If independent evidence or option metrics do not support a coherent play, omit the idea. Each marketMovers item must contain symbol, headline, description, and one to three sourceIndices that refer only to market-mover evidence for that same symbol. Investigate the likely reason for the move from those headlines, explicitly label an association as possible when causation is not established, and say the driver is unconfirmed when evidence is insufficient. Do not return source URLs; the application binds trusted URLs by sourceIndex.`,
+        content: `Edit the byte-size daily options read for ${now.toISOString()}. Focus-list tastytrade metrics: ${JSON.stringify(compactMarket)}. Independently researched idea symbols, capped at six: ${JSON.stringify(discussionLeadSymbols)}. Evidence packet; cite an item by copying its own index field: ${JSON.stringify(indexedPacket(evidence))}. Recent ticker coverage from the prior 14 days, addressed by the same index field: ${JSON.stringify(indexedPacket(recentCoverage))}. Return title, summary, regime, regimeDetail, zero to three highest-quality ideas, and one marketMovers item per distinct supplied market-mover symbol (or zero when none were supplied). Rank aggressively; one excellent thesis is better than three merely plausible ones. Keep every prose field comfortably below its limit and end sentences cleanly. Each idea must contain symbol, direction, headline, description, play, risk, one to three sourceIndices, recentCoverageIndices, and thesisChange. The symbol must exist in both the independently researched idea symbols and focus-list metrics, and every sourceIndex must be copied from the index field of an evidence item whose symbols array contains that exact symbol. Never infer ticker identity from a similar company or product name. Review every recent-coverage row for the idea symbol. If that ticker was covered, skip it unless newer evidence materially changes the thesis, direction, catalyst, or invalidation; a new option strike, expiry, price, or volatility reading alone is not a thesis change. For a materially changed thesis, recentCoverageIndices must contain the index field of every same-symbol coverage row and thesisChange must concisely state what changed. For a ticker with no recent coverage, return an empty recentCoverageIndices array and an empty thesisChange string. Headline is the development in one short line. Description is two concise sentences: your thesis and why it matters now, without mentioning how the ticker entered the research scope. Play is an illustrative single option in exactly TICKER STRIKE(c/p) M/D form, for example SPY 725p 9/18; use lowercase c or p, no dollar sign or year, and an expiry 21-90 days after ${today}. The play ticker must equal symbol. If independent evidence or option metrics do not support a coherent play, omit the idea. Each marketMovers item must contain symbol, headline, description, and one to three sourceIndices, each copied from the index field of a market-mover evidence item for that same symbol. Investigate the likely reason for the move from those headlines, explicitly label an association as possible when causation is not established, and say the driver is unconfirmed when evidence is insufficient. Do not return source URLs; the application binds trusted URLs by sourceIndex.`,
       },
     ],
     text: { format: { type: 'json_schema', name: 'spice_daily_intelligence', strict: true, schema: dailyResearchResponseSchema() } },
@@ -196,6 +208,16 @@ export async function generateDailyResearch(env: AppEnv, now = new Date()): Prom
   // field as untrusted and validates the selected text with its generated schema.
   const generated = parseGeneratedResearch(result as JsonValue)
   const marketMovers = marketMoverInsightsFromCandidates(generated.marketMovers, evidence)
+  // No model output is retained, so without this counter a run where the editor
+  // returned no movers is indistinguishable from one where every candidate failed
+  // deterministic binding and fell back to the unconfirmed headline.
+  console.info(JSON.stringify({
+    event: 'DailyResearchMoversBound',
+    bound: marketMovers.filter((mover) => mover.headline !== UNCONFIRMED_MOVER_HEADLINE).length,
+    candidates: generated.marketMovers.length,
+    detected: marketMovers.length,
+    runId: gatewayRunId,
+  }))
   // A watched symbol can lack a complete current tastytrade row. Bind ideas to
   // the exact metrics packet supplied to the editor, not the wider source universe.
   const ideas = researchIdeasForDate(generated.ideas, today, evidence, discussionLeadSymbols, recentCoverage)

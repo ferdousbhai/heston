@@ -378,6 +378,14 @@ function evidenceSourceLink(source: ResearchSourceItem): ResearchBrief['sources'
 }
 
 /**
+ * Headline used for a detected move whose editor explanation was absent or failed
+ * deterministic binding. It is exported so the pipeline can count how many movers
+ * fell back without re-deriving the string, and so tests pin the exact fallback.
+ * A brief whose movers all carry this headline means the editor bound nothing.
+ */
+export const UNCONFIRMED_MOVER_HEADLINE = 'Move detected; driver not established'
+
+/**
  * The editor explains possible drivers, but code supplies every move metric and
  * binds every citation to evidence for the same symbol. Missing/invalid editor
  * output becomes an explicit unconfirmed driver so detected moves still surface.
@@ -419,7 +427,7 @@ export function marketMoverInsightsFromCandidates(
     insights.set(symbol, MarketMoverInsightSchema.parse({
       ...metadata,
       description: `${metadata.name} moved ${metadata.changePercent >= 0 ? '+' : ''}${metadata.changePercent.toFixed(2)}% to $${metadata.price.toFixed(2)}. The reviewed evidence did not establish a sufficiently clear cause, so the driver remains unconfirmed.`,
-      headline: 'Move detected; driver not established',
+      headline: UNCONFIRMED_MOVER_HEADLINE,
       sources: [evidenceSourceLink(sources[0]!)],
     }))
   }

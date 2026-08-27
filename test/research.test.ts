@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 
 import { generateDailyResearch, shouldRunDailyResearch } from '../src/server/research'
 import {
@@ -11,6 +12,7 @@ import {
   parseGeneratedResearch,
   redditCatalystsFromCandidates,
   researchIdeasForDate,
+  UNCONFIRMED_MOVER_HEADLINE,
 } from '../src/server/research-output'
 import {
   resetResearchSources,
@@ -21,6 +23,7 @@ import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { resetXCatalystResearch, setXCatalystResearch, type XCatalystResearch } from '../src/server/x-catalysts'
 import { stubBroker } from './broker-stub'
 import { unsupportedAi } from './fake-ai'
+import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
 import { marketSnapshotFixture } from './fixtures/market'
 import {
   resetInternalWatchlistWriter,
@@ -192,12 +195,20 @@ describe('daily intelligence pipeline', () => {
         }],
       }],
     }))
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
     const brief = await generateDailyResearch({
       AI: { ...unsupportedAi(), run },
       REDDIT_CLIENT_ID: secret,
       REDDIT_CLIENT_SECRET: secret,
     }, new Date('2026-08-14T13:30:00.000Z'))
+    const logged: unknown[] = info.mock.calls.map((call) => JSON.parse(String(call[0])))
+    info.mockRestore()
 
+    // Nothing retains model output, so the run must record how many mover
+    // candidates the editor returned and how many survived deterministic binding.
+    expect(logged).toContainEqual({
+      event: 'DailyResearchMoversBound', bound: 1, candidates: 1, detected: 1, runId: expect.any(String),
+    })
     const briefCall = run.mock.calls.find((call) => call[1].text.format.name === 'spice_daily_intelligence')
     expect(briefCall?.[0]).toBe('@cf/openai/gpt-oss-120b')
     expect(briefCall?.[1]).toMatchObject({
@@ -230,6 +241,91 @@ describe('daily intelligence pipeline', () => {
     )
     expect(brief.sources).toContainEqual({ label: 'Grok 4.6 X research · NVIDIA product event', url: xUrl })
     expect(brief.sources.some((source) => source.url === discoveryUrl)).toBe(false)
+  })
+
+  it('numbers every packet item so the editor copies an index instead of counting positions', async () => {
+    sources.collectRedditSources.mockResolvedValueOnce([{
+      context: 'NVDA demand is drawing renewed attention.',
+      source: 'Reddit · r/wallstreetbets', symbols: ['NVDA'], title: 'NVDA demand discussion',
+      url: 'https://www.reddit.com/r/wallstreetbets/comments/abc123/nvda_discussion/',
+    }, {
+      context: 'A second NVDA thread repeats the same demand chatter.',
+      source: 'Reddit · r/options', symbols: ['NVDA'], title: 'NVDA options flow',
+      url: 'https://www.reddit.com/r/options/comments/def456/nvda_flow/',
+    }])
+    sources.collectOfficialSources.mockResolvedValueOnce([{
+      context: 'NVIDIA published an update.', source: 'Official source', symbols: ['NVDA'],
+      title: 'NVIDIA update', url: 'https://example.com/nvda',
+    }, {
+      context: 'A regulator published a second notice.', source: 'Official source',
+      title: 'Regulatory notice', url: 'https://example.com/notice',
+    }])
+    collectMarketMovers.mockResolvedValueOnce([{
+      context: 'PLTR is up 8.41%.',
+      marketMover: {
+        category: 'gainer', changePercent: 8.41, name: 'Palantir Technologies',
+        price: 184.27, symbol: 'PLTR', volume: 79_200_000,
+      },
+      source: 'Yahoo Finance market movers', title: 'PLTR +8.41%',
+      url: 'https://finance.yahoo.com/quote/PLTR',
+    }])
+    const coverageRow = (day: string, headline: string) => ({
+      description: 'A prior brief covered this ticker.', direction: 'bullish', headline,
+      horizon: null, published_at: `2026-08-${day}T13:30:00.000Z`, risk: 'The setup invalidates.',
+      setup: null, symbol: 'NVDA', thesis: null,
+    })
+    const all = vi.fn().mockResolvedValue(
+      d1Result([coverageRow('12', 'Earlier read'), coverageRow('13', 'Later read')]),
+    )
+    const coverageStatement = {
+      ...unsupportedStatement(),
+      bind: () => ({ ...unsupportedStatement(), all }),
+    }
+    const writeStatement = {
+      ...unsupportedStatement(),
+      bind: () => ({ ...unsupportedStatement(), run: vi.fn().mockResolvedValue(d1Result([], 1)) }),
+    }
+    const prepare = vi.fn((sql: string) => (sql.includes('SELECT') ? coverageStatement : writeStatement))
+    const DB: D1Database = { ...unsupportedDatabase(), prepare }
+    const run = vi.fn().mockImplementation(async (_model, options) => ({
+      output_text: JSON.stringify(
+        options.text.format.name === 'spice_reddit_catalysts' ? { catalysts: [] } : generatedResearch(),
+      ),
+    }))
+
+    await generateDailyResearch({
+      AI: { ...unsupportedAi(), run },
+      DB,
+      REDDIT_CLIENT_ID: secret,
+      REDDIT_CLIENT_SECRET: secret,
+    }, new Date('2026-08-14T13:30:00.000Z'))
+
+    const promptFor = (name: string) => String(
+      run.mock.calls.find((call) => call[1].text.format.name === name)?.[1].input[1].content,
+    )
+    const packetIndices = (prompt: string, label: string, next: string): number[] => z
+      .array(z.object({ index: z.number() }))
+      .parse(JSON.parse(prompt.split(label)[1]!.split(next)[0]!))
+      .map((item) => item.index)
+    const positions = (indices: readonly number[]) => indices.map((_index, position) => position)
+
+    const briefPrompt = promptFor('spice_daily_intelligence')
+    const evidence = packetIndices(briefPrompt, 'cite an item by copying its own index field: ', '. Recent ticker coverage')
+    const coverage = packetIndices(briefPrompt, 'addressed by the same index field: ', '. Return title')
+    const redditEvidence = packetIndices(
+      promptFor('spice_reddit_catalysts'),
+      'cite an item by copying its own index field: ',
+      '. A catalyst may be emitted',
+    )
+
+    // The binders still resolve citations positionally, so an emitted index that
+    // is not the array position would silently rebind a citation to another item.
+    expect(evidence.length).toBeGreaterThan(1)
+    expect(evidence).toEqual(positions(evidence))
+    expect(coverage.length).toBeGreaterThan(1)
+    expect(coverage).toEqual(positions(coverage))
+    expect(redditEvidence.length).toBeGreaterThan(1)
+    expect(redditEvidence).toEqual(positions(redditEvidence))
   })
 
   it('rejects ideas for watched symbols that lack complete tastytrade metrics', async () => {
@@ -301,11 +397,13 @@ describe('daily intelligence pipeline', () => {
 
     expect(result).toHaveLength(2)
     expect(result).toContainEqual(expect.objectContaining({
-      symbol: 'PLTR', headline: 'Move detected; driver not established',
+      symbol: 'PLTR', headline: UNCONFIRMED_MOVER_HEADLINE,
     }))
     expect(result).toContainEqual(expect.objectContaining({
-      symbol: 'INTC', headline: 'Move detected; driver not established',
+      symbol: 'INTC', headline: UNCONFIRMED_MOVER_HEADLINE,
     }))
+    // The published fallback wording is a product string; changing it changes the brief.
+    expect(UNCONFIRMED_MOVER_HEADLINE).toBe('Move detected; driver not established')
   })
 
   it('rejects impossible and out-of-horizon model play dates in deterministic code', () => {
