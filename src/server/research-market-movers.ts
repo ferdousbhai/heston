@@ -4,6 +4,7 @@ import screener from 'yahoo-finance2/modules/screener'
 import search from 'yahoo-finance2/modules/search'
 
 import { EquitySymbolSchema } from '../domain/instrument'
+import { newYorkClock } from '../domain/market-clock'
 import { type ResearchSourceItem } from './research-contracts'
 import { boundedYahooFetch } from './yahoo-finance-transport'
 import { defineSeam, type SeamValue } from './seam'
@@ -11,6 +12,14 @@ import { defineSeam, type SeamValue } from './seam'
 const MAX_PER_CATEGORY = 2
 const MAX_NEWS_PER_MOVER = 2
 const NEWS_LOOKBACK_MS = 4 * 24 * 60 * 60 * 1_000
+
+/**
+ * A directional screen quote must have moved at least this much, in its screen's
+ * own direction, to be published as a mover. Yahoo's own `day_gainers` screen
+ * filters above +3%, so this only rejects noise that a stale or half-formed
+ * quote produces — a "gainer" at -0.42% describes nothing a reader can use.
+ */
+const MIN_MOVE_PERCENT = 1
 
 const SCREENER_ID = {
   gainer: 'day_gainers',
@@ -26,6 +35,10 @@ const MoverQuoteSchema = z.object({
   quoteType: z.literal('EQUITY'),
   regularMarketChangePercent: z.number().finite(),
   regularMarketPrice: z.number().finite().positive(),
+  // Yahoo reports the screener quote's own observation time as epoch seconds.
+  // It is the direct staleness signal; the sign and floor rules below are the
+  // fallback for a quote that omits it.
+  regularMarketTime: z.union([z.number().finite().positive(), z.date()]).optional(),
   regularMarketVolume: z.number().finite().nonnegative(),
   shortName: z.string().trim().min(1).optional(),
   // The domain schema, not a looser local copy: a mover whose symbol this
@@ -42,6 +55,7 @@ const ScreenerResultSchema = z.object({
     quoteType: z.string(),
     regularMarketChangePercent: z.number(),
     regularMarketPrice: z.number(),
+    regularMarketTime: z.union([z.number(), z.date()]).optional(),
     regularMarketVolume: z.number().optional(),
     shortName: z.string().optional(),
     symbol: z.string(),
@@ -100,6 +114,41 @@ function httpsUrl(value: string): string | undefined {
   } catch {
     return undefined
   }
+}
+
+function quoteObservedAt(quote: z.infer<typeof MoverQuoteSchema>): Date | undefined {
+  const value = quote.regularMarketTime
+  if (value === undefined) return undefined
+  // Yahoo sends epoch seconds here; tolerate milliseconds so a provider change
+  // degrades to "unknown observation time" rather than "observed in 1970".
+  const at = value instanceof Date ? value : new Date(value > 1e11 ? value : value * 1_000)
+  return Number.isNaN(at.getTime()) ? undefined : at
+}
+
+/**
+ * A published mover must agree with itself. The weekday research job fires one
+ * second after the 09:30 New York open, when Yahoo's screens still serve the
+ * prior session's `regularMarket*` fields: that is how a `day_gainers` quote
+ * ships at -3.26% and how a "most active" name shows 15x its average volume
+ * before a single share has traded.
+ *
+ * Every failure drops the quote. Relabelling by sign would keep publishing
+ * yesterday's price, volume, and headline window under today's date, which is a
+ * worse lie than a short movers list; movers are best-effort secondary context,
+ * so an empty screen is an acceptable outcome and a stale one is not.
+ */
+function isPublishableMover(
+  quote: z.infer<typeof MoverQuoteSchema>,
+  category: MarketMoverCategory,
+  now: Date,
+): boolean {
+  const observedAt = quoteObservedAt(quote)
+  if (observedAt && newYorkClock(observedAt).localDate !== newYorkClock(now).localDate) return false
+  // `most-active` claims volume, not direction, so no sign follows from it.
+  if (category === 'most-active') return true
+  const changePercent = quote.regularMarketChangePercent
+  if (Math.abs(changePercent) < MIN_MOVE_PERCENT) return false
+  return category === 'gainer' ? changePercent > 0 : changePercent < 0
 }
 
 function signedPercent(value: number): string {
@@ -195,7 +244,8 @@ export async function collectMarketMoverEvidence(
       // It is currently false for ordinary US equities, so quoteType is the
       // authoritative asset-class filter here.
       const parsed = MoverQuoteSchema.safeParse(quote).data
-      return parsed ? [{ ...parsed, category }] : []
+      if (!parsed || !isPublishableMover(parsed, category, now)) return []
+      return [{ ...parsed, category }]
     }).slice(0, MAX_PER_CATEGORY)
   }))
   const movers = new Map<string, Mover>()
