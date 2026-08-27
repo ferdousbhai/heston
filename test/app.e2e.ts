@@ -41,6 +41,9 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
   await expect(page.locator('.premium-data-table [data-slot="badge"]')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /NVDA, NVIDIA, Expensive option premium/ })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Manage Options Watch' })).toHaveCount(0)
+  // A visitor sees one watchlist, so it is named in place rather than behind a chooser.
+  await expect(page.getByRole('combobox', { name: 'Watchlist' })).toHaveCount(0)
+  await expect(page.locator('.watchlist-title')).toHaveText('Options Watch')
   await expect(page.getByRole('region', { name: 'Upcoming catalysts' })).toBeVisible()
   await expect(page.getByText('Pin a ticker to see its upcoming events.')).toBeVisible()
   await expect(page.locator('.story')).toHaveCount(0)
@@ -78,7 +81,7 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
   await expect(page.getByRole('link', { name: 'privacy@tryspice.xyz' }).first()).toHaveAttribute('href', 'mailto:privacy@tryspice.xyz')
 })
 
-test('mobile market, research, picker, and agent flows remain coherent', async ({ page, context }) => {
+test('mobile market, research, search, sorting, and agent flows remain coherent', async ({ page, context }) => {
   const snapshot = marketSnapshotFixture()
   snapshot.catalysts.forEach((catalyst, index) => {
     catalyst.date = isoDateAfter(10 + index * 7)
@@ -138,9 +141,9 @@ test('mobile market, research, picker, and agent flows remain coherent', async (
   await expect(page.locator('.story').first()).toContainText('NVDA')
   await expect(page.locator('.story').first()).toContainText('EARN')
   await page.getByRole('button', { name: /TSLA: TSLA earnings/ }).click()
-  await expect(page.locator('.ticker-switcher')).toContainText('TSLA')
+  await expect(page.locator('.selected-symbol')).toHaveText('TSLA')
   await page.getByRole('button', { name: /NVDA: NVDA earnings/ }).click()
-  await expect(page.locator('.ticker-switcher')).toContainText('NVDA')
+  await expect(page.locator('.selected-symbol')).toHaveText('NVDA')
   const watchlistSelector = page.getByRole('combobox', { name: 'Watchlist' })
   await expect(watchlistSelector).toContainText('Watchlist')
   await watchlistSelector.click()
@@ -174,23 +177,24 @@ test('mobile market, research, picker, and agent flows remain coherent', async (
   await page.getByRole('option', { name: 'Active Positions' }).click()
   await expect(page.getByRole('button', { name: 'Manage Watchlist' })).toHaveCount(0)
 
-  const tickerSwitcher = page.locator('.ticker-switcher')
-  await tickerSwitcher.click()
-  const tickerPicker = page.getByRole('dialog', { name: 'Choose a ticker' })
-  await expect(tickerPicker).toBeVisible()
-  await expect(page.getByPlaceholder('Search symbol or company')).toBeFocused()
-  await page.keyboard.press('Shift+Tab')
-  await page.keyboard.press('Shift+Tab')
-  // Base UI redirects its focus guard on the next frame; use a web-first assertion
-  // to verify the stable destination rather than sampling the internal guard.
-  await expect(tickerPicker.locator(':focus')).toHaveCount(1)
-  await page.getByPlaceholder('Search symbol or company').click()
-  await expect(page.getByText('Open positions · Active Positions')).toBeVisible()
-  await expect(page.getByText('Private watchlists · Watchlist')).toBeVisible()
-  await expect(page.getByText(/Public watchlists/)).toHaveCount(0)
-  await page.getByRole('option', { name: /INTC/ }).click()
-  await expect(tickerSwitcher).toBeFocused()
-  await expect(tickerSwitcher).toContainText('INTC')
+  const selectedSymbol = page.locator('.selected-symbol')
+  // Searching reaches every loaded instrument, not only the active watchlist.
+  const search = page.getByLabel('Search all symbols')
+  await search.fill('intel')
+  await expect(page.locator('.premium-data-table tbody tr')).toHaveCount(1)
+  await page.getByRole('button', { name: /INTC, Intel, Cheap/ }).click()
+  await expect(selectedSymbol).toHaveText('INTC')
+  await search.fill('zzzz')
+  await expect(page.getByText('No loaded symbol matches your search.')).toBeVisible()
+  await search.fill('')
+
+  // Column headers sort the table; the same header toggles the direction.
+  // Pinned NVDA holds the top row, so the sort is read from the rows below it.
+  const rankHeader = page.getByRole('button', { exact: true, name: 'IV rank' })
+  await rankHeader.click()
+  await expect(page.locator('.premium-data-table tbody tr').nth(1)).toContainText('META')
+  await rankHeader.click()
+  await expect(page.locator('.premium-data-table tbody tr').nth(1)).toContainText('SPCX')
 
   await page.getByRole('tab', { name: 'Daily read' }).click()
   await expect(page.getByRole('tab', { name: 'Daily read' })).toHaveAttribute('aria-selected', 'true')
@@ -210,5 +214,5 @@ test('mobile market, research, picker, and agent flows remain coherent', async (
   await context.setOffline(true)
   await page.evaluate(() => window.dispatchEvent(new Event('offline')))
   await page.getByRole('tab', { name: 'Watch', exact: true }).click()
-  await expect(tickerSwitcher).toContainText('INTC')
+  await expect(selectedSymbol).toHaveText('INTC')
 })

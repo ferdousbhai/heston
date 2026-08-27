@@ -30,7 +30,6 @@ import { AgentScreen } from './agent-screen'
 import { AuthScreen, OwnerAccessScreen, type Viewer, useViewer } from './auth-gate'
 import { BriefScreen } from './brief-screen'
 import { MarketScreen } from './market-screen'
-import { TickerPicker } from './ticker-picker'
 import { TopBar } from './top-bar'
 import { WatchlistEditor } from './watchlist-editor'
 
@@ -66,7 +65,6 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
   const research = snapshotReady ? storedResearch[0] : undefined
   const preference = preferences[0]
   const [tab, setTab] = useState<Tab>('market')
-  const [pickerOpen, setPickerOpen] = useState(false)
   const [watchlistEditorOpen, setWatchlistEditorOpen] = useState(false)
   const [bootstrappedAudience, setBootstrappedAudience] = useState<'owner' | 'public'>()
   const bootstrapComplete = bootstrappedAudience === audience
@@ -75,8 +73,6 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
   const syncInFlightAudience = useRef<typeof audience | undefined>(undefined)
   const syncAbort = useRef<AbortController | undefined>(undefined)
   const syncRevision = useRef(0)
-  const closePicker = useCallback(() => setPickerOpen(false), [])
-  const openPicker = useCallback(() => setPickerOpen(true), [])
   const closeWatchlistEditor = useCallback(() => setWatchlistEditorOpen(false), [setWatchlistEditorOpen])
   const selectableWatchlists = [
     ...watchlists.filter((watchlist) => watchlist.kind === 'private'),
@@ -156,7 +152,6 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
   const chooseSymbol = (symbol: string) => {
     selectTicker(symbol)
     setTab('market')
-    closePicker()
   }
   const chooseWatchlist = (watchlist: Watchlist) => {
     const fallbackSymbol = selected && watchlist.symbols.includes(selected.symbol)
@@ -187,7 +182,7 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
     if (snapshotReady) await synchronize(undefined, true)
   }
 
-  const overlayOpen = pickerOpen || watchlistEditorOpen
+  const overlayOpen = watchlistEditorOpen
   const ownerAgentOpen = tab === 'agent' && Boolean(viewer)
 
   return (
@@ -219,7 +214,6 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
                 activeWatchlist={activeWatchlist}
                 catalysts={catalysts}
                 onManageWatchlist={() => setWatchlistEditorOpen(true)}
-                onOpenPicker={openPicker}
                 onSelectWatchlist={chooseWatchlist}
                 onSelectTicker={chooseSymbol}
                 onTogglePinned={(symbol) => void togglePinnedTicker(symbol)}
@@ -249,7 +243,6 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
           <TabsTrigger value="agent"><Bot /><span>Dan</span></TabsTrigger>
         </TabsList>
       </Tabs>
-      {pickerOpen && snapshotReady && <TickerPicker onClose={closePicker} onPick={chooseSymbol} tickers={tickers} watchlists={watchlists} />}
       {watchlistEditorOpen && snapshotReady && activeWatchlist?.kind === 'private' && (
         <WatchlistEditor
           onClose={closeWatchlistEditor}
