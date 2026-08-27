@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from '@tanstack/react-db'
 import { Bot, Gauge, Newspaper } from 'lucide-react'
 import { z } from 'zod'
@@ -21,7 +21,8 @@ import {
   tickerCollection,
   watchlistCollection,
 } from '../data/collections'
-import { favoriteSymbolsForViewer, syncFavoriteSymbols, toggleFavoriteSymbol } from '../data/favorites'
+import { createFavoriteSync, stagedFavoriteSymbols, toggleFavoriteSymbol } from '../data/favorites'
+import { toError } from '../domain/failure'
 import { type WatchlistMutation, WatchlistMutationResultSchema } from '../domain/watchlist'
 import { useLiveMarket } from '../data/live-market'
 import { AgentScreen } from './agent-screen'
@@ -49,13 +50,22 @@ export function SpiceApp() {
 
 function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Viewer | null }) {
   const owner = viewer?.role === 'owner'
+  const viewerId = viewer?.id
   const audience = owner ? 'owner' : 'public'
+  const favoriteSync = useMemo(
+    () => viewerId ? createFavoriteSync(viewerId) : undefined,
+    [viewerId],
+  )
   const { data: storedTickers = [] } = useLiveQuery((query) => query.from({ ticker: tickerCollection }))
   const { data: storedCatalysts = [] } = useLiveQuery((query) => query.from({ catalyst: catalystCollection }))
   const { data: storedWatchlists = [] } = useLiveQuery((query) => query.from({ watchlist: watchlistCollection }))
   const { data: storedResearch = [] } = useLiveQuery((query) => query.from({ research: researchCollection }))
   const { data: preferences = [] } = useLiveQuery((query) => query.from({ preference: preferenceCollection }))
   const { data: syncStates = [] } = useLiveQuery((query) => query.from({ sync: syncStateCollection }))
+  const { data: syncedFavorites } = useLiveQuery(
+    () => favoriteSync?.collection,
+    [favoriteSync],
+  )
   const syncState = syncStates.find((candidate) => candidate.id === 'snapshot')
   const snapshotReady = isSnapshotInitialized(syncState, audience)
   const tickers = snapshotReady ? storedTickers : []
@@ -63,7 +73,9 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
   const watchlists = snapshotReady ? storedWatchlists : []
   const research = snapshotReady ? storedResearch[0] : undefined
   const preference = preferences[0]
-  const pinnedSymbols = favoriteSymbolsForViewer(preference, viewer?.id)
+  const pinnedSymbols = favoriteSync
+    ? (syncedFavorites ?? []).map((favorite) => favorite.symbol)
+    : stagedFavoriteSymbols(preference)
   const [tab, setTab] = useState<Tab>('market')
   const [watchlistEditorOpen, setWatchlistEditorOpen] = useState(false)
   const [bootstrappedAudience, setBootstrappedAudience] = useState<'owner' | 'public'>()
@@ -144,28 +156,6 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
     }
   }, [audience, synchronize])
 
-  useEffect(() => {
-    if (!snapshotReady) return
-    const controller = new AbortController()
-    const refreshFavorites = () => {
-      if (!navigator.onLine || controller.signal.aborted) return
-      void syncFavoriteSymbols(viewer?.id, controller.signal).catch(() => undefined)
-    }
-    refreshFavorites()
-    const refreshVisible = () => {
-      if (document.visibilityState === 'visible') refreshFavorites()
-    }
-    window.addEventListener('online', refreshFavorites)
-    window.addEventListener('focus', refreshFavorites)
-    document.addEventListener('visibilitychange', refreshVisible)
-    return () => {
-      controller.abort()
-      window.removeEventListener('online', refreshFavorites)
-      window.removeEventListener('focus', refreshFavorites)
-      document.removeEventListener('visibilitychange', refreshVisible)
-    }
-  }, [snapshotReady, viewer?.id])
-
   const chooseSymbol = (symbol: string) => {
     selectTicker(symbol)
     setTab('market')
@@ -225,7 +215,9 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
                 catalysts={catalysts}
                 onManageWatchlist={() => setWatchlistEditorOpen(true)}
                 onSelectTicker={chooseSymbol}
-                onTogglePinned={(symbol) => void toggleFavoriteSymbol(symbol, viewer?.id).catch(() => undefined)}
+                onTogglePinned={(symbol) => void toggleFavoriteSymbol(symbol, favoriteSync).catch((cause: unknown) => {
+                  console.error('FavoriteMutationFailed', toError(cause)?.message ?? 'UnknownError')
+                })}
                 pinnedSymbols={pinnedSymbols}
                 research={research}
                 selected={selected}
