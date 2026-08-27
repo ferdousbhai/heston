@@ -14,6 +14,9 @@ for (let attempt = 0; attempt < 30; attempt += 1) {
     method: 'POST',
   })
   const text = await response.text()
+  // The shared ops gate answers an unauthorized or unknown request with the same
+  // 404 a freshly deployed Worker returns before its route propagates, so the
+  // only safe reading here is "not ready yet": retry, then fail on the timeout.
   if (response.status === 404 && attempt < 29) {
     await new Promise((resolve) => setTimeout(resolve, 1_000))
     continue

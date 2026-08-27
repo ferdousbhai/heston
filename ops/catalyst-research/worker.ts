@@ -1,24 +1,17 @@
-import { type AppEnv } from '../../src/server/env'
 import {
   applyCatalystBootstrapArtifact,
   readCatalystBootstrapInstruments,
   validateCatalystBootstrapArtifact,
 } from '../../src/server/catalyst-bootstrap'
 import { readBoundedJson } from '../../src/server/bounded-response'
-import { authorizedOpsRequest } from '../shared/worker-auth'
+import { type OpsEnv, serveOpsRequest } from '../shared/worker-auth'
 
 const MAX_ARTIFACT_BYTES = 8_000_000
-type OpsEnv = AppEnv & { OPS_AUTH_TOKEN?: string }
+const CATALYST_PATHS = ['/input', '/validate', '/apply']
 
 export default {
-  async fetch(request: Request, env: OpsEnv): Promise<Response> {
-    const path = new URL(request.url).pathname
-    if (request.method !== 'POST'
-      || !['/input', '/validate', '/apply'].includes(path)
-      || !await authorizedOpsRequest(request, env.OPS_AUTH_TOKEN)) {
-      return new Response('Not found', { status: 404 })
-    }
-    try {
+  fetch(request: Request, env: OpsEnv): Promise<Response> {
+    return serveOpsRequest(request, env, CATALYST_PATHS, 'CatalystBootstrap:operation-failed', async (path) => {
       if (path === '/input') {
         return Response.json({ instruments: await readCatalystBootstrapInstruments(env) })
       }
@@ -38,9 +31,6 @@ export default {
         researchedSymbolCount: result.researchedSymbolCount,
         runId: result.runId,
       })
-    } catch (cause) {
-      const error = cause instanceof Error ? cause.message : 'CatalystBootstrap:operation-failed'
-      return Response.json({ error }, { status: 500 })
-    }
+    })
   },
 }

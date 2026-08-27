@@ -26,7 +26,7 @@ openssl rand -hex 32 >"$seed_secret"
 npx wrangler deploy --config tools/wrangler.seed.jsonc >"$seed_log" 2>&1
 seed_deployed='true'
 
-npx wrangler secret put SEED_AUTH_TOKEN --name "$seed_worker" <"$seed_secret" >>"$seed_log" 2>&1
+npx wrangler secret put OPS_AUTH_TOKEN --name "$seed_worker" <"$seed_secret" >>"$seed_log" 2>&1
 
 seed_url="$(sed -n 's/.*\(https:\/\/[^ ]*\.workers\.dev\).*/\1/p' "$seed_log" | tail -n 1)"
 if [[ -z "$seed_url" ]]; then
@@ -36,29 +36,7 @@ if [[ -z "$seed_url" ]]; then
 fi
 
 call_seed_worker() {
-  node -e '
-  const fs = require("node:fs");
-  const token = fs.readFileSync(process.argv[1], "utf8").trim();
-  (async () => {
-    for (let attempt = 0; attempt < 30; attempt += 1) {
-      const response = await fetch(`${process.argv[2]}/${process.argv[3]}`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const body = await response.text();
-      if (response.status === 404 && attempt < 29) {
-        await new Promise((resolve) => setTimeout(resolve, 1_000));
-        continue;
-      }
-      if (!response.ok) throw new Error(body);
-      console.log(JSON.stringify(JSON.parse(body), null, 2));
-      return;
-    }
-  })().catch((error) => {
-    process.stderr.write(`${error.message}\n`);
-    process.exitCode = 1;
-  });
-' "$seed_secret" "$seed_url" "$1"
+  node ops/shared/call-worker.mjs "$seed_secret" "$seed_url" "$1"
 }
 
 if [[ "$seed_mode" == 'bootstrap' ]]; then

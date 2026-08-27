@@ -1,6 +1,11 @@
+import { type AppEnv } from '../../src/server/env'
+
 type CloudflareSubtleCrypto = SubtleCrypto & {
   timingSafeEqual(left: ArrayBuffer | ArrayBufferView, right: ArrayBuffer | ArrayBufferView): boolean
 }
+
+/** Every temporary ops Worker is authorized by the same one-run bearer token binding. */
+export type OpsEnv = AppEnv & { OPS_AUTH_TOKEN?: string }
 
 /** Temporary ops Workers use a one-run bearer token and disclose no route on auth failure. */
 export async function authorizedOpsRequest(request: Request, expected: string | undefined): Promise<boolean> {
@@ -16,3 +21,30 @@ export async function authorizedOpsRequest(request: Request, expected: string | 
   return (crypto.subtle as CloudflareSubtleCrypto).timingSafeEqual(providedHash, expectedHash)
 }
 
+/**
+ * The single request gate for every temporary ops Worker. A non-POST method, an
+ * unlisted path, and a failed bearer check are answered identically with a bare
+ * 404 — never 401 or 403, and never a body naming the route — so an unauthorized
+ * caller cannot learn that these owner-only bootstrap endpoints exist at all.
+ * Only a caller that already proved the token can observe a handler's failure,
+ * and that failure reports a stable code rather than an unbounded cause.
+ */
+export async function serveOpsRequest(
+  request: Request,
+  env: OpsEnv,
+  paths: readonly string[],
+  failureCode: string,
+  handle: (path: string) => Promise<Response>,
+): Promise<Response> {
+  const path = new URL(request.url).pathname
+  if (request.method !== 'POST'
+    || !paths.includes(path)
+    || !await authorizedOpsRequest(request, env.OPS_AUTH_TOKEN)) {
+    return new Response('Not found', { status: 404 })
+  }
+  try {
+    return await handle(path)
+  } catch (cause) {
+    return Response.json({ error: cause instanceof Error ? cause.message : failureCode }, { status: 500 })
+  }
+}

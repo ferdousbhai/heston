@@ -1,41 +1,25 @@
-import { type AppEnv } from '../../src/server/env'
 import { finalizeInternalWatchlist } from '../../src/server/internal-watchlist'
 import {
-  brokerApi,
   loadOwnerPositionSymbolsFromTastytrade,
   previewInternalInstrumentCatalogChunkFromTastytrade,
   refreshInternalInstrumentCatalogChunkFromTastytrade,
 } from '../../src/server/tastytrade'
-import { authorizedOpsRequest } from '../shared/worker-auth'
+import { summarizeOwnerMarketSync } from '../shared/market-sync'
+import { type OpsEnv, serveOpsRequest } from '../shared/worker-auth'
 
 export { BrokerGate } from '../../src/server/broker-gate'
 
-type OpsEnv = AppEnv & { OPS_AUTH_TOKEN?: string }
+const CATALOG_PATHS = ['/preview', '/apply', '/finalize', '/sync']
 
 export default {
-  async fetch(request: Request, env: OpsEnv): Promise<Response> {
-    const path = new URL(request.url).pathname
-    if (request.method !== 'POST'
-      || !['/preview', '/apply', '/finalize', '/sync'].includes(path)
-      || !await authorizedOpsRequest(request, env.OPS_AUTH_TOKEN)) {
-      return new Response('Not found', { status: 404 })
-    }
-    try {
+  fetch(request: Request, env: OpsEnv): Promise<Response> {
+    return serveOpsRequest(request, env, CATALOG_PATHS, 'InstrumentCatalog:operation-failed', async (path) => {
       if (path === '/finalize') {
         const positions = await loadOwnerPositionSymbolsFromTastytrade(env)
         return Response.json({ mode: 'finalize', result: await finalizeInternalWatchlist(env, positions) })
       }
       if (path === '/sync') {
-        const snapshot = await brokerApi().loadMarketSnapshot(env)
-        return Response.json({
-          mode: 'sync',
-          sync: {
-            catalystCount: snapshot.catalysts.length,
-            syncedAt: snapshot.syncedAt,
-            tickerCount: snapshot.tickers.length,
-            watchlistItemCount: snapshot.watchlists.find((watchlist) => watchlist.kind === 'private')?.symbols.length ?? 0,
-          },
-        })
+        return Response.json({ mode: 'sync', sync: await summarizeOwnerMarketSync(env) })
       }
       const offsetValue = new URL(request.url).searchParams.get('offset') ?? '0'
       if (!/^\d{1,5}$/.test(offsetValue)) throw new Error('InstrumentCatalog:invalid-offset')
@@ -46,9 +30,6 @@ export default {
         mode: path.slice(1),
         result,
       })
-    } catch (cause) {
-      const error = cause instanceof Error ? cause.message : 'InstrumentCatalog:operation-failed'
-      return Response.json({ error }, { status: 500 })
-    }
+    })
   },
 }
