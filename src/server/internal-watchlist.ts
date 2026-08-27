@@ -19,6 +19,23 @@ const MAX_TOTAL_SEED_ENTRIES = 50_000
 const MAX_INTERNAL_ITEMS = 10_000
 /** The cap on the private maintained list. The public projection derives its own bound from this. */
 export const MAX_MAINTAINED_ITEMS = 100
+
+/**
+ * One definition of an eligible High Options Volume seed member. Pruning uses
+ * this rank to decide which rows survive the cap and the focus read uses it to
+ * order what is shown, so the two drifting apart would be a silent correctness
+ * bug rather than a visible failure.
+ */
+const HIGH_OPTIONS_VOLUME_SOURCE = `
+       FROM internal_watchlist_seed_entries e
+       JOIN internal_watchlist_seed_sources s ON s.id = e.source_id
+       JOIN instrument_catalog c ON c.symbol = upper(e.broker_symbol)
+       WHERE e.instrument_type = 'Equity'
+         AND s.source_kind = 'public' AND s.name = 'High Options Volume'
+         AND c.resolution_status = 'resolved' AND c.active = 1
+         AND coalesce(c.is_etf, 0) = 0 AND coalesce(c.is_index, 0) = 0
+         AND coalesce(c.is_illiquid, 0) = 0 AND coalesce(c.is_closing_only, 0) = 0
+         AND coalesce(c.is_options_closing_only, 0) = 0`
 const MAX_CATALOG_CANDIDATES = MAX_INTERNAL_ITEMS
 const MAX_SOURCE_METADATA_BYTES = 256_000
 const MAX_ENTRY_METADATA_BYTES = 64_000
@@ -443,15 +460,7 @@ function pruneStatement(
      ),
      volume_symbols AS (
        SELECT upper(e.broker_symbol) AS symbol, min(e.entry_index) AS volume_rank
-       FROM internal_watchlist_seed_entries e
-       JOIN internal_watchlist_seed_sources s ON s.id = e.source_id
-       JOIN instrument_catalog c ON c.symbol = upper(e.broker_symbol)
-       WHERE e.instrument_type = 'Equity'
-         AND s.source_kind = 'public' AND s.name = 'High Options Volume'
-         AND c.resolution_status = 'resolved' AND c.active = 1
-         AND coalesce(c.is_etf, 0) = 0 AND coalesce(c.is_index, 0) = 0
-         AND coalesce(c.is_illiquid, 0) = 0 AND coalesce(c.is_closing_only, 0) = 0
-         AND coalesce(c.is_options_closing_only, 0) = 0
+       ${HIGH_OPTIONS_VOLUME_SOURCE}
        GROUP BY upper(e.broker_symbol)
      ),
      ranked AS (
@@ -747,19 +756,7 @@ async function focusFromStore(
     readItems(db),
     db.prepare(
       `SELECT upper(e.broker_symbol) AS symbol
-       FROM internal_watchlist_seed_entries e
-       JOIN internal_watchlist_seed_sources s ON s.id = e.source_id
-       JOIN instrument_catalog c ON c.symbol = upper(e.broker_symbol)
-       WHERE s.source_kind = 'public'
-         AND s.name = 'High Options Volume'
-         AND e.instrument_type = 'Equity'
-         AND c.resolution_status = 'resolved'
-         AND c.active = 1
-         AND coalesce(c.is_etf, 0) = 0
-         AND coalesce(c.is_index, 0) = 0
-         AND coalesce(c.is_illiquid, 0) = 0
-         AND coalesce(c.is_closing_only, 0) = 0
-         AND coalesce(c.is_options_closing_only, 0) = 0
+       ${HIGH_OPTIONS_VOLUME_SOURCE}
        ORDER BY e.entry_index ASC
        LIMIT 500`,
     ).all<{ symbol: string }>(),
