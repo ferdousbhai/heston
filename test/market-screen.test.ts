@@ -3,12 +3,33 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import { MarketScreen } from '../src/components/market-screen'
+import { type MarketSnapshot } from '../src/domain/market'
 import { marketSnapshotFixture } from './fixtures/market'
 
+function renderMarket(
+  snapshot: ReturnType<typeof marketSnapshotFixture>,
+  overrides: {
+    catalysts?: MarketSnapshot['catalysts']
+    research?: MarketSnapshot['research']
+    symbol: string
+  },
+): string {
+  return renderToStaticMarkup(createElement(MarketScreen, {
+    activeWatchlist: { ...snapshot.watchlists[0]!, kind: 'public' },
+    catalysts: overrides.catalysts ?? snapshot.catalysts,
+    onManageWatchlist: () => undefined,
+    onSelectTicker: () => undefined,
+    onTogglePinned: () => undefined,
+    pinnedSymbols: [],
+    research: overrides.research ?? snapshot.research,
+    selected: snapshot.tickers.find((ticker) => ticker.symbol === overrides.symbol)!,
+    tickers: snapshot.tickers,
+  }))
+}
+
 describe('selected market context', () => {
-  it('shows only the selected symbol catalyst note and Daily Brief thesis', () => {
+  it('leads with the selected symbol thesis and its dated catalysts', () => {
     const snapshot = marketSnapshotFixture()
-    const selected = snapshot.tickers.find((ticker) => ticker.symbol === 'NVDA')!
     const research = {
       ...snapshot.research,
       ideas: [
@@ -35,40 +56,45 @@ describe('selected market context', () => {
       },
     ]
 
-    const html = renderToStaticMarkup(createElement(MarketScreen, {
-      activeWatchlist: { ...snapshot.watchlists[0]!, kind: 'public' },
-      catalysts,
-      onManageWatchlist: () => undefined,
-      onSelectTicker: () => undefined,
-      onTogglePinned: () => undefined,
-      pinnedSymbols: [],
-      research,
-      selected,
-      tickers: snapshot.tickers,
-    }))
+    const html = renderMarket(snapshot, { catalysts, research, symbol: 'NVDA' })
 
     expect(html).toContain('Selected-symbol catalyst detail.')
     expect(html).toContain('Demand checks keep the AI capex thesis alive')
     expect(html).toContain('A guide-down or capex pause would break the demand thesis.')
+    expect(html).toContain('NVDA 205c 10/16')
     expect(html).not.toContain('Unrelated META catalyst')
     expect(html).not.toContain('Unrelated META thesis')
   })
 
-  it('states when the selected symbol has no stored context', () => {
+  // A re-rating is read off the whole runway, so every dated event shows, in order.
+  it('lists every upcoming catalyst nearest first and drops past dates', () => {
     const snapshot = marketSnapshotFixture()
-    const selected = snapshot.tickers.find((ticker) => ticker.symbol === 'SPY')!
-    const html = renderToStaticMarkup(createElement(MarketScreen, {
-      activeWatchlist: { ...snapshot.watchlists[0]!, kind: 'public' },
-      catalysts: [],
-      onManageWatchlist: () => undefined,
-      onSelectTicker: () => undefined,
-      onTogglePinned: () => undefined,
-      pinnedSymbols: [],
-      research: { ...snapshot.research, ideas: [] },
-      selected,
-      tickers: snapshot.tickers,
-    }))
+    const template = snapshot.catalysts[0]!
+    const catalysts = [
+      { ...template, id: 'test:NVDA:later', date: '2099-06-01', kind: 'regulatory' as const, title: 'Later NVDA review' },
+      { ...template, id: 'test:NVDA:past', date: '2000-01-01', title: 'Stale NVDA event' },
+      { ...template, id: 'test:NVDA:sooner', date: '2099-01-01', title: 'Sooner NVDA print', confidence: 'confirmed' as const },
+    ]
 
-    expect(html).toContain('No upcoming catalyst or Daily Brief thesis is available for SPY.')
+    const html = renderMarket(snapshot, { catalysts, symbol: 'NVDA' })
+
+    expect(html).not.toContain('Stale NVDA event')
+    expect(html.indexOf('Sooner NVDA print')).toBeLessThan(html.indexOf('Later NVDA review'))
+    expect(html).toContain('2 dated')
+  })
+
+  it('states that nothing is scheduled instead of leaving a gap', () => {
+    const snapshot = marketSnapshotFixture()
+
+    const html = renderMarket(snapshot, {
+      catalysts: [],
+      research: { ...snapshot.research, ideas: [] },
+      symbol: 'SPY',
+    })
+
+    expect(html).toContain('Nothing dated')
+    expect(html).toContain('Nothing is on the calendar.')
+    expect(html).toContain('Spice tracks earnings, regulatory, clinical, investor day, product launch, conference and shareholder vote dates for SPY')
+    expect(html).not.toContain('Thesis')
   })
 })

@@ -175,39 +175,87 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .story-catalyst.estimated { color: #d8a86f; }
 .story-empty[data-slot="empty"] { min-height: 36px; padding: 0; align-items: flex-start; justify-content: center; border: 0; color: var(--ink-muted); text-align: left; }
 
-.premium-focus { padding: 22px 20px 0; border-bottom: 1px solid var(--hairline); }
+/*
+ * Instrument focus. The panel answers "what could re-rate this name" first:
+ * the thesis and the dated runway are the reading, the premium verdict is a
+ * gauge in the masthead, and the option metrics settle into a hairline tape
+ * along the bottom.
+ */
+.instrument-focus { padding: 20px 20px 0; border-bottom: 1px solid var(--hairline); }
 .selected-instrument { min-width: 0; }
 .selected-instrument p { max-width: 100%; margin: 5px 0 0; overflow: hidden; color: var(--ink-faint); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .selected-symbol { margin: 0; font-size: 22px; font-weight: 820; letter-spacing: -.045em; line-height: 1.1; }
-.premium-focus-verdict { display: block; margin-top: 20px; font-size: clamp(34px, 9vw, 46px); line-height: .95; letter-spacing: -.055em; }
-.premium-focus.cheap .premium-focus-verdict { color: var(--cheap); }
-.premium-focus.fair .premium-focus-verdict { color: var(--fair-tone); }
-.premium-focus.rich .premium-focus-verdict { color: var(--rich); }
-.focus-context { margin-top: 8px; padding-top: 14px; border-top: 1px solid var(--hairline); display: flex; flex-direction: column; gap: 14px; }
-.focus-context > section + section { padding-top: 14px; border-top: 1px solid var(--hairline); }
-.focus-context-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.focus-context-heading h3 { margin: 0; color: var(--ink-faint); font-size: 10px; font-weight: 650; }
-.focus-context-heading > span { flex: 0 0 auto; color: var(--ink-faint); font: 9px/1.2 var(--mono); }
-.focus-context section > strong { display: block; margin-top: 7px; font-size: 12px; line-height: 1.35; }
-.focus-context section > p { margin: 5px 0 0; color: var(--ink-muted); font-size: 10px; line-height: 1.5; }
-.focus-context .focus-context-risk { color: var(--ink-faint); }
-.focus-context-risk span { margin-right: 6px; color: var(--rich); font-weight: 700; }
-.focus-context-empty { margin: 0; color: var(--ink-faint); font-size: 10px; line-height: 1.5; }
-.premium-details { width: 100%; }
-.premium-stats { margin: 0; display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--hairline); }
-.premium-stats > div { min-width: 0; padding: 11px 9px 13px; }
-.premium-stats > div:not(:nth-child(3n + 1)) { border-left: 1px solid var(--hairline); }
-.premium-stats > div:nth-child(3n + 1) { padding-left: 0; }
-.premium-stats > div:nth-child(n + 4) { border-top: 1px solid var(--hairline); }
-.premium-stats dt { color: var(--ink-faint); font-size: 10px; line-height: 1.2; }
-.premium-stats dd { margin: 6px 0 0; overflow-wrap: anywhere; font-size: 13px; font-weight: 760; font-variant-numeric: tabular-nums; }
-.year-range { padding: 14px 0 18px; border-top: 1px solid var(--hairline); }
-.year-range > span { color: var(--ink-faint); font-size: 10px; }
+.premium-gauge { min-width: 128px; flex: 0 0 auto; display: grid; justify-items: end; }
+.premium-gauge > span { color: var(--ink-faint); font: 9px/1 var(--mono); text-transform: uppercase; letter-spacing: .1em; }
+.premium-verdict { margin-top: 6px; font-size: 17px; font-weight: 800; letter-spacing: -.03em; }
+.instrument-focus.cheap .premium-verdict { color: var(--cheap); }
+.instrument-focus.fair .premium-verdict { color: var(--fair-tone); }
+.instrument-focus.rich .premium-verdict { color: var(--rich); }
+
+.focus-narrative { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--hairline); display: grid; gap: 22px; }
+/* Stacked, the two readings are separated by a rule; side by side, by the gutter. */
+.focus-narrative.with-thesis .focus-runway { padding-top: 20px; border-top: 1px solid var(--hairline); }
+.focus-eyebrow { min-height: 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.focus-eyebrow h3 { margin: 0; color: var(--spice); font: 9px/1 var(--mono); font-weight: 650; text-transform: uppercase; letter-spacing: .13em; }
+.focus-eyebrow > span { flex: 0 0 auto; color: var(--ink-faint); font: 9px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+
+/* The thesis headline is the panel's one display moment. */
+.thesis-headline { margin: 12px 0 0; font-size: clamp(20px, 5.4vw, 25px); font-weight: 760; line-height: 1.14; letter-spacing: -.035em; }
+.thesis-body { margin: 10px 0 0; max-width: 54ch; color: #adafb7; font-size: 12px; line-height: 1.62; }
+.thesis-risk, .thesis-play { margin: 12px 0 0; padding-top: 11px; border-top: 1px solid var(--hairline); font-size: 11px; line-height: 1.55; }
+.thesis-risk { color: var(--ink-muted); }
+.thesis-risk span, .thesis-play span { display: block; margin-bottom: 4px; font: 9px/1 var(--mono); text-transform: uppercase; letter-spacing: .1em; }
+.thesis-risk span { color: var(--rich); }
+.thesis-play span { color: var(--ink-faint); }
+.thesis-play strong { color: var(--spice); font: 700 13px/1.2 var(--mono); }
+.thesis-sources { margin: 11px 0 0; display: flex; flex-wrap: wrap; gap: 5px 14px; }
+.thesis-sources a, .runway-body > a { min-width: 0; display: inline-flex; align-items: center; gap: 3px; color: #83868f; font-size: 10px; line-height: 1.3; text-decoration: none; }
+.thesis-sources a:hover, .thesis-sources a:focus-visible, .runway-body > a:hover, .runway-body > a:focus-visible { color: var(--text); }
+.thesis-sources svg, .runway-body > a svg { width: 10px; height: 10px; flex: 0 0 auto; }
+
+/* Runway: a dated rail. Marker filled = confirmed date, hollow = estimated. */
+.runway { margin: 14px 0 0; padding: 0; list-style: none; }
+.runway-event { position: relative; display: grid; grid-template-columns: 52px 10px minmax(0, 1fr); column-gap: 13px; padding-bottom: 20px; }
+.runway-event:last-child { padding-bottom: 0; }
+/* Connector between markers: 52px rail column + 13px gap + half the 10px marker. */
+.runway-event::before { content: ""; position: absolute; left: 69.5px; top: 18px; bottom: 2px; width: 1px; background: #2b2e36; }
+.runway-event:last-child::before { content: none; }
+.runway-when { text-align: right; }
+.runway-when strong { display: block; color: var(--spice); font: 700 13px/1 var(--mono); font-variant-numeric: tabular-nums; }
+.runway-event:not(.next) .runway-when strong { color: #a5883f; }
+.runway-when time { display: block; margin-top: 5px; color: var(--ink-faint); font: 9px/1.2 var(--mono); }
+.runway-mark { position: relative; }
+.runway-mark::before { content: ""; position: absolute; left: 0; top: 2px; width: 10px; height: 10px; border: 1.5px solid var(--spice); background: var(--spice); }
+.runway-event.estimated .runway-mark::before { background: var(--bg); }
+.runway-event:not(.next) .runway-mark::before { border-color: #7c6534; background: #7c6534; }
+.runway-event:not(.next).estimated .runway-mark::before { background: var(--bg); }
+.runway-body { min-width: 0; }
+.runway-kind { margin: 0; color: var(--ink-faint); font: 9px/1 var(--mono); text-transform: uppercase; letter-spacing: .09em; }
+.runway-body > strong { display: block; margin-top: 7px; font-size: 13px; line-height: 1.32; letter-spacing: -.015em; }
+.runway-event.next .runway-body > strong { font-size: 15px; }
+.runway-detail { margin: 6px 0 0; max-width: 56ch; color: var(--ink-muted); font-size: 11px; line-height: 1.55; }
+.runway-body > a { margin-top: 8px; }
+.runway-empty { margin: 14px 0 0; max-width: 56ch; color: var(--ink-muted); font-size: 11px; line-height: 1.62; }
+.runway-empty strong { color: var(--text); }
+.runway-more { margin: 12px 0 0; padding-top: 11px; border-top: 1px solid var(--hairline); color: var(--ink-faint); font: 9px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+
+/*
+ * Secondary tape. Each cell rings itself into the 1px gap, so the rules stay
+ * complete at any wrap width and a short final row leaves no filled remainder.
+ * Values sit on the cell floor so they align across labels of unequal depth.
+ */
+.focus-secondary { width: 100%; margin-top: 22px; }
+.focus-metrics { margin: 0; padding: 1px; display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); gap: 1px; }
+.focus-metrics > div { min-width: 0; min-height: 54px; padding: 9px 10px 11px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 0 0 1px var(--hairline); }
+.focus-metrics dt { color: var(--ink-faint); font: 9px/1.2 var(--mono); text-transform: uppercase; letter-spacing: .06em; }
+.focus-metrics dd { margin: 8px 0 0; overflow-wrap: anywhere; font-size: 12px; font-weight: 720; font-variant-numeric: tabular-nums; }
+.year-range { padding: 13px 0 18px; }
+.year-range > span { color: var(--ink-faint); font: 9px/1 var(--mono); text-transform: uppercase; letter-spacing: .06em; }
 .year-range > strong { display: block; margin-top: 8px; color: #8f929b; font-size: 12px; }
-.year-range-values { margin-bottom: 9px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: baseline; gap: 12px; font-variant-numeric: tabular-nums; }
+.year-range-values { margin: 8px 0 9px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: baseline; gap: 12px; font-variant-numeric: tabular-nums; }
 .year-range-values span { color: var(--ink-faint); font-size: 10px; }
 .year-range-values span:last-child { text-align: right; }
-.year-range-values strong { font-size: 15px; }
+.year-range-values strong { font-size: 14px; }
 .year-range [data-slot="progress"] { display: block; gap: 0; }
 .year-range [data-slot="progress-track"] { height: 3px; border-radius: 0; background: #292c33; }
 .year-range [data-slot="progress-indicator"] { background: var(--spice); }
@@ -410,15 +458,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .ops-actions { gap: 0; }
 .ops-actions [data-slot="field"] { display: block; }
 
-.premium-focus { --card-spacing: 0px; gap: 0; }
-.premium-focus [data-slot="card-header"] { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 14px; padding: 0; }
-.premium-focus [data-slot="card-content"] { padding: 0; }
-.premium-focus [data-slot="card-footer"] { display: block; padding: 0; border: 0; background: transparent; }
-.premium-axis[data-slot="progress"] { height: 24px; margin-top: 20px; display: flex; gap: 0; border: 0; }
+.instrument-focus { --card-spacing: 0px; gap: 0; }
+.instrument-focus [data-slot="card-header"] { display: flex; flex-direction: row; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 0; }
+.instrument-focus [data-slot="card-content"] { padding: 0; }
+.instrument-focus [data-slot="card-footer"] { display: block; padding: 0; border: 0; background: transparent; }
+.premium-axis[data-slot="progress"] { width: 128px; height: 14px; margin-top: 11px; display: flex; gap: 0; border: 0; }
 .premium-axis[data-slot="progress"]::before { content: none; }
 .premium-axis [data-slot="progress-track"] { height: 3px; overflow: visible; border-radius: 0; background: var(--axis-gradient); }
 .premium-axis [data-slot="progress-indicator"] { position: relative; height: 3px; background: rgba(245, 245, 247, .62); mix-blend-mode: overlay; }
-.premium-axis [data-slot="progress-indicator"]::after { content: ""; position: absolute; right: -5px; top: -4px; width: 10px; height: 10px; rotate: 45deg; border: 2px solid var(--bg); background: var(--text); }
+.premium-axis [data-slot="progress-indicator"]::after { content: ""; position: absolute; right: -4px; top: -3px; width: 8px; height: 8px; rotate: 45deg; border: 2px solid var(--bg); background: var(--text); }
+.focus-eyebrow [data-slot="badge"] { height: 17px; padding-inline: 7px; border-radius: 0; font: 9px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
 .bottom-nav[data-slot="tabs-list"] { border-radius: 0; }
 .bottom-nav [data-slot="tabs-trigger"] { height: auto; min-height: 54px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: #6e717b; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; cursor: pointer; font-size: 10px; font-weight: 650; }
 .bottom-nav [data-slot="tabs-trigger"][data-active] { color: var(--text); }
@@ -496,18 +545,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
   .story-row { padding-inline: 24px; }
 
-  /* The focus card becomes a horizontal band so the table owns the full width. */
-  .premium-focus { display: grid; grid-template-columns: minmax(210px, 280px) minmax(0, 1fr); align-items: start; column-gap: clamp(28px, 4vw, 64px); padding: 22px 24px 2px; }
-  .premium-focus [data-slot="card-header"] { grid-column: 1; grid-row: 1; }
-  .premium-focus [data-slot="card-content"] { grid-column: 1; grid-row: 2; }
-  .premium-focus [data-slot="card-footer"] { grid-column: 2; grid-row: 1 / span 2; }
-  .premium-focus-verdict { margin-top: 14px; }
-  .premium-stats { grid-template-columns: repeat(6, 1fr); }
-  .premium-stats > div:nth-child(3n + 1) { padding-left: 9px; }
-  .premium-stats > div:nth-child(n + 4) { border-top: 0; }
-  .premium-stats > div:not(:nth-child(6n + 1)) { border-left: 1px solid var(--hairline); }
-  .premium-stats > div:nth-child(6n + 1) { padding-left: 0; }
-  .premium-stats > div:nth-child(n + 7) { border-top: 1px solid var(--hairline); }
+  /* Masthead spans the panel; thesis and runway read side by side beneath it. */
+  .instrument-focus { padding: 22px 24px 2px; }
+  .focus-narrative.with-thesis { grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); column-gap: 0; }
+  .focus-narrative.with-thesis .focus-thesis { padding-right: clamp(28px, 3.6vw, 60px); }
+  .focus-narrative.with-thesis .focus-runway { padding: 0 0 0 clamp(28px, 3.6vw, 60px); border-top: 0; border-left: 1px solid var(--hairline); }
+  .focus-secondary { display: grid; grid-template-columns: minmax(0, 1fr) minmax(200px, 260px); align-items: start; column-gap: clamp(24px, 3vw, 48px); }
+  .year-range { padding-top: 14px; }
 
   .watch-table { padding: 24px 24px 16px; }
 

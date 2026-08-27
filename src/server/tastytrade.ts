@@ -76,10 +76,28 @@ export function percentMetric(value: JsonValue, max = 100): number | undefined {
   return parsed === undefined ? undefined : bounded(parsed * 100, 0, max)
 }
 
-/** Rate deltas and borrow costs use the same decimal-ratio wire format but may be negative. */
-function signedPercentMetric(value: JsonValue, maxAbsolute = 10_000): number | undefined {
+/**
+ * Optional metrics reject an implausible ratio instead of clamping it. Clamping an
+ * optional field publishes the bound itself as if it were an observation — the UI
+ * then renders a confident "30-day HV 1,000%" that tastytrade never reported, while
+ * an absent value renders honestly as an em dash. Required Ticker fields (`ivIndex`,
+ * `ivRank`, `ivPercentile`, `liquidity`) keep clamping: rank and percentile ratios
+ * legitimately land marginally above 1.0, and rejecting one would drop the whole
+ * ticker from the snapshot rather than blank a single cell.
+ */
+export function plausiblePercentMetric(value: JsonValue, max = 100): number | undefined {
   const parsed = jsonNumber(value)
-  return parsed === undefined ? undefined : bounded(parsed * 100, -maxAbsolute, maxAbsolute)
+  if (parsed === undefined) return undefined
+  const points = parsed * 100
+  return points >= 0 && points <= max ? points : undefined
+}
+
+/** Rate deltas and borrow costs use the same decimal-ratio wire format but may be negative. */
+export function plausibleSignedPercentMetric(value: JsonValue, maxAbsolute = 10_000): number | undefined {
+  const parsed = jsonNumber(value)
+  if (parsed === undefined) return undefined
+  const points = parsed * 100
+  return Math.abs(points) <= maxAbsolute ? points : undefined
 }
 
 function optionTermStructure(metrics: JsonObject): Ticker['ivTermStructure'] {
@@ -90,7 +108,9 @@ function optionTermStructure(metrics: JsonObject): Ticker['ivTermStructure'] {
     const row = jsonObject(value)
     const rawExpiration = jsonText(row?.['expiration-date'] ?? row?.expirationDate)
     const expiration = rawExpiration?.slice(0, 10)
-    const impliedVolatility = percentMetric(row?.['implied-volatility'] ?? row?.impliedVolatility, 1_000)
+    // A rejected expiration drops out of the term structure below, so an implausible
+    // per-expiration IV costs one row rather than fabricating a 1,000% front or back leg.
+    const impliedVolatility = plausiblePercentMetric(row?.['implied-volatility'] ?? row?.impliedVolatility, 1_000)
     if (!expiration || !isValidIsoDate(expiration) || impliedVolatility === undefined) return []
     return [{
       chainType: jsonText(row?.['option-chain-type'] ?? row?.optionChainType) ?? '',
@@ -329,7 +349,7 @@ export function liveTickerFromRecords(
     symbol,
     name: jsonText(instrument?.description ?? instrument?.['short-description'] ?? quote.description) ?? symbol,
     assetType: assetType(instrument),
-    borrowRate: signedPercentMetric(metrics['borrow-rate'] ?? instrument?.['borrow-rate'] ?? instrument?.borrowRate),
+    borrowRate: plausibleSignedPercentMetric(metrics['borrow-rate'] ?? instrument?.['borrow-rate'] ?? instrument?.borrowRate),
     lendability: jsonText(metrics.lendability ?? instrument?.lendability),
     marketCap: marketCap !== undefined && marketCap >= 0 ? marketCap : undefined,
     price,
@@ -339,15 +359,15 @@ export function liveTickerFromRecords(
     ivRank,
     ivPercentile,
     ivIndex,
-    ivIndex5DayChange: signedPercentMetric(
+    ivIndex5DayChange: plausibleSignedPercentMetric(
       metrics['implied-volatility-index-5-day-change'] ?? metrics.impliedVolatilityIndex5DayChange,
       1_000,
     ),
-    historicalVolatility30Day: percentMetric(
+    historicalVolatility30Day: plausiblePercentMetric(
       metrics['historical-volatility-30-day'] ?? metrics.historicalVolatility30Day,
       1_000,
     ),
-    ivHistoricalVolatility30DayDifference: signedPercentMetric(
+    ivHistoricalVolatility30DayDifference: plausibleSignedPercentMetric(
       metrics['iv-hv-30-day-difference'] ?? metrics.ivHv30DayDifference,
       1_000,
     ),

@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { ArrowDown, ArrowUp, Search, Settings2, Star } from 'lucide-react'
+import { ArrowDown, ArrowUp, ArrowUpRight, Search, Settings2, Star } from 'lucide-react'
 import { matchSorter } from 'match-sorter'
 
+import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader } from '#/components/ui/card'
 import { Empty, EmptyDescription, EmptyHeader } from '#/components/ui/empty'
@@ -17,7 +18,16 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '#/components/ui/tooltip'
 import { cn } from '#/lib/utils'
 import { type CandlePoint } from '../domain/candle'
-import { catalystLabel, nextCatalystForSymbol, type Catalyst } from '../domain/catalyst'
+import {
+  CATALYST_KIND_NAMES,
+  catalystCountdown,
+  catalystKindName,
+  catalystLabel,
+  catalystTimingLabel,
+  nextCatalystForSymbol,
+  upcomingCatalystsForSymbol,
+  type Catalyst,
+} from '../domain/catalyst'
 import {
   fiftyTwoWeekPosition,
   formatMarketMetric,
@@ -140,52 +150,105 @@ function termStructureLabel(ticker: Pick<Ticker, 'ivTermStructure'>): string {
     : `Back +${formatMarketMetric(Math.abs(spread))} pts`
 }
 
-function SelectedSymbolContext({
-  catalyst,
-  idea,
+/** Runway rows stay scannable; anything past this is summarized as a count. */
+const RUNWAY_LIMIT = 6
+
+/**
+ * Derived from the catalyst contract so the "nothing scheduled" state states the
+ * real coverage rather than a hand-written list that can drift from the schema.
+ */
+const CATALYST_SCOPE = `${CATALYST_KIND_NAMES.slice(0, -1).join(', ')} and ${CATALYST_KIND_NAMES.at(-1)}`
+
+/**
+ * The stored Daily Read idea is the only per-symbol thesis Spice keeps, so it
+ * leads the panel when one exists and the section is simply absent when it does not.
+ */
+function ThesisPanel({ idea }: { idea: ResearchBrief['ideas'][number] }) {
+  return (
+    <section className="focus-thesis" aria-labelledby="focus-thesis-title">
+      <header className="focus-eyebrow">
+        <h3 id="focus-thesis-title">Thesis</h3>
+        <Badge variant={idea.direction}>{idea.direction}</Badge>
+      </header>
+      <p className="thesis-headline">{idea.headline}</p>
+      <p className="thesis-body">{idea.description}</p>
+      <p className="thesis-risk"><span>What breaks it</span>{idea.risk}</p>
+      {idea.play && <p className="thesis-play"><span>Illustrative play</span><strong>{idea.play}</strong></p>}
+      {idea.sources.length > 0 && (
+        <p className="thesis-sources">
+          {idea.sources.map((source) => (
+            <a href={source.url} key={source.url} rel="noreferrer" target="_blank">
+              {source.label}<ArrowUpRight aria-hidden="true" />
+            </a>
+          ))}
+        </p>
+      )}
+    </section>
+  )
+}
+
+/**
+ * Every dated event ahead of the symbol, nearest first. The rail encodes two facts
+ * the reader needs before the title: how far out the event sits, and whether the
+ * date is confirmed (filled marker) or only estimated (hollow marker).
+ */
+function CatalystRunway({
+  catalysts,
+  now,
   symbol,
 }: {
-  catalyst: Catalyst | undefined
-  idea: ResearchBrief['ideas'][number] | undefined
+  catalysts: readonly Catalyst[]
+  now: Date
   symbol: string
 }) {
-  if (!catalyst && !idea) {
-    return (
-      <div className="focus-context">
-        <p className="focus-context-empty">No upcoming catalyst or Daily Brief thesis is available for {symbol}.</p>
-      </div>
-    )
-  }
+  const upcoming = upcomingCatalystsForSymbol(symbol, catalysts, now)
+  const shown = upcoming.slice(0, RUNWAY_LIMIT)
+  const hidden = upcoming.length - shown.length
 
   return (
-    <div className="focus-context">
-      {catalyst && (
-        <section>
-          <header className="focus-context-heading">
-            <h3>Next catalyst</h3>
-            <span>
-              <time dateTime={catalyst.date}>
-                {catalystDateFormatter.format(new Date(`${catalyst.date}T00:00:00Z`))}
-              </time>
-              {' · '}{catalyst.confidence}
-            </span>
-          </header>
-          <strong>{catalyst.title}</strong>
-          {catalyst.description && <p>{catalyst.description}</p>}
-        </section>
+    <section className="focus-runway" aria-labelledby="focus-runway-title">
+      <header className="focus-eyebrow">
+        <h3 id="focus-runway-title">What&rsquo;s coming</h3>
+        <span>{upcoming.length ? `${upcoming.length} dated` : 'Nothing dated'}</span>
+      </header>
+      {shown.length
+        ? (
+            <ol className="runway">
+              {shown.map((catalyst, index) => (
+                <li className={cn('runway-event', catalyst.confidence, index === 0 && 'next')} key={catalyst.id}>
+                  <div className="runway-when">
+                    <strong>{catalystCountdown(catalyst, now)}</strong>
+                    <time dateTime={catalyst.date}>
+                      {catalystDateFormatter.format(new Date(`${catalyst.date}T00:00:00Z`))}
+                    </time>
+                  </div>
+                  <span aria-hidden="true" className="runway-mark" />
+                  <div className="runway-body">
+                    <p className="runway-kind">
+                      {[catalystKindName(catalyst.kind), catalystTimingLabel(catalyst.timing), catalyst.confidence]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </p>
+                    <strong>{catalyst.title}</strong>
+                    {catalyst.description && <p className="runway-detail">{catalyst.description}</p>}
+                    <a href={catalyst.sourceUrl} rel="noreferrer" target="_blank">
+                      {catalyst.source}<ArrowUpRight aria-hidden="true" />
+                    </a>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )
+        : (
+            <p className="runway-empty">
+              <strong>Nothing is on the calendar.</strong>
+              {` Spice tracks ${CATALYST_SCOPE} dates for ${symbol}, and none are scheduled — a re-rating from here would have to come from something unannounced.`}
+            </p>
+          )}
+      {hidden > 0 && (
+        <p className="runway-more">{hidden} further dated event{hidden === 1 ? '' : 's'} beyond these</p>
       )}
-      {idea && (
-        <section>
-          <header className="focus-context-heading">
-            <h3>Daily Brief thesis</h3>
-            <span>{idea.direction}</span>
-          </header>
-          <strong>{idea.headline}</strong>
-          <p>{idea.description}</p>
-          <p className="focus-context-risk"><span>Risk</span>{idea.risk}</p>
-        </section>
-      )}
-    </div>
+    </section>
   )
 }
 
@@ -238,7 +301,6 @@ export function MarketScreen({
   const selectedVerdict = volatilityVerdict(selected)
   const selectedCopy = verdictCopy[selectedVerdict]
   const selectedAsset = assetLabel(selected)
-  const selectedCatalyst = nextCatalystForSymbol(selected.symbol, catalysts, now)
   const selectedIdea = research?.ideas.find((idea) => idea.symbol === selected.symbol)
   const selectedRangePosition = fiftyTwoWeekPosition(selected)
 
@@ -246,22 +308,28 @@ export function MarketScreen({
     <div className="market-screen">
       <CatalystStories catalysts={catalysts} now={now} onSelect={onSelectTicker} tickers={pinnedTickers} />
 
-      <Card className={cn('premium-focus', selectedVerdict)} variant="flat" aria-labelledby="selected-premium-title">
+      <Card className={cn('instrument-focus', selectedVerdict)} variant="flat" aria-labelledby="selected-instrument-title">
         <CardHeader>
           <div className="selected-instrument">
-            <h2 className="selected-symbol">{selected.symbol}</h2>
+            <h2 className="selected-symbol" id="selected-instrument-title">{selected.symbol}</h2>
             <p>{selected.name}{selectedAsset ? ` · ${selectedAsset}` : ''}</p>
           </div>
+          {/* The premium verdict keeps the product's gradient axis, at a scale that
+              leaves the thesis and the runway as the panel's primary reading. */}
+          <div className="premium-gauge">
+            <span>Option premium</span>
+            <strong className="premium-verdict">{selectedCopy.label}</strong>
+            <Progress className="premium-axis" aria-label={`Relative premium score ${premiumScore(selected)} out of 100, from cheap to expensive`} value={premiumScore(selected)} />
+          </div>
         </CardHeader>
-        <CardContent>
-          <strong className="premium-focus-verdict" id="selected-premium-title">{selectedCopy.label}</strong>
-          <Progress className="premium-axis" aria-label={`Relative premium score ${premiumScore(selected)} out of 100, from cheap to expensive`} value={premiumScore(selected)} />
-          <SelectedSymbolContext catalyst={selectedCatalyst} idea={selectedIdea} symbol={selected.symbol} />
+        <CardContent className={cn('focus-narrative', selectedIdea && 'with-thesis')}>
+          {selectedIdea && <ThesisPanel idea={selectedIdea} />}
+          <CatalystRunway catalysts={catalysts} now={now} symbol={selected.symbol} />
         </CardContent>
         <CardFooter>
-          <div className="premium-details">
-            <dl className="premium-stats">
-              <div><dt>Current IV</dt><dd>{formatMarketMetric(selected.ivIndex)}%</dd></div>
+          <div className="focus-secondary">
+            <dl className="focus-metrics">
+              <div><dt>IV</dt><dd>{formatMarketMetric(selected.ivIndex)}%</dd></div>
               <div><dt>IV rank</dt><dd>{formatMarketMetric(selected.ivRank)}</dd></div>
               <div><dt>IV percentile</dt><dd>{formatMarketMetric(selected.ivPercentile)}</dd></div>
               <div><dt>IV 5-day</dt><dd>{formatSignedMetric(selected.ivIndex5DayChange, ' pts')}</dd></div>

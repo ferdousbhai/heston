@@ -12,6 +12,8 @@ import {
   equityCandleFromTime,
   liveTickerFromRecords,
   percentMetric,
+  plausiblePercentMetric,
+  plausibleSignedPercentMetric,
   selectSnapshotSymbols,
 } from '../src/server/tastytrade'
 
@@ -104,6 +106,59 @@ describe('tastytrade normalization', () => {
     expect(percentMetric('0.184')).toBeCloseTo(18.4)
     expect(percentMetric(undefined)).toBeUndefined()
     expect(percentMetric('1.5', 500)).toBe(150)
+  })
+
+  it('clamps required rank and percentile ratios that land just above 1.0', () => {
+    expect(percentMetric('1.0004')).toBe(100)
+    expect(percentMetric('-0.0001')).toBe(0)
+  })
+
+  it('reports an implausible optional metric as unavailable instead of the bound', () => {
+    expect(plausiblePercentMetric('0.14', 1_000)).toBeCloseTo(14)
+    expect(plausibleSignedPercentMetric('-0.02', 1_000)).toBeCloseTo(-2)
+    expect(plausiblePercentMetric(undefined, 1_000)).toBeUndefined()
+    expect(plausibleSignedPercentMetric(undefined, 1_000)).toBeUndefined()
+    expect(plausiblePercentMetric('99', 1_000)).toBeUndefined()
+    expect(plausiblePercentMetric('-0.5', 1_000)).toBeUndefined()
+    expect(plausibleSignedPercentMetric('-99', 1_000)).toBeUndefined()
+  })
+
+  it('blanks implausible optional volatility fields without dropping the ticker', () => {
+    const ticker = liveTickerFromRecords('BE', {
+      symbol: 'BE',
+      'historical-volatility-30-day': '99',
+      'implied-volatility-index': '0.18',
+      'implied-volatility-index-5-day-change': '-99',
+      'implied-volatility-index-rank': '0.25',
+      'implied-volatility-percentile': '0.3',
+      'iv-hv-30-day-difference': '99',
+      'liquidity-rating': '5',
+    }, {
+      symbol: 'BE', mark: '700', 'previous-close': '695',
+      'updated-at': '2026-08-13T13:31:00.000Z',
+    }, false)
+
+    expect(ticker).toMatchObject({ symbol: 'BE', ivRank: 25 })
+    expect(ticker?.historicalVolatility30Day).toBeUndefined()
+    expect(ticker?.ivIndex5DayChange).toBeUndefined()
+    expect(ticker?.ivHistoricalVolatility30DayDifference).toBeUndefined()
+  })
+
+  it('drops an implausible expiration from the term structure', () => {
+    const ticker = liveTickerFromRecords('BE', {
+      symbol: 'BE', 'implied-volatility-index': '0.18',
+      'implied-volatility-index-rank': '0.25', 'implied-volatility-percentile': '0.3',
+      'liquidity-rating': '5',
+      'option-expiration-implied-volatilities': [
+        { 'expiration-date': '2026-09-04T20:00:00Z', 'implied-volatility': '0.21', 'option-chain-type': 'Standard' },
+        { 'expiration-date': '2026-09-11T20:00:00Z', 'implied-volatility': '99', 'option-chain-type': 'Standard' },
+      ],
+    }, {
+      symbol: 'BE', mark: '700', 'previous-close': '695',
+      'updated-at': '2026-08-13T13:31:00.000Z',
+    }, false)
+
+    expect(ticker?.ivTermStructure).toBeUndefined()
   })
 
   it('rejects incomplete live ticker facts instead of filling estimates', () => {

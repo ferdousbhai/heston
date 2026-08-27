@@ -63,15 +63,20 @@ function epochDay(date: string): number {
   return Math.floor(Date.UTC(year, month - 1, day) / 86_400_000)
 }
 
-function daysUntilCatalyst(catalyst: Catalyst, now = new Date()): number {
+export function daysUntilCatalyst(catalyst: Catalyst, now = new Date()): number {
   return epochDay(catalyst.date) - epochDay(marketDate(now))
 }
 
-export function nextCatalystForSymbol(
+/**
+ * Every dated event still ahead of the symbol, nearest first. The detail view
+ * shows the whole runway rather than only the next row, because a re-rating is
+ * usually judged against the sequence of what is coming, not a single date.
+ */
+export function upcomingCatalystsForSymbol(
   symbol: string,
   catalysts: readonly Catalyst[],
   now = new Date(),
-): Catalyst | undefined {
+): Catalyst[] {
   const today = marketDate(now)
   return catalysts
     .filter((catalyst) => catalyst.symbol === symbol && catalyst.date >= today)
@@ -79,7 +84,15 @@ export function nextCatalystForSymbol(
       left.date.localeCompare(right.date)
       || KIND_PRIORITY[left.kind] - KIND_PRIORITY[right.kind]
       || left.id.localeCompare(right.id)
-    ))[0]
+    ))
+}
+
+export function nextCatalystForSymbol(
+  symbol: string,
+  catalysts: readonly Catalyst[],
+  now = new Date(),
+): Catalyst | undefined {
+  return upcomingCatalystsForSymbol(symbol, catalysts, now)[0]
 }
 
 export function catalystLabel(catalyst: Catalyst, now = new Date()): string {
@@ -90,6 +103,39 @@ export function catalystLabel(catalyst: Catalyst, now = new Date()): string {
   } satisfies Record<Catalyst['kind'], string>)[catalyst.kind]
   if (days === 0) return `${event} TODAY`
   return `${event} ${days}D`
+}
+
+const KIND_NAMES = {
+  earnings: 'earnings',
+  regulatory: 'regulatory',
+  clinical: 'clinical',
+  'investor-event': 'investor day',
+  'product-event': 'product launch',
+  conference: 'conference',
+  shareholder: 'shareholder vote',
+} satisfies Record<Catalyst['kind'], string>
+
+export function catalystKindName(kind: Catalyst['kind']): string {
+  return KIND_NAMES[kind]
+}
+
+/** Ordered by the same materiality priority the runway sorts ties with. */
+export const CATALYST_KIND_NAMES: readonly string[] = CatalystKindSchema.options
+  .slice()
+  .sort((left, right) => KIND_PRIORITY[left] - KIND_PRIORITY[right])
+  .map((kind) => KIND_NAMES[kind])
+
+/** Short mono countdown for the runway rail; the full date sits beside it. */
+export function catalystCountdown(catalyst: Catalyst, now = new Date()): string {
+  const days = daysUntilCatalyst(catalyst, now)
+  return days <= 0 ? 'TODAY' : `${days}D`
+}
+
+/** `unknown` timing is absent rather than guessed, so it renders nothing. */
+export function catalystTimingLabel(timing: Catalyst['timing']): string | undefined {
+  return ({
+    'pre-market': 'Pre-market', intraday: 'Intraday', 'after-hours': 'After hours', unknown: undefined,
+  } satisfies Record<Catalyst['timing'], string | undefined>)[timing]
 }
 
 export function sortSymbolsByCatalyst(
