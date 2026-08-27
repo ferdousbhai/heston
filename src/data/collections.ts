@@ -356,13 +356,14 @@ export function selectWatchlist(id: string, fallbackSymbol?: string) {
   })
 }
 
-/** Signed-out pinning stays device-local and is merged into D1 only after authentication. */
+/** Signed-out pinning stays device-local and becomes fresh anonymous staging. */
 export async function togglePinnedTicker(symbol: string): Promise<void> {
   const parsed = PinnedSymbolSchema.safeParse(symbol)
   const current = preferenceCollection.get('primary')
   if (!parsed.success || !current) return
   const mutation = preferenceCollection.update('primary', (draft) => {
-    const pinnedSymbols = draft.pinnedSymbols ?? []
+    const pinnedSymbols = draft.favoriteUserId ? [] : (draft.pinnedSymbols ?? [])
+    delete draft.favoriteUserId
     draft.pinnedSymbols = pinnedSymbols.includes(parsed.data)
       ? pinnedSymbols.filter((candidate) => candidate !== parsed.data)
       : [...pinnedSymbols, parsed.data].slice(-MAX_LIVE_MARKET_SYMBOLS)

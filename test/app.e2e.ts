@@ -258,7 +258,8 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   await expect(selectedSymbol).toHaveText('INTC')
 })
 
-test('signed-out favorites merge into a member account without granting owner access', async ({ page }) => {
+test('two signed-out devices converge on the account union without granting owner access', async ({ browser, page }) => {
+  test.setTimeout(60_000)
   const snapshot = marketSnapshotFixture()
   snapshot.watchlists = [{
     id: 'public-options-watch',
@@ -269,8 +270,11 @@ test('signed-out favorites merge into a member account without granting owner ac
   snapshot.tickers = snapshot.tickers
     .filter((ticker) => snapshot.watchlists[0]!.symbols.includes(ticker.symbol))
     .map((ticker) => ({ ...ticker, position: false, sparkline: ticker.sparkline.slice(-2) }))
-  let signedIn = false
+  let laptopSignedIn = false
+  let mobileSignedIn = false
   let ownerSnapshotRequests = 0
+  let rejectNextFavoriteMutation = false
+  let rejectedFavoriteMutations = 0
   const serverFavorites = new Set(['BE'])
   const anonymousMerges: string[][] = []
 
@@ -278,7 +282,7 @@ test('signed-out favorites merge into a member account without granting owner ac
     contentType: 'application/json',
     body: JSON.stringify({
       authRequired: true,
-      user: signedIn ? { id: 'member-1', name: 'Member', role: 'member' } : null,
+      user: laptopSignedIn ? { id: 'member-1', name: 'Member', role: 'member' } : null,
     }),
   }))
   await page.route('**/api/public-snapshot', (route) => route.fulfill({
@@ -291,6 +295,12 @@ test('signed-out favorites merge into a member account without granting owner ac
   })
   await page.route('**/api/favorites', async (route) => {
     if (route.request().method() === 'POST') {
+      if (rejectNextFavoriteMutation) {
+        rejectNextFavoriteMutation = false
+        rejectedFavoriteMutations += 1
+        await route.fulfill({ status: 503, body: '{"error":"temporarily unavailable"}' })
+        return
+      }
       const action = FavoriteMutationRequestSchema.parse(route.request().postDataJSON())
       if (action.kind === 'merge') {
         anonymousMerges.push(action.symbols)
@@ -308,7 +318,7 @@ test('signed-out favorites merge into a member account without granting owner ac
   await page.goto('/')
   await page.getByRole('button', { name: 'Pin NVDA' }).click()
   await page.getByRole('button', { name: 'Pin META' }).click()
-  signedIn = true
+  laptopSignedIn = true
   await page.reload()
 
   await expect(page.getByRole('button', { name: 'Unpin BE' })).toBeVisible()
@@ -317,7 +327,68 @@ test('signed-out favorites merge into a member account without granting owner ac
   expect(anonymousMerges.some((symbols) => symbols.includes('META') && symbols.includes('NVDA'))).toBe(true)
   expect(ownerSnapshotRequests).toBe(0)
 
+  const mobileContext = await browser.newContext()
+  const mobile = await mobileContext.newPage()
+  await mobile.route('**/api/viewer', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      authRequired: true,
+      user: mobileSignedIn ? { id: 'member-1', name: 'Member', role: 'member' } : null,
+    }),
+  }))
+  await mobile.route('**/api/public-snapshot', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify(snapshot),
+  }))
+  await mobile.route('**/api/snapshot', (route) => {
+    ownerSnapshotRequests += 1
+    return route.fulfill({ status: 403, body: '{}' })
+  })
+  await mobile.route('**/api/favorites', async (route) => {
+    if (route.request().method() === 'POST') {
+      if (rejectNextFavoriteMutation) {
+        rejectNextFavoriteMutation = false
+        rejectedFavoriteMutations += 1
+        await route.fulfill({ status: 503, body: '{"error":"temporarily unavailable"}' })
+        return
+      }
+      const action = FavoriteMutationRequestSchema.parse(route.request().postDataJSON())
+      if (action.kind === 'merge') {
+        anonymousMerges.push(action.symbols)
+        action.symbols.forEach((symbol) => serverFavorites.add(symbol))
+      } else {
+        action.symbols.forEach((symbol) => serverFavorites.delete(symbol))
+      }
+    }
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ symbols: [...serverFavorites].sort() }),
+    })
+  })
+
+  await mobile.goto('/')
+  await mobile.getByRole('button', { name: 'Pin SPCX' }).click()
+  await mobile.getByRole('button', { name: 'Pin INTC' }).click()
+  mobileSignedIn = true
+  await mobile.reload()
+  await expect(mobile.getByRole('button', { name: 'Unpin META' })).toBeVisible()
+  await expect(mobile.getByRole('button', { name: 'Unpin NVDA' })).toBeVisible()
+  await expect(mobile.getByRole('button', { name: 'Unpin SPCX' })).toBeVisible()
+  await expect(mobile.getByRole('button', { name: 'Unpin INTC' })).toBeVisible()
+  expect(anonymousMerges.some((symbols) => symbols.includes('INTC') && symbols.includes('SPCX'))).toBe(true)
+
+  // The laptop gets no lifecycle event or reload after the mobile merge. Query
+  // Collection's bounded foreground refetch must materialize the additions there.
+  await expect(page.getByRole('button', { name: 'Unpin SPCX' })).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByRole('button', { name: 'Unpin INTC' })).toBeVisible()
+
+  rejectNextFavoriteMutation = true
+  await mobile.getByRole('button', { name: 'Unpin NVDA' }).click()
+  await expect.poll(() => rejectedFavoriteMutations).toBe(1)
+  await expect(mobile.getByRole('button', { name: 'Unpin NVDA' })).toBeVisible()
+
   await page.getByRole('button', { name: 'Unpin META' }).click()
+  await expect(mobile.getByRole('button', { name: 'Pin META' })).toBeVisible({ timeout: 20_000 })
   await page.reload()
   await expect(page.getByRole('button', { name: 'Pin META' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Unpin BE' })).toBeVisible()
@@ -325,4 +396,5 @@ test('signed-out favorites merge into a member account without granting owner ac
   await expect(page.getByRole('heading', { name: /Dan is owner-only/ })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Continue with Google' })).toHaveCount(0)
   expect(ownerSnapshotRequests).toBe(0)
+  await mobileContext.close()
 })
