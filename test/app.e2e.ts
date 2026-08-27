@@ -5,6 +5,10 @@ import { marketSnapshotFixture } from './fixtures/market'
 
 /** `postDataJSON()` hands back an unparsed body; decode it before the route acts on it. */
 const WatchlistMutationRequestSchema = z.object({ kind: z.string(), symbols: z.array(z.string()) })
+const FavoriteMutationRequestSchema = z.object({
+  kind: z.enum(['merge', 'remove']),
+  symbols: z.array(z.string()),
+})
 
 function isoDateAfter(days: number): string {
   const date = new Date()
@@ -35,7 +39,7 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
     body: JSON.stringify(publicSnapshot),
   }))
   await page.goto('/')
-  await expect(page.getByRole('button', { name: 'Owner sign in' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible()
   await expect(page.getByText('Premium looks')).toHaveCount(0)
   await expect(page.locator('.intent-label')).toHaveCount(0)
   await expect(page.locator('.premium-data-table [data-slot="badge"]')).toHaveCount(0)
@@ -82,9 +86,9 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
 
   await page.goto('/support')
   await expect(page.getByRole('heading', { name: 'Support' })).toBeVisible()
-  await expect(page.getByText(/single-owner application with a public, information-only market page/i)).toBeVisible()
-  await expect(page.getByText(/There is no public registration or public trading access/i)).toBeVisible()
-  await expect(page.getByText('Public information is read-only')).toBeVisible()
+  await expect(page.getByText(/public, information-only market page/i)).toBeVisible()
+  await expect(page.getByText(/Google-authenticated members can sync ticker favorites across devices/i)).toBeVisible()
+  await expect(page.getByText('Market information is read-only')).toBeVisible()
 
   await page.goto('/privacy')
   await expect(page.getByRole('heading', { name: 'Privacy policy' })).toBeVisible()
@@ -98,7 +102,7 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   })
   await page.route('**/api/viewer', (route) => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify({ authRequired: true, user: { name: 'Owner' } }),
+    body: JSON.stringify({ authRequired: true, user: { id: 'owner-1', name: 'Owner', role: 'owner' } }),
   }))
   await page.route('**/api/snapshot', (route) => route.fulfill({
     contentType: 'application/json',
@@ -126,6 +130,18 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({ appliedSymbols: action.symbols, detail: 'updated', discardedSymbols: [] }),
+    })
+  })
+  const ownerFavorites = new Set<string>()
+  await page.route('**/api/favorites', async (route) => {
+    if (route.request().method() === 'POST') {
+      const action = FavoriteMutationRequestSchema.parse(route.request().postDataJSON())
+      if (action.kind === 'merge') action.symbols.forEach((symbol) => ownerFavorites.add(symbol))
+      else action.symbols.forEach((symbol) => ownerFavorites.delete(symbol))
+    }
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ symbols: [...ownerFavorites].sort() }),
     })
   })
   await page.goto('/')
@@ -240,4 +256,73 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   await page.evaluate(() => window.dispatchEvent(new Event('offline')))
   await page.getByRole('tab', { name: 'Watch', exact: true }).click()
   await expect(selectedSymbol).toHaveText('INTC')
+})
+
+test('signed-out favorites merge into a member account without granting owner access', async ({ page }) => {
+  const snapshot = marketSnapshotFixture()
+  snapshot.watchlists = [{
+    id: 'public-options-watch',
+    kind: 'public',
+    name: 'Options Watch',
+    symbols: ['NVDA', 'SPCX', 'META', 'BE', 'INTC'],
+  }]
+  snapshot.tickers = snapshot.tickers
+    .filter((ticker) => snapshot.watchlists[0]!.symbols.includes(ticker.symbol))
+    .map((ticker) => ({ ...ticker, position: false, sparkline: ticker.sparkline.slice(-2) }))
+  let signedIn = false
+  let ownerSnapshotRequests = 0
+  const serverFavorites = new Set(['BE'])
+  const anonymousMerges: string[][] = []
+
+  await page.route('**/api/viewer', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      authRequired: true,
+      user: signedIn ? { id: 'member-1', name: 'Member', role: 'member' } : null,
+    }),
+  }))
+  await page.route('**/api/public-snapshot', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify(snapshot),
+  }))
+  await page.route('**/api/snapshot', (route) => {
+    ownerSnapshotRequests += 1
+    return route.fulfill({ status: 403, body: '{}' })
+  })
+  await page.route('**/api/favorites', async (route) => {
+    if (route.request().method() === 'POST') {
+      const action = FavoriteMutationRequestSchema.parse(route.request().postDataJSON())
+      if (action.kind === 'merge') {
+        anonymousMerges.push(action.symbols)
+        action.symbols.forEach((symbol) => serverFavorites.add(symbol))
+      } else {
+        action.symbols.forEach((symbol) => serverFavorites.delete(symbol))
+      }
+    }
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ symbols: [...serverFavorites].sort() }),
+    })
+  })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Pin NVDA' }).click()
+  await page.getByRole('button', { name: 'Pin META' }).click()
+  signedIn = true
+  await page.reload()
+
+  await expect(page.getByRole('button', { name: 'Unpin BE' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Unpin META' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Unpin NVDA' })).toBeVisible()
+  expect(anonymousMerges.some((symbols) => symbols.includes('META') && symbols.includes('NVDA'))).toBe(true)
+  expect(ownerSnapshotRequests).toBe(0)
+
+  await page.getByRole('button', { name: 'Unpin META' }).click()
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'Pin META' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Unpin BE' })).toBeVisible()
+  await page.getByRole('tab', { name: 'Dan' }).click()
+  await expect(page.getByRole('heading', { name: /Dan is owner-only/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Continue with Google' })).toHaveCount(0)
+  expect(ownerSnapshotRequests).toBe(0)
 })

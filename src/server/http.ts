@@ -1,5 +1,9 @@
 import { type JsonValue } from '../domain/json-payload'
-import { getOwnerSession } from './auth'
+import {
+  getAuthenticatedIdentity,
+  isOwnerEmail,
+  type AuthenticatedIdentity,
+} from './auth'
 import { type AppEnv } from './env'
 
 const CANONICAL_ORIGIN = 'https://tryspice.xyz'
@@ -24,19 +28,42 @@ export function jsonPublic(value: JsonValue, init: ResponseInit = {}): Response 
   return Response.json(value, { ...init, headers })
 }
 
-export async function authorizePersonalRequest(request: Request, env: AppEnv, write = false): Promise<Response | undefined> {
+type IdentityReader = (request: Request, env: AppEnv) => Promise<AuthenticatedIdentity | null>
+type AuthenticationResult = { identity: AuthenticatedIdentity } | { response: Response }
+
+export async function authenticateRequest(
+  request: Request,
+  env: AppEnv,
+  write = false,
+  readIdentity: IdentityReader = getAuthenticatedIdentity,
+): Promise<AuthenticationResult> {
+  let identity: AuthenticatedIdentity | null
   try {
-    if (!await getOwnerSession(request, env)) {
-      return jsonNoStore({ error: 'Authentication required' }, { status: 401 })
-    }
+    identity = await readIdentity(request, env)
   } catch {
-    return jsonNoStore({ error: 'Authentication is not configured' }, { status: 503 })
+    return { response: jsonNoStore({ error: 'Authentication is not configured' }, { status: 503 }) }
   }
+  if (!identity) return { response: jsonNoStore({ error: 'Authentication required' }, { status: 401 }) }
   if (write) {
     const origin = request.headers.get('Origin')
     if (!origin || origin !== new URL(request.url).origin) {
-      return jsonNoStore({ error: 'Cross-origin request rejected' }, { status: 403 })
+      return { response: jsonNoStore({ error: 'Cross-origin request rejected' }, { status: 403 }) }
     }
+  }
+  return { identity }
+}
+
+/** Every account, agent, operations, live-stream, and trading route stays exact-owner only. */
+export async function authorizePersonalRequest(
+  request: Request,
+  env: AppEnv,
+  write = false,
+  readIdentity: IdentityReader = getAuthenticatedIdentity,
+): Promise<Response | undefined> {
+  const authenticated = await authenticateRequest(request, env, write, readIdentity)
+  if ('response' in authenticated) return authenticated.response
+  if (!isOwnerEmail(authenticated.identity.email)) {
+    return jsonNoStore({ error: 'Owner access required' }, { status: 403 })
   }
   return undefined
 }

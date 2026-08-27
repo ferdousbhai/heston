@@ -19,9 +19,9 @@ import {
   syncFromCloud,
   syncStateCollection,
   tickerCollection,
-  togglePinnedTicker,
   watchlistCollection,
 } from '../data/collections'
+import { favoriteSymbolsForViewer, syncFavoriteSymbols, toggleFavoriteSymbol } from '../data/favorites'
 import { type WatchlistMutation, WatchlistMutationResultSchema } from '../domain/watchlist'
 import { useLiveMarket } from '../data/live-market'
 import { AgentScreen } from './agent-screen'
@@ -48,7 +48,8 @@ export function SpiceApp() {
 }
 
 function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Viewer | null }) {
-  const audience = viewer ? 'owner' : 'public'
+  const owner = viewer?.role === 'owner'
+  const audience = owner ? 'owner' : 'public'
   const { data: storedTickers = [] } = useLiveQuery((query) => query.from({ ticker: tickerCollection }))
   const { data: storedCatalysts = [] } = useLiveQuery((query) => query.from({ catalyst: catalystCollection }))
   const { data: storedWatchlists = [] } = useLiveQuery((query) => query.from({ watchlist: watchlistCollection }))
@@ -62,6 +63,7 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
   const watchlists = snapshotReady ? storedWatchlists : []
   const research = snapshotReady ? storedResearch[0] : undefined
   const preference = preferences[0]
+  const pinnedSymbols = favoriteSymbolsForViewer(preference, viewer?.id)
   const [tab, setTab] = useState<Tab>('market')
   const [watchlistEditorOpen, setWatchlistEditorOpen] = useState(false)
   const [bootstrappedAudience, setBootstrappedAudience] = useState<'owner' | 'public'>()
@@ -81,7 +83,7 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
     ?? tickers[0]
   const loadedSymbols = new Set(tickers.map((ticker) => ticker.symbol))
   const streamSymbols = selectLiveMarketSymbols(selected?.symbol, activeWatchlist?.symbols ?? [], loadedSymbols)
-  useLiveMarket(streamSymbols, snapshotReady && audience === 'owner')
+  useLiveMarket(streamSymbols, snapshotReady && owner)
 
   const synchronize = useCallback(async (signal?: AbortSignal, force = false): Promise<void> => {
     if (!navigator.onLine) return
@@ -142,12 +144,34 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
     }
   }, [audience, synchronize])
 
+  useEffect(() => {
+    if (!snapshotReady) return
+    const controller = new AbortController()
+    const refreshFavorites = () => {
+      if (!navigator.onLine || controller.signal.aborted) return
+      void syncFavoriteSymbols(viewer?.id, controller.signal).catch(() => undefined)
+    }
+    refreshFavorites()
+    const refreshVisible = () => {
+      if (document.visibilityState === 'visible') refreshFavorites()
+    }
+    window.addEventListener('online', refreshFavorites)
+    window.addEventListener('focus', refreshFavorites)
+    document.addEventListener('visibilitychange', refreshVisible)
+    return () => {
+      controller.abort()
+      window.removeEventListener('online', refreshFavorites)
+      window.removeEventListener('focus', refreshFavorites)
+      document.removeEventListener('visibilitychange', refreshVisible)
+    }
+  }, [snapshotReady, viewer?.id])
+
   const chooseSymbol = (symbol: string) => {
     selectTicker(symbol)
     setTab('market')
   }
   const mutateWatchlist = async (action: WatchlistMutation) => {
-    if (!viewer) throw new Error('Owner authentication is required')
+    if (!owner) throw new Error('Owner authentication is required')
     const response = await fetch('/api/watchlists', {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
@@ -169,7 +193,7 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
   }
 
   const overlayOpen = watchlistEditorOpen
-  const ownerAgentOpen = tab === 'agent' && Boolean(viewer)
+  const ownerAgentOpen = tab === 'agent' && owner
 
   return (
     <div className="app-viewport">
@@ -191,7 +215,7 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
         )}
         <TabsContent value={tab}>
           <main id="main-content" className={ownerAgentOpen ? 'main-content agent-main' : 'main-content'}>
-            {tab === 'agent' && !viewer && <OwnerAccessScreen authError={authError} />}
+            {tab === 'agent' && !owner && <OwnerAccessScreen authError={authError} signedIn={Boolean(viewer)} />}
             {tab !== 'agent' && !snapshotReady && (
               <MarketState loading={!bootstrapComplete} message={bootstrapComplete ? 'Market data is unavailable.' : 'Loading market data…'} />
             )}
@@ -201,8 +225,8 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
                 catalysts={catalysts}
                 onManageWatchlist={() => setWatchlistEditorOpen(true)}
                 onSelectTicker={chooseSymbol}
-                onTogglePinned={(symbol) => void togglePinnedTicker(symbol)}
-                pinnedSymbols={preference?.pinnedSymbols ?? []}
+                onTogglePinned={(symbol) => void toggleFavoriteSymbol(symbol, viewer?.id).catch(() => undefined)}
+                pinnedSymbols={pinnedSymbols}
                 research={research}
                 selected={selected}
                 tickers={tickers}
@@ -215,11 +239,11 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
               <BriefScreen availableSymbols={loadedSymbols} brief={research} onSymbol={chooseSymbol} />
             )}
             {snapshotReady && tab === 'brief' && !research && <MarketState message="No research brief is available." />}
-            {viewer && !snapshotReady && tab === 'agent' && (
+            {owner && !snapshotReady && tab === 'agent' && (
               <MarketState loading={!bootstrapComplete} message={bootstrapComplete ? 'Account market data is unavailable.' : 'Loading account context…'} />
             )}
-            {viewer && snapshotReady && tab === 'agent' && selected && <AgentScreen onAccountMutation={() => synchronize(undefined, true)} selected={selected} />}
-            {viewer && snapshotReady && tab === 'agent' && !selected && <MarketState message="Dan needs a loaded market symbol." />}
+            {owner && snapshotReady && tab === 'agent' && selected && <AgentScreen onAccountMutation={() => synchronize(undefined, true)} selected={selected} />}
+            {owner && snapshotReady && tab === 'agent' && !selected && <MarketState message="Dan needs a loaded market symbol." />}
           </main>
         </TabsContent>
         <TabsList aria-label="Primary navigation" className="bottom-nav">
@@ -228,7 +252,7 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
           <TabsTrigger value="agent"><Bot /><span>Dan</span></TabsTrigger>
         </TabsList>
       </Tabs>
-      {watchlistEditorOpen && snapshotReady && activeWatchlist?.kind === 'private' && (
+      {owner && watchlistEditorOpen && snapshotReady && activeWatchlist?.kind === 'private' && (
         <WatchlistEditor
           onClose={closeWatchlistEditor}
           onMutation={mutateWatchlist}
