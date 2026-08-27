@@ -6,8 +6,17 @@ import { marketSnapshotFixture } from './fixtures/market'
 /** `postDataJSON()` hands back an unparsed body; decode it before the route acts on it. */
 const WatchlistMutationRequestSchema = z.object({ kind: z.string(), symbols: z.array(z.string()) })
 
+function isoDateAfter(days: number): string {
+  const date = new Date()
+  date.setUTCDate(date.getUTCDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
 test('unauthenticated visitors can read market data but Dan stays behind Google sign-in', async ({ page }) => {
   const publicSnapshot = marketSnapshotFixture()
+  publicSnapshot.catalysts = publicSnapshot.catalysts.map((catalyst) => (
+    catalyst.symbol === 'NVDA' ? { ...catalyst, date: isoDateAfter(10) } : catalyst
+  ))
   publicSnapshot.watchlists = [{
     id: 'public-options-watch',
     kind: 'public',
@@ -72,9 +81,7 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
 test('mobile market, research, picker, and agent flows remain coherent', async ({ page, context }) => {
   const snapshot = marketSnapshotFixture()
   snapshot.catalysts.forEach((catalyst, index) => {
-    const date = new Date()
-    date.setUTCDate(date.getUTCDate() + 10 + index * 7)
-    catalyst.date = date.toISOString().slice(0, 10)
+    catalyst.date = isoDateAfter(10 + index * 7)
   })
   await page.route('**/api/viewer', (route) => route.fulfill({
     contentType: 'application/json',
