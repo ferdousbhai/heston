@@ -154,6 +154,10 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   await expect(page.locator('.selected-symbol')).toHaveText('TSLA')
   await page.getByRole('button', { name: /NVDA: NVDA earnings/ }).click()
   await expect(page.locator('.selected-symbol')).toHaveText('NVDA')
+  await expect(page.locator('.focus-context')).toContainText('Next catalyst')
+  await expect(page.locator('.focus-context')).toContainText('NVDA earnings')
+  await expect(page.locator('.focus-context')).toContainText('Daily Brief thesis')
+  await expect(page.locator('.focus-context')).toContainText('Demand checks keep the AI capex thesis alive')
   // The owner reads the one D1-backed list, so there is nothing to choose between.
   await expect(page.locator('.watchlist-title')).toHaveText('Watchlist')
   await expect(page.getByRole('combobox', { name: 'Watchlist' })).toHaveCount(0)
