@@ -336,6 +336,23 @@ describe('daily intelligence pipeline', () => {
       .toEqual([])
   })
 
+  it('accepts a play only when its date can be an option expiration', () => {
+    const idea = { ...generatedResearch().ideas[0]!, direction: 'bullish' as const }
+    const evidence = [{
+      source: 'Example', symbols: ['NVDA'], title: 'NVIDIA update', url: 'https://example.com/nvda',
+    }]
+    const acceptedPlays = (today: string, ...plays: string[]) => researchIdeasForDate(
+      plays.map((play) => ({ ...idea, play })), today, evidence, ['NVDA'],
+    ).map((accepted) => accepted.play)
+
+    // A production brief shipped two plays expiring Sunday 2026-09-20.
+    expect(acceptedPlays('2026-08-14', 'NVDA 225c 9/20', 'NVDA 225c 9/19', 'NVDA 225c 9/17')).toEqual([])
+    expect(acceptedPlays('2026-08-14', 'NVDA 225c 9/18', 'NVDA 225c 10/16'))
+      .toEqual(['NVDA 225c 9/18', 'NVDA 225c 10/16'])
+    // Christmas Day 2026 is a Friday, so that week's options expire Thursday 12/24.
+    expect(acceptedPlays('2026-10-20', 'NVDA 225c 12/25', 'NVDA 225c 12/24')).toEqual(['NVDA 225c 12/24'])
+  })
+
   it('requires every recent same-symbol coverage row and newer evidence for a changed thesis', () => {
     const base = { ...generatedResearch().ideas[0]!, direction: 'bullish' as const }
     const evidence = [{

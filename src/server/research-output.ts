@@ -70,6 +70,42 @@ export function addDays(date: string, days: number): string {
   return new Date(Date.UTC(year!, month! - 1, day! + days)).toISOString().slice(0, 10)
 }
 
+/**
+ * Exchange holidays that land on a Friday, so the week's options expire the Thursday
+ * before instead. Only Good Friday and holidays whose observed date lands on a Friday
+ * can appear here; every other US market holiday falls on a Monday or a Thursday and
+ * leaves that week's Friday expiration intact.
+ *
+ * Plays are bounded to a 90-day horizon, so this list only has to stay a year ahead;
+ * extend it before its last entry falls inside that horizon. Past the listed years the
+ * rule still accepts Fridays and rejects Thursdays, which is right for every ordinary
+ * week and merely conservative in a holiday one.
+ */
+const EXCHANGE_HOLIDAY_FRIDAYS: ReadonlySet<string> = new Set([
+  '2026-04-03', // Good Friday
+  '2026-06-19', // Juneteenth National Independence Day
+  '2026-07-03', // Independence Day observed
+  '2026-12-25', // Christmas Day
+  '2027-01-01', // New Year's Day
+  '2027-03-26', // Good Friday
+  '2027-06-18', // Juneteenth observed
+  '2027-12-24', // Christmas Day observed
+  '2028-04-14', // Good Friday
+  '2029-03-30', // Good Friday
+])
+
+/**
+ * US equity options expire on a Friday, or on the Thursday before when that Friday is an
+ * exchange holiday. A model can emit a well-formed date that no option chain lists — a
+ * production brief shipped two plays expiring Sunday 2026-09-20 — so the expiration
+ * weekday is decided here rather than trusted from model prose.
+ */
+function isOptionExpirationDate(isoDate: string): boolean {
+  const weekday = new Date(`${isoDate}T00:00:00.000Z`).getUTCDay()
+  if (weekday === 5) return !EXCHANGE_HOLIDAY_FRIDAYS.has(isoDate)
+  return weekday === 4 && EXCHANGE_HOLIDAY_FRIDAYS.has(addDays(isoDate, 1))
+}
+
 function playExpiryDate(play: string, today: string): string | undefined {
   const rawMonthDay = play.split(' ').at(-1)
   const [month, day] = (rawMonthDay ?? '').split('/').map(Number)
@@ -115,7 +151,10 @@ function coverageReviewIsValid(
   })
 }
 
-/** Enforce the prompt's expiry horizon in code; a valid-looking model date can still be impossible or stale. */
+/**
+ * Enforce the prompt's expiry horizon in code; a valid-looking model date can still be
+ * impossible, stale, or a calendar day on which no option expires.
+ */
 export function researchIdeasForDate(
   ideas: readonly GeneratedResearch['ideas'][number][],
   today: string,
@@ -128,7 +167,8 @@ export function researchIdeasForDate(
   const symbols = new Set(allowedSymbols)
   return ideas.flatMap((idea) => {
     const expiry = playExpiryDate(idea.play, today)
-    if (!symbols.has(idea.symbol) || expiry === undefined || expiry < minimum || expiry > maximum) return []
+    if (!symbols.has(idea.symbol) || expiry === undefined || expiry < minimum || expiry > maximum
+      || !isOptionExpirationDate(expiry)) return []
     const selected = [...new Set(idea.sourceIndices)].map((index) => evidence[index])
     if (!selected.length || selected.some((source) => !source?.symbols?.includes(idea.symbol))) return []
     if ([idea.headline, idea.description, idea.risk].some(mentionsDiscoverySource)) return []
