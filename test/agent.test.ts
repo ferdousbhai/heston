@@ -198,7 +198,7 @@ describe('order confirmation draft', () => {
     setInternalWatchlistWriter({ ensureSymbols: async () => [] })
     setTradeGuards({
       assertOrderMarketSafe: async () => ({ ask: 2, bid: 1, observedAt: '2026-08-26T13:31:00.000Z', tickSize: 0.01 }),
-      assertPortfolioActionAllowed: async () => undefined,
+      assertPortfolioActionAllowed: async () => ({ allowed: true, floor: 0, maxLoss: 5, remainingLossBudget: 1_000 }),
     })
 
     const draft = await preparePendingAction({ DB: db }, {
