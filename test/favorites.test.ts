@@ -16,6 +16,13 @@ describe('anonymous favorite staging', () => {
   it('never exposes or re-stages a previous account cache while signed out', () => {
     expect(stagedFavoriteSymbols(preference)).toEqual(['NVDA', 'META'])
     expect(stagedFavoriteSymbols({ ...preference, favoriteUserId: 'user-a' })).toEqual([])
+    const favoriteStageVersion = '25dc640a-2d9c-4f32-a666-a00bb1508a35'
+    const versionedPreference = { ...preference, favoriteStageVersion, favoriteUserId: 'legacy-user' }
+    expect(stagedFavoriteSymbols(versionedPreference)).toEqual(['NVDA', 'META'])
+    expect(stagedFavoriteSymbols(versionedPreference, {
+      consumedStageId: `version:${favoriteStageVersion}`,
+      id: 'primary',
+    })).toEqual([])
   })
 })
 

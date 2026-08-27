@@ -21,7 +21,12 @@ import {
   tickerCollection,
   watchlistCollection,
 } from '../data/collections'
-import { createFavoriteSync, stagedFavoriteSymbols, toggleFavoriteSymbol } from '../data/favorites'
+import {
+  createFavoriteSync,
+  favoriteStageMarkerCollection,
+  stagedFavoriteSymbols,
+  toggleFavoriteSymbol,
+} from '../data/favorites'
 import { toError } from '../domain/failure'
 import { type WatchlistMutation, WatchlistMutationResultSchema } from '../domain/watchlist'
 import { useLiveMarket } from '../data/live-market'
@@ -61,6 +66,9 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
   const { data: storedWatchlists = [] } = useLiveQuery((query) => query.from({ watchlist: watchlistCollection }))
   const { data: storedResearch = [] } = useLiveQuery((query) => query.from({ research: researchCollection }))
   const { data: preferences = [] } = useLiveQuery((query) => query.from({ preference: preferenceCollection }))
+  const { data: favoriteStageMarkers = [] } = useLiveQuery(
+    (query) => query.from({ favoriteStageMarker: favoriteStageMarkerCollection }),
+  )
   const { data: syncStates = [] } = useLiveQuery((query) => query.from({ sync: syncStateCollection }))
   const { data: syncedFavorites } = useLiveQuery(
     () => favoriteSync?.collection,
@@ -73,9 +81,10 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
   const watchlists = snapshotReady ? storedWatchlists : []
   const research = snapshotReady ? storedResearch[0] : undefined
   const preference = preferences[0]
+  const favoriteStageMarker = favoriteStageMarkers[0]
   const pinnedSymbols = favoriteSync
     ? (syncedFavorites ?? []).map((favorite) => favorite.symbol)
-    : stagedFavoriteSymbols(preference)
+    : stagedFavoriteSymbols(preference, favoriteStageMarker)
   const [tab, setTab] = useState<Tab>('market')
   const [watchlistEditorOpen, setWatchlistEditorOpen] = useState(false)
   const [bootstrappedAudience, setBootstrappedAudience] = useState<'owner' | 'public'>()

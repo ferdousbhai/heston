@@ -258,6 +258,134 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   await expect(selectedSymbol).toHaveText('INTC')
 })
 
+test('authenticated favorites consume only unchanged anonymous staging across tabs', async ({ context, page }) => {
+  test.setTimeout(60_000)
+  const snapshot = marketSnapshotFixture()
+  snapshot.watchlists = [{
+    id: 'public-options-watch',
+    kind: 'public',
+    name: 'Options Watch',
+    symbols: ['NVDA', 'META', 'INTC'],
+  }]
+  snapshot.tickers = snapshot.tickers
+    .filter((ticker) => snapshot.watchlists[0]!.symbols.includes(ticker.symbol))
+    .map((ticker) => ({ ...ticker, position: false, sparkline: ticker.sparkline.slice(-2) }))
+  const serverFavorites = new Set<string>()
+  const anonymousMerges: string[][] = []
+  let signedIn = false
+  let delayFirstMerge = true
+  let releaseFirstMerge: () => void = () => undefined
+  let signalFirstMerge: () => void = () => undefined
+  const firstMergeReleased = new Promise<void>((resolve) => {
+    releaseFirstMerge = resolve
+  })
+  const firstMergeStarted = new Promise<void>((resolve) => {
+    signalFirstMerge = resolve
+  })
+
+  await page.route('**/api/viewer', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      authRequired: true,
+      user: signedIn ? { id: 'member-1', name: 'Member', role: 'member' } : null,
+    }),
+  }))
+  await page.route('**/api/public-snapshot', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify(snapshot),
+  }))
+  await page.route('**/api/favorites', async (route) => {
+    if (route.request().method() === 'POST') {
+      const action = FavoriteMutationRequestSchema.parse(route.request().postDataJSON())
+      if (action.kind === 'merge') {
+        anonymousMerges.push(action.symbols)
+        if (delayFirstMerge) {
+          delayFirstMerge = false
+          signalFirstMerge()
+          await firstMergeReleased
+        }
+        action.symbols.forEach((symbol) => serverFavorites.add(symbol))
+      } else {
+        action.symbols.forEach((symbol) => serverFavorites.delete(symbol))
+      }
+    }
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ symbols: [...serverFavorites].sort() }),
+    })
+  })
+  await page.addInitScript(() => {
+    window.sessionStorage.setItem('spice.test.block-preference-storage', 'true')
+    window.addEventListener('storage', (event) => {
+      if (
+        event.key !== 'spice.preferences.v2'
+        || window.sessionStorage.getItem('spice.test.block-preference-storage') !== 'true'
+      ) return
+      event.stopImmediatePropagation()
+      window.sessionStorage.setItem('spice.test.blocked-preference-value', event.newValue ?? '')
+    }, { capture: true })
+  })
+
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Pin NVDA' }).click()
+
+  const staleAnonymous = await context.newPage()
+  await staleAnonymous.route('**/api/viewer', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ authRequired: true, user: null }),
+  }))
+  await staleAnonymous.route('**/api/public-snapshot', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify(snapshot),
+  }))
+  await staleAnonymous.goto('/')
+  await expect(staleAnonymous.getByRole('button', { name: 'Unpin NVDA' })).toBeVisible()
+
+  signedIn = true
+  const signedInReload = page.reload()
+  await firstMergeStarted
+  await staleAnonymous.getByRole('button', { name: 'Pin META' }).click()
+  await expect(staleAnonymous.getByRole('button', { name: 'Unpin META' })).toBeVisible()
+  releaseFirstMerge()
+  await signedInReload
+  await expect(page.getByRole('button', { name: 'Unpin NVDA' })).toBeVisible()
+
+  expect(await page.evaluate(() => {
+    const newValue = window.sessionStorage.getItem('spice.test.blocked-preference-value')
+    if (!newValue) return false
+    window.sessionStorage.removeItem('spice.test.block-preference-storage')
+    window.dispatchEvent(new StorageEvent('storage', {
+      key: 'spice.preferences.v2',
+      newValue,
+      storageArea: window.localStorage,
+      url: window.location.href,
+    }))
+    return true
+  })).toBe(true)
+  await page.bringToFront()
+  await page.evaluate(() => window.dispatchEvent(new Event('visibilitychange')))
+  await expect(page.getByRole('button', { name: 'Unpin META' })).toBeVisible()
+  expect(anonymousMerges.some((symbols) => symbols.includes('NVDA') && symbols.includes('META'))).toBe(true)
+
+  await staleAnonymous.bringToFront()
+  await expect(staleAnonymous.getByRole('button', { name: 'Pin NVDA' })).toBeVisible()
+  const authenticatedTabObservedStage = page.evaluate(() => new Promise<boolean>((resolve) => {
+    const observePreference = (event: StorageEvent) => {
+      if (event.key !== 'spice.preferences.v2') return
+      window.removeEventListener('storage', observePreference)
+      resolve(event.storageArea === window.localStorage)
+    }
+    window.addEventListener('storage', observePreference)
+  }))
+  await staleAnonymous.getByRole('button', { name: 'Pin INTC' }).click()
+  expect(await authenticatedTabObservedStage).toBe(true)
+  await page.bringToFront()
+  await page.evaluate(() => window.dispatchEvent(new Event('visibilitychange')))
+  await expect(page.getByRole('button', { name: 'Unpin INTC' })).toBeVisible()
+  expect(serverFavorites).toEqual(new Set(['INTC', 'META', 'NVDA']))
+  await staleAnonymous.close()
+})
+
 test('two signed-out devices converge on the account union without granting owner access', async ({ browser, page }) => {
   test.setTimeout(60_000)
   const snapshot = marketSnapshotFixture()
