@@ -22,6 +22,7 @@ import {
   fiftyTwoWeekPosition,
   formatMarketMetric,
   volatilityVerdict,
+  type ResearchBrief,
   type Ticker,
   type VolatilityVerdict,
   type Watchlist,
@@ -48,6 +49,13 @@ const priceFormatter = new Intl.NumberFormat('en-US', {
 const compactFormatter = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 1,
   notation: 'compact',
+})
+
+const catalystDateFormatter = new Intl.DateTimeFormat('en-US', {
+  day: 'numeric',
+  month: 'short',
+  timeZone: 'UTC',
+  year: 'numeric',
 })
 
 function compactMetric(value: number | undefined, prefix = '', suffix = ''): string {
@@ -142,6 +150,55 @@ function termStructureLabel(ticker: Pick<Ticker, 'ivTermStructure'>): string {
     : `Back +${formatMarketMetric(Math.abs(spread))} pts`
 }
 
+function SelectedSymbolContext({
+  catalyst,
+  idea,
+  symbol,
+}: {
+  catalyst: Catalyst | undefined
+  idea: ResearchBrief['ideas'][number] | undefined
+  symbol: string
+}) {
+  if (!catalyst && !idea) {
+    return (
+      <div className="focus-context">
+        <p className="focus-context-empty">No upcoming catalyst or Daily Brief thesis is available for {symbol}.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="focus-context">
+      {catalyst && (
+        <section>
+          <header className="focus-context-heading">
+            <h3>Next catalyst</h3>
+            <span>
+              <time dateTime={catalyst.date}>
+                {catalystDateFormatter.format(new Date(`${catalyst.date}T00:00:00Z`))}
+              </time>
+              {' · '}{catalyst.confidence}
+            </span>
+          </header>
+          <strong>{catalyst.title}</strong>
+          {catalyst.description && <p>{catalyst.description}</p>}
+        </section>
+      )}
+      {idea && (
+        <section>
+          <header className="focus-context-heading">
+            <h3>Daily Brief thesis</h3>
+            <span>{idea.direction}</span>
+          </header>
+          <strong>{idea.headline}</strong>
+          <p>{idea.description}</p>
+          <p className="focus-context-risk"><span>Risk</span>{idea.risk}</p>
+        </section>
+      )}
+    </div>
+  )
+}
+
 export function MarketScreen({
   activeWatchlist,
   catalysts,
@@ -149,6 +206,7 @@ export function MarketScreen({
   onSelectTicker,
   onTogglePinned,
   pinnedSymbols,
+  research,
   selected,
   tickers,
 }: {
@@ -158,6 +216,7 @@ export function MarketScreen({
   onSelectTicker: (symbol: string) => void
   onTogglePinned: (symbol: string) => void
   pinnedSymbols: readonly string[]
+  research?: ResearchBrief
   selected: Ticker
   tickers: Ticker[]
 }) {
@@ -189,6 +248,8 @@ export function MarketScreen({
   const selectedVerdict = volatilityVerdict(selected)
   const selectedCopy = verdictCopy[selectedVerdict]
   const selectedAsset = assetLabel(selected)
+  const selectedCatalyst = nextCatalystForSymbol(selected.symbol, catalysts, now)
+  const selectedIdea = research?.ideas.find((idea) => idea.symbol === selected.symbol)
   const selectedRangePosition = fiftyTwoWeekPosition(selected)
 
   return (
@@ -205,6 +266,7 @@ export function MarketScreen({
         <CardContent>
           <strong className="premium-focus-verdict" id="selected-premium-title">{selectedCopy.label}</strong>
           <Progress className="premium-axis" aria-label={`Relative premium score ${premiumScore(selected)} out of 100, from cheap to expensive`} value={premiumScore(selected)} />
+          <SelectedSymbolContext catalyst={selectedCatalyst} idea={selectedIdea} symbol={selected.symbol} />
         </CardContent>
         <CardFooter>
           <div className="premium-details">
