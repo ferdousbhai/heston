@@ -2,6 +2,7 @@ import { Type } from '@earendil-works/pi-ai'
 import { type AgentTool } from '@earendil-works/pi-agent-core'
 
 import { EQUITY_SYMBOL_PATTERN } from '../domain/instrument'
+import { textResult } from './agent-tool-result'
 import { type AppEnv } from './env'
 import {
   readInternalWatchlist,
@@ -45,8 +46,8 @@ export const WatchlistReadParameters = Type.Object({
   })),
 }, { additionalProperties: false })
 
-async function readWatchlist(env: AppEnv, symbol?: string, now = new Date()): Promise<WatchlistReadResult> {
-  const fetchedAt = now.toISOString()
+async function readWatchlist(env: AppEnv, symbol?: string): Promise<WatchlistReadResult> {
+  const fetchedAt = new Date().toISOString()
   if (!symbol) {
     const allItems = await readInternalWatchlist(env)
     const items = allItems.slice(0, MAX_RETURNED_ITEMS).map((item) => ({
@@ -73,13 +74,7 @@ async function readWatchlist(env: AppEnv, symbol?: string, now = new Date()): Pr
 export function createWatchlistReadTool(env: AppEnv): AgentTool<typeof WatchlistReadParameters, WatchlistReadResult> {
   return {
     description: "Read Spice's consolidated internal private watchlist. Omit symbol for the list; provide one exact symbol for its retained one-time tastytrade seed provenance. This tool never reads tastytrade watchlist endpoints.",
-    execute: async (_toolCallId, params) => {
-      const result = await readWatchlist(env, params.symbol)
-      return {
-        content: [{ text: JSON.stringify(result), type: 'text' }],
-        details: result,
-      }
-    },
+    execute: async (_toolCallId, params) => textResult(await readWatchlist(env, params.symbol)),
     executionMode: 'sequential',
     label: 'Reading watchlist',
     name: 'read_watchlists',

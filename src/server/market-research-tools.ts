@@ -21,15 +21,7 @@ import { textResult } from './agent-tool-result'
 import { boundedInteger, calculateStudies, normalizeStudies } from './technical-studies'
 import { boundedYahooFetch } from './yahoo-finance-transport'
 
-export type {
-  CompanyFundamentalsProvider,
-  CompanyFundamentalsReadResult,
-  MarketResearchProviders,
-  PriceHistoryProvider,
-  PriceHistoryReadInput,
-  PriceHistoryReadResult,
-  PriceHistoryRow,
-} from './market-research-contracts'
+export type { PriceHistoryProvider, PriceHistoryRow } from './market-research-contracts'
 
 const EQUITY_SYMBOL = /^[A-Z][A-Z0-9.]{0,7}$/
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -291,7 +283,7 @@ function compactFundamentals(
 }
 
 export function createYahooFundamentalsProvider(
-  client: Pick<ResearchYahooClient, 'quoteSummary'> = createYahooClient(),
+  client: Pick<ResearchYahooClient, 'quoteSummary'>,
 ): CompanyFundamentalsProvider {
   return {
     async read(symbol, now) {
@@ -318,8 +310,8 @@ export function createYahooFundamentalsProvider(
 
 export async function readCompanyFundamentals(
   requestedSymbol: string,
-  now = new Date(),
-  provider: CompanyFundamentalsProvider = createYahooFundamentalsProvider(),
+  now: Date,
+  provider: CompanyFundamentalsProvider,
 ): Promise<CompanyFundamentalsReadResult> {
   return provider.read(normalizeSymbol(requestedSymbol), now)
 }
@@ -355,7 +347,7 @@ function normalizeChartQuote(quote: ChartResultArray['quotes'][number]): PriceHi
 }
 
 export function createYahooPriceHistoryProvider(
-  client: Pick<ResearchYahooClient, 'chart'> = createYahooClient(),
+  client: Pick<ResearchYahooClient, 'chart'>,
 ): PriceHistoryProvider {
   return {
     async readDaily(symbol, range) {
@@ -498,7 +490,7 @@ export async function readPriceHistory(
 }
 
 function createCompanyFundamentalsReadTool(
-  provider: CompanyFundamentalsProvider = createYahooFundamentalsProvider(),
+  provider: CompanyFundamentalsProvider,
 ): AgentTool<
   typeof CompanyFundamentalsReadParameters,
   CompanyFundamentalsReadResult

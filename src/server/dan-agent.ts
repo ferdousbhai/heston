@@ -55,46 +55,51 @@ const ClientFrameSchema = z.string()
 
 const ActionResolvedSchema = z.looseObject({ messageId: z.string(), status: z.string() })
 
+// Model-facing JSON Schema only; OrderPlacementSchema.parse stays the sole validator.
+const OrderActionType = Type.Union([
+  Type.Literal('Buy to Open'), Type.Literal('Sell to Open'),
+  Type.Literal('Buy to Close'), Type.Literal('Sell to Close'),
+])
+const ExpiryDateType = Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' })
+const PositivePriceType = Type.Number({ exclusiveMinimum: 0 })
+const OptionTypeType = Type.Union([Type.Literal('C'), Type.Literal('P')])
+const PriceEffectType = Type.Union([Type.Literal('Debit'), Type.Literal('Credit')])
+const UnderlyingSymbolType = Type.String({ pattern: EQUITY_SYMBOL_PATTERN })
+
 const OrderPlacementParameters = Type.Union([
   Type.Object({
-    action: Type.Union([
-      Type.Literal('Buy to Open'), Type.Literal('Sell to Open'),
-      Type.Literal('Buy to Close'), Type.Literal('Sell to Close'),
-    ]),
-    expiry: Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }),
+    action: OrderActionType,
+    expiry: ExpiryDateType,
     kind: Type.Literal('place_option_order'),
-    limitPrice: Type.Number({ exclusiveMinimum: 0 }),
-    optionType: Type.Union([Type.Literal('C'), Type.Literal('P')]),
-    priceEffect: Type.Union([Type.Literal('Debit'), Type.Literal('Credit')]),
+    limitPrice: PositivePriceType,
+    optionType: OptionTypeType,
+    priceEffect: PriceEffectType,
     quantity: Type.Integer({ maximum: 100, minimum: 1 }),
-    strike: Type.Number({ exclusiveMinimum: 0 }),
-    underlying: Type.String({ pattern: EQUITY_SYMBOL_PATTERN }),
+    strike: PositivePriceType,
+    underlying: UnderlyingSymbolType,
   }),
   Type.Object({
-    action: Type.Union([
-      Type.Literal('Buy to Open'), Type.Literal('Sell to Open'),
-      Type.Literal('Buy to Close'), Type.Literal('Sell to Close'),
-    ]),
+    action: OrderActionType,
     kind: Type.Literal('place_equity_order'),
-    limitPrice: Type.Number({ exclusiveMinimum: 0 }),
-    priceEffect: Type.Union([Type.Literal('Debit'), Type.Literal('Credit')]),
+    limitPrice: PositivePriceType,
+    priceEffect: PriceEffectType,
     quantity: Type.Integer({ maximum: 10_000, minimum: 1 }),
-    symbol: Type.String({ pattern: EQUITY_SYMBOL_PATTERN }),
+    symbol: UnderlyingSymbolType,
   }),
   Type.Object({
-    expiry: Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }),
+    expiry: ExpiryDateType,
     kind: Type.Literal('place_vertical_spread_order'),
-    limitPrice: Type.Number({ exclusiveMinimum: 0 }),
-    longStrike: Type.Number({ exclusiveMinimum: 0 }),
-    optionType: Type.Union([Type.Literal('C'), Type.Literal('P')]),
+    limitPrice: PositivePriceType,
+    longStrike: PositivePriceType,
+    optionType: OptionTypeType,
     priceEffect: Type.Literal('Debit'),
     quantity: Type.Integer({ maximum: 100, minimum: 1 }),
-    shortStrike: Type.Number({ exclusiveMinimum: 0 }),
-    underlying: Type.String({ pattern: EQUITY_SYMBOL_PATTERN }),
+    shortStrike: PositivePriceType,
+    underlying: UnderlyingSymbolType,
   }),
   Type.Object({
     kind: Type.Literal('replace_order'),
-    limitPrice: Type.Number({ exclusiveMinimum: 0 }),
+    limitPrice: PositivePriceType,
     orderId: Type.String({ pattern: '^\\d{1,40}$' }),
   }),
 ])
@@ -138,25 +143,11 @@ function boundedText(value: string, max = MAX_STORED_TOOL_RESULT_CHARS): string 
   return value.length <= max ? value : `${value.slice(0, max)}\n[truncated]`
 }
 
-function agentToolLabel(name: string): string {
-  if (name === 'prepare_brokerage_action') return 'Preparing order'
-  if (name === 'read_watchlists') return 'Reading watchlists'
-  if (name === 'read_catalysts') return 'Reading catalysts'
-  if (name === 'read_daily_research') return 'Reading daily research'
-  if (name === 'read_account_history') return 'Reading account history'
-  if (name === 'read_market_metrics') return 'Reading market metrics'
-  if (name === 'read_market_status') return 'Reading market status'
-  if (name === 'search_symbols') return 'Searching symbols'
-  if (name === 'find_option_contracts') return 'Finding option contracts'
-  if (name === 'read_instrument_quotes') return 'Reading instrument quotes'
-  if (name === 'read_option_greeks') return 'Reading option Greeks'
-  if (name === 'read_company_fundamentals') return 'Reading company fundamentals'
-  if (name === 'read_price_history') return 'Reading price history'
-  if (name === 'manage_watchlist') return 'Updating watchlist'
-  if (name === 'remember_trade_symbols') return 'Remembering symbols'
-  if (name === 'cancel_order') return 'Cancelling order'
-  if (name === 'reconcile_brokerage_action') return 'Reconciling order'
-  return name
+/** Tool results are stored asymmetrically: errors stay short, successful output keeps more context. */
+function applyToolOutcome(call: AgentToolCall, output: string, isError: boolean) {
+  call.error = isError ? boundedText(output, 1_000) : undefined
+  call.output = isError ? undefined : boundedText(output)
+  call.status = isError ? 'error' : 'complete'
 }
 
 function replayTranscript(messages: AgentChatMessage[], model: Model<any>): Message[] {
@@ -220,7 +211,6 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
       this.setState({
         ...this.state,
         error: 'The previous run was interrupted before it could finish.',
-        startedAt: undefined,
         status: 'error',
       })
     }
@@ -278,7 +268,6 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
       ...this.state,
       error: undefined,
       messages: compactTranscript([...this.state.messages, userMessage]),
-      startedAt: new Date().toISOString(),
       status: 'running',
     })
     // Model/tool turns can span minutes; the SDK heartbeat prevents idle eviction while waitUntil
@@ -370,6 +359,7 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
         ...createMarketResearchTools(),
         ...createResearchReadTools(this.env),
       ]
+      const toolLabel = new Map(tools.map((tool) => [tool.name, tool.label] as const))
       const context: AgentContext = {
         messages: replayTranscript(this.state.messages, runtime.model),
         systemPrompt: `${DAN_SYSTEM_PROMPT}\n\n<runtime_context>${runtimeContext}</runtime_context>`,
@@ -400,7 +390,7 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
               turnTools.set(block.id, {
                 id: block.id,
                 input: block.arguments,
-                label: agentToolLabel(block.name),
+                label: toolLabel.get(block.name) ?? block.name,
                 name: block.name,
                 status: 'running',
               })
@@ -433,9 +423,7 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
             const existing = turnTools.get(event.toolCallId)
             if (existing) {
               existing.durationMs = durationMs
-                existing.error = event.isError ? boundedText(output, 1_000) : undefined
-                existing.output = event.isError ? undefined : boundedText(output)
-              existing.status = event.isError ? 'error' : 'complete'
+              applyToolOutcome(existing, output, event.isError)
             }
             this.sendEvent({
               durationMs,
@@ -460,17 +448,12 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
               const stored: AgentToolCall = turnTools.get(block.id) ?? {
                 id: block.id,
                 input: block.arguments,
-                label: agentToolLabel(block.name),
+                label: toolLabel.get(block.name) ?? block.name,
                 name: block.name,
                 status: 'complete' as const,
               }
               const result = toolResults.get(block.id)
-              if (result) {
-                const output = contentText(result.content)
-                stored.error = result.isError ? boundedText(output, 1_000) : undefined
-                stored.output = result.isError ? undefined : boundedText(output)
-                stored.status = result.isError ? 'error' : 'complete'
-              }
+              if (result) applyToolOutcome(stored, contentText(result.content), result.isError)
               turnTools.set(block.id, stored)
             }
             const toolCalls = [...turnTools.values()]
@@ -517,7 +500,6 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
       this.setState({
         ...this.state,
         error: turnFailure,
-        startedAt: undefined,
         status: turnFailure ? 'error' : 'idle',
       })
     }

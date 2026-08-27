@@ -9,8 +9,10 @@ export async function readBoundedText(response: Response, maxBytes: number, labe
   }
   if (!response.body) return ''
 
+  // The boundary is measured in raw bytes; decoding streams so no second pass over the body is needed.
   const reader = response.body.getReader()
-  const chunks: Uint8Array[] = []
+  const decoder = new TextDecoder()
+  let text = ''
   let total = 0
   try {
     for (;;) {
@@ -21,19 +23,12 @@ export async function readBoundedText(response: Response, maxBytes: number, labe
         await reader.cancel()
         throw new Error(`${label}:response-too-large`)
       }
-      chunks.push(value)
+      text += decoder.decode(value, { stream: true })
     }
   } finally {
     reader.releaseLock()
   }
-
-  const body = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    body.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return new TextDecoder().decode(body)
+  return text + decoder.decode()
 }
 
 export async function readBoundedJson(response: Response, maxBytes: number, label: string): Promise<JsonValue> {

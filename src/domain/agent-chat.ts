@@ -48,7 +48,6 @@ export type DanAgentState = {
   error?: string
   messages: AgentChatMessage[]
   model: string
-  startedAt?: string
   status: 'error' | 'idle' | 'running'
 }
 

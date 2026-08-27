@@ -8,6 +8,7 @@ import {
 import { BrokerageSubmissionUnknownError, executeOrderPlacement } from './brokerage'
 import { reconcileUnknownBrokerageAction } from './brokerage-reconciliation'
 import { type JsonValue } from '../domain/json-payload'
+import { type PendingAction } from '../domain/agent-chat'
 import { type AppEnv } from './env'
 import { PortfolioRiskError } from './portfolio-risk'
 import { resolveOrderIntent } from './order-intent'
@@ -16,7 +17,6 @@ import { tradeGuards } from './trade-guards'
 import { brokerApi } from './tastytrade'
 import { internalWatchlistWriter } from './internal-watchlist'
 
-type PendingAction = { expiresAt: string; id: string; preview: string; token: string }
 type CloudflareSubtleCrypto = SubtleCrypto & {
   timingSafeEqual(left: ArrayBuffer | ArrayBufferView, right: ArrayBuffer | ArrayBufferView): boolean
 }

@@ -7,24 +7,30 @@ import {
   RemoveWatchlistSymbolsSchema,
 } from '../domain/watchlist'
 
+const OrderActionSchema = z.enum(['Buy to Open', 'Sell to Open', 'Buy to Close', 'Sell to Close'])
+const OrderIdSchema = z.string().regex(/^\d{1,40}$/)
+const ExpiryDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+/** Limit prices are whole cents; the broker rejects finer increments. */
+const LimitPriceSchema = z.number().positive().multipleOf(0.01)
+
 const OptionActionSchema = z.object({
   kind: z.literal('place_option_order'),
   underlying: EquitySymbolSchema,
   optionType: z.enum(['C', 'P']),
   strike: z.number().positive(),
-  expiry: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  action: z.enum(['Buy to Open', 'Sell to Open', 'Buy to Close', 'Sell to Close']),
+  expiry: ExpiryDateSchema,
+  action: OrderActionSchema,
   quantity: z.number().int().min(1).max(100),
-  limitPrice: z.number().positive().multipleOf(0.01),
+  limitPrice: LimitPriceSchema,
   priceEffect: z.enum(['Debit', 'Credit']),
 })
 
 const EquityActionSchema = z.object({
   kind: z.literal('place_equity_order'),
   symbol: EquitySymbolSchema,
-  action: z.enum(['Buy to Open', 'Sell to Open', 'Buy to Close', 'Sell to Close']),
+  action: OrderActionSchema,
   quantity: z.number().int().min(1).max(10_000),
-  limitPrice: z.number().positive().multipleOf(0.01),
+  limitPrice: LimitPriceSchema,
   priceEffect: z.enum(['Debit', 'Credit']),
 })
 
@@ -32,11 +38,11 @@ const VerticalSpreadActionSchema = z.object({
   kind: z.literal('place_vertical_spread_order'),
   underlying: EquitySymbolSchema,
   optionType: z.enum(['C', 'P']),
-  expiry: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  expiry: ExpiryDateSchema,
   longStrike: z.number().positive(),
   shortStrike: z.number().positive(),
   quantity: z.number().int().min(1).max(100),
-  limitPrice: z.number().positive().multipleOf(0.01),
+  limitPrice: LimitPriceSchema,
   priceEffect: z.literal('Debit'),
 }).superRefine((action, context) => {
   const isDebitVertical = action.optionType === 'C'
@@ -52,17 +58,14 @@ const VerticalSpreadActionSchema = z.object({
 
 const ReplaceOrderActionSchema = z.object({
   kind: z.literal('replace_order'),
-  orderId: z.string().regex(/^\d{1,40}$/),
-  limitPrice: z.number().positive().multipleOf(0.01),
+  orderId: OrderIdSchema,
+  limitPrice: LimitPriceSchema,
 })
 
 const CancelActionSchema = z.object({
   kind: z.literal('cancel_order'),
-  orderId: z.string().regex(/^\d{1,40}$/),
+  orderId: OrderIdSchema,
 })
-
-const AddWatchlistActionSchema = AddWatchlistSymbolsSchema
-const RemoveWatchlistActionSchema = RemoveWatchlistSymbolsSchema
 
 export const FreshOrderPlacementSchema = z.discriminatedUnion('kind', [
   OptionActionSchema,
@@ -90,8 +93,8 @@ export const StoredOrderPlacementSchema = z.union([
 
 export const DirectAccountActionSchema = z.discriminatedUnion('kind', [
   CancelActionSchema,
-  AddWatchlistActionSchema,
-  RemoveWatchlistActionSchema,
+  AddWatchlistSymbolsSchema,
+  RemoveWatchlistSymbolsSchema,
 ])
 
 export const ChatRequestSchema = z.object({
