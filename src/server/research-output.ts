@@ -1,7 +1,12 @@
 import { z } from 'zod'
 
 import { CatalystKindSchema, CatalystSchema, isValidIsoDate, marketDate, type Catalyst } from '../domain/catalyst'
-import { EQUITY_SYMBOL_PATTERN, EquitySymbolSchema } from '../domain/instrument'
+import {
+  EQUITY_SYMBOL_PATTERN,
+  EquitySymbolSchema,
+  POTENTIAL_PLAY_PATTERN,
+  POTENTIAL_PLAY_REGEX,
+} from '../domain/instrument'
 import { JsonArraySchema, jsonObject, jsonObjectOrEmpty, type JsonValue } from '../domain/json-payload'
 import { MarketMoverInsightSchema, ResearchIdeaSchema, type ResearchBrief } from '../domain/market'
 import { type RecentTickerCoverage } from './research-coverage'
@@ -29,9 +34,7 @@ const GeneratedResearchIdeaSchema = z.object({
   description: z.string().trim().min(1).max(360),
   direction: z.enum(['bullish', 'bearish', 'neutral']),
   headline: z.string().trim().min(1).max(100),
-  play: z.string().trim().max(40).regex(
-    /^[A-Z][A-Z.]{0,7} \d+(?:\.\d+)?[cp] (?:1[0-2]|[1-9])\/(?:3[01]|[12]\d|[1-9])$/,
-  ),
+  play: z.string().trim().max(40).regex(POTENTIAL_PLAY_REGEX),
   recentCoverageIndices: z.array(z.number().int().nonnegative()).max(3),
   risk: z.string().trim().min(1).max(240),
   sourceIndices: z.array(z.number().int().nonnegative()).min(1).max(3),
@@ -227,7 +230,7 @@ export function dailyResearchResponseSchema() {
             direction: { type: 'string', enum: ['bullish', 'bearish', 'neutral'] },
             headline: { type: 'string', minLength: 1, maxLength: 100 },
             description: { type: 'string', minLength: 1, maxLength: 360 },
-            play: { type: 'string', pattern: '^[A-Z][A-Z.]{0,7} \\d+(?:\\.\\d+)?[cp] (?:1[0-2]|[1-9])\\/(?:3[01]|[12]\\d|[1-9])$' },
+            play: { type: 'string', pattern: POTENTIAL_PLAY_PATTERN },
             recentCoverageIndices: {
               type: 'array', maxItems: 3,
               items: { type: 'integer', minimum: 0 },

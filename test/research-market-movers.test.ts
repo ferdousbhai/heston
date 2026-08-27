@@ -73,17 +73,18 @@ describe('market-mover research', () => {
   it('drops a symbol the domain schema would later refuse rather than admitting it', async () => {
     // MarketMoverInsightSchema parses these symbols again downstream and throws
     // on a miss, so a looser ingest rule here would take the required daily job
-    // down from a best-effort source.
+    // down from a best-effort source. `BRK-B` is the screener's own dash rendering
+    // of a class share, which is not tastytrade symbology and must not be admitted.
     const provider: MarketMoverProvider = {
       screen: async (category) => ({
-        quotes: category === 'gainer' ? [quote('V2X', 9.1), quote('NVDA', 7.5)] : [],
+        quotes: category === 'gainer' ? [quote('BRK-B', 9.1), quote('NVDA', 7.5)] : [],
       }),
       searchNews: async () => ({ news: [] }),
     }
     const evidence = await collectMarketMoverEvidence(provider)
     const symbols = evidence.map((item) => item.marketMover?.symbol)
     expect(symbols).toContain('NVDA')
-    expect(symbols).not.toContain('V2X')
+    expect(symbols).not.toContain('BRK-B')
   })
 
   it('returns no evidence when every bounded screener is unavailable', async () => {

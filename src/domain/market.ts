@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 import { CatalystSchema, isValidIsoDate } from './catalyst'
 import { CandlePointSchema } from './candle'
-import { EquitySymbolSchema } from './instrument'
+import { EquitySymbolSchema, POTENTIAL_PLAY_REGEX } from './instrument'
 import { type JsonValue } from './json-payload'
 
 // One list, two audiences: `private` is the owner's authoritative D1 internal
@@ -54,7 +54,7 @@ export const TickerSchema = z.object({
 })
 
 const PotentialPlaySchema = z.string().trim().max(40).regex(
-  /^[A-Z][A-Z.]{0,7} \d+(?:\.\d+)?[cp] (?:1[0-2]|[1-9])\/(?:3[01]|[12]\d|[1-9])$/,
+  POTENTIAL_PLAY_REGEX,
   'Use TICKER STRIKE(c/p) M/D',
 )
 

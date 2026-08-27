@@ -267,13 +267,13 @@ describe('market research tools', () => {
     }
 
     const company = await readCompanyFundamentals(
-      'BRK.B',
+      'BRK/B',
       now,
       createYahooFundamentalsProvider(client),
     )
 
     expect(client.quoteSummary).toHaveBeenCalledWith('BRK-B', expect.any(Object))
-    expect(company.company.symbol).toBe('BRK.B')
+    expect(company.company.symbol).toBe('BRK/B')
     expect(company.sourceUrl).toContain('BRK-B')
   })
 
@@ -446,7 +446,7 @@ describe('market research tools', () => {
       chart: vi.fn().mockRejectedValue(new Error('network down')),
     }
 
-    await expect(createYahooPriceHistoryProvider(failing).readDaily('BRK.B', {
+    await expect(createYahooPriceHistoryProvider(failing).readDaily('BRK/B', {
       endDate: '2026-08-14',
       startDate: '2026-08-14',
     })).rejects.toThrow('ResearchProvider:yahoo:unavailable')

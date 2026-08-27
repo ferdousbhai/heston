@@ -2,6 +2,7 @@ import { Type } from '@earendil-works/pi-ai'
 import { type AgentTool } from '@earendil-works/pi-agent-core'
 import { z } from 'zod'
 
+import { EQUITY_SYMBOL_PATTERN, EquitySymbolSchema } from '../domain/instrument'
 import { type AppEnv } from './env'
 import { OptionGreeksReadResultSchema, OptionStreamerSymbolSchema } from './market-feed-contracts'
 import { textResult } from './agent-tool-result'
@@ -17,7 +18,7 @@ export const ExactOptionGreeksReadParameters = Type.Object({
     expiry: Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }),
     optionType: Type.Union([Type.Literal('C'), Type.Literal('P')]),
     strike: Type.Number({ exclusiveMinimum: 0, maximum: 1_000_000 }),
-    underlying: Type.String({ pattern: '^[A-Z][A-Z0-9.]{0,7}$' }),
+    underlying: Type.String({ pattern: EQUITY_SYMBOL_PATTERN }),
   }, { additionalProperties: false }), {
     description: 'One to ten exact human-readable equity option tuples.',
     maxItems: MAX_GREEKS_CONTRACTS,
@@ -35,7 +36,7 @@ const ExactOptionGreeksInputSchema = z.object({
     expiry: IsoDateSchema,
     optionType: z.enum(['C', 'P']),
     strike: z.number().finite().positive().max(1_000_000),
-    underlying: z.string().trim().toUpperCase().regex(/^[A-Z][A-Z0-9.]{0,7}$/),
+    underlying: EquitySymbolSchema,
   }).strict()).min(1).max(MAX_GREEKS_CONTRACTS),
 }).strict()
 

@@ -7,6 +7,7 @@ import quoteSummary, {
 } from 'yahoo-finance2/modules/quoteSummary'
 
 import { marketDate } from '../domain/catalyst'
+import { EQUITY_SYMBOL_PATTERN, EQUITY_SYMBOL_REGEX } from '../domain/instrument'
 import {
   type CompanyFundamentalsProvider,
   type CompanyFundamentalsReadResult,
@@ -23,7 +24,6 @@ import { boundedYahooFetch } from './yahoo-finance-transport'
 
 export type { PriceHistoryProvider, PriceHistoryRow } from './market-research-contracts'
 
-const EQUITY_SYMBOL = /^[A-Z][A-Z0-9.]{0,7}$/
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 const MAX_HISTORY_DAYS = 10 * 366
 const MAX_HISTORY_ROWS = 250
@@ -61,8 +61,8 @@ type ResearchYahooClient = {
 
 const CompanyFundamentalsReadParameters = Type.Object({
   symbol: Type.String({
-    description: 'One exact US equity ticker, using tastytrade dot notation where applicable.',
-    pattern: '^[A-Z][A-Z0-9.]{0,7}$',
+    description: 'One exact US equity ticker in tastytrade symbology.',
+    pattern: EQUITY_SYMBOL_PATTERN,
   }),
 }, { additionalProperties: false })
 
@@ -107,7 +107,7 @@ const PriceHistoryReadParameters = Type.Object({
     description: 'Optional studies calculated from adjusted closes. Defaults: period 14; MACD 12/26/9; Bollinger deviations 2.',
     maxItems: MAX_STUDIES,
   })),
-  symbol: Type.String({ pattern: '^[A-Z][A-Z0-9.]{0,7}$' }),
+  symbol: Type.String({ pattern: EQUITY_SYMBOL_PATTERN }),
 }, { additionalProperties: false })
 
 function dateString(value: Date | null | undefined): string | undefined {
@@ -150,12 +150,17 @@ function shiftDate(value: string, days: number): string {
 
 function normalizeSymbol(value: string): string {
   const symbol = value.trim().toUpperCase()
-  if (!EQUITY_SYMBOL.test(symbol)) throw new Error('Market research symbol is invalid.')
+  if (!EQUITY_SYMBOL_REGEX.test(symbol)) throw new Error('Market research symbol is invalid.')
   return symbol
 }
 
+/**
+ * Yahoo renders a share class with a dash (`BRK-B`) where tastytrade uses a slash
+ * (`BRK/B`). The translation lives here, at the one provider boundary that needs it;
+ * every symbol Spice stores or returns stays in tastytrade symbology.
+ */
 function yahooSymbol(symbol: string): string {
-  return symbol.replaceAll('.', '-')
+  return symbol.replaceAll('/', '-')
 }
 
 function createYahooClient(fetcher: typeof fetch = fetch): ResearchYahooClient {

@@ -1,5 +1,7 @@
 import { Type } from '@earendil-works/pi-ai'
 
+import { EQUITY_SYMBOL_PATTERN, EQUITY_SYMBOL_REGEX } from '../domain/instrument'
+
 export type HistoryKind = 'orders' | 'transactions'
 export type TransactionType = 'Money Movement' | 'Trade'
 
@@ -12,7 +14,12 @@ export const MAX_SEARCH_ROWS = 200
 export const MAX_CHAIN_ROWS = 50_000
 export const MAX_OPTION_EXPIRATIONS = 12
 export const MAX_OPTION_CONTRACTS = 60
-export const EQUITY_SYMBOL = /^[A-Z][A-Z0-9.]{0,7}$/
+export const EQUITY_SYMBOL = EQUITY_SYMBOL_REGEX
+/**
+ * Deliberately wider than an equity symbol: broker history may be filtered by a futures
+ * underlying, which tastytrade writes with a leading `/` (`/ES`). Equity-only inputs use
+ * `EQUITY_SYMBOL_PATTERN`.
+ */
 export const UNDERLYING_SYMBOL = /^\/?[A-Z0-9.]{1,31}$/
 export const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -45,7 +52,7 @@ export const AccountHistoryReadParameters = Type.Object({
 }, { additionalProperties: false })
 
 export const MarketMetricsReadParameters = Type.Object({
-  symbols: Type.Array(Type.String({ pattern: '^[A-Z][A-Z0-9.]{0,7}$' }), {
+  symbols: Type.Array(Type.String({ pattern: EQUITY_SYMBOL_PATTERN }), {
     description: 'One to twenty exact equity ticker symbols.',
     maxItems: MAX_MARKET_SYMBOLS,
     minItems: 1,
@@ -71,7 +78,7 @@ export const OptionContractFindParameters = Type.Object({
   })),
   optionType: Type.Optional(Type.Union([Type.Literal('C'), Type.Literal('P')])),
   strike: Type.Optional(Type.Number({ exclusiveMinimum: 0, maximum: 1_000_000 })),
-  underlying: Type.String({ description: 'Exact equity ticker.', pattern: '^[A-Z][A-Z0-9.]{0,7}$' }),
+  underlying: Type.String({ description: 'Exact equity ticker.', pattern: EQUITY_SYMBOL_PATTERN }),
 }, { additionalProperties: false })
 
 export const InstrumentQuoteReadParameters = Type.Object({
@@ -79,9 +86,9 @@ export const InstrumentQuoteReadParameters = Type.Object({
     expiry: Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }),
     optionType: Type.Union([Type.Literal('C'), Type.Literal('P')]),
     strike: Type.Number({ exclusiveMinimum: 0, maximum: 1_000_000 }),
-    underlying: Type.String({ pattern: '^[A-Z][A-Z0-9.]{0,7}$' }),
+    underlying: Type.String({ pattern: EQUITY_SYMBOL_PATTERN }),
   }, { additionalProperties: false }), { maxItems: 10, minItems: 1 })),
-  symbols: Type.Optional(Type.Array(Type.String({ pattern: '^[A-Z][A-Z0-9.]{0,7}$' }), {
+  symbols: Type.Optional(Type.Array(Type.String({ pattern: EQUITY_SYMBOL_PATTERN }), {
     maxItems: 10,
     minItems: 1,
   })),

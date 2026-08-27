@@ -43,8 +43,8 @@ describe('market feed subscription boundary', () => {
   })
 
   it('normalizes, deduplicates, bounds, and rejects invalid symbols', () => {
-    const url = new URL('https://spice.test/api/stream?symbols=spy,NVDA,spy,../secret,BRK.B')
-    expect(parseRequestedSymbols(url)).toEqual(['SPY', 'NVDA', 'BRK.B'])
+    const url = new URL('https://spice.test/api/stream?symbols=spy,NVDA,spy,../secret,BRK/B')
+    expect(parseRequestedSymbols(url)).toEqual(['SPY', 'NVDA', 'BRK/B'])
   })
 
   it('rejects cross-origin WebSocket handshakes', () => {

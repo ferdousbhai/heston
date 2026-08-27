@@ -32,6 +32,70 @@ describe('brokerage action migrations', () => {
     db.close()
   })
 
+  it('rebuilds every symbol constraint onto tastytrade symbology and carries rows over', async () => {
+    const read = (name: string) => readFile(new URL(`../migrations/${name}`, import.meta.url), 'utf8')
+    const db = new DatabaseSync(':memory:')
+    db.exec('PRAGMA foreign_keys = ON')
+    for (const name of [
+      '0001_spice.sql', '0003_public_market_universe.sql', '0004_catalyst_description.sql',
+      '0006_internal_watchlist.sql', '0007_internal_watchlist_validation.sql',
+      '0008_instrument_catalog.sql', '0009_instrument_catalog_resolution.sql',
+      '0010_source_specific_market_data.sql', '0011_internal_watchlist_position_origin.sql',
+      '0012_codex_catalyst_confidence.sql', '0013_user_favorite_symbols.sql',
+    ]) db.exec(await read(name))
+
+    // A class share stored in the old NASDAQ dot rendering, plus a plain symbol.
+    db.exec(`
+      INSERT INTO internal_watchlist_items
+        (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
+      VALUES ('BRK.B', 'Equity', 'owner', '{}', 'now', 'now'), ('NVDA', 'Equity', 'owner', '{}', 'now', 'now');
+      INSERT INTO instrument_catalog
+        (symbol, instrument_type, identity_refreshed_at, status_refreshed_at, created_at, updated_at)
+      VALUES ('BRK.B', 'Equity', 'now', 'now', 'now', 'now');
+      INSERT INTO instrument_tick_sizes (symbol, kind, tier_index, tick_value)
+      VALUES ('BRK.B', 'equity', 0, 0.01);
+      INSERT INTO tastytrade_market_quotes
+        (symbol, price, previous_close, change_amount, change_percent, provider_updated_at, observed_at)
+      VALUES ('BRK.B', 10, 9, 1, 11.1, 'now', 'now');
+      INSERT INTO public_market_universe (id, payload_json, updated_at)
+      VALUES ('primary', json_object('symbols', json_array('BRK.B', 'NVDA')), 'now');
+      INSERT INTO "user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
+      VALUES ('member-1', 'Member', 'member@example.com', 1, 'now', 'now');
+      INSERT INTO user_favorite_symbols (user_id, symbol, created_at) VALUES ('member-1', 'BRK.B', 'now');
+    `)
+
+    db.exec(await read('0014_tastytrade_equity_symbology.sql'))
+
+    // Every dotted row survives in the broker's own notation, tick tiers included.
+    expect(db.prepare('SELECT symbol FROM internal_watchlist_items ORDER BY symbol').all())
+      .toEqual([{ symbol: 'BRK/B' }, { symbol: 'NVDA' }])
+    expect(db.prepare('SELECT symbol FROM instrument_catalog').all()).toEqual([{ symbol: 'BRK/B' }])
+    expect(db.prepare('SELECT symbol, tick_value FROM instrument_tick_sizes').all())
+      .toEqual([{ symbol: 'BRK/B', tick_value: 0.01 }])
+    expect(db.prepare('SELECT symbol FROM tastytrade_market_quotes').all()).toEqual([{ symbol: 'BRK/B' }])
+    expect(db.prepare('SELECT symbol FROM user_favorite_symbols').all()).toEqual([{ symbol: 'BRK/B' }])
+    expect(db.prepare("SELECT payload_json FROM public_market_universe WHERE id = 'primary'").get())
+      .toEqual({ payload_json: '{"symbols":["BRK/B","NVDA"]}' })
+    expect(db.prepare("SELECT symbol FROM public_market_overview WHERE symbol = 'BRK/B'").get())
+      .toEqual({ symbol: 'BRK/B' })
+
+    const insertItem = db.prepare(
+      `INSERT INTO internal_watchlist_items
+        (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
+       VALUES (?, 'Equity', 'owner', '{}', 'now', 'now')`,
+    )
+    expect(() => insertItem.run('V2X')).not.toThrow()
+    expect(() => insertItem.run('BF/A')).not.toThrow()
+    for (const rejected of ['BRK.B', 'BRK-B', '/ES', 'BRK/', 'A/B/C', 'nvda', 'ABCDEFGHIJK']) {
+      expect(() => insertItem.run(rejected)).toThrow()
+    }
+
+    // The rebuilt favorites table still cascades away with its owning user row.
+    db.prepare(`DELETE FROM "user" WHERE "id" = 'member-1'`).run()
+    expect(db.prepare('SELECT count(*) AS count FROM user_favorite_symbols').get()).toEqual({ count: 0 })
+    db.close()
+  })
+
   it('serializes every order kind after the exact production-applied 0005 migration', async () => {
     const initial = await readFile(new URL('../migrations/0001_spice.sql', import.meta.url), 'utf8')
     const migration = await readFile(new URL('../migrations/0005_brokerage_action_state.sql', import.meta.url), 'utf8')
