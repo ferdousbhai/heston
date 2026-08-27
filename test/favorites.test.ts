@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 
-import { favoriteSymbolsForViewer } from '../src/data/favorites'
+import { stagedFavoriteSymbols } from '../src/data/favorites'
 import { mergeFavoriteSymbols, readFavoriteSymbols, removeFavoriteSymbols } from '../src/server/favorites'
 import { sqliteD1 } from './sqlite-d1'
 
@@ -12,16 +12,10 @@ const preference = {
   selectedWatchlistId: 'public-options-watch',
 }
 
-describe('favorite display scope', () => {
-  it('shows anonymous staging only until it becomes scoped to an account', () => {
-    expect(favoriteSymbolsForViewer(preference, undefined)).toEqual(['NVDA', 'META'])
-    expect(favoriteSymbolsForViewer(preference, 'user-a')).toEqual(['NVDA', 'META'])
-    expect(favoriteSymbolsForViewer({ ...preference, favoriteUserId: 'user-a' }, 'user-a'))
-      .toEqual(['NVDA', 'META'])
-    expect(favoriteSymbolsForViewer({ ...preference, favoriteUserId: 'user-a' }, 'user-b'))
-      .toEqual([])
-    expect(favoriteSymbolsForViewer({ ...preference, favoriteUserId: 'user-a' }, undefined))
-      .toEqual([])
+describe('anonymous favorite staging', () => {
+  it('never exposes or re-stages a previous account cache while signed out', () => {
+    expect(stagedFavoriteSymbols(preference)).toEqual(['NVDA', 'META'])
+    expect(stagedFavoriteSymbols({ ...preference, favoriteUserId: 'user-a' })).toEqual([])
   })
 })
 

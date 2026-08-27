@@ -1,38 +1,24 @@
+import { QueryClient } from '@tanstack/query-core'
+import { queryCollectionOptions } from '@tanstack/query-db-collection'
+import { createCollection } from '@tanstack/react-db'
+import { z } from 'zod'
+
 import {
   FavoriteMutationSchema,
   FavoriteSymbolsResponseSchema,
-  FavoriteSymbolsSchema,
   type FavoriteMutation,
 } from '../domain/favorites'
 import { EquitySymbolSchema } from '../domain/instrument'
 import { preferenceCollection, togglePinnedTicker, type Preference } from './collections'
 
-function visibleFavoriteSymbols(preference: Preference | undefined, userId: string | undefined): string[] {
-  if (!preference) return []
-  if (!userId) return preference.favoriteUserId ? [] : preference.pinnedSymbols
-  return preference.favoriteUserId && preference.favoriteUserId !== userId ? [] : preference.pinnedSymbols
+const FAVORITE_REFRESH_INTERVAL_MS = 15_000
+const FavoriteRowSchema = z.strictObject({ symbol: EquitySymbolSchema })
+
+export function stagedFavoriteSymbols(preference: Preference | undefined): string[] {
+  return preference?.favoriteUserId ? [] : [...(preference?.pinnedSymbols ?? [])]
 }
 
-export function favoriteSymbolsForViewer(
-  preference: Preference | undefined,
-  userId: string | undefined,
-): string[] {
-  return [...visibleFavoriteSymbols(preference, userId)]
-}
-
-async function replaceLocalFavorites(symbols: readonly string[], userId: string | undefined): Promise<void> {
-  await preferenceCollection.preload()
-  if (!preferenceCollection.get('primary')) return
-  const parsed = FavoriteSymbolsSchema.parse(symbols)
-  const mutation = preferenceCollection.update('primary', (draft) => {
-    draft.pinnedSymbols = parsed
-    if (userId) draft.favoriteUserId = userId
-    else delete draft.favoriteUserId
-  })
-  await mutation.isPersisted.promise
-}
-
-async function requestFavorites(
+async function requestFavoriteSymbols(
   mutation?: FavoriteMutation,
   signal?: AbortSignal,
 ): Promise<string[]> {
@@ -49,61 +35,91 @@ async function requestFavorites(
   return FavoriteSymbolsResponseSchema.parse(await response.json()).symbols
 }
 
-// Browser requests and focus refreshes share one queue so a slower response cannot
-// overwrite a newer explicit star/unstar result in the TanStack preference cache.
-let favoriteTaskTail: Promise<void> = Promise.resolve()
+async function markAnonymousStageConsumed(userId: string): Promise<void> {
+  const current = preferenceCollection.get('primary')
+  if (!current) return
+  const mutation = preferenceCollection.update('primary', (draft) => {
+    draft.favoriteUserId = userId
+    draft.pinnedSymbols = []
+  })
+  await mutation.isPersisted.promise
+}
 
-function enqueueFavoriteTask(task: () => Promise<void>): Promise<void> {
-  const execution = favoriteTaskTail.then(task)
-  favoriteTaskTail = execution.catch(() => undefined)
-  return execution
+function favoriteRows(symbols: readonly string[]) {
+  return symbols.map((symbol) => FavoriteRowSchema.parse({ symbol }))
 }
 
 /**
- * A preference without a user id is anonymous staging. Its first authenticated sync
- * is additive; an account-scoped cache is refreshed instead, so stale devices cannot
- * re-add a symbol another signed-in device deliberately removed.
+ * One browser workspace owns one QueryClient. Keeping it out of module scope prevents
+ * authenticated rows from ever being shared by Cloudflare SSR isolates.
  */
-async function syncFavoriteSymbolsImmediately(
-  userId: string | undefined,
-  signal?: AbortSignal,
-): Promise<void> {
-  await preferenceCollection.preload()
-  const current = preferenceCollection.get('primary')
-  if (!current) return
-  if (!userId) {
-    if (current.favoriteUserId) await replaceLocalFavorites([], undefined)
-    return
+export function createFavoriteSync(userId: string) {
+  const queryClient = new QueryClient()
+  const queryKey = ['spice-favorites', userId] as const
+  let anonymousStageConsumed = false
+  let mutationTail: Promise<void> = Promise.resolve()
+
+  const enqueueMutation = <T,>(task: () => Promise<T>): Promise<T> => {
+    const execution = mutationTail.then(task)
+    mutationTail = execution.then(() => undefined, () => undefined)
+    return execution
   }
-  const symbols = current.favoriteUserId === undefined
-    ? await requestFavorites({ kind: 'merge', symbols: current.pinnedSymbols }, signal)
-    : await requestFavorites(undefined, signal)
-  if (!signal?.aborted) await replaceLocalFavorites(symbols, userId)
+
+  const collection = createCollection(
+    queryCollectionOptions({
+      id: `spice-favorites-${userId}`,
+      queryKey,
+      queryClient,
+      schema: FavoriteRowSchema,
+      getKey: (favorite) => favorite.symbol,
+      refetchInterval: FAVORITE_REFRESH_INTERVAL_MS,
+      refetchOnMount: 'always',
+      refetchOnReconnect: 'always',
+      refetchOnWindowFocus: 'always',
+      retry: 2,
+      queryFn: async ({ signal }) => {
+        if (anonymousStageConsumed) {
+          return favoriteRows(await requestFavoriteSymbols(undefined, signal))
+        }
+
+        await preferenceCollection.preload()
+        const preference = preferenceCollection.get('primary')
+        const anonymousSymbols = stagedFavoriteSymbols(preference)
+        const symbols = anonymousSymbols.length
+          ? await requestFavoriteSymbols({ kind: 'merge', symbols: anonymousSymbols }, signal)
+          : await requestFavoriteSymbols(undefined, signal)
+        if (signal.aborted) throw new DOMException('Favorite sync was superseded', 'AbortError')
+        await markAnonymousStageConsumed(userId)
+        anonymousStageConsumed = true
+        return favoriteRows(symbols)
+      },
+      onInsert: async ({ transaction }) => {
+        const symbols = transaction.mutations.map((mutation) => mutation.modified.symbol)
+        await enqueueMutation(() => requestFavoriteSymbols({ kind: 'merge', symbols }))
+      },
+      onDelete: async ({ transaction }) => {
+        const symbols = transaction.mutations.map((mutation) => mutation.original.symbol)
+        await enqueueMutation(() => requestFavoriteSymbols({ kind: 'remove', symbols }))
+      },
+    }),
+  )
+
+  return { collection }
 }
 
-export function syncFavoriteSymbols(userId: string | undefined, signal?: AbortSignal): Promise<void> {
-  return enqueueFavoriteTask(() => syncFavoriteSymbolsImmediately(userId, signal))
-}
+export type FavoriteSync = ReturnType<typeof createFavoriteSync>
 
-async function toggleFavoriteSymbolImmediately(symbol: string, userId: string | undefined): Promise<void> {
+export async function toggleFavoriteSymbol(
+  symbol: string,
+  favoriteSync: FavoriteSync | undefined,
+): Promise<void> {
   const parsed = EquitySymbolSchema.safeParse(symbol)
   if (!parsed.success) return
-  if (!userId) return togglePinnedTicker(parsed.data)
+  if (!favoriteSync) return togglePinnedTicker(parsed.data)
 
-  await preferenceCollection.preload()
-  let current = preferenceCollection.get('primary')
-  if (!current) return
-  if (current.favoriteUserId !== userId) {
-    await syncFavoriteSymbolsImmediately(userId)
-    current = preferenceCollection.get('primary')
-  }
-  if (!current || current.favoriteUserId !== userId) return
-  const mutation: FavoriteMutation = current.pinnedSymbols.includes(parsed.data)
-    ? { kind: 'remove', symbols: [parsed.data] }
-    : { kind: 'merge', symbols: [parsed.data] }
-  await replaceLocalFavorites(await requestFavorites(mutation), userId)
-}
-
-export function toggleFavoriteSymbol(symbol: string, userId: string | undefined): Promise<void> {
-  return enqueueFavoriteTask(() => toggleFavoriteSymbolImmediately(symbol, userId))
+  await favoriteSync.collection.preload()
+  const transaction = favoriteSync.collection.get(parsed.data)
+    ? favoriteSync.collection.delete(parsed.data)
+    : favoriteSync.collection.insert({ symbol: parsed.data })
+  await transaction.isPersisted.promise
 }
