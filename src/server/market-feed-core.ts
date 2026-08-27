@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 import { MAX_INTRADAY_CANDLES, type CandlePoint, updateCandleSeries } from '../domain/candle'
 import { toError } from '../domain/failure'
+import { EquitySymbolSchema } from '../domain/instrument'
 import { type AppEnv } from './env'
 import {
   DXLINK_REMOVE_EVENT,
@@ -101,7 +102,7 @@ function eventTimestamp(row: JsonObject): string | undefined {
 function normalizedSymbol(value: JsonValue): string | undefined {
   const raw = TextFrameSchema.safeParse(value).data
   const symbol = raw?.split('{', 1)[0]?.toUpperCase()
-  return symbol && /^[A-Z.]{1,8}$/.test(symbol) ? symbol : undefined
+  return EquitySymbolSchema.safeParse(symbol).data
 }
 
 function eventFromRow(type: Exclude<FeedType, 'Greeks'>, row: JsonObject): LiveMarketEvent | undefined {

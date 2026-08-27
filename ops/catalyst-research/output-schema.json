@@ -17,8 +17,6 @@
           "description",
           "date",
           "timing",
-          "sourceType",
-          "sourceName",
           "sourceUrl"
         ],
         "properties": {
@@ -32,15 +30,9 @@
           "description": { "type": "string", "minLength": 1, "maxLength": 500 },
           "date": { "type": "string" },
           "timing": { "type": "string", "enum": ["pre-market", "intraday", "after-hours", "unknown"] },
-          "sourceType": {
-            "type": "string",
-            "enum": ["first-party", "regulator", "event-organizer", "reputable-secondary"]
-          },
-          "sourceName": { "type": "string", "minLength": 1, "maxLength": 160 },
           "sourceUrl": { "type": "string", "minLength": 1, "maxLength": 2048 }
         }
       }
     }
   }
 }
-

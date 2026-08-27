@@ -1,6 +1,8 @@
 import { z } from 'zod'
 
-const WatchlistSymbolsSchema = z.array(z.string().regex(/^[A-Z][A-Z.]{0,7}$/)).min(1).max(50)
+import { EquitySymbolSchema } from './instrument'
+
+const WatchlistSymbolsSchema = z.array(EquitySymbolSchema).min(1).max(50)
 
 /** Spice maintains one internal watchlist; broker list names are seed provenance, not mutation targets. */
 export const AddWatchlistSymbolsSchema = z.strictObject({
@@ -17,3 +19,11 @@ export const WatchlistMutationSchema = z.discriminatedUnion('kind', [
 ])
 
 export type WatchlistMutation = z.infer<typeof WatchlistMutationSchema>
+
+export const WatchlistMutationResultSchema = z.strictObject({
+  appliedSymbols: z.array(EquitySymbolSchema).max(50),
+  detail: z.string().min(1).max(500),
+  discardedSymbols: z.array(EquitySymbolSchema).max(50),
+})
+
+export type WatchlistMutationResult = z.infer<typeof WatchlistMutationResultSchema>

@@ -26,6 +26,7 @@ import { Field, FieldGroup, FieldLabel } from '#/components/ui/field'
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemTitle } from '#/components/ui/item'
 import { Spinner } from '#/components/ui/spinner'
 import { type Ticker, type Watchlist } from '../domain/market'
+import { EquitySymbolSchema } from '../domain/instrument'
 import { type WatchlistMutation } from '../domain/watchlist'
 
 const ComboboxValueSchema = z.string().min(1)
@@ -72,8 +73,8 @@ export function WatchlistEditor({
 
   const add = (event: FormEvent) => {
     event.preventDefault()
-    const nextSymbol = symbol.trim().toUpperCase()
-    if (!/^[A-Z][A-Z.]{0,7}$/.test(nextSymbol)) {
+    const nextSymbol = EquitySymbolSchema.safeParse(symbol).data
+    if (!nextSymbol) {
       setError('Enter a valid equity symbol')
       return
     }
@@ -86,7 +87,7 @@ export function WatchlistEditor({
         kind: 'add_watchlist_symbols',
         symbols: [nextSymbol],
       })
-      if (succeeded) setSymbol('')
+      setSymbol(succeeded ? '' : nextSymbol)
     })()
   }
 
@@ -110,7 +111,16 @@ export function WatchlistEditor({
                 <Combobox
                   inputValue={symbol}
                   items={availableSymbols}
-                  onInputValueChange={(value) => setSymbol(value.toUpperCase())}
+                  onInputValueChange={(value, eventDetails) => {
+                    // Closing the popup emits a delayed programmatic input-clear.
+                    // This is a free-entry field, so only typing or an explicit
+                    // clear button may discard what the owner entered.
+                    if (eventDetails.reason === 'input-clear') {
+                      eventDetails.cancel()
+                      return
+                    }
+                    setSymbol(value.toUpperCase())
+                  }}
                   onValueChange={(value) => {
                     const parsed = ComboboxValueSchema.safeParse(value)
                     if (parsed.success) setSymbol(parsed.data)

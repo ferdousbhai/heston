@@ -24,7 +24,7 @@ import {
   watchlistCollection,
 } from '../data/collections'
 import { type Watchlist } from '../domain/market'
-import { type WatchlistMutation } from '../domain/watchlist'
+import { type WatchlistMutation, WatchlistMutationResultSchema } from '../domain/watchlist'
 import { useLiveMarket } from '../data/live-market'
 import { AgentScreen } from './agent-screen'
 import { AuthScreen, OwnerAccessScreen, type Viewer, useViewer } from './auth-gate'
@@ -172,9 +172,16 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify(action),
     })
-    const payload = ApiErrorSchema.safeParse(await response.json().catch(() => ({}))).data
+    const payload = await response.json().catch(() => ({}))
+    const result = WatchlistMutationResultSchema.safeParse(payload).data
+    const apiError = ApiErrorSchema.safeParse(payload).data
     if (!response.ok) {
-      throw new Error(payload?.error ?? 'The watchlist could not be updated')
+      // A typed zero-apply capacity rejection changed no server state. Avoid a
+      // needless snapshot reconciliation that can erase the rejected form value.
+      if (snapshotReady && (!result || result.appliedSymbols.length > 0)) {
+        await synchronize(undefined, true).catch(() => undefined)
+      }
+      throw new Error(result?.detail ?? apiError?.error ?? 'The watchlist could not be updated')
     }
     await applyWatchlistMutation(action)
     if (snapshotReady) await synchronize(undefined, true)

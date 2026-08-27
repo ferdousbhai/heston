@@ -36,15 +36,18 @@ describe('tastytrade OAuth boundary', () => {
     expect(brokerGate.gate.releaseMutation).toHaveBeenCalledWith('mutation-token')
   })
 
-  it('coalesces concurrent cold-start token refreshes', async () => {
+  it('does not share pending token-refresh I/O across Worker request contexts', async () => {
     vi.resetModules()
     let releaseToken!: () => void
     const tokenGate = new Promise<void>((resolve) => { releaseToken = resolve })
+    let tokenNumber = 0
     const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
       const url = String(input)
       if (url.endsWith('/oauth/token')) {
+        tokenNumber++
+        const token = `request-token-${tokenNumber}`
         await tokenGate
-        return Response.json({ access_token: 'shared-token', expires_in: 900 })
+        return Response.json({ access_token: token, expires_in: 900 })
       }
       return Response.json({ data: { items: [] } })
     })
@@ -63,17 +66,23 @@ describe('tastytrade OAuth boundary', () => {
       tastyRequest(env, '/two'),
       tastyRequest(env, '/three'),
     ])
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(
+      fetchMock.mock.calls.filter(([input]) => String(input).endsWith('/oauth/token')),
+    ).toHaveLength(3))
     releaseToken()
     await requests
 
-    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith('/oauth/token'))).toHaveLength(1)
-    const tokenInit = fetchMock.mock.calls.find(([input]) => String(input).endsWith('/oauth/token'))?.[1]
-    expect(tokenInit?.signal).toBeInstanceOf(AbortSignal)
+    const tokenCalls = fetchMock.mock.calls.filter(([input]) => String(input).endsWith('/oauth/token'))
+    expect(tokenCalls).toHaveLength(3)
+    expect(tokenCalls.every(([, init]) => init?.signal instanceof AbortSignal)).toBe(true)
     const apiCalls = fetchMock.mock.calls.filter(([input]) => !String(input).endsWith('/oauth/token'))
     expect(apiCalls).toHaveLength(3)
     expect(brokerGate.gate.acquire).toHaveBeenCalledTimes(3)
-    expect(apiCalls.every(([, init]) => new Headers(init?.headers).get('Authorization') === 'Bearer shared-token')).toBe(true)
+    expect(new Set(apiCalls.map(([, init]) => new Headers(init?.headers).get('Authorization')))).toEqual(new Set([
+      'Bearer request-token-1',
+      'Bearer request-token-2',
+      'Bearer request-token-3',
+    ]))
   })
 
   it('fails closed before reading credentials when the request coordinator is unavailable', async () => {

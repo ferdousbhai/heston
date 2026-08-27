@@ -2,25 +2,28 @@ import { readFile } from 'node:fs/promises'
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { type InstrumentCatalogItem } from '../src/domain/instrument'
+import { type JsonValue } from '../src/domain/json-payload'
 import {
   applyCatalystBootstrapArtifact,
   readCatalystBootstrapInstruments,
   validateCatalystBootstrapArtifact,
 } from '../src/server/catalyst-bootstrap'
 import { persistInstrumentCatalog } from '../src/server/instrument-catalog'
-import { ensureInternalWatchlistSeeded } from '../src/server/internal-watchlist'
+import { canonicalCodexSourceUrl } from '../src/server/codex-transcript-evidence'
+import { ensureInternalWatchlistSeeded, finalizeInternalWatchlist } from '../src/server/internal-watchlist'
 import { sqliteD1 } from './sqlite-d1'
 
 let migrations: string[]
 let store: ReturnType<typeof sqliteD1>
 
 beforeAll(async () => {
-  migrations = await Promise.all(Array.from({ length: 10 }, (_, index) => (
+  migrations = await Promise.all(Array.from({ length: 12 }, (_, index) => (
     readFile(new URL(`../migrations/${String(index + 1).padStart(4, '0')}_${[
       'spice', 'scheduled_runs', 'public_market_universe', 'catalyst_description',
       'brokerage_action_state', 'internal_watchlist', 'internal_watchlist_validation',
       'instrument_catalog', 'instrument_catalog_resolution',
-      'source_specific_market_data',
+      'source_specific_market_data', 'internal_watchlist_position_origin',
+      'codex_catalyst_confidence',
     ][index]}.sql`, import.meta.url), 'utf8')
   )))
 })
@@ -79,6 +82,7 @@ async function initializedEnv() {
     publicPayload: [],
   }), new Date('2026-08-26T12:00:00.000Z'))
   await persistInstrumentCatalog(env, [catalogItem()])
+  await finalizeInternalWatchlist(env, [], new Date('2026-08-26T12:01:00.000Z'))
   return env
 }
 
@@ -89,8 +93,6 @@ function artifact() {
       description: 'SpaceX will hold a shareholder event — the agenda includes a launch-program update.',
       instrumentName: 'SpaceX Corporation',
       kind: 'shareholder',
-      sourceName: 'SpaceX investor relations',
-      sourceType: 'first-party',
       sourceUrl: 'https://www.spacex.com/investors/event#agenda',
       symbol: 'SPCX',
       timing: 'unknown',
@@ -99,10 +101,29 @@ function artifact() {
     generatedAt: '2026-08-26T12:00:00.000Z',
     researchedSymbols: ['SPCX'],
     runId: 'd239f195-630c-476f-9bf3-4930be438748',
+    transcripts: [`${JSON.stringify({
+      type: 'item.completed',
+      item: {
+        type: 'web_search',
+        action: { type: 'open_page', url: 'https://www.spacex.com/investors/event#agenda' },
+      },
+    })}\n`],
   }
 }
 
 describe('local Codex catalyst bootstrap boundary', () => {
+  it('rejects Reddit, X, Twitter, and their short-link domains as manual evidence', () => {
+    expect(canonicalCodexSourceUrl('https://new.reddit.com/r/test/comments/1')).toBeUndefined()
+    expect(canonicalCodexSourceUrl('https://redd.it/example')).toBeUndefined()
+    expect(canonicalCodexSourceUrl('https://mobile.twitter.com/example/status/1')).toBeUndefined()
+    expect(canonicalCodexSourceUrl('https://api.x.com/example/status/1')).toBeUndefined()
+    expect(canonicalCodexSourceUrl('https://t.co/example')).toBeUndefined()
+    expect(canonicalCodexSourceUrl('https://reddit.com./r/test/comments/1')).toBeUndefined()
+    expect(canonicalCodexSourceUrl('https://redd.it./example')).toBeUndefined()
+    expect(canonicalCodexSourceUrl('https://x.com./example/status/1')).toBeUndefined()
+    expect(canonicalCodexSourceUrl('https://t.co./example')).toBeUndefined()
+  })
+
   it('uses exact stored instrument identity and rejects social, wrong-name, and out-of-range evidence', async () => {
     const env = await initializedEnv()
     const instruments = await readCatalystBootstrapInstruments(env)
@@ -111,17 +132,18 @@ describe('local Codex catalyst bootstrap boundary', () => {
       { ...value.findings[0]!, instrumentName: 'The SPAC and New Issue ETF' },
       { ...value.findings[0]!, sourceUrl: 'https://x.com/spacex/status/1234' },
       { ...value.findings[0]!, date: '2027-03-01' },
+      { ...value.findings[0]!, sourceUrl: 'https://www.spacex.com/investors/unopened' },
     )
 
     const result = validateCatalystBootstrapArtifact(value, instruments, new Date('2026-08-26T12:00:00.000Z'))
 
     expect(result.catalysts).toEqual([expect.objectContaining({
-      confidence: 'confirmed',
+      confidence: 'estimated',
       description: 'SpaceX will hold a shareholder event - the agenda includes a launch-program update.',
       sourceUrl: 'https://www.spacex.com/investors/event',
       symbol: 'SPCX',
     })])
-    expect(result.rejected).toHaveLength(3)
+    expect(result.rejected).toHaveLength(4)
   })
 
   it('applies the exact validated artifact and records a compact run receipt', async () => {
@@ -130,7 +152,7 @@ describe('local Codex catalyst bootstrap boundary', () => {
 
     expect(result.catalysts).toHaveLength(1)
     expect(store.sqlite.prepare('SELECT symbol, source_label FROM codex_web_catalysts').all()).toEqual([{
-      source_label: 'Codex web · SpaceX investor relations', symbol: 'SPCX',
+      source_label: 'Codex web · spacex.com', symbol: 'SPCX',
     }])
     expect(store.sqlite.prepare(
       'SELECT model, status, symbol_count, accepted_count, rejected_count FROM catalyst_research_runs',
@@ -141,5 +163,53 @@ describe('local Codex catalyst bootstrap boundary', () => {
       status: 'completed',
       symbol_count: 1,
     })
+  })
+
+  it('does not treat a URL-shaped search query or ambiguous legacy action as a page open', async () => {
+    const env = await initializedEnv()
+    const instruments = await readCatalystBootstrapInstruments(env)
+    const value = artifact()
+    value.transcripts = [
+      `${JSON.stringify({
+        type: 'item.completed',
+        item: {
+          type: 'web_search',
+          query: 'https://www.spacex.com/investors/event',
+          action: { type: 'search', queries: ['https://www.spacex.com/investors/event'] },
+        },
+      })}\n${JSON.stringify({
+        type: 'item.completed',
+        item: {
+          type: 'web_search',
+          query: 'https://www.spacex.com/investors/event',
+          action: { type: 'other' },
+        },
+      })}\n`,
+    ]
+
+    expect(() => validateCatalystBootstrapArtifact(
+      value,
+      instruments,
+      new Date('2026-08-26T12:00:00.000Z'),
+    )).toThrow('codex-open-page-evidence-unavailable')
+  })
+
+  it('rejects a supplied artifact that asserts URLs without raw transcript evidence', async () => {
+    const env = await initializedEnv()
+    const instruments = await readCatalystBootstrapInstruments(env)
+    const complete = artifact()
+    const value: JsonValue = {
+      accessedUrls: ['https://www.spacex.com/investors/event'],
+      findings: complete.findings,
+      generatedAt: complete.generatedAt,
+      researchedSymbols: complete.researchedSymbols,
+      runId: complete.runId,
+    }
+
+    expect(() => validateCatalystBootstrapArtifact(
+      value,
+      instruments,
+      new Date('2026-08-26T12:00:00.000Z'),
+    )).toThrow()
   })
 })

@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -7,6 +7,22 @@ import { fileURLToPath } from 'node:url'
 const [inputPath, artifactPath, runsPath] = process.argv.slice(2)
 if (!inputPath || !artifactPath || !runsPath) {
   throw new Error('Usage: run-codex.mjs INPUT ARTIFACT RUNS_DIR')
+}
+
+const LAST_KNOWN_AMBIGUOUS_TRANSCRIPT_VERSION = [0, 148, 0]
+const versionResult = spawnSync('codex', ['--version'], { encoding: 'utf8' })
+const versionMatch = versionResult.stdout?.match(/codex-cli\s+(\d+)\.(\d+)\.(\d+)/)
+const installedVersion = versionMatch?.slice(1).map(Number)
+const versionOrder = installedVersion
+  ? installedVersion[0] - LAST_KNOWN_AMBIGUOUS_TRANSCRIPT_VERSION[0]
+    || installedVersion[1] - LAST_KNOWN_AMBIGUOUS_TRANSCRIPT_VERSION[1]
+    || installedVersion[2] - LAST_KNOWN_AMBIGUOUS_TRANSCRIPT_VERSION[2]
+  : -1
+if (versionResult.status !== 0 || versionOrder <= 0) {
+  const found = versionMatch?.[0] ?? 'unknown Codex version'
+  throw new Error(
+    `Catalyst research requires a codex-cli release newer than 0.148.0 that emits structured open_page transcript actions; found ${found}`,
+  )
 }
 
 const operationDir = path.dirname(fileURLToPath(import.meta.url))
@@ -58,9 +74,11 @@ function prompt(instruments) {
 
 Use Codex's native live web search. Do not use Reddit, X, Twitter, or other social posts as evidence in this run. Search each supplied instrument carefully, preferring its investor-relations site, official newsroom, regulator records, clinical-trial records, government pages, and official event or conference organizers. Follow second-order leads until you either find a direct dated source or conclude that no qualifying event is known.
 
-Today in New York is ${today}. Return only material, scheduled, ticker-specific events from ${today} through ${horizon}. Exclude earnings, dividends, routine filings, past events, undated possibilities, analyst forecasts, rumors, and generic product roadmaps. An exact date must be stated by the source. Use reputable-secondary only when no direct source is available, and then the event will be stored as estimated. Never infer that a similarly named security or company belongs to a ticker.
+Today in New York is ${today}. Return only material, scheduled, ticker-specific events from ${today} through ${horizon}. Exclude earnings, dividends, routine filings, past events, undated possibilities, analyst forecasts, rumors, and generic product roadmaps. An exact date must be stated by the source. Use reputable secondary reporting only when no direct source is available. Every finding in this manual run is stored as estimated. Never infer that a similarly named security or company belongs to a ticker.
 
 For every finding, echo symbol and instrumentName exactly from this input. Use the direct HTTPS page that establishes the date, not a search result page or home page. Keep the description factual and under 500 characters. Use unknown timing unless the source establishes pre-market, intraday, or after-hours. Return an empty findings array when the evidence bar is not met.
+
+Immediately before your final response, open every sourceUrl directly by its exact HTTPS URL. The importer rejects any finding whose page-open event is absent from the Codex transcript.
 
 An instrument with resolutionStatus unresolved has only a tastytrade watchlist symbol, not a verified instrument name. Research it only when an official source clearly establishes what that exact ticker represents; otherwise return no finding for it.
 
@@ -71,10 +89,13 @@ async function runChunk(instruments, index) {
   const finalPath = path.join(runsPath, `chunk-${String(index + 1).padStart(3, '0')}.json`)
   const transcriptPath = path.join(runsPath, `chunk-${String(index + 1).padStart(3, '0')}.jsonl`)
   try {
-    const completed = JSON.parse(await readFile(finalPath, 'utf8'))
+    const [completed, transcript] = await Promise.all([
+      readFile(finalPath, 'utf8').then(JSON.parse),
+      readFile(transcriptPath, 'utf8'),
+    ])
     if (Array.isArray(completed.findings)) {
       process.stderr.write(`Reusing catalyst chunk ${index + 1}/${chunks.length}\n`)
-      return completed.findings
+      return { findings: completed.findings, transcript }
     }
   } catch {
     // Missing or incomplete chunks are safe to rerun because no D1 write happens here.
@@ -101,26 +122,31 @@ async function runChunk(instruments, index) {
   if (exitCode !== 0) throw new Error(`Codex catalyst chunk ${index + 1} failed with exit ${exitCode}`)
   const output = JSON.parse(await readFile(finalPath, 'utf8'))
   if (!Array.isArray(output.findings)) throw new Error(`Codex catalyst chunk ${index + 1} returned no findings`)
-  return output.findings
+  return { findings: output.findings, transcript }
 }
 
 const findings = []
-const chunkFindings = Array.from({ length: chunks.length })
+const transcripts = []
+const chunkResults = Array.from({ length: chunks.length })
 let nextChunk = 0
 async function runWorker() {
   for (;;) {
     const index = nextChunk
     nextChunk += 1
     if (index >= chunks.length) return
-    chunkFindings[index] = await runChunk(chunks[index], index)
+    chunkResults[index] = await runChunk(chunks[index], index)
   }
 }
 await Promise.all(Array.from({ length: Math.min(concurrency, chunks.length) }, () => runWorker()))
-for (const chunk of chunkFindings) findings.push(...chunk)
+for (const chunk of chunkResults) {
+  findings.push(...chunk.findings)
+  transcripts.push(chunk.transcript)
+}
 
 await writeFile(artifactPath, `${JSON.stringify({
   findings,
   generatedAt: now.toISOString(),
   researchedSymbols: selectedInstruments.map((instrument) => instrument.symbol),
   runId: randomUUID(),
+  transcripts,
 }, null, 2)}\n`)

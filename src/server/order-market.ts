@@ -2,7 +2,6 @@ import { type FreshOrderPlacement } from './agent-contracts'
 import { type AppEnv } from './env'
 import {
   envelopeRows,
-  JsonArraySchema,
   jsonNumber,
   jsonObject,
   jsonText,
@@ -10,6 +9,7 @@ import {
   type JsonValue,
 } from '../domain/json-payload'
 import { type EquityOptionContract } from './option-contract'
+import { tastytradeTickSizes } from './tastytrade-tick-sizes'
 import { brokerApi } from './tastytrade'
 
 type OrderAction = FreshOrderPlacement
@@ -48,27 +48,37 @@ function recordRows(payload: JsonValue, label: string): JsonObject[] {
   })
 }
 
-function tickSizeAt(rules: JsonValue, price: number): number {
-  const ruleRows = JsonArraySchema.safeParse(rules).data
-  if (!ruleRows?.length) throw new Error('OrderMarket:missing-tick-rules')
-  const parsed = ruleRows.map((value) => {
-    const row = jsonObject(value)
-    const tick = jsonNumber(row?.value)
-    const rawThreshold = row?.threshold
-    const threshold = rawThreshold === undefined || rawThreshold === null ? undefined : jsonNumber(rawThreshold)
-    if (!row || tick === undefined || tick <= 0
-      || (rawThreshold !== undefined && rawThreshold !== null && threshold === undefined)) {
-      throw new Error('OrderMarket:invalid-tick-rules')
-    }
-    return { tick, threshold }
-  })
-  const thresholdMatches = parsed.filter((rule) => rule.threshold !== undefined && price >= rule.threshold)
-  if (thresholdMatches.length) {
-    return thresholdMatches.sort((left, right) => right.threshold! - left.threshold!)[0]!.tick
+function tickSizeAt(rules: JsonValue, price: number, kind: 'equity' | 'option'): number {
+  let parsed
+  try {
+    parsed = tastytradeTickSizes(rules, 'OrderMarket')
+  } catch {
+    throw new Error('OrderMarket:invalid-tick-rules')
   }
-  const base = parsed.filter((rule) => rule.threshold === undefined)
-  if (base.length !== 1) throw new Error('OrderMarket:ambiguous-tick-rules')
-  return base[0]!.tick
+  if (!parsed.length) throw new Error('OrderMarket:missing-tick-rules')
+
+  const unbounded = parsed.filter((rule) => rule.threshold === null)
+  const bounded = parsed
+    .filter((rule): rule is typeof rule & { threshold: number } => rule.threshold !== null)
+    .sort((left, right) => left.threshold - right.threshold)
+  const uniqueThresholds = new Set(bounded.map((rule) => rule.threshold))
+  if (unbounded.length > 1 || uniqueThresholds.size !== bounded.length) {
+    throw new Error('OrderMarket:ambiguous-tick-rules')
+  }
+
+  if (kind === 'equity') {
+    // Equity tiers are finite lower floors. Some responses contain only the
+    // $1-and-up rule, so prices below the first floor fail closed without a base.
+    const match = [...bounded].reverse().find((rule) => price >= rule.threshold)
+    if (match) return match.value
+    if (unbounded.length === 1) return unbounded[0]!.value
+    throw new Error('OrderMarket:ambiguous-tick-rules')
+  }
+
+  // tastytrade thresholds are exclusive upper cutoffs. The unbounded tier
+  // applies at the cutoff and above (for example, .05 below $3 and .10 at $3).
+  if (unbounded.length !== 1) throw new Error('OrderMarket:ambiguous-tick-rules')
+  return bounded.find((rule) => price < rule.threshold)?.value ?? unbounded[0]!.value
 }
 
 function isTickAligned(price: number, tickSize: number): boolean {
@@ -108,6 +118,7 @@ export function orderMarketFromPayloads(
   const tickSize = tickSizeAt(
     action.kind === 'place_option_order' ? instrument['option-tick-sizes'] : instrument['tick-sizes'],
     action.limitPrice,
+    action.kind === 'place_option_order' ? 'option' : 'equity',
   )
   if (!isTickAligned(action.limitPrice, tickSize)) throw new Error(`OrderMarket:limit-must-use-${tickSize}-tick`)
   if (action.limitPrice < bid || action.limitPrice > ask) {
@@ -146,7 +157,7 @@ export function spreadOrderMarketFromPayloads(
   if (ask <= 0 || bid > ask) throw new Error('OrderMarketQuote:invalid-spread-market')
   const instrument = exactlyOneRecord(instrumentPayload, 'OrderMarketInstrument')
   if (jsonText(instrument.symbol)?.toUpperCase() !== action.underlying) throw new Error('OrderMarketInstrument:mismatch')
-  const tickSize = tickSizeAt(instrument['option-tick-sizes'], action.limitPrice)
+  const tickSize = tickSizeAt(instrument['option-tick-sizes'], action.limitPrice, 'option')
   if (!isTickAligned(action.limitPrice, tickSize)) throw new Error(`OrderMarket:limit-must-use-${tickSize}-tick`)
   if (action.limitPrice < bid || action.limitPrice > ask) {
     throw new Error(`OrderMarket:limit-outside-${bid.toFixed(2)}-${ask.toFixed(2)}`)
@@ -189,5 +200,5 @@ export async function assertOrderMarketSafe(
 }
 
 export function orderMarketPreview(market: OrderMarket): string {
-  return `Market $${market.bid.toFixed(2)}–$${market.ask.toFixed(2)} · $${market.tickSize.toFixed(2)} tick`
+  return `Market $${market.bid.toFixed(2)}-$${market.ask.toFixed(2)} · $${market.tickSize.toFixed(2)} tick`
 }

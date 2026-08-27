@@ -1,6 +1,7 @@
 import { Type } from '@earendil-works/pi-ai'
 import { type AgentTool } from '@earendil-works/pi-agent-core'
 
+import { EQUITY_SYMBOL_PATTERN } from '../domain/instrument'
 import { type AppEnv } from './env'
 import {
   readInternalWatchlist,
@@ -40,7 +41,7 @@ export type WatchlistReadResult =
 export const WatchlistReadParameters = Type.Object({
   symbol: Type.Optional(Type.String({
     description: 'Exact equity symbol. Omit to read the consolidated internal watchlist.',
-    pattern: '^[A-Z][A-Z.]{0,7}$',
+    pattern: EQUITY_SYMBOL_PATTERN,
   })),
 }, { additionalProperties: false })
 

@@ -1,6 +1,7 @@
 import { Type } from '@earendil-works/pi-ai'
 import { type AgentTool } from '@earendil-works/pi-agent-core'
 
+import { EQUITY_SYMBOL_PATTERN, EquitySymbolSchema } from '../domain/instrument'
 import { DirectAccountActionSchema } from './agent-contracts'
 import { type AppEnv } from './env'
 import { brokerApi } from './tastytrade'
@@ -15,16 +16,16 @@ const CancelOrderParameters = Type.Object({
 const WatchlistManagementParameters = Type.Union([
   Type.Object({
     action: Type.Literal('add'),
-    symbols: Type.Array(Type.String({ pattern: '^[A-Z][A-Z.]{0,7}$' }), { maxItems: 50, minItems: 1 }),
+    symbols: Type.Array(Type.String({ pattern: EQUITY_SYMBOL_PATTERN }), { maxItems: 50, minItems: 1 }),
   }, { additionalProperties: false }),
   Type.Object({
     action: Type.Literal('remove'),
-    symbols: Type.Array(Type.String({ pattern: '^[A-Z][A-Z.]{0,7}$' }), { maxItems: 50, minItems: 1 }),
+    symbols: Type.Array(Type.String({ pattern: EQUITY_SYMBOL_PATTERN }), { maxItems: 50, minItems: 1 }),
   }, { additionalProperties: false }),
 ])
 
 const RememberTradeSymbolsParameters = Type.Object({
-  symbols: Type.Array(Type.String({ pattern: '^[A-Z][A-Z.]{0,7}$' }), { maxItems: 10, minItems: 1 }),
+  symbols: Type.Array(Type.String({ pattern: EQUITY_SYMBOL_PATTERN }), { maxItems: 10, minItems: 1 }),
 }, { additionalProperties: false })
 
 function commandText(message: string): string {
@@ -42,8 +43,9 @@ function commandText(message: string): string {
 function requestedSymbols(value: string): string[] | undefined {
   const fragment = value.trim().replace(/^(?:stocks?|tickers?|symbols?)\s+/i, '')
   const parts = fragment.replace(/\s+(?:and|&)\s+/gi, ',').split(',').map((part) => part.trim())
-  if (!parts.length || parts.some((part) => !/^[A-Z][A-Z.]{0,7}$/i.test(part))) return undefined
-  return parts.map((part) => part.toUpperCase())
+  if (!parts.length) return undefined
+  const symbols = parts.map((part) => EquitySymbolSchema.safeParse(part).data)
+  return symbols.every((symbol): symbol is string => Boolean(symbol)) ? symbols : undefined
 }
 
 function authorizesCancel(message: string, orderId: string): boolean {

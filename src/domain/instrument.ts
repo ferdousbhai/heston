@@ -1,6 +1,8 @@
 import { z } from 'zod'
 
-export const EquitySymbolSchema = z.string().trim().toUpperCase().regex(/^[A-Z][A-Z.]{0,7}$/)
+export const EQUITY_SYMBOL_PATTERN = '^[A-Z][A-Z.]{0,7}$'
+export const EQUITY_SYMBOL_REGEX = new RegExp(EQUITY_SYMBOL_PATTERN)
+export const EquitySymbolSchema = z.string().trim().toUpperCase().regex(EQUITY_SYMBOL_REGEX)
 
 const OptionalText = (max: number) => z.string().trim().min(1).max(max).nullable()
 const OptionalBoolean = z.boolean().nullable()

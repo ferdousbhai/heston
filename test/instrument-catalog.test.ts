@@ -3,6 +3,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import {
   instrumentCatalogFromPayload,
+  persistInstrumentCatalog,
   readInstrumentCatalog,
   refreshInstrumentCatalog,
   unresolvedInstrumentCatalogItem,
@@ -131,5 +132,43 @@ describe('typed tastytrade instrument catalog', () => {
       shortDescription: null,
       symbol: 'VXD',
     })
+  })
+
+  it('does not let a temporary unresolved result erase resolved identity or tick tiers', async () => {
+    const env = { DB: store.database }
+    await refreshInstrumentCatalog(env, ['SPCX'], async () => [providerRow()],
+      new Date('2026-08-26T12:00:00.000Z'))
+    await persistInstrumentCatalog(env, [
+      unresolvedInstrumentCatalogItem('SPCX', new Date('2026-08-27T12:00:00.000Z')),
+      unresolvedInstrumentCatalogItem('VXD', new Date('2026-08-27T12:00:00.000Z')),
+    ])
+
+    const catalog = await readInstrumentCatalog(env, ['SPCX', 'VXD'])
+    expect(catalog.get('SPCX')).toMatchObject({
+      description: 'SpaceX Corporation',
+      identitySource: 'equity-endpoint',
+      resolutionStatus: 'resolved',
+      updatedAt: '2026-08-26T12:00:00.000Z',
+    })
+    expect(catalog.get('SPCX')?.tickSizes).toHaveLength(3)
+    expect(catalog.get('VXD')).toMatchObject({
+      description: null,
+      identitySource: 'watchlist-symbol',
+      resolutionStatus: 'unresolved',
+    })
+  })
+
+  it('uses bounded multi-row writes and rejects an oversized persistence invocation', async () => {
+    const env = { DB: store.database }
+    const symbols = ['A', 'B', 'C', 'D']
+    const items = instrumentCatalogFromPayload(symbols.map(providerRow), symbols)
+
+    await persistInstrumentCatalog(env, items)
+
+    expect((await readInstrumentCatalog(env, symbols)).size).toBe(4)
+    await expect(persistInstrumentCatalog(env, Array.from(
+      { length: 101 },
+      (_, index) => unresolvedInstrumentCatalogItem(`Z${index}`.replace(/\d/g, 'A').slice(0, 8)),
+    ))).rejects.toThrow('persist-chunk-too-large')
   })
 })

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { CatalystKindSchema, CatalystSchema, isValidIsoDate, marketDate, type Catalyst } from '../domain/catalyst'
+import { EQUITY_SYMBOL_PATTERN, EquitySymbolSchema } from '../domain/instrument'
 import { JsonArraySchema, jsonObject, jsonObjectOrEmpty, type JsonValue } from '../domain/json-payload'
 import { MarketMoverInsightSchema, ResearchIdeaSchema, type ResearchBrief } from '../domain/market'
 import { type ResearchSourceItem } from './research-contracts'
@@ -8,7 +9,7 @@ import { REDDIT_RESEARCH_SOURCE } from './research-reddit'
 
 const GeneratedRedditCatalystSchema = z.object({
   sourceIndex: z.number().int().nonnegative(),
-  symbol: z.string().regex(/^[A-Z.]{1,8}$/),
+  symbol: EquitySymbolSchema,
   kind: CatalystKindSchema.exclude(['earnings']),
   title: z.string().trim().min(1).max(160),
   description: z.string().trim().min(1).max(500),
@@ -20,7 +21,7 @@ const GeneratedMarketMoverInsightSchema = z.object({
   description: z.string().trim().min(1).max(360),
   headline: z.string().trim().min(1).max(100),
   sourceIndices: z.array(z.number().int().nonnegative()).min(1).max(3),
-  symbol: z.string().regex(/^[A-Z.]{1,8}$/),
+  symbol: EquitySymbolSchema,
 })
 
 const GeneratedResearchIdeaSchema = z.object({
@@ -28,11 +29,11 @@ const GeneratedResearchIdeaSchema = z.object({
   direction: z.enum(['bullish', 'bearish', 'neutral']),
   headline: z.string().trim().min(1).max(100),
   play: z.string().trim().max(40).regex(
-    /^[A-Z.]{1,8} \d+(?:\.\d+)?[cp] (?:1[0-2]|[1-9])\/(?:3[01]|[12]\d|[1-9])$/,
+    /^[A-Z][A-Z.]{0,7} \d+(?:\.\d+)?[cp] (?:1[0-2]|[1-9])\/(?:3[01]|[12]\d|[1-9])$/,
   ),
   risk: z.string().trim().min(1).max(240),
   sourceIndices: z.array(z.number().int().nonnegative()).min(1).max(3),
-  symbol: z.string().regex(/^[A-Z.]{1,8}$/),
+  symbol: EquitySymbolSchema,
 }).refine((idea) => idea.play.startsWith(`${idea.symbol} `), {
   message: 'Potential play must use the idea symbol',
   path: ['play'],
@@ -163,11 +164,11 @@ export function dailyResearchResponseSchema() {
           type: 'object', additionalProperties: false,
           required: ['symbol', 'direction', 'headline', 'description', 'play', 'risk', 'sourceIndices'],
           properties: {
-            symbol: { type: 'string', pattern: '^[A-Z.]{1,8}$' },
+            symbol: { type: 'string', pattern: EQUITY_SYMBOL_PATTERN },
             direction: { type: 'string', enum: ['bullish', 'bearish', 'neutral'] },
             headline: { type: 'string', minLength: 1, maxLength: 100 },
             description: { type: 'string', minLength: 1, maxLength: 360 },
-            play: { type: 'string', pattern: '^[A-Z.]{1,8} \\d+(?:\\.\\d+)?[cp] (?:1[0-2]|[1-9])\\/(?:3[01]|[12]\\d|[1-9])$' },
+            play: { type: 'string', pattern: '^[A-Z][A-Z.]{0,7} \\d+(?:\\.\\d+)?[cp] (?:1[0-2]|[1-9])\\/(?:3[01]|[12]\\d|[1-9])$' },
             risk: { type: 'string', minLength: 1, maxLength: 240 },
             sourceIndices: {
               type: 'array', minItems: 1, maxItems: 3,
@@ -182,7 +183,7 @@ export function dailyResearchResponseSchema() {
           type: 'object', additionalProperties: false,
           required: ['symbol', 'sourceIndices', 'headline', 'description'],
           properties: {
-            symbol: { type: 'string', pattern: '^[A-Z.]{1,8}$' },
+            symbol: { type: 'string', pattern: EQUITY_SYMBOL_PATTERN },
             sourceIndices: {
               // Workers AI's structured-output grammar does not implement uniqueItems.
               // The deterministic binder below removes duplicate indices before use.
@@ -201,7 +202,7 @@ export function dailyResearchResponseSchema() {
           required: ['sourceIndex', 'symbol', 'kind', 'title', 'description', 'date', 'timing'],
           properties: {
             sourceIndex: { type: 'integer', minimum: 0 },
-            symbol: { type: 'string', pattern: '^[A-Z.]{1,8}$' },
+            symbol: { type: 'string', pattern: EQUITY_SYMBOL_PATTERN },
             kind: { type: 'string', enum: ['investor-event', 'product-event', 'regulatory', 'clinical', 'conference', 'shareholder'] },
             title: { type: 'string', minLength: 1, maxLength: 160 },
             description: { type: 'string', minLength: 1, maxLength: 500 },

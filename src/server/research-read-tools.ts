@@ -2,6 +2,7 @@ import { Type } from '@earendil-works/pi-ai'
 import { type AgentTool } from '@earendil-works/pi-agent-core'
 
 import { CatalystSchema, marketDate, type Catalyst } from '../domain/catalyst'
+import { EQUITY_SYMBOL_PATTERN, EquitySymbolSchema } from '../domain/instrument'
 import { type JsonValue } from '../domain/json-payload'
 import { parseStoredResearchBrief, type ResearchBrief } from '../domain/market'
 import { type AppEnv } from './env'
@@ -15,7 +16,7 @@ const CatalystReadParameters = Type.Object({
     maximum: 365,
     minimum: 1,
   })),
-  symbols: Type.Array(Type.String({ pattern: '^[A-Z.]{1,8}$' }), {
+  symbols: Type.Array(Type.String({ pattern: EQUITY_SYMBOL_PATTERN }), {
     description: 'One or more exact equity ticker symbols.',
     maxItems: MAX_CATALYST_SYMBOLS,
     minItems: 1,
@@ -54,10 +55,14 @@ export async function readCatalysts(
   now = new Date(),
 ): Promise<CatalystReadResult> {
   if (!env.DB) throw new Error('Catalyst data is unavailable.')
-  const normalized = requestedSymbols.map((symbol) => symbol.trim())
-  if (!normalized.length || normalized.length > MAX_CATALYST_SYMBOLS
-    || normalized.some((symbol) => !/^[A-Z.]{1,8}$/.test(symbol))) {
+  if (!requestedSymbols.length || requestedSymbols.length > MAX_CATALYST_SYMBOLS) {
     throw new Error('Catalyst symbols are invalid.')
+  }
+  const normalized: string[] = []
+  for (const symbol of requestedSymbols) {
+    const parsed = EquitySymbolSchema.safeParse(symbol).data
+    if (!parsed || parsed !== symbol) throw new Error('Catalyst symbols are invalid.')
+    normalized.push(parsed)
   }
   const symbols = [...new Set(normalized)]
   const boundedHorizon = Math.trunc(horizonDays)

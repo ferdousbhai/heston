@@ -31,6 +31,10 @@ describe('brokerage action migrations', () => {
     const publicUniverse = await readFile(new URL('../migrations/0003_public_market_universe.sql', import.meta.url), 'utf8')
     const migration = await readFile(new URL('../migrations/0006_internal_watchlist.sql', import.meta.url), 'utf8')
     const validation = await readFile(new URL('../migrations/0007_internal_watchlist_validation.sql', import.meta.url), 'utf8')
+    const positionOrigin = await readFile(
+      new URL('../migrations/0011_internal_watchlist_position_origin.sql', import.meta.url),
+      'utf8',
+    )
     const db = new DatabaseSync(':memory:')
     db.exec(publicUniverse)
     db.exec(migration)
@@ -48,10 +52,33 @@ describe('brokerage action migrations', () => {
         (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
        VALUES ('SPY', 'Equity', 'owner', '{}', 'now', 'now')`,
     ).run()
+    db.exec(`
+      INSERT INTO internal_watchlist_seed
+        (id, status, attempt_id, started_at, seeded_at)
+      VALUES ('primary', 'ready', 'legacy', '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z');
+      INSERT INTO internal_watchlist_seed_sources
+        (id, source_kind, source_index, name, metadata_json)
+      VALUES ('tastytrade-private-0', 'private', 0, 'Private', '{}');
+      INSERT INTO internal_watchlist_seed_entries
+        (source_id, entry_index, broker_symbol, instrument_type, metadata_json)
+      VALUES ('tastytrade-private-0', 0, 'NVDA', 'Equity', '{}');
+    `)
     expect(() => db.exec(validation)).not.toThrow()
+    expect(() => db.exec(positionOrigin)).not.toThrow()
     expect(db.prepare(
       `SELECT symbol, instrument_type FROM internal_watchlist_items WHERE symbol = 'SPY'`,
     ).get()).toEqual({ instrument_type: 'Equity', symbol: 'SPY' })
+    expect(db.prepare(
+      `SELECT finalized_at FROM internal_watchlist_seed WHERE id = 'primary'`,
+    ).get()).toEqual({ finalized_at: '2026-08-26T10:00:00.000Z' })
+    expect(db.prepare(
+      `SELECT count(*) AS count FROM internal_watchlist_items WHERE symbol = 'NVDA'`,
+    ).get()).toEqual({ count: 0 })
+    expect(() => db.prepare(
+      `INSERT INTO internal_watchlist_items
+        (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
+       VALUES ('NVDA', 'Equity', 'position-sync', '{}', 'now', 'now')`,
+    ).run()).not.toThrow()
     expect(() => db.prepare(
       `INSERT INTO internal_watchlist_items
         (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
@@ -112,6 +139,10 @@ describe('brokerage action migrations', () => {
       new URL('../migrations/0010_source_specific_market_data.sql', import.meta.url),
       'utf8',
     )
+    const codexConfidence = await readFile(
+      new URL('../migrations/0012_codex_catalyst_confidence.sql', import.meta.url),
+      'utf8',
+    )
     const db = new DatabaseSync(':memory:')
     db.exec(initial)
     db.exec(publicUniverse)
@@ -143,6 +174,36 @@ describe('brokerage action migrations', () => {
        VALUES (
         'reddit:wrong-source', 'NVDA', 'conference', 'Event', 'Description', '2026-11-01',
         'unknown', 'estimated', 'Reddit · r/wallstreetbets', 'https://example.com', 'now', 'now'
+       )`,
+    ).run()).toThrow()
+    db.prepare(
+      `INSERT INTO codex_web_catalysts
+        (id, symbol, kind, title, description, event_date, timing, confidence,
+         source_label, source_url, updated_at, last_seen_at)
+       VALUES (
+        'codex-web:NVDA:conference:legacy', 'NVDA', 'conference', 'Legacy event',
+        'Legacy first-party research', '2026-11-02', 'unknown', 'confirmed',
+        'Codex web · example.com', 'https://example.com/event', 'now', 'now'
+       )`,
+    ).run()
+
+    db.exec(codexConfidence)
+
+    expect(db.prepare(
+      `SELECT confidence FROM codex_web_catalysts WHERE id = 'codex-web:NVDA:conference:legacy'`,
+    ).get()).toEqual({ confidence: 'estimated' })
+    expect(db.prepare(
+      `SELECT confidence, source_provider FROM upcoming_catalysts
+       WHERE id = 'codex-web:NVDA:conference:legacy'`,
+    ).get()).toEqual({ confidence: 'estimated', source_provider: 'codex-web' })
+    expect(() => db.prepare(
+      `INSERT INTO codex_web_catalysts
+        (id, symbol, kind, title, description, event_date, timing, confidence,
+         source_label, source_url, updated_at, last_seen_at)
+       VALUES (
+        'codex-web:NVDA:conference:invalid', 'NVDA', 'conference', 'Invalid event',
+        'Description', '2026-11-03', 'unknown', 'confirmed',
+        'Codex web · example.com', 'https://example.com/invalid', 'now', 'now'
        )`,
     ).run()).toThrow()
     expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'view' ORDER BY name").all())

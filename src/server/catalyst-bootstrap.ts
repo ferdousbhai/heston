@@ -4,26 +4,18 @@ import { CatalystKindSchema, CatalystSchema, isValidIsoDate, marketDate, type Ca
 import { EquitySymbolSchema, instrumentDisplayName, type InstrumentCatalogItem } from '../domain/instrument'
 import { type JsonValue } from '../domain/json-payload'
 import { persistResearchedCatalysts } from './catalysts'
+import { canonicalCodexSourceUrl, openedPageUrlsFromCodexTranscripts } from './codex-transcript-evidence'
 import { type AppEnv } from './env'
 import { readInstrumentCatalog } from './instrument-catalog'
 import { readInternalWatchlistFocus } from './internal-watchlist'
 
 const MODEL = 'local-codex-native-web'
 const MAX_FINDINGS = 1_000
-const SOCIAL_HOSTS = new Set([
-  'reddit.com', 'www.reddit.com', 'old.reddit.com',
-  'x.com', 'www.x.com', 'twitter.com', 'www.twitter.com',
-])
-
-const SourceTypeSchema = z.enum(['first-party', 'regulator', 'event-organizer', 'reputable-secondary'])
-
 const FindingSchema = z.object({
   date: z.string(),
   description: z.string().trim().min(1).max(500),
   instrumentName: z.string().trim().min(1).max(512),
   kind: CatalystKindSchema.exclude(['earnings']),
-  sourceName: z.string().trim().min(1).max(160),
-  sourceType: SourceTypeSchema,
   sourceUrl: z.string().trim().max(2_048),
   symbol: EquitySymbolSchema,
   timing: z.enum(['pre-market', 'intraday', 'after-hours', 'unknown']),
@@ -35,6 +27,7 @@ const ArtifactEnvelopeSchema = z.object({
   generatedAt: z.string().datetime(),
   researchedSymbols: z.array(EquitySymbolSchema).min(1).max(10_000),
   runId: z.string().uuid(),
+  transcripts: z.array(z.string().max(1_000_000)).min(1).max(100),
 })
 
 export type CatalystBootstrapInstrument = {
@@ -66,19 +59,6 @@ function cleanText(value: string): string {
   return value.replaceAll('—', '-').replaceAll(/\s+/g, ' ').trim()
 }
 
-function canonicalSourceUrl(value: string): string | undefined {
-  try {
-    const url = new URL(value)
-    if (url.protocol !== 'https:' || url.username || url.password || SOCIAL_HOSTS.has(url.hostname.toLowerCase())) {
-      return undefined
-    }
-    url.hash = ''
-    return url.toString()
-  } catch {
-    return undefined
-  }
-}
-
 function shortStableHash(value: string): string {
   let hash = 2_166_136_261
   for (const character of value) {
@@ -91,6 +71,7 @@ function shortStableHash(value: string): string {
 function catalystFromFinding(
   finding: z.infer<typeof FindingSchema>,
   instrument: CatalystBootstrapInstrument,
+  accessedUrls: ReadonlySet<string>,
   now: Date,
 ): Catalyst | undefined {
   const today = marketDate(now)
@@ -98,14 +79,14 @@ function catalystFromFinding(
     || !isValidIsoDate(finding.date)
     || finding.date < today
     || finding.date > plusDays(today, 180)) return undefined
-  const sourceUrl = canonicalSourceUrl(finding.sourceUrl)
-  if (!sourceUrl) return undefined
+  const sourceUrl = canonicalCodexSourceUrl(finding.sourceUrl)
+  if (!sourceUrl || !accessedUrls.has(sourceUrl)) return undefined
   const title = cleanText(finding.title)
   const description = cleanText(finding.description)
-  const sourceName = cleanText(finding.sourceName)
+  const sourceName = new URL(sourceUrl).hostname.replace(/^www\./, '')
   const identity = `${finding.symbol}:${finding.kind}:${finding.date}:${sourceUrl}:${title}`
   return CatalystSchema.parse({
-    confidence: finding.sourceType === 'reputable-secondary' ? 'estimated' : 'confirmed',
+    confidence: 'estimated',
     date: finding.date,
     description,
     id: `codex-web:${finding.symbol}:${finding.kind}:${finding.date}:${shortStableHash(identity)}`,
@@ -135,6 +116,10 @@ export function validateCatalystBootstrapArtifact(
   now = new Date(),
 ): CatalystBootstrapValidation {
   const artifact = ArtifactEnvelopeSchema.parse(artifactValue)
+  const accessedUrls = openedPageUrlsFromCodexTranscripts(artifact.transcripts)
+  if (artifact.findings.length && !accessedUrls.size) {
+    throw new Error('CatalystBootstrap:codex-open-page-evidence-unavailable')
+  }
   const researchedSymbols = new Set(artifact.researchedSymbols)
   if (researchedSymbols.size !== artifact.researchedSymbols.length) {
     throw new Error('CatalystBootstrap:duplicate-researched-symbol')
@@ -153,7 +138,7 @@ export function validateCatalystBootstrapArtifact(
       continue
     }
     const instrument = allowed.get(finding.data.symbol)
-    const catalyst = instrument ? catalystFromFinding(finding.data, instrument, now) : undefined
+    const catalyst = instrument ? catalystFromFinding(finding.data, instrument, accessedUrls, now) : undefined
     if (!catalyst) {
       rejected.push({ index, reason: 'invalid-provenance-or-date' })
       continue

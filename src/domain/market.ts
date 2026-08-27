@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 import { CatalystSchema, isValidIsoDate } from './catalyst'
 import { CandlePointSchema } from './candle'
+import { EquitySymbolSchema } from './instrument'
 import { type JsonValue } from './json-payload'
 
 const WatchlistKindSchema = z.enum(['private', 'positions', 'public'])
@@ -10,7 +11,7 @@ export const WatchlistSchema = z.object({
   id: z.string(),
   kind: WatchlistKindSchema,
   name: z.string(),
-  symbols: z.array(z.string()),
+  symbols: z.array(EquitySymbolSchema),
 })
 
 const MarketDateSchema = z.string().refine(isValidIsoDate, 'Use a real YYYY-MM-DD date')
@@ -23,7 +24,7 @@ const IvTermStructureSchema = z.object({
 })
 
 export const TickerSchema = z.object({
-  symbol: z.string(),
+  symbol: EquitySymbolSchema,
   name: z.string(),
   assetType: z.enum(['stock', 'etf', 'index']).optional(),
   borrowRate: z.number().optional(),
@@ -50,12 +51,12 @@ export const TickerSchema = z.object({
 })
 
 const PotentialPlaySchema = z.string().trim().max(40).regex(
-  /^[A-Z.]{1,8} \d+(?:\.\d+)?[cp] (?:1[0-2]|[1-9])\/(?:3[01]|[12]\d|[1-9])$/,
+  /^[A-Z][A-Z.]{0,7} \d+(?:\.\d+)?[cp] (?:1[0-2]|[1-9])\/(?:3[01]|[12]\d|[1-9])$/,
   'Use TICKER STRIKE(c/p) M/D',
 )
 
 const ResearchIdeaFields = {
-  symbol: z.string().regex(/^[A-Z.]{1,8}$/),
+  symbol: EquitySymbolSchema,
   direction: z.enum(['bullish', 'bearish', 'neutral']),
   headline: z.string().trim().min(1).max(100),
   description: z.string().trim().min(1).max(360),
@@ -96,7 +97,7 @@ export const MarketMoverInsightSchema = z.object({
   name: z.string().trim().min(1).max(160),
   price: z.number().positive(),
   sources: z.array(ResearchSourceLinkSchema).min(1).max(3),
-  symbol: z.string().regex(/^[A-Z.]{1,8}$/),
+  symbol: EquitySymbolSchema,
   volume: z.number().nonnegative(),
 })
 
@@ -127,7 +128,7 @@ const CurrentStoredResearchBriefSchema = ResearchBriefSchema.extend({
 })
 
 const PreEvidenceResearchIdeaSchema = z.object({
-  symbol: z.string().regex(/^[A-Z.]{1,8}$/),
+  symbol: EquitySymbolSchema,
   direction: z.enum(['bullish', 'bearish', 'neutral']),
   setup: z.string().trim().min(1),
   thesis: z.string().trim().min(1),

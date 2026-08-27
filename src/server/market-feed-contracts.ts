@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { CandlePointSchema, MAX_INTRADAY_CANDLES } from '../domain/candle'
+import { EquitySymbolSchema } from '../domain/instrument'
 import { jsonNumber, type JsonObject } from '../domain/json-payload'
 
 export const DXLINK_TX_PENDING = 0x1
@@ -9,7 +10,7 @@ export const DXLINK_SNAPSHOT_BEGIN = 0x4
 export const DXLINK_SNAPSHOT_END = 0x8
 export const DXLINK_SNAPSHOT_SNIP = 0x10
 
-const MarketSymbolSchema = z.string().trim().toUpperCase().regex(/^[A-Z.]{1,8}$/)
+const MarketSymbolSchema = EquitySymbolSchema
 
 export const LiveMarketEventSchema = z.object({
   type: z.literal('market'),

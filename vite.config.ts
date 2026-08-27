@@ -27,7 +27,7 @@ const config = defineConfig({
       injectRegister: false,
       includeAssets: ['spice-mark.svg', 'spice-mark-180.png'],
       manifest: {
-        name: 'Spice Must Flow — Options intelligence',
+        name: 'Spice Must Flow',
         short_name: 'Spice Must Flow',
         description: 'Public options intelligence and market research with owner-gated order placement.',
         theme_color: '#08090c',

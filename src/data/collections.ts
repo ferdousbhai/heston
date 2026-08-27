@@ -2,6 +2,7 @@ import { createCollection, localOnlyCollectionOptions, localStorageCollectionOpt
 import { z } from 'zod'
 
 import { CatalystSchema } from '../domain/catalyst'
+import { EquitySymbolSchema } from '../domain/instrument'
 import { type JsonValue } from '../domain/json-payload'
 import { reconcileCandleSeries, updateCandleSeries, type CandlePoint } from '../domain/candle'
 import {
@@ -36,7 +37,7 @@ const SyncStateSchema = z.object({
   syncedAt: z.string(),
 })
 
-const PinnedSymbolSchema = z.string().regex(/^[A-Z.]{1,8}$/)
+const PinnedSymbolSchema = EquitySymbolSchema
 
 const PreferenceSchema = z.object({
   id: z.literal('primary'),

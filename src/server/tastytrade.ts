@@ -1,7 +1,7 @@
 import { type CandlePoint } from '../domain/candle'
 import { toError } from '../domain/failure'
 import { isValidIsoDate } from '../domain/catalyst'
-import { type InstrumentCatalogItem } from '../domain/instrument'
+import { EquitySymbolSchema, type InstrumentCatalogItem } from '../domain/instrument'
 import {
   MarketSnapshotSchema,
   parseStoredResearchBrief,
@@ -14,8 +14,11 @@ import { readBoundedJson } from './bounded-response'
 import { catalystsFromMarketMetrics, earningsDateFromMetric, persistAndLoadCatalysts } from './catalysts'
 import {
   ensureInternalWatchlistSeeded,
+  ensureInternalWatchlistSymbols,
   previewInternalWatchlistSeed,
+  pruneInternalWatchlistToFocus,
   readInternalWatchlist,
+  readInternalWatchlistCatalogCandidates,
   readInternalWatchlistFocus,
   type InternalWatchlistSeedPayloads,
   type InternalWatchlistSeedPreview,
@@ -47,12 +50,9 @@ import {
   persistPublicMarketUniverse,
 } from './public-market-universe'
 
-export { publicMarketUniverseFromSnapshot } from './public-market-universe'
-
 const USER_AGENT = 'Spice/0.1'
 const MAX_TASTYTRADE_RESPONSE_BYTES = 16 * 1024 * 1024
 let cachedAccess: { expiresAt: number; token: string } | undefined
-let accessRefresh: Promise<string> | undefined
 
 function items(value: JsonValue): JsonObject[] {
   const rows = JsonArraySchema.safeParse(value).data
@@ -167,10 +167,9 @@ async function refreshAccessToken(env: AppEnv): Promise<string> {
 
 async function accessToken(env: AppEnv): Promise<string> {
   if (cachedAccess && Date.now() < cachedAccess.expiresAt) return cachedAccess.token
-  accessRefresh ??= refreshAccessToken(env).finally(() => {
-    accessRefresh = undefined
-  })
-  return accessRefresh
+  // A fulfilled token is plain scalar cache data. A pending fetch Promise is a
+  // request-context I/O object and must never be shared through Worker globals.
+  return refreshAccessToken(env)
 }
 
 function safeEndpoint(path: string): string {
@@ -562,19 +561,6 @@ async function loadTastytradeInstrumentCatalog(
   }
 }
 
-export async function previewInternalInstrumentCatalogFromTastytrade(
-  env: AppEnv,
-  now = new Date(),
-): Promise<{ missingSymbols: string[]; receivedCount: number; requestedCount: number }> {
-  const symbols = (await readInternalWatchlist(env)).map((item) => item.symbol)
-  const result = await loadTastytradeInstrumentCatalog(env, symbols, now)
-  return {
-    missingSymbols: result.missingSymbols,
-    receivedCount: result.items.length,
-    requestedCount: result.requestedCount,
-  }
-}
-
 /** Refresh the typed catalog from tastytrade without retaining its raw response. */
 export async function refreshTastytradeInstrumentCatalog(
   env: AppEnv,
@@ -593,13 +579,65 @@ export async function refreshTastytradeInstrumentCatalog(
   }
 }
 
-/** Daily catalog job covers the full private list, not only the public 100-symbol working set. */
+/** Daily catalog job covers the full maintained list. */
 export async function refreshInternalInstrumentCatalogFromTastytrade(
   env: AppEnv,
   now = new Date(),
 ): Promise<InstrumentCatalogRefresh> {
   const symbols = (await readInternalWatchlist(env)).map((item) => item.symbol)
   return refreshTastytradeInstrumentCatalog(env, symbols, now)
+}
+
+export type InternalInstrumentCatalogChunkRefresh = InstrumentCatalogRefresh & {
+  complete: boolean
+  nextOffset: number
+  totalCount: number
+}
+
+async function internalInstrumentCatalogChunk(
+  env: AppEnv,
+  offset: number,
+  now: Date,
+  persist: boolean,
+): Promise<InternalInstrumentCatalogChunkRefresh> {
+  if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('InstrumentCatalog:invalid-offset')
+  const symbols = await readInternalWatchlistCatalogCandidates(env)
+  if (offset > symbols.length) throw new Error('InstrumentCatalog:invalid-offset')
+  const chunk = symbols.slice(offset, offset + MAX_PUBLIC_MARKET_SYMBOLS)
+  const loaded = await loadTastytradeInstrumentCatalog(env, chunk, now)
+  if (persist) {
+    await persistInstrumentCatalog(env, [
+      ...loaded.items,
+      ...loaded.missingSymbols.map((symbol) => unresolvedInstrumentCatalogItem(symbol, now)),
+    ])
+  }
+  const nextOffset = Math.min(symbols.length, offset + chunk.length)
+  return {
+    complete: nextOffset >= symbols.length,
+    missingSymbols: loaded.missingSymbols,
+    nextOffset,
+    receivedCount: loaded.items.length,
+    requestedCount: loaded.requestedCount,
+    totalCount: symbols.length,
+  }
+}
+
+/** Preview one bounded provider chunk without writing its typed projection. */
+export async function previewInternalInstrumentCatalogChunkFromTastytrade(
+  env: AppEnv,
+  offset: number,
+  now = new Date(),
+): Promise<InternalInstrumentCatalogChunkRefresh> {
+  return internalInstrumentCatalogChunk(env, offset, now, false)
+}
+
+/** One bounded ops chunk stays below D1's per-invocation query limit. */
+export async function refreshInternalInstrumentCatalogChunkFromTastytrade(
+  env: AppEnv,
+  offset: number,
+  now = new Date(),
+): Promise<InternalInstrumentCatalogChunkRefresh> {
+  return internalInstrumentCatalogChunk(env, offset, now, true)
 }
 
 async function refreshMissingTastytradeInstruments(
@@ -628,6 +666,22 @@ export async function seedInternalWatchlistFromTastytrade(env: AppEnv): Promise<
   await ensureInternalWatchlistSeeded(env, () => loadTastytradeWatchlistSeedPayloads(env))
 }
 
+function activeEquityPositionSymbols(positions: readonly JsonObject[]): string[] {
+  return [...new Set(positions
+    .filter((position) => (jsonNumber(position.quantity) ?? 0) !== 0)
+    .map((position) => EquitySymbolSchema.safeParse(
+      jsonText(position['underlying-symbol']) ?? jsonText(position.symbol),
+    ).data)
+    .filter((symbol): symbol is string => Boolean(symbol)))]
+}
+
+/** Fetch position identity before the one-time D1 finalization mutates live rows. */
+export async function loadOwnerPositionSymbolsFromTastytrade(env: AppEnv): Promise<string[]> {
+  const accountNumber = await resolveAccountNumber(env)
+  const payload = await tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/positions`)
+  return activeEquityPositionSymbols(strictRows(payload, 'TastytradePositions'))
+}
+
 async function loadMarketSnapshot(
   env: AppEnv,
   options: MarketSnapshotOptions = {},
@@ -638,10 +692,23 @@ async function loadMarketSnapshot(
     tastyRequest(env, '/market-time/equities/sessions/current').catch(() => undefined),
   ])
   const positions = strictRows(positionPayload, 'TastytradePositions')
-  const positionSymbols = [...new Set(positions
-    .filter((position) => (jsonNumber(position.quantity) ?? 0) !== 0)
-    .map((position) => jsonText(position['underlying-symbol']) ?? jsonText(position.symbol))
-    .filter((symbol): symbol is string => Boolean(symbol)))]
+  const positionSymbols = activeEquityPositionSymbols(positions)
+  const observedAt = new Date()
+  // Positions are maintained watchlist members too. Dynamic position priority
+  // keeps them inside the 100-name set without exposing their account origin.
+  if (positionSymbols.length) {
+    await ensureInternalWatchlistSymbols(
+      env,
+      positionSymbols,
+      'position-sync',
+      observedAt,
+      positionSymbols,
+    )
+  } else {
+    // A zero-position account still completes the one-time seed reduction.
+    // Otherwise the empty ensure operation would leave every seed row live.
+    await pruneInternalWatchlistToFocus(env, MAX_PUBLIC_MARKET_SYMBOLS)
+  }
   const positionList: Watchlist = {
     id: 'positions', kind: 'positions', name: 'Active Positions', symbols: positionSymbols,
   }
@@ -654,8 +721,8 @@ async function loadMarketSnapshot(
   }
   const watchlists = [positionList, privateWatchlist]
   const requestedSymbols = (options.symbols ?? [])
-    .map((symbol) => symbol.trim().toUpperCase())
-    .filter((symbol) => /^[A-Z.]{1,8}$/.test(symbol))
+    .map((symbol) => EquitySymbolSchema.safeParse(symbol).data)
+    .filter((symbol): symbol is string => Boolean(symbol))
   const symbols = selectSnapshotSymbols(positionSymbols, requestedSymbols, privateWatchlist.symbols)
   // New owner, agent, research, and position symbols get an authoritative name
   // immediately; existing catalog rows wait for the daily full status refresh.
@@ -673,7 +740,7 @@ async function loadMarketSnapshot(
     catalysts,
     research: await loadStoredResearch(env, emptyResearch(syncedAt)),
   })
-  await persistPublicMarketUniverse(env, snapshot)
+  await persistPublicMarketUniverse(env, new Date(syncedAt))
   return snapshot
 }
 
@@ -686,8 +753,8 @@ export async function loadPublicMarketSnapshot(
 ): Promise<MarketSnapshot> {
   const storedUniverse = await loadStoredPublicMarketUniverse(env)
   const publicSymbols = [...new Set((storedUniverse?.symbols ?? [])
-    .map((symbol) => symbol.trim().toUpperCase())
-    .filter((symbol) => /^[A-Z.]{1,8}$/.test(symbol)))]
+    .map((symbol) => EquitySymbolSchema.safeParse(symbol).data)
+    .filter((symbol): symbol is string => Boolean(symbol)))]
     .slice(0, MAX_PUBLIC_MARKET_SYMBOLS)
   const [sessionResult, marketFacts] = await Promise.all([
     tastyRequest(env, '/market-time/equities/sessions/current').catch(() => undefined),

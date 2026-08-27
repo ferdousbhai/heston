@@ -4,12 +4,12 @@ import screener from 'yahoo-finance2/modules/screener'
 import search from 'yahoo-finance2/modules/search'
 
 import { type ResearchSourceItem } from './research-contracts'
+import { boundedYahooFetch } from './yahoo-finance-transport'
 
 const EQUITY_SYMBOL = /^[A-Z][A-Z0-9.]{0,7}$/
 const MAX_PER_CATEGORY = 2
 const MAX_NEWS_PER_MOVER = 2
 const NEWS_LOOKBACK_MS = 4 * 24 * 60 * 60 * 1_000
-const YAHOO_TIMEOUT_MS = 12_000
 
 const SCREENER_ID = {
   gainer: 'day_gainers',
@@ -66,24 +66,26 @@ export type MarketMoverProvider = {
 }
 
 const ResearchYahooFinance = createYahooFinance({ modules: { screener, search } })
-const yahoo = new ResearchYahooFinance({
-  queue: { concurrency: 3 },
-  suppressNotices: ['yahooSurvey'],
-  validation: { logErrors: false, logOptionsErrors: false },
-  versionCheck: false,
-})
 
-const liveProvider: MarketMoverProvider = {
-  screen: async (category, count) => ScreenerResultSchema.parse(await yahoo.screener(
-    { count, scrIds: SCREENER_ID[category] },
-    undefined,
-    { fetchOptions: { signal: AbortSignal.timeout(YAHOO_TIMEOUT_MS) } },
-  )),
-  searchNews: async (symbol, count) => SearchResultSchema.parse(await yahoo.search(
-    symbol,
-    { enableCb: false, enableFuzzyQuery: false, enableNavLinks: false, newsCount: count, quotesCount: 0 },
-    { fetchOptions: { signal: AbortSignal.timeout(YAHOO_TIMEOUT_MS) } },
-  )),
+function createLiveProvider(fetcher: typeof fetch = fetch): MarketMoverProvider {
+  // A client is scoped to one collection. yahoo-finance2 keeps mutable request,
+  // cookie, and crumb state that must not cross Worker invocations.
+  const yahoo = new ResearchYahooFinance({
+    fetch: boundedYahooFetch(fetcher),
+    queue: { concurrency: 3 },
+    suppressNotices: ['yahooSurvey'],
+    validation: { logErrors: false, logOptionsErrors: false },
+    versionCheck: false,
+  })
+  return {
+    screen: async (category, count) => ScreenerResultSchema.parse(await yahoo.screener(
+      { count, scrIds: SCREENER_ID[category] },
+    )),
+    searchNews: async (symbol, count) => SearchResultSchema.parse(await yahoo.search(
+      symbol,
+      { enableCb: false, enableFuzzyQuery: false, enableNavLinks: false, newsCount: count, quotesCount: 0 },
+    )),
+  }
 }
 
 function httpsUrl(value: string): string | undefined {
@@ -177,7 +179,7 @@ async function evidenceForMover(
  * honest "driver unconfirmed" item; they never turn model inference into fact.
  */
 export async function collectMarketMoverEvidence(
-  provider: MarketMoverProvider = liveProvider,
+  provider: MarketMoverProvider = createLiveProvider(),
   now = new Date(),
 ): Promise<ResearchSourceItem[]> {
   const categories: readonly MarketMoverCategory[] = ['gainer', 'loser', 'most-active']
@@ -205,7 +207,7 @@ export async function collectMarketMoverEvidence(
 }
 
 function createMarketMoverResearch() {
-  return { collect: (now?: Date) => collectMarketMoverEvidence(liveProvider, now) }
+  return { collect: (now?: Date) => collectMarketMoverEvidence(undefined, now) }
 }
 
 export type MarketMoverResearch = ReturnType<typeof createMarketMoverResearch>

@@ -8,19 +8,20 @@ import {
 } from '../domain/instrument'
 import {
   envelopeRows,
-  JsonArraySchema,
   jsonNumber,
   jsonObject,
   jsonText,
   type JsonValue,
 } from '../domain/json-payload'
 import { type AppEnv } from './env'
+import { tastytradeTickSizes } from './tastytrade-tick-sizes'
 
 const PROVIDER_CHUNK_SIZE = 100
 const SQL_SYMBOL_CHUNK_SIZE = 90
-const MAX_TICK_TIERS_PER_KIND = 50
 const MAX_CATALOG_ITEMS = 10_000
-const MAX_BATCH_STATEMENTS = 75
+const MAX_PERSIST_ITEMS = 100
+const CATALOG_ROWS_PER_STATEMENT = 3
+const TICK_ROWS_PER_STATEMENT = 16
 
 export type InstrumentCatalogRefresh = {
   missingSymbols: string[]
@@ -51,11 +52,6 @@ function optionalNumber(value: JsonValue, field: string): number | null {
   return parsed
 }
 
-function optionalThreshold(value: JsonValue, field: string): number | null {
-  if (jsonText(value)?.toLowerCase() === 'infinity') return null
-  return optionalNumber(value, field)
-}
-
 function optionalDateTime(value: JsonValue, field: string): string | null {
   const text = optionalText(value, 64, field)
   if (text === null) return null
@@ -64,27 +60,14 @@ function optionalDateTime(value: JsonValue, field: string): string | null {
   return new Date(epoch).toISOString()
 }
 
-function tickObjects(value: JsonValue, field: string): JsonValue[] {
-  if (value === undefined || value === null) return []
-  const rows = JsonArraySchema.safeParse(value).data ?? [value]
-  if (rows.length > MAX_TICK_TIERS_PER_KIND) throw new Error(`InstrumentCatalog:${field}-too-many`)
-  return rows
-}
-
 function tickSizes(value: JsonValue, kind: InstrumentTickSize['kind']): InstrumentTickSize[] {
-  return tickObjects(value, `${kind}-tick-sizes`).map((candidate, tierIndex) => {
-    const row = jsonObject(candidate)
-    if (!row) throw new Error(`InstrumentCatalog:${kind}-tick-size-invalid`)
-    const tickValue = jsonNumber(row.value)
-    if (tickValue === undefined || tickValue <= 0) {
-      throw new Error(`InstrumentCatalog:${kind}-tick-value-invalid`)
-    }
+  return tastytradeTickSizes(value, `InstrumentCatalog:${kind}`).map((tick, tierIndex) => {
     return {
-      appliesToSymbol: optionalText(row.symbol, 128, `${kind}-tick-symbol`),
+      appliesToSymbol: tick.appliesToSymbol,
       kind,
-      threshold: optionalThreshold(row.threshold, `${kind}-tick-threshold`),
+      threshold: tick.threshold,
       tierIndex,
-      value: tickValue,
+      value: tick.value,
     }
   })
 }
@@ -167,33 +150,21 @@ function sqlBoolean(value: boolean | null): number | null {
   return value === null ? null : Number(value)
 }
 
-async function runGroups(db: D1Database, groups: readonly D1PreparedStatement[][]): Promise<void> {
-  let batch: D1PreparedStatement[] = []
-  for (const group of groups) {
-    if (group.length > MAX_BATCH_STATEMENTS) throw new Error('InstrumentCatalog:too-many-tick-tiers')
-    if (batch.length + group.length > MAX_BATCH_STATEMENTS) {
-      await db.batch(batch)
-      batch = []
-    }
-    batch.push(...group)
-  }
-  if (batch.length) await db.batch(batch)
+function catalogValues(item: InstrumentCatalogItem): Array<number | null | string> {
+  return [
+    item.symbol, item.source, item.description, item.shortDescription, item.instrumentType,
+    item.instrumentSubType, item.streamerSymbol, item.listedMarket, item.marketTimeInstrumentCollection,
+    item.countryOfIncorporation, item.countryOfTaxation, item.underlyingProductType,
+    sqlBoolean(item.isEtf), sqlBoolean(item.isIndex), sqlBoolean(item.preIpo), sqlBoolean(item.active),
+    sqlBoolean(item.isClosingOnly), sqlBoolean(item.isOptionsClosingOnly), sqlBoolean(item.isIlliquid),
+    sqlBoolean(item.isFractionalQuantityEligible), sqlBoolean(item.overnightTradingPermitted),
+    sqlBoolean(item.bypassManualReview), item.haltedAt, item.stopsTradingAt, item.lendability,
+    item.borrowRate, item.identityRefreshedAt, item.statusRefreshedAt, item.createdAt, item.updatedAt,
+    item.resolutionStatus, item.identitySource,
+  ]
 }
 
-export async function persistInstrumentCatalog(env: AppEnv, items: readonly InstrumentCatalogItem[]): Promise<void> {
-  if (!env.DB) throw new Error('InstrumentCatalog:store-unavailable')
-  const groups = items.map((item) => {
-    const upsert = env.DB!.prepare(
-      `INSERT INTO instrument_catalog (
-        symbol, source_name, description, short_description, instrument_type, instrument_sub_type,
-        streamer_symbol, listed_market, market_time_instrument_collection, country_of_incorporation,
-        country_of_taxation, underlying_product_type, is_etf, is_index, pre_ipo, active,
-        is_closing_only, is_options_closing_only, is_illiquid, is_fractional_quantity_eligible,
-        overnight_trading_permitted, bypass_manual_review, halted_at, stops_trading_at,
-        lendability, borrow_rate, identity_refreshed_at, status_refreshed_at, created_at, updated_at,
-        resolution_status, identity_source
-      ) VALUES (${Array.from({ length: 32 }, () => '?').join(', ')})
-      ON CONFLICT(symbol) DO UPDATE SET
+const resolvedConflictClause = `ON CONFLICT(symbol) DO UPDATE SET
         source_name = excluded.source_name, description = excluded.description,
         short_description = excluded.short_description, instrument_type = excluded.instrument_type,
         instrument_sub_type = excluded.instrument_sub_type, streamer_symbol = excluded.streamer_symbol,
@@ -212,29 +183,65 @@ export async function persistInstrumentCatalog(env: AppEnv, items: readonly Inst
         stops_trading_at = excluded.stops_trading_at, lendability = excluded.lendability,
         borrow_rate = excluded.borrow_rate, identity_refreshed_at = excluded.identity_refreshed_at,
         status_refreshed_at = excluded.status_refreshed_at, updated_at = excluded.updated_at,
-        resolution_status = excluded.resolution_status, identity_source = excluded.identity_source`,
-    ).bind(
-      item.symbol, item.source, item.description, item.shortDescription, item.instrumentType,
-      item.instrumentSubType, item.streamerSymbol, item.listedMarket, item.marketTimeInstrumentCollection,
-      item.countryOfIncorporation, item.countryOfTaxation, item.underlyingProductType,
-      sqlBoolean(item.isEtf), sqlBoolean(item.isIndex), sqlBoolean(item.preIpo), sqlBoolean(item.active),
-      sqlBoolean(item.isClosingOnly), sqlBoolean(item.isOptionsClosingOnly), sqlBoolean(item.isIlliquid),
-      sqlBoolean(item.isFractionalQuantityEligible), sqlBoolean(item.overnightTradingPermitted),
-      sqlBoolean(item.bypassManualReview), item.haltedAt, item.stopsTradingAt, item.lendability,
-      item.borrowRate, item.identityRefreshedAt, item.statusRefreshedAt, item.createdAt, item.updatedAt,
-      item.resolutionStatus, item.identitySource,
-    )
-    const replaceTicks = [
-      env.DB!.prepare('DELETE FROM instrument_tick_sizes WHERE symbol = ?').bind(item.symbol),
-      ...item.tickSizes.map((tick) => env.DB!.prepare(
+        resolution_status = excluded.resolution_status, identity_source = excluded.identity_source`
+
+function catalogUpserts(
+  db: D1Database,
+  items: readonly InstrumentCatalogItem[],
+  conflictClause: string,
+): D1PreparedStatement[] {
+  const statements: D1PreparedStatement[] = []
+  for (let start = 0; start < items.length; start += CATALOG_ROWS_PER_STATEMENT) {
+    const chunk = items.slice(start, start + CATALOG_ROWS_PER_STATEMENT)
+    const row = `(${Array.from({ length: 32 }, () => '?').join(', ')})`
+    statements.push(db.prepare(
+      `INSERT INTO instrument_catalog (
+        symbol, source_name, description, short_description, instrument_type, instrument_sub_type,
+        streamer_symbol, listed_market, market_time_instrument_collection, country_of_incorporation,
+        country_of_taxation, underlying_product_type, is_etf, is_index, pre_ipo, active,
+        is_closing_only, is_options_closing_only, is_illiquid, is_fractional_quantity_eligible,
+        overnight_trading_permitted, bypass_manual_review, halted_at, stops_trading_at,
+        lendability, borrow_rate, identity_refreshed_at, status_refreshed_at, created_at, updated_at,
+        resolution_status, identity_source
+      ) VALUES ${chunk.map(() => row).join(', ')}
+      ${conflictClause}`,
+    ).bind(...chunk.flatMap(catalogValues)))
+  }
+  return statements
+}
+
+export async function persistInstrumentCatalog(env: AppEnv, items: readonly InstrumentCatalogItem[]): Promise<void> {
+  if (!env.DB) throw new Error('InstrumentCatalog:store-unavailable')
+  if (items.length > MAX_PERSIST_ITEMS) throw new Error('InstrumentCatalog:persist-chunk-too-large')
+  if (!items.length) return
+  const resolved = items.filter((item) => item.resolutionStatus === 'resolved')
+  const unresolved = items.filter((item) => item.resolutionStatus === 'unresolved')
+  // A missing provider row is evidence only that this refresh could not resolve
+  // the symbol. It must never erase a previously resolved identity or tick table.
+  const statements = [
+    ...catalogUpserts(env.DB, resolved, resolvedConflictClause),
+    ...catalogUpserts(env.DB, unresolved, 'ON CONFLICT(symbol) DO NOTHING'),
+  ]
+  for (let start = 0; start < resolved.length; start += SQL_SYMBOL_CHUNK_SIZE) {
+    const symbols = resolved.slice(start, start + SQL_SYMBOL_CHUNK_SIZE).map((item) => item.symbol)
+    statements.push(env.DB.prepare(
+      `DELETE FROM instrument_tick_sizes WHERE symbol IN (${symbols.map(() => '?').join(', ')})`,
+    ).bind(...symbols))
+  }
+  const ticks = resolved.flatMap((item) => item.tickSizes.map((tick) => ({ symbol: item.symbol, tick })))
+  for (let start = 0; start < ticks.length; start += TICK_ROWS_PER_STATEMENT) {
+    const chunk = ticks.slice(start, start + TICK_ROWS_PER_STATEMENT)
+    statements.push(env.DB.prepare(
         `INSERT INTO instrument_tick_sizes
           (symbol, kind, tier_index, applies_to_symbol, threshold, tick_value)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      ).bind(item.symbol, tick.kind, tick.tierIndex, tick.appliesToSymbol, tick.threshold, tick.value)),
-    ]
-    return [upsert, ...replaceTicks]
-  })
-  await runGroups(env.DB, groups)
+         VALUES ${chunk.map(() => '(?, ?, ?, ?, ?, ?)').join(', ')}`,
+    ).bind(...chunk.flatMap(({ symbol, tick }) => [
+      symbol, tick.kind, tick.tierIndex, tick.appliesToSymbol, tick.threshold, tick.value,
+    ])))
+  }
+  // At 100 instruments the worst documented tick payload stays below D1's
+  // 1,000-query and 100-bind limits, and the batch keeps catalog rows and tiers atomic.
+  await env.DB.batch(statements)
 }
 
 const StoredCatalogRowSchema = z.object({

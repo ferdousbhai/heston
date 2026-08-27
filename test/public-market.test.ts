@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { readFile } from 'node:fs/promises'
 import { stubBrokerGate } from './broker-stub'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
-import { marketSnapshotFixture } from './fixtures/market'
 import { sqliteD1 } from './sqlite-d1'
+import { ensureInternalWatchlistSeeded, finalizeInternalWatchlist } from '../src/server/internal-watchlist'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -48,23 +48,18 @@ function storedCatalogRow(symbol: string) {
   }
 }
 
+function equitySymbolAt(index: number): string {
+  let value = index + 1
+  let symbol = ''
+  while (value > 0) {
+    value--
+    symbol = String.fromCharCode(65 + value % 26) + symbol
+    value = Math.floor(value / 26)
+  }
+  return symbol
+}
+
 describe('public market boundary', () => {
-  it('bounds oversized private universes deterministically without source-priority ordering', async () => {
-    const symbols = Array.from({ length: 120 }, (_, index) => {
-      const first = String.fromCharCode(65 + Math.floor(index / 26))
-      const second = String.fromCharCode(65 + (index % 26))
-      return `${first}${second}`
-    })
-    const snapshot = marketSnapshotFixture()
-    snapshot.watchlists = [
-      { id: 'positions', kind: 'positions', name: 'Active Positions', symbols: symbols.slice(0, 60).reverse() },
-      { id: 'watchlist', kind: 'private', name: 'Watchlist', symbols: symbols.slice(60).reverse() },
-    ]
-    const { publicMarketUniverseFromSnapshot } = await import('../src/server/tastytrade')
-
-    expect(publicMarketUniverseFromSnapshot(snapshot).symbols).toEqual([...symbols].sort().slice(0, 100))
-  })
-
   it('has no hardcoded fallback and never reaches an account or watchlist endpoint', async () => {
     vi.resetModules()
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -102,16 +97,22 @@ describe('public market boundary', () => {
       '../migrations/0003_public_market_universe.sql',
       '../migrations/0004_catalyst_description.sql',
       '../migrations/0006_internal_watchlist.sql',
+      '../migrations/0007_internal_watchlist_validation.sql',
       '../migrations/0008_instrument_catalog.sql',
       '../migrations/0009_instrument_catalog_resolution.sql',
       '../migrations/0010_source_specific_market_data.sql',
+      '../migrations/0011_internal_watchlist_position_origin.sql',
+      '../migrations/0012_codex_catalyst_confidence.sql',
     ]
     const migrations = await Promise.all(migrationUrls.map((url) => readFile(new URL(url, import.meta.url), 'utf8')))
     const store = sqliteD1(migrations)
     store.sqlite.exec(`
       INSERT INTO internal_watchlist_seed
-        (id, status, attempt_id, started_at, seeded_at)
-      VALUES ('primary', 'ready', 'seed-1', '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z');
+        (id, status, attempt_id, started_at, seeded_at, finalized_at)
+      VALUES (
+        'primary', 'ready', 'seed-1', '2026-08-26T10:00:00.000Z',
+        '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z'
+      );
       INSERT INTO internal_watchlist_items
         (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
       VALUES ('NVDA', 'Equity', 'tastytrade-seed', '{}', '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z');
@@ -159,11 +160,97 @@ describe('public market boundary', () => {
 
     expect(snapshot.watchlists).toEqual([
       { id: 'positions', kind: 'positions', name: 'Active Positions', symbols: ['META'] },
-      { id: 'watchlist', kind: 'private', name: 'Watchlist', symbols: ['NVDA'] },
+      { id: 'watchlist', kind: 'private', name: 'Watchlist', symbols: ['META', 'NVDA'] },
     ])
+    expect(store.sqlite.prepare(
+      `SELECT origin FROM internal_watchlist_items WHERE symbol = 'META'`,
+    ).get()).toEqual({ origin: 'position-sync' })
+    expect(JSON.parse(String(store.sqlite.prepare(
+      `SELECT payload_json FROM public_market_universe WHERE id = 'primary'`,
+    ).get()?.payload_json))).toEqual({ symbols: ['META', 'NVDA'] })
     const requestedUrls = fetchMock.mock.calls.map(([input]) => String(input))
     expect(requestedUrls.some((url) => url.includes('/watchlists'))).toBe(false)
     expect(requestedUrls.some((url) => url.includes('/accounts/TEST123/positions'))).toBe(true)
+    store.close()
+  })
+
+  it('reduces a restored seed universe when the owner has no active positions', async () => {
+    vi.resetModules()
+    const migrationUrls = [
+      '../migrations/0001_spice.sql',
+      '../migrations/0003_public_market_universe.sql',
+      '../migrations/0004_catalyst_description.sql',
+      '../migrations/0006_internal_watchlist.sql',
+      '../migrations/0007_internal_watchlist_validation.sql',
+      '../migrations/0008_instrument_catalog.sql',
+      '../migrations/0009_instrument_catalog_resolution.sql',
+      '../migrations/0010_source_specific_market_data.sql',
+      '../migrations/0011_internal_watchlist_position_origin.sql',
+      '../migrations/0012_codex_catalyst_confidence.sql',
+    ]
+    const migrations = await Promise.all(migrationUrls.map((url) => readFile(new URL(url, import.meta.url), 'utf8')))
+    const store = sqliteD1(migrations)
+    const symbols = Array.from({ length: 105 }, (_, index) => equitySymbolAt(index))
+    const env = { DB: store.database }
+    await ensureInternalWatchlistSeeded(env, async () => ({
+      privatePayload: [{
+        name: 'Legacy private list',
+        'watchlist-entries': symbols.map((symbol) => ({ symbol, 'instrument-type': 'Equity' })),
+      }],
+      publicPayload: [],
+    }))
+    await finalizeInternalWatchlist(env, [])
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input))
+      if (url.pathname.endsWith('/oauth/token')) return Response.json({ access_token: 'owner-read-token', expires_in: 900 })
+      if (url.pathname.endsWith('/customers/me/accounts')) {
+        return Response.json({ data: { items: [{ account: { 'account-number': 'TEST123' } }] } })
+      }
+      if (url.pathname.endsWith('/accounts/TEST123/positions')) return Response.json({ data: { items: [] } })
+      if (url.pathname.includes('/market-time/equities/sessions/current')) {
+        return Response.json({ data: { state: 'Open' } })
+      }
+      if (url.pathname.endsWith('/instruments/equities')) {
+        return Response.json({ data: { items: url.searchParams.getAll('symbol[]').map((symbol) => ({
+          active: true, description: symbol, 'instrument-type': 'Equity', symbol,
+        })) } })
+      }
+      if (url.pathname.endsWith('/market-metrics')) {
+        return Response.json({ data: { items: (url.searchParams.get('symbols') ?? '').split(',').map((symbol) => ({
+          symbol,
+          'implied-volatility-index': '0.42',
+          'implied-volatility-index-rank': '0.55',
+          'implied-volatility-percentile': '0.61',
+          'liquidity-rating': '4',
+        })) } })
+      }
+      if (url.pathname.endsWith('/market-data/by-type')) {
+        return Response.json({ data: { items: url.searchParams.getAll('equity').map((symbol) => ({
+          symbol, mark: '100', 'previous-close': '98', description: symbol,
+          'updated-at': '2026-08-26T13:31:00.000Z',
+        })) } })
+      }
+      return new Response('', { status: 404 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { brokerApi } = await import('../src/server/tastytrade')
+    const secret: SecretsStoreSecret = { get: async () => 'secret' }
+    const brokerGate = stubBrokerGate()
+
+    const snapshot = await brokerApi().loadMarketSnapshot({
+      BROKER_GATE: brokerGate.namespace,
+      DB: store.database,
+      TASTYTRADE_CLIENT_SECRET: secret,
+      TASTYTRADE_REFRESH_TOKEN: secret,
+    })
+
+    expect(snapshot.watchlists[0]?.symbols).toEqual([])
+    expect(snapshot.watchlists[1]?.symbols).toHaveLength(100)
+    expect(store.sqlite.prepare('SELECT count(*) AS count FROM internal_watchlist_items').get())
+      .toEqual({ count: 100 })
+    expect(JSON.parse(String(store.sqlite.prepare(
+      `SELECT payload_json FROM public_market_universe WHERE id = 'primary'`,
+    ).get()?.payload_json)).symbols).toHaveLength(100)
     store.close()
   })
 

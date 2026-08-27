@@ -59,6 +59,10 @@ describe('brokerage input boundary', () => {
       kind: 'place_equity_order', symbol: 'SPY', action: 'Buy to Open', quantity: 2_501,
       limitPrice: 1.999, priceEffect: 'Debit',
     }).success).toBe(false)
+    expect(OrderPlacementSchema.safeParse({
+      kind: 'place_equity_order', symbol: '.SPY', action: 'Buy to Open', quantity: 1,
+      limitPrice: 1, priceEffect: 'Debit',
+    }).success).toBe(false)
   })
 
   it('requires an explicit confirmation decision and opaque token', () => {
@@ -124,6 +128,7 @@ describe('brokerage input boundary', () => {
 
   it('bounds chat input before model invocation', () => {
     expect(ChatRequestSchema.safeParse({ message: 'Why is SPY vol cheap?', selectedSymbol: 'SPY' }).success).toBe(true)
+    expect(ChatRequestSchema.safeParse({ message: 'Invalid selection', selectedSymbol: '....' }).success).toBe(false)
     expect(ChatRequestSchema.safeParse({ message: 'x'.repeat(4_001) }).success).toBe(false)
   })
 })

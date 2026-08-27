@@ -1,62 +1,41 @@
 import { z } from 'zod'
 
-import { type MarketSnapshot } from '../domain/market'
+import { EquitySymbolSchema } from '../domain/instrument'
 import { type AppEnv } from './env'
 
 export const MAX_PUBLIC_MARKET_SYMBOLS = 100
+const PublicSymbolSchema = EquitySymbolSchema
 
 const PublicMarketUniverseSchema = z.strictObject({
-  symbols: z.array(z.string().regex(/^[A-Z.]{1,8}$/)).max(MAX_PUBLIC_MARKET_SYMBOLS),
+  symbols: z.array(PublicSymbolSchema).max(MAX_PUBLIC_MARKET_SYMBOLS),
 })
 
 export type PublicMarketUniverse = z.infer<typeof PublicMarketUniverseSchema>
 
-function normalizedSymbols(symbols: readonly string[]): string[] {
-  return [...new Set(symbols
-    .map((symbol) => symbol.trim().toUpperCase())
-    .filter((symbol) => /^[A-Z.]{1,8}$/.test(symbol)))]
-    .sort()
-    .slice(0, MAX_PUBLIC_MARKET_SYMBOLS)
-}
-
-/** Source categories are flattened before storage and never cross the public boundary. */
-export function publicMarketUniverseFromSnapshot(snapshot: MarketSnapshot): PublicMarketUniverse {
-  return PublicMarketUniverseSchema.parse({
-    symbols: normalizedSymbols(snapshot.watchlists
-      .filter((watchlist) => watchlist.kind === 'positions' || watchlist.kind === 'private')
-      .flatMap((watchlist) => watchlist.symbols)),
-  })
-}
-
-async function writePublicMarketUniverse(
+/** Publish only the current source-neutral D1 projection, never a stale caller snapshot. */
+export async function publishInternalWatchlistUniverse(
   env: AppEnv,
-  universe: PublicMarketUniverse,
-  updatedAt: string,
+  updatedAt = new Date(),
 ): Promise<void> {
   if (!env.DB) return
   await env.DB.prepare(
     `INSERT INTO public_market_universe (id, payload_json, updated_at)
-     VALUES ('primary', ?, ?)
+     SELECT 'primary', json_object('symbols', json_group_array(symbol)), ?
+     FROM (
+       SELECT symbol FROM internal_watchlist_items
+       ORDER BY symbol ASC LIMIT ${MAX_PUBLIC_MARKET_SYMBOLS}
+     )
+     WHERE true
      ON CONFLICT(id) DO UPDATE SET payload_json = excluded.payload_json, updated_at = excluded.updated_at`,
-  ).bind(JSON.stringify(universe), updatedAt).run()
+  ).bind(updatedAt.toISOString()).run()
 }
 
-export async function persistPublicMarketUniverse(env: AppEnv, snapshot: MarketSnapshot): Promise<void> {
+export async function persistPublicMarketUniverse(env: AppEnv, updatedAt: Date): Promise<void> {
   try {
-    await writePublicMarketUniverse(env, publicMarketUniverseFromSnapshot(snapshot), snapshot.syncedAt)
+    await publishInternalWatchlistUniverse(env, updatedAt)
   } catch (error) {
     console.error('PublicMarketUniverseStoreFailed', error instanceof Error ? error.message : 'UnknownError')
   }
-}
-
-/** Replace the derived source-neutral universe without accepting provenance fields. */
-export async function replacePublicMarketUniverseSymbols(
-  env: AppEnv,
-  symbols: readonly string[],
-  updatedAt = new Date(),
-): Promise<void> {
-  const universe = PublicMarketUniverseSchema.parse({ symbols: normalizedSymbols(symbols) })
-  await writePublicMarketUniverse(env, universe, updatedAt.toISOString())
 }
 
 export async function loadStoredPublicMarketUniverse(env: AppEnv): Promise<PublicMarketUniverse | undefined> {
@@ -70,21 +49,5 @@ export async function loadStoredPublicMarketUniverse(env: AppEnv): Promise<Publi
   } catch (error) {
     console.error('PublicMarketUniverseLoadFailed', error instanceof Error ? error.message : 'UnknownError')
     return undefined
-  }
-}
-
-/** New internal-list discoveries become publicly visible without publishing their provenance. */
-export async function mergePublicMarketUniverseSymbols(env: AppEnv, symbols: readonly string[]): Promise<void> {
-  if (!symbols.length) return
-  try {
-    const current = await loadStoredPublicMarketUniverse(env)
-    const prioritized = [...new Set([
-      ...symbols.map((symbol) => symbol.trim().toUpperCase()).filter((symbol) => /^[A-Z.]{1,8}$/.test(symbol)),
-      ...(current?.symbols ?? []),
-    ])].slice(0, MAX_PUBLIC_MARKET_SYMBOLS).sort()
-    const universe = PublicMarketUniverseSchema.parse({ symbols: prioritized })
-    await writePublicMarketUniverse(env, universe, new Date().toISOString())
-  } catch (error) {
-    console.error('PublicMarketUniverseMergeFailed', error instanceof Error ? error.message : 'UnknownError')
   }
 }

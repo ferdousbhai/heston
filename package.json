@@ -11,14 +11,13 @@
     "lint": "eslint \"{src,test}/**/*.{ts,tsx}\" --max-warnings=0 && oxlint",
     "build": "vite build && tsc --noEmit",
     "preview": "vite preview",
-    "deploy": "npm run build && wrangler deploy",
+    "deploy": "npm run build && wrangler deploy --config dist/server/wrangler.json",
     "cf-typegen": "wrangler types",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "watchlist:seed": "bash tools/seed-internal-watchlist.sh",
     "catalog:refresh": "bash ops/instrument-catalog/run.sh",
-    "research-focus:publish": "bash ops/research-focus/run.sh",
     "catalysts:bootstrap": "bash ops/catalyst-research/run.sh"
   },
   "dependencies": {

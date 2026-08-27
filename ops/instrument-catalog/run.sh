@@ -34,5 +34,28 @@ if [[ -z "$ops_url" ]]; then
   exit 1
 fi
 
-node ops/shared/call-worker.mjs "$ops_secret" "$ops_url" "$ops_mode"
+catalog_offset=0
+for _ in $(seq 1 100); do
+  catalog_result="$(node ops/shared/call-worker.mjs "$ops_secret" "$ops_url" "$ops_mode?offset=$catalog_offset")"
+  printf '%s\n' "$catalog_result"
+  catalog_complete="$(node -e '
+    let input = "";
+    process.stdin.on("data", (chunk) => { input += chunk; });
+    process.stdin.on("end", () => process.stdout.write(String(JSON.parse(input).result.complete)));
+  ' <<<"$catalog_result")"
+  if [[ "$catalog_complete" == 'true' ]]; then
+    if [[ "$ops_mode" == 'apply' ]]; then
+      node ops/shared/call-worker.mjs "$ops_secret" "$ops_url" finalize
+      node ops/shared/call-worker.mjs "$ops_secret" "$ops_url" sync
+    fi
+    exit 0
+  fi
+  catalog_offset="$(node -e '
+    let input = "";
+    process.stdin.on("data", (chunk) => { input += chunk; });
+    process.stdin.on("end", () => process.stdout.write(String(JSON.parse(input).result.nextOffset)));
+  ' <<<"$catalog_result")"
+done
 
+echo 'Instrument catalog did not complete within 100 chunks.' >&2
+exit 1

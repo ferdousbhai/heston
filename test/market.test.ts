@@ -12,7 +12,6 @@ import {
   equityCandleFromTime,
   liveTickerFromRecords,
   percentMetric,
-  publicMarketUniverseFromSnapshot,
   selectSnapshotSymbols,
 } from '../src/server/tastytrade'
 
@@ -90,18 +89,6 @@ describe('snapshot contract', () => {
     expect(() => parseStoredResearchBrief(legacy)).toThrow(/HTTPS source URL/)
   })
 
-  it('publishes one source-free union of position and private-watchlist symbols', () => {
-    const snapshot = marketSnapshotFixture()
-    snapshot.tickers.push({ ...snapshot.tickers[0]!, symbol: 'ONLYPOS', position: true })
-    snapshot.watchlists.find((watchlist) => watchlist.kind === 'positions')?.symbols.push('ONLYPOS')
-
-    const universe = publicMarketUniverseFromSnapshot(snapshot)
-
-    expect(universe.symbols).toEqual([
-      'AAPL', 'AMD', 'BE', 'INTC', 'IWM', 'META', 'NVDA', 'ONLYPOS', 'QQQ', 'SPCX', 'SPY', 'TSLA',
-    ])
-    expect(universe).toEqual({ symbols: universe.symbols })
-  })
 })
 
 describe('tastytrade normalization', () => {

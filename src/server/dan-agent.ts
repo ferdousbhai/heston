@@ -23,6 +23,7 @@ import {
   type PendingAction,
 } from '../domain/agent-chat'
 import { compactTranscript } from '../domain/agent-transcript'
+import { EQUITY_SYMBOL_PATTERN } from '../domain/instrument'
 import { toError } from '../domain/failure'
 import { jsonObject, jsonObjectOrEmpty, type JsonValue } from '../domain/json-payload'
 import { newYorkClock } from '../domain/market-clock'
@@ -67,7 +68,7 @@ const OrderPlacementParameters = Type.Union([
     priceEffect: Type.Union([Type.Literal('Debit'), Type.Literal('Credit')]),
     quantity: Type.Integer({ maximum: 100, minimum: 1 }),
     strike: Type.Number({ exclusiveMinimum: 0 }),
-    underlying: Type.String({ pattern: '^[A-Z.]{1,8}$' }),
+    underlying: Type.String({ pattern: EQUITY_SYMBOL_PATTERN }),
   }),
   Type.Object({
     action: Type.Union([
@@ -78,7 +79,7 @@ const OrderPlacementParameters = Type.Union([
     limitPrice: Type.Number({ exclusiveMinimum: 0 }),
     priceEffect: Type.Union([Type.Literal('Debit'), Type.Literal('Credit')]),
     quantity: Type.Integer({ maximum: 10_000, minimum: 1 }),
-    symbol: Type.String({ pattern: '^[A-Z.]{1,8}$' }),
+    symbol: Type.String({ pattern: EQUITY_SYMBOL_PATTERN }),
   }),
   Type.Object({
     expiry: Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }),
@@ -89,7 +90,7 @@ const OrderPlacementParameters = Type.Union([
     priceEffect: Type.Literal('Debit'),
     quantity: Type.Integer({ maximum: 100, minimum: 1 }),
     shortStrike: Type.Number({ exclusiveMinimum: 0 }),
-    underlying: Type.String({ pattern: '^[A-Z.]{1,8}$' }),
+    underlying: Type.String({ pattern: EQUITY_SYMBOL_PATTERN }),
   }),
   Type.Object({
     kind: Type.Literal('replace_order'),

@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { catalystLabel, nextCatalystForSymbol, sortSymbolsByCatalyst, upcomingCatalystSymbols, type Catalyst } from '../src/domain/catalyst'
-import { catalystsFromMarketMetrics, earningsDateFromMetric, persistAndLoadCatalysts } from '../src/server/catalysts'
+import {
+  catalystsFromMarketMetrics,
+  earningsDateFromMetric,
+  persistAndLoadCatalysts,
+  persistResearchedCatalysts,
+} from '../src/server/catalysts'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
 
 const NOW = new Date('2026-08-13T16:00:00.000Z')
@@ -72,6 +77,47 @@ describe('tastytrade catalyst normalization', () => {
     }, NOW)).toBeNull()
   })
 
+})
+
+describe('research catalyst storage', () => {
+  it('keeps the maximum accepted bootstrap below D1 query and bind limits', async () => {
+    const boundParameterCounts: number[] = []
+    let batchStatementCount = 0
+    const batch = vi.fn(async (statements: D1PreparedStatement[]) => {
+      batchStatementCount = statements.length
+      return []
+    })
+    const database: D1Database = {
+      ...unsupportedDatabase(),
+      batch,
+      prepare: vi.fn(() => ({
+        ...unsupportedStatement(),
+        bind: (...values: unknown[]) => {
+          boundParameterCounts.push(values.length)
+          if (values.length > 100) throw new Error('too many SQL variables')
+          return unsupportedStatement()
+        },
+      })),
+    }
+    const catalysts: Catalyst[] = Array.from({ length: 1_000 }, (_, index) => ({
+      confidence: 'estimated',
+      date: '2026-09-15',
+      id: `codex-web:T${index}:2026-09-15:investor-event`,
+      kind: 'investor-event',
+      source: 'Example Investor Relations',
+      sourceUrl: `https://example.com/events/${index}`,
+      symbol: `T${index}`,
+      timing: 'unknown',
+      title: `T${index} investor event`,
+      updatedAt: NOW.toISOString(),
+    }))
+
+    await persistResearchedCatalysts({ DB: database }, 'codex-web', catalysts, NOW)
+
+    expect(batch).toHaveBeenCalledOnce()
+    expect(batchStatementCount).toBe(125)
+    expect(Math.max(...boundParameterCounts)).toBe(96)
+  })
 })
 
 describe('catalyst ordering', () => {

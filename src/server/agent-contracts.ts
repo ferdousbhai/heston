@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { EquitySymbolSchema } from '../domain/instrument'
+
 import {
   AddWatchlistSymbolsSchema,
   RemoveWatchlistSymbolsSchema,
@@ -7,7 +9,7 @@ import {
 
 const OptionActionSchema = z.object({
   kind: z.literal('place_option_order'),
-  underlying: z.string().regex(/^[A-Z.]{1,8}$/),
+  underlying: EquitySymbolSchema,
   optionType: z.enum(['C', 'P']),
   strike: z.number().positive(),
   expiry: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -19,7 +21,7 @@ const OptionActionSchema = z.object({
 
 const EquityActionSchema = z.object({
   kind: z.literal('place_equity_order'),
-  symbol: z.string().regex(/^[A-Z.]{1,8}$/),
+  symbol: EquitySymbolSchema,
   action: z.enum(['Buy to Open', 'Sell to Open', 'Buy to Close', 'Sell to Close']),
   quantity: z.number().int().min(1).max(10_000),
   limitPrice: z.number().positive().multipleOf(0.01),
@@ -28,7 +30,7 @@ const EquityActionSchema = z.object({
 
 const VerticalSpreadActionSchema = z.object({
   kind: z.literal('place_vertical_spread_order'),
-  underlying: z.string().regex(/^[A-Z.]{1,8}$/),
+  underlying: EquitySymbolSchema,
   optionType: z.enum(['C', 'P']),
   expiry: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   longStrike: z.number().positive(),
@@ -94,7 +96,7 @@ export const DirectAccountActionSchema = z.discriminatedUnion('kind', [
 
 export const ChatRequestSchema = z.object({
   message: z.string().trim().min(1).max(4_000),
-  selectedSymbol: z.string().regex(/^[A-Z.]{1,8}$/).optional(),
+  selectedSymbol: EquitySymbolSchema.optional(),
 })
 export const ConfirmRequestSchema = z.object({
   decision: z.enum(['confirm', 'deny']),

@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { EquitySymbolSchema } from './instrument'
+
 export const CatalystKindSchema = z.enum([
   'earnings', 'investor-event', 'product-event', 'regulatory', 'clinical',
   'conference', 'shareholder',
@@ -18,7 +20,7 @@ export function isValidIsoDate(value: string): boolean {
 
 export const CatalystSchema = z.object({
   id: z.string(),
-  symbol: z.string(),
+  symbol: EquitySymbolSchema,
   kind: CatalystKindSchema,
   title: z.string(),
   description: z.string().trim().min(1).max(500).nullable().optional(),

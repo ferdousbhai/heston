@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { readBoundedJson, readBoundedText } from '../src/server/bounded-response'
+import { boundedYahooFetch } from '../src/server/yahoo-finance-transport'
 
 describe('bounded upstream response reader', () => {
   it('reads within the byte boundary and parses JSON', async () => {
@@ -14,5 +15,13 @@ describe('bounded upstream response reader', () => {
 
     await expect(readBoundedText(new Response('12345678901'), 10, 'Test'))
       .rejects.toThrow('response-too-large')
+  })
+
+  it('bounds Yahoo bodies before its client can buffer them', async () => {
+    const oversized = new Response('x'.repeat(2_000_001))
+    const fetchYahoo = boundedYahooFetch(async () => oversized)
+
+    await expect(fetchYahoo('https://query1.finance.yahoo.com/test'))
+      .rejects.toThrow('YahooFinance:response-too-large')
   })
 })

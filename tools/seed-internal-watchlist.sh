@@ -2,13 +2,13 @@
 set -euo pipefail
 
 seed_worker='spice-watchlist-bootstrap-20260826'
-seed_mode="${SPICE_SEED_MODE:-seed}"
+seed_mode="${SPICE_SEED_MODE:-bootstrap}"
 seed_log="$(mktemp)"
 seed_secret="$(mktemp)"
 seed_deployed='false'
 
-if [[ "$seed_mode" != 'preview' && "$seed_mode" != 'seed' && "$seed_mode" != 'sync' ]]; then
-  echo 'SPICE_SEED_MODE must be preview, seed, or sync.' >&2
+if [[ "$seed_mode" != 'preview' && "$seed_mode" != 'sync' && "$seed_mode" != 'bootstrap' ]]; then
+  echo 'SPICE_SEED_MODE must be preview, sync, or bootstrap.' >&2
   exit 2
 fi
 
@@ -35,7 +35,8 @@ if [[ -z "$seed_url" ]]; then
   exit 1
 fi
 
-node -e '
+call_seed_worker() {
+  node -e '
   const fs = require("node:fs");
   const token = fs.readFileSync(process.argv[1], "utf8").trim();
   (async () => {
@@ -57,4 +58,26 @@ node -e '
     process.stderr.write(`${error.message}\n`);
     process.exitCode = 1;
   });
-' "$seed_secret" "$seed_url" "$seed_mode"
+' "$seed_secret" "$seed_url" "$1"
+}
+
+if [[ "$seed_mode" == 'bootstrap' ]]; then
+  # The authoritative list is not ready for product use until the retained
+  # provenance has been resolved, reduced to 100 names, published, and synced.
+  seed_result="$(call_seed_worker seed)"
+  printf '%s\n' "$seed_result"
+  seed_finalized="$(node -e '
+    let input = "";
+    process.stdin.on("data", (chunk) => { input += chunk; });
+    process.stdin.on("end", () => process.stdout.write(String(Boolean(JSON.parse(input).audit.finalizedAt))));
+  ' <<<"$seed_result")"
+  if [[ "$seed_finalized" == 'true' ]]; then
+    # Finalization and the first owner snapshot are separate invocations so each
+    # stays within D1 limits. A retry must repair an interrupted post-finalize sync.
+    call_seed_worker sync
+    exit 0
+  fi
+  SPICE_CATALOG_MODE=apply bash ops/instrument-catalog/run.sh
+else
+  call_seed_worker "$seed_mode"
+fi

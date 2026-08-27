@@ -87,11 +87,26 @@ test('mobile market, research, picker, and agent flows remain coherent', async (
   await page.route('**/api/watchlists', async (route) => {
     const action = WatchlistMutationRequestSchema.parse(route.request().postDataJSON())
     const watchlist = snapshot.watchlists.find((candidate) => candidate.kind === 'private')!
+    if (action.kind === 'add_watchlist_symbols' && action.symbols.includes('FULL')) {
+      await route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          appliedSymbols: [],
+          detail: 'FULL could not be retained within the 100-symbol Watchlist',
+          discardedSymbols: ['FULL'],
+        }),
+      })
+      return
+    }
     const requested = new Set(action.symbols)
     watchlist.symbols = action.kind === 'add_watchlist_symbols'
       ? [...new Set([...watchlist.symbols, ...action.symbols])]
       : watchlist.symbols.filter((symbol) => !requested.has(symbol))
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ detail: 'updated' }) })
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ appliedSymbols: action.symbols, detail: 'updated', discardedSymbols: [] }),
+    })
   })
   await page.goto('/')
   await expect(page).toHaveTitle(/Spice Must Flow/)
@@ -139,6 +154,13 @@ test('mobile market, research, picker, and agent flows remain coherent', async (
   await expect(watchlistEditor.locator('.watchlist-member', { hasText: 'PLTR' })).toBeVisible()
   await watchlistEditor.getByRole('button', { name: 'Remove PLTR from Watchlist' }).click()
   await expect(watchlistEditor.locator('.watchlist-member', { hasText: 'PLTR' })).toHaveCount(0)
+  await watchlistEditor.getByLabel('Add a symbol').fill('FULL')
+  await page.keyboard.press('Escape')
+  await expect(watchlistEditor.getByRole('button', { name: 'Add symbol' })).toBeEnabled()
+  await watchlistEditor.getByRole('button', { name: 'Add symbol' }).click()
+  await expect(watchlistEditor.getByText('FULL could not be retained within the 100-symbol Watchlist')).toBeVisible()
+  await expect(watchlistEditor.getByLabel('Add a symbol')).toHaveValue('FULL')
+  await expect(watchlistEditor.locator('.watchlist-member', { hasText: 'FULL' })).toHaveCount(0)
   await watchlistEditor.getByRole('button', { name: 'Close watchlist editor' }).click()
   await expect(page.getByRole('button', { name: 'Manage Watchlist' })).toBeFocused()
   await watchlistSelector.click()

@@ -8,21 +8,46 @@ import { sqliteD1 } from './sqlite-d1'
 
 let publicUniverseMigration: string
 let internalWatchlistMigration: string
+let internalWatchlistValidationMigration: string
+let instrumentCatalogMigration: string
+let instrumentResolutionMigration: string
+let positionOriginMigration: string
 let store: ReturnType<typeof sqliteD1>
 
 beforeAll(async () => {
-  [publicUniverseMigration, internalWatchlistMigration] = await Promise.all([
+  [
+    publicUniverseMigration,
+    internalWatchlistMigration,
+    internalWatchlistValidationMigration,
+    instrumentCatalogMigration,
+    instrumentResolutionMigration,
+    positionOriginMigration,
+  ] = await Promise.all([
     readFile(new URL('../migrations/0003_public_market_universe.sql', import.meta.url), 'utf8'),
     readFile(new URL('../migrations/0006_internal_watchlist.sql', import.meta.url), 'utf8'),
+    readFile(new URL('../migrations/0007_internal_watchlist_validation.sql', import.meta.url), 'utf8'),
+    readFile(new URL('../migrations/0008_instrument_catalog.sql', import.meta.url), 'utf8'),
+    readFile(new URL('../migrations/0009_instrument_catalog_resolution.sql', import.meta.url), 'utf8'),
+    readFile(new URL('../migrations/0011_internal_watchlist_position_origin.sql', import.meta.url), 'utf8'),
   ])
 })
 
 beforeEach(() => {
-  store = sqliteD1([publicUniverseMigration, internalWatchlistMigration])
+  store = sqliteD1([
+    publicUniverseMigration,
+    internalWatchlistMigration,
+    internalWatchlistValidationMigration,
+    instrumentCatalogMigration,
+    instrumentResolutionMigration,
+    positionOriginMigration,
+  ])
   store.sqlite.exec(`
     INSERT INTO internal_watchlist_seed
-      (id, status, attempt_id, started_at, seeded_at)
-    VALUES ('primary', 'ready', 'seed-1', '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z');
+      (id, status, attempt_id, started_at, seeded_at, finalized_at)
+    VALUES (
+      'primary', 'ready', 'seed-1', '2026-08-26T10:00:00.000Z',
+      '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z'
+    );
     INSERT INTO internal_watchlist_items
       (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
     VALUES ('SPY', 'Equity', 'tastytrade-seed', '{}', '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z');
@@ -45,10 +70,18 @@ describe('internal watchlist mutation boundary', () => {
     const env = { DB: store.database }
     await expect(executeWatchlistAction(env, {
       kind: 'add_watchlist_symbols', symbols: ['SPY', 'NVDA'],
-    })).resolves.toEqual({ detail: 'NVDA added to Watchlist' })
+    })).resolves.toEqual({
+      appliedSymbols: ['SPY', 'NVDA'],
+      detail: 'NVDA added to Watchlist',
+      discardedSymbols: [],
+    })
     await expect(executeWatchlistAction(env, {
       kind: 'add_watchlist_symbols', symbols: ['NVDA'],
-    })).resolves.toEqual({ detail: 'NVDA already in Watchlist; priority refreshed' })
+    })).resolves.toEqual({
+      appliedSymbols: ['NVDA'],
+      detail: 'NVDA already in Watchlist; priority refreshed',
+      discardedSymbols: [],
+    })
 
     expect((await readInternalWatchlist(env)).map((item) => ({
       origin: item.origin,
@@ -79,12 +112,23 @@ describe('internal watchlist mutation boundary', () => {
 
     await expect(executeWatchlistAction(env, {
       kind: 'remove_watchlist_symbols', symbols: ['SPY'],
-    })).resolves.toEqual({ detail: 'SPY removed from Watchlist' })
+    })).resolves.toEqual({
+      appliedSymbols: ['SPY'],
+      detail: 'SPY removed from Watchlist',
+      discardedSymbols: [],
+    })
     await expect(executeWatchlistAction(env, {
       kind: 'remove_watchlist_symbols', symbols: ['SPY'],
-    })).resolves.toEqual({ detail: 'No watchlist changes were needed' })
+    })).resolves.toEqual({
+      appliedSymbols: [],
+      detail: 'No watchlist changes were needed',
+      discardedSymbols: [],
+    })
 
     expect(await readInternalWatchlist(env)).toEqual([])
+    expect(JSON.parse(String(store.sqlite.prepare(
+      `SELECT payload_json FROM public_market_universe WHERE id = 'primary'`,
+    ).get()?.payload_json))).toEqual({ symbols: [] })
     expect(store.sqlite.prepare('SELECT count(*) AS count FROM internal_watchlist_seed_entries').get())
       .toEqual({ count: 1 })
   })

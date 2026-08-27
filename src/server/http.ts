@@ -53,5 +53,6 @@ export function publicError(error: Error | undefined): string {
   if (error.name === 'BrokerageSubmissionUnknownError') return error.message
   if (error.name === 'TastytradeOrderWarningError') return error.message
   if (error.message.includes('InternalWatchlist:not-seeded')) return 'The internal watchlist has not been initialized'
+  if (error.message.includes('InternalWatchlist:not-finalized')) return 'The internal watchlist is still being initialized'
   return 'The request could not be completed'
 }

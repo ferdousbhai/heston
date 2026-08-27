@@ -4,8 +4,10 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import {
   ensureInternalWatchlistSeeded,
   ensureInternalWatchlistSymbols,
+  finalizeInternalWatchlist,
   internalWatchlistSeedFromPayloads,
   readInternalWatchlist,
+  readInternalWatchlistCatalogCandidates,
   readInternalWatchlistSeedAudit,
   readInternalWatchlistSymbolDetails,
   pruneInternalWatchlistToFocus,
@@ -16,21 +18,39 @@ import { sqliteD1 } from './sqlite-d1'
 
 let publicUniverseMigration: string
 let internalWatchlistMigration: string
+let internalWatchlistValidationMigration: string
 let instrumentCatalogMigration: string
 let instrumentResolutionMigration: string
+let positionOriginMigration: string
 let store: ReturnType<typeof sqliteD1>
 
 beforeAll(async () => {
-  [publicUniverseMigration, internalWatchlistMigration, instrumentCatalogMigration, instrumentResolutionMigration] = await Promise.all([
+  [
+    publicUniverseMigration,
+    internalWatchlistMigration,
+    internalWatchlistValidationMigration,
+    instrumentCatalogMigration,
+    instrumentResolutionMigration,
+    positionOriginMigration,
+  ] = await Promise.all([
     readFile(new URL('../migrations/0003_public_market_universe.sql', import.meta.url), 'utf8'),
     readFile(new URL('../migrations/0006_internal_watchlist.sql', import.meta.url), 'utf8'),
+    readFile(new URL('../migrations/0007_internal_watchlist_validation.sql', import.meta.url), 'utf8'),
     readFile(new URL('../migrations/0008_instrument_catalog.sql', import.meta.url), 'utf8'),
     readFile(new URL('../migrations/0009_instrument_catalog_resolution.sql', import.meta.url), 'utf8'),
+    readFile(new URL('../migrations/0011_internal_watchlist_position_origin.sql', import.meta.url), 'utf8'),
   ])
 })
 
 beforeEach(() => {
-  store = sqliteD1([publicUniverseMigration, internalWatchlistMigration])
+  store = sqliteD1([
+    publicUniverseMigration,
+    internalWatchlistMigration,
+    internalWatchlistValidationMigration,
+    instrumentCatalogMigration,
+    instrumentResolutionMigration,
+    positionOriginMigration,
+  ])
 })
 
 afterEach(() => store.close())
@@ -64,6 +84,17 @@ function payloads() {
   }
 }
 
+function symbolAt(index: number): string {
+  let value = index + 1
+  let symbol = ''
+  while (value > 0) {
+    value--
+    symbol = String.fromCharCode(65 + value % 26) + symbol
+    value = Math.floor(value / 26)
+  }
+  return symbol
+}
+
 describe('one-time tastytrade watchlist seed', () => {
   it('preserves every list and entry field while consolidating only valid equities', () => {
     const seed = internalWatchlistSeedFromPayloads(payloads())
@@ -88,12 +119,15 @@ describe('one-time tastytrade watchlist seed', () => {
     expect(loader).toHaveBeenCalledTimes(1)
     expect(await readInternalWatchlistSeedAudit(env)).toEqual({
       entryCount: 4,
-      itemCount: 2,
+      finalizedAt: null,
+      itemCount: 0,
       privateSourceCount: 1,
       publicSourceCount: 1,
       seededAt: '2026-08-26T10:00:00.000Z',
       status: 'ready',
     })
+    await expect(readInternalWatchlist(env)).rejects.toThrow('not-finalized')
+    await finalizeInternalWatchlist(env, [], new Date('2026-08-26T10:01:00.000Z'))
     expect((await readInternalWatchlist(env)).map((item) => item.symbol)).toEqual(['NVDA', 'PLTR'])
     await expect(readInternalWatchlistSymbolDetails(env, 'NVDA')).resolves.toMatchObject({
       symbol: 'NVDA',
@@ -114,7 +148,27 @@ describe('one-time tastytrade watchlist seed', () => {
     await expect(readInternalWatchlistSeedAudit(env)).resolves.toMatchObject({ status: 'failed', itemCount: 0 })
 
     await ensureInternalWatchlistSeeded(env, async () => payloads())
+    await expect(readInternalWatchlistSeedAudit(env)).resolves.toMatchObject({ status: 'ready', itemCount: 0 })
+    await finalizeInternalWatchlist(env, [])
     await expect(readInternalWatchlistSeedAudit(env)).resolves.toMatchObject({ status: 'ready', itemCount: 2 })
+  })
+
+  it('imports more than 1,000 provenance entries within one D1 invocation budget', async () => {
+    const env = { DB: store.database }
+    const entries = Array.from({ length: 2_000 }, (_, index) => ({
+      symbol: index % 2 ? 'NVDA' : 'PLTR',
+      'instrument-type': 'Equity',
+      rank: index,
+    }))
+
+    await ensureInternalWatchlistSeeded(env, async () => ({
+      privatePayload: [],
+      publicPayload: [{ name: 'Large source', 'watchlist-entries': entries }],
+    }))
+
+    expect(store.sqlite.prepare('SELECT count(*) AS count FROM internal_watchlist_seed_entries').get())
+      .toEqual({ count: 2_000 })
+    expect(store.queryCount()).toBeLessThan(1_000)
   })
 
   it('does not let an expired importer overwrite a newer completed seed', async () => {
@@ -139,6 +193,7 @@ describe('one-time tastytrade watchlist seed', () => {
     const expiredFailure = expect(expired).rejects.toThrow('seed-claim-lost')
     releaseExpired?.()
     await expiredFailure
+    await finalizeInternalWatchlist(env, [], new Date('2026-08-26T10:11:00.000Z'))
     expect((await readInternalWatchlist(env)).map((item) => item.symbol)).toEqual(['AAPL', 'MSFT'])
     await expect(readInternalWatchlistSeedAudit(env)).resolves.toMatchObject({
       itemCount: 2,
@@ -150,6 +205,7 @@ describe('one-time tastytrade watchlist seed', () => {
   it('selects a bounded metrics focus without returning its private priority metadata', async () => {
     const env = { DB: store.database }
     await ensureInternalWatchlistSeeded(env, async () => payloads(), new Date('2026-08-26T10:00:00.000Z'))
+    await finalizeInternalWatchlist(env, [], new Date('2026-08-26T10:01:00.000Z'))
     await ensureInternalWatchlistSymbols(env, ['ZZZ'], 'owner', new Date('2026-08-26T11:00:00.000Z'))
 
     const focus = selectInternalWatchlistFocus(await readInternalWatchlist(env), ['PLTR'], 3)
@@ -162,6 +218,7 @@ describe('one-time tastytrade watchlist seed', () => {
   it('uses retained high-options-volume order only after personal symbols', async () => {
     const env = { DB: store.database }
     await ensureInternalWatchlistSeeded(env, async () => payloads(), new Date('2026-08-26T10:00:00.000Z'))
+    await finalizeInternalWatchlist(env, [], new Date('2026-08-26T10:01:00.000Z'))
     const [nvda, pltr] = await readInternalWatchlist(env)
     const publicSeedItem = (symbol: string) => ({
       ...pltr!,
@@ -196,19 +253,11 @@ describe('one-time tastytrade watchlist seed', () => {
     const boundedStore = sqliteD1([
       publicUniverseMigration,
       internalWatchlistMigration,
+      internalWatchlistValidationMigration,
       instrumentCatalogMigration,
       instrumentResolutionMigration,
+      positionOriginMigration,
     ])
-    const symbolAt = (index: number) => {
-      let value = index + 1
-      let symbol = ''
-      while (value > 0) {
-        value--
-        symbol = String.fromCharCode(65 + value % 26) + symbol
-        value = Math.floor(value / 26)
-      }
-      return symbol
-    }
     const symbols = Array.from({ length: 105 }, (_, index) => symbolAt(index))
     const env = { DB: boundedStore.database }
     await ensureInternalWatchlistSeeded(env, async () => ({
@@ -219,7 +268,7 @@ describe('one-time tastytrade watchlist seed', () => {
       publicPayload: [],
     }))
 
-    await expect(pruneInternalWatchlistToFocus(env, 100)).resolves.toMatchObject({ removedCount: 5 })
+    await expect(finalizeInternalWatchlist(env, [])).resolves.toMatchObject({ finalized: true })
     expect(await readInternalWatchlist(env)).toHaveLength(100)
     expect(boundedStore.sqlite.prepare('SELECT count(*) AS count FROM internal_watchlist_seed_entries').get())
       .toEqual({ count: 105 })
@@ -233,15 +282,66 @@ describe('one-time tastytrade watchlist seed', () => {
     boundedStore.close()
   })
 
+  it('retains stable catalog candidates without resurrecting an explicit deletion on rerun', async () => {
+    const env = { DB: store.database }
+    await ensureInternalWatchlistSeeded(env, async () => payloads())
+    await expect(readInternalWatchlistCatalogCandidates(env)).resolves.toEqual(['NVDA', 'PLTR'])
+    await finalizeInternalWatchlist(env, [], new Date('2026-08-26T12:00:00.000Z'))
+    await expect(readInternalWatchlistSymbolDetails(env, 'PLTR')).resolves.toMatchObject({
+      origin: 'tastytrade-seed',
+      metadata: { seedSourceIds: ['tastytrade-public-0'] },
+      seedMemberships: [{ sourceKind: 'public', sourceName: 'Public movers' }],
+    })
+    await removeInternalWatchlistSymbols(env, ['PLTR'])
+    await expect(finalizeInternalWatchlist(env, [], new Date('2026-08-26T13:00:00.000Z')))
+      .resolves.toMatchObject({ finalized: false })
+    expect((await readInternalWatchlist(env)).some((item) => item.symbol === 'PLTR')).toBe(false)
+  })
+
   it('promotes an existing public-seed member without losing retained seed provenance', async () => {
     const env = { DB: store.database }
     await ensureInternalWatchlistSeeded(env, async () => payloads(), new Date('2026-08-26T10:00:00.000Z'))
+    await finalizeInternalWatchlist(env, [], new Date('2026-08-26T10:01:00.000Z'))
 
     await ensureInternalWatchlistSymbols(env, ['PLTR'], 'owner', new Date('2026-08-26T11:00:00.000Z'))
 
     await expect(readInternalWatchlistSymbolDetails(env, 'PLTR')).resolves.toMatchObject({
       origin: 'owner',
       seedMemberships: [{ sourceKind: 'public', sourceName: 'Public movers' }],
+      updatedAt: '2026-08-26T11:00:00.000Z',
     })
+
+    await ensureInternalWatchlistSymbols(env, ['PLTR'], 'scheduled-research', new Date('2026-08-26T12:00:00.000Z'))
+    await expect(readInternalWatchlistSymbolDetails(env, 'PLTR')).resolves.toMatchObject({
+      origin: 'owner',
+      updatedAt: '2026-08-26T11:00:00.000Z',
+    })
+  })
+
+  it('never downgrades owner provenance or publishes an addition discarded by the cap', async () => {
+    const env = { DB: store.database }
+    await ensureInternalWatchlistSeeded(env, async () => payloads())
+    await finalizeInternalWatchlist(env, [])
+    const ownerSymbols = Array.from({ length: 100 }, (_, index) => symbolAt(index))
+    await expect(ensureInternalWatchlistSymbols(env, [...ownerSymbols, 'ZZZ'], 'owner'))
+      .rejects.toThrow('too-many-symbols')
+    await expect(ensureInternalWatchlistSymbols(env, ownerSymbols, 'owner')).resolves.toHaveLength(100)
+
+    await expect(ensureInternalWatchlistSymbols(env, ['A'], 'scheduled-research'))
+      .resolves.toEqual(['A'])
+    await expect(ensureInternalWatchlistSymbols(env, ['ZZZ'], 'scheduled-research'))
+      .resolves.toEqual([])
+    await expect(ensureInternalWatchlistSymbols(env, ['ZZZ'], 'owner'))
+      .resolves.toEqual([])
+
+    const items = await readInternalWatchlist(env)
+    expect(items).toHaveLength(100)
+    expect(items.find((item) => item.symbol === 'A')?.origin).toBe('owner')
+    expect(items.some((item) => item.symbol === 'ZZZ')).toBe(false)
+    const publicRow = store.sqlite.prepare(
+      `SELECT payload_json FROM public_market_universe WHERE id = 'primary'`,
+    ).get()
+    expect(publicRow).toBeDefined()
+    expect(JSON.parse(String(publicRow?.payload_json))).toEqual({ symbols: items.map((item) => item.symbol) })
   })
 })

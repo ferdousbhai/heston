@@ -16,7 +16,8 @@ export const Route = createFileRoute('/api/watchlists')({
         const parsed = WatchlistMutationSchema.safeParse(await request.json().catch(() => null))
         if (!parsed.success) return jsonNoStore({ error: 'Invalid watchlist change' }, { status: 400 })
         try {
-          return jsonNoStore(await executeWatchlistAction(appEnv, parsed.data))
+          const result = await executeWatchlistAction(appEnv, parsed.data)
+          return jsonNoStore(result, { status: result.discardedSymbols.length ? 409 : 200 })
         } catch (error) {
           return jsonNoStore({ error: publicError(toError(error)) }, { status: 409 })
         }

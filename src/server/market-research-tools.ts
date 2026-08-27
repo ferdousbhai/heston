@@ -7,7 +7,6 @@ import quoteSummary, {
 } from 'yahoo-finance2/modules/quoteSummary'
 
 import { marketDate } from '../domain/catalyst'
-import { readBoundedText } from './bounded-response'
 import {
   type CompanyFundamentalsProvider,
   type CompanyFundamentalsReadResult,
@@ -20,6 +19,7 @@ import {
 import { ResearchProviderError } from './research-provider'
 import { textResult } from './agent-tool-result'
 import { boundedInteger, calculateStudies, normalizeStudies } from './technical-studies'
+import { boundedYahooFetch } from './yahoo-finance-transport'
 
 export type {
   CompanyFundamentalsProvider,
@@ -33,8 +33,6 @@ export type {
 
 const EQUITY_SYMBOL = /^[A-Z][A-Z0-9.]{0,7}$/
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
-const MAX_YAHOO_RESPONSE_BYTES = 2_000_000
-const YAHOO_TIMEOUT_MS = 12_000
 const MAX_HISTORY_DAYS = 10 * 366
 const MAX_HISTORY_ROWS = 250
 const MAX_RAW_HISTORY_ROWS = 4_000
@@ -166,24 +164,6 @@ function normalizeSymbol(value: string): string {
 
 function yahooSymbol(symbol: string): string {
   return symbol.replaceAll('.', '-')
-}
-
-function boundedYahooFetch(fetcher: typeof fetch): typeof fetch {
-  return async (input, init) => {
-    const timeout = AbortSignal.timeout(YAHOO_TIMEOUT_MS)
-    const signal = init?.signal ? AbortSignal.any([timeout, init.signal]) : timeout
-    const response = await fetcher(input, { ...init, signal })
-    const body = await readBoundedText(response, MAX_YAHOO_RESPONSE_BYTES, 'YahooFinance')
-    const emptyBodyStatus = response.status === 101
-      || response.status === 204
-      || response.status === 205
-      || response.status === 304
-    return new Response(emptyBodyStatus ? null : body, {
-      headers: response.headers,
-      status: response.status,
-      statusText: response.statusText,
-    })
-  }
 }
 
 function createYahooClient(fetcher: typeof fetch = fetch): ResearchYahooClient {

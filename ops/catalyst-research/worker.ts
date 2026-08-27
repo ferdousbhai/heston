@@ -7,7 +7,7 @@ import {
 import { readBoundedJson } from '../../src/server/bounded-response'
 import { authorizedOpsRequest } from '../shared/worker-auth'
 
-const MAX_ARTIFACT_BYTES = 2_000_000
+const MAX_ARTIFACT_BYTES = 8_000_000
 type OpsEnv = AppEnv & { OPS_AUTH_TOKEN?: string }
 
 export default {

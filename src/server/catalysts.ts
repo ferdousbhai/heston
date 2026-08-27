@@ -5,6 +5,7 @@ import { jsonObjectOrEmpty, jsonText, type JsonObject, type JsonValue } from '..
 const TASTYTRADE_METRICS_URL = 'https://developer.tastytrade.com/open-api-spec/market-metrics/'
 const D1_MAX_BOUND_PARAMETERS = 100
 const DELETE_SYMBOL_CHUNK_SIZE = D1_MAX_BOUND_PARAMETERS
+const CATALYST_ROWS_PER_STATEMENT = 8
 
 export type ResearchCatalystSource = 'codex-web' | 'reddit' | 'x'
 
@@ -13,6 +14,36 @@ const RESEARCH_CATALYST_TABLES = {
   reddit: 'reddit_catalysts',
   x: 'x_catalysts',
 } as const satisfies Record<ResearchCatalystSource, string>
+
+type CatalystTable = 'tastytrade_catalysts' | (typeof RESEARCH_CATALYST_TABLES)[ResearchCatalystSource]
+
+function catalystUpsertStatements(
+  db: D1Database,
+  table: CatalystTable,
+  catalysts: readonly Catalyst[],
+  observedAt: string,
+): D1PreparedStatement[] {
+  const statements: D1PreparedStatement[] = []
+  for (let start = 0; start < catalysts.length; start += CATALYST_ROWS_PER_STATEMENT) {
+    const chunk = catalysts.slice(start, start + CATALYST_ROWS_PER_STATEMENT)
+    statements.push(db.prepare(
+      `INSERT INTO ${table}
+        (id, symbol, kind, title, description, event_date, timing, confidence, source_label, source_url, updated_at, last_seen_at)
+       VALUES ${chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ')}
+       ON CONFLICT(id) DO UPDATE SET
+        symbol = excluded.symbol, kind = excluded.kind, title = excluded.title,
+        description = excluded.description, event_date = excluded.event_date,
+        timing = excluded.timing, confidence = excluded.confidence,
+        source_label = excluded.source_label, source_url = excluded.source_url,
+        updated_at = excluded.updated_at, last_seen_at = excluded.last_seen_at`,
+    ).bind(...chunk.flatMap((catalyst) => [
+      catalyst.id, catalyst.symbol, catalyst.kind, catalyst.title, catalyst.description ?? null,
+      catalyst.date, catalyst.timing, catalyst.confidence, catalyst.source,
+      catalyst.sourceUrl, catalyst.updatedAt, observedAt,
+    ])))
+  }
+  return statements
+}
 
 function date(value: JsonValue): string | undefined {
   const candidate = jsonText(value)
@@ -92,22 +123,7 @@ export async function persistAndLoadCatalysts(
          WHERE symbol IN (${symbols.map(() => '?').join(', ')})`,
       ).bind(...symbols))
     }
-    statements.push(...observed.map((catalyst) => env.DB!.prepare(
-        `INSERT INTO tastytrade_catalysts
-          (id, symbol, kind, title, description, event_date, timing, confidence, source_label, source_url, updated_at, last_seen_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-          symbol = excluded.symbol, kind = excluded.kind, title = excluded.title,
-          description = excluded.description,
-          event_date = excluded.event_date, timing = excluded.timing,
-          confidence = excluded.confidence, source_label = excluded.source_label,
-          source_url = excluded.source_url, updated_at = excluded.updated_at,
-          last_seen_at = excluded.last_seen_at`,
-      ).bind(
-        catalyst.id, catalyst.symbol, catalyst.kind, catalyst.title, catalyst.description ?? null, catalyst.date,
-        catalyst.timing, catalyst.confidence, catalyst.source, catalyst.sourceUrl,
-        catalyst.updatedAt, now.toISOString(),
-      )))
+    statements.push(...catalystUpsertStatements(env.DB, 'tastytrade_catalysts', observed, now.toISOString()))
     if (statements.length) await env.DB.batch(statements)
     const result = await env.DB.prepare(
       `SELECT id, symbol, kind, title, description, event_date AS date, timing, confidence,
@@ -136,19 +152,5 @@ export async function persistResearchedCatalysts(
 ): Promise<void> {
   if (!env.DB || !catalysts.length) return
   const table = RESEARCH_CATALYST_TABLES[source]
-  await env.DB.batch(catalysts.map((catalyst) => env.DB!.prepare(
-    `INSERT INTO ${table}
-      (id, symbol, kind, title, description, event_date, timing, confidence, source_label, source_url, updated_at, last_seen_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET
-      symbol = excluded.symbol, kind = excluded.kind, title = excluded.title,
-      description = excluded.description, event_date = excluded.event_date,
-      timing = excluded.timing, confidence = excluded.confidence,
-      source_label = excluded.source_label, source_url = excluded.source_url,
-      updated_at = excluded.updated_at, last_seen_at = excluded.last_seen_at`,
-  ).bind(
-    catalyst.id, catalyst.symbol, catalyst.kind, catalyst.title, catalyst.description ?? null,
-    catalyst.date, catalyst.timing, catalyst.confidence, catalyst.source,
-    catalyst.sourceUrl, catalyst.updatedAt, now.toISOString(),
-  )))
+  await env.DB.batch(catalystUpsertStatements(env.DB, table, catalysts, now.toISOString()))
 }

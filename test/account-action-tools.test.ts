@@ -41,7 +41,9 @@ describe('direct non-placement actions', () => {
     tastytrade.tastyRequest.mockReset().mockResolvedValue({})
     tastytrade.withBrokerMutationLease.mockClear()
     tastytrade.renewBrokerMutationLease.mockClear()
-    watchlists.executeWatchlistAction.mockReset().mockResolvedValue({ detail: 'updated' })
+    watchlists.executeWatchlistAction.mockReset().mockResolvedValue({
+      appliedSymbols: ['SPY', 'NVDA'], detail: 'updated', discardedSymbols: [],
+    })
     internalWatchlist.ensureSymbols.mockReset().mockResolvedValue([])
   })
 
@@ -64,7 +66,9 @@ describe('direct non-placement actions', () => {
     expect(watchlists.executeWatchlistAction).toHaveBeenCalledWith({}, {
       kind: 'add_watchlist_symbols', symbols: ['SPY', 'NVDA'],
     })
-    expect(result.details).toEqual({ detail: 'updated' })
+    expect(result.details).toEqual({
+      appliedSymbols: ['SPY', 'NVDA'], detail: 'updated', discardedSymbols: [],
+    })
   })
 
   it('never automatically repeats a failed direct mutation in one model turn', async () => {

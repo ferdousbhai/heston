@@ -1,8 +1,6 @@
 import { toError } from '../domain/failure'
 import { newYorkClock } from '../domain/market-clock'
 import { type AppEnv } from './env'
-import { pruneInternalWatchlistToFocus } from './internal-watchlist'
-import { replacePublicMarketUniverseSymbols } from './public-market-universe'
 import { generateDailyResearch } from './research'
 import { refreshInternalInstrumentCatalogFromTastytrade } from './tastytrade'
 
@@ -14,14 +12,11 @@ export const INSTRUMENT_CATALOG_CRON = '0 12 * * *'
 /** Idempotent daily projection refresh. D1 row timestamps are its durable receipt. */
 export async function runDailyInstrumentCatalogRefresh(env: AppEnv, now = new Date()): Promise<void> {
   const result = await refreshInternalInstrumentCatalogFromTastytrade(env, now)
-  const { kept: focusSymbols } = await pruneInternalWatchlistToFocus(env, 100)
-  await replacePublicMarketUniverseSymbols(env, focusSymbols, now)
   console.info(JSON.stringify({
     event: 'InstrumentCatalogRefreshed',
     missingCount: result.missingSymbols.length,
     receivedCount: result.receivedCount,
     requestedCount: result.requestedCount,
-    publicSymbolCount: focusSymbols.length,
   }))
 }
 
