@@ -1,5 +1,4 @@
-import { readFile } from 'node:fs/promises'
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { type InstrumentCatalogItem } from '../src/domain/instrument'
 import { type JsonValue } from '../src/domain/json-payload'
@@ -11,25 +10,12 @@ import {
 import { persistInstrumentCatalog } from '../src/server/instrument-catalog'
 import { canonicalCodexSourceUrl } from '../src/server/codex-transcript-evidence'
 import { ensureInternalWatchlistSeeded, finalizeInternalWatchlist } from '../src/server/internal-watchlist'
-import { sqliteD1 } from './sqlite-d1'
+import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 
-let migrations: string[]
-let store: ReturnType<typeof sqliteD1>
+let store: SqliteD1Store
 
-beforeAll(async () => {
-  migrations = await Promise.all(Array.from({ length: 12 }, (_, index) => (
-    readFile(new URL(`../migrations/${String(index + 1).padStart(4, '0')}_${[
-      'spice', 'scheduled_runs', 'public_market_universe', 'catalyst_description',
-      'brokerage_action_state', 'internal_watchlist', 'internal_watchlist_validation',
-      'instrument_catalog', 'instrument_catalog_resolution',
-      'source_specific_market_data', 'internal_watchlist_position_origin',
-      'codex_catalyst_confidence',
-    ][index]}.sql`, import.meta.url), 'utf8')
-  )))
-})
-
-beforeEach(() => {
-  store = sqliteD1(migrations)
+beforeEach(async () => {
+  store = await migrationStore()
 })
 
 afterEach(() => store.close())

@@ -1,5 +1,4 @@
-import { readFile } from 'node:fs/promises'
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import {
   instrumentCatalogFromPayload,
@@ -8,20 +7,12 @@ import {
   refreshInstrumentCatalog,
   unresolvedInstrumentCatalogItem,
 } from '../src/server/instrument-catalog'
-import { sqliteD1 } from './sqlite-d1'
+import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 
-let migrations: string[]
-let store: ReturnType<typeof sqliteD1>
+let store: SqliteD1Store
 
-beforeAll(async () => {
-  migrations = await Promise.all([
-    readFile(new URL('../migrations/0008_instrument_catalog.sql', import.meta.url), 'utf8'),
-    readFile(new URL('../migrations/0009_instrument_catalog_resolution.sql', import.meta.url), 'utf8'),
-  ])
-})
-
-beforeEach(() => {
-  store = sqliteD1(migrations)
+beforeEach(async () => {
+  store = await migrationStore()
 })
 
 afterEach(() => store.close())

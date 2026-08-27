@@ -1,3 +1,4 @@
+import { readdir, readFile } from 'node:fs/promises'
 import { DatabaseSync, type StatementSync } from 'node:sqlite'
 import { z } from 'zod'
 
@@ -69,4 +70,24 @@ export function sqliteD1(sql: readonly string[]) {
     prepare: (query) => prepared(sqlite.prepare(query), () => { executedQueries++ }),
   }
   return { close: () => sqlite.close(), database, queryCount: () => executedQueries, sqlite }
+}
+
+export type SqliteD1Store = ReturnType<typeof sqliteD1>
+
+const migrationsDirectory = new URL('../migrations/', import.meta.url)
+let migrationSql: Promise<string[]> | undefined
+
+// Tests read the whole migrations directory in numeric filename order instead of naming files, so a
+// new migration is exercised everywhere the moment it lands. `test/migrations.test.ts` deliberately
+// stays on explicit per-file reads: it proves each migration applies over its real prior state.
+export function loadMigrations(): Promise<string[]> {
+  migrationSql ??= (async () => {
+    const names = (await readdir(migrationsDirectory)).filter((name) => name.endsWith('.sql')).sort()
+    return await Promise.all(names.map((name) => readFile(new URL(name, migrationsDirectory), 'utf8')))
+  })()
+  return migrationSql
+}
+
+export async function migrationStore() {
+  return sqliteD1(await loadMigrations())
 }

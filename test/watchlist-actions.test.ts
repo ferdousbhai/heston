@@ -1,46 +1,14 @@
-import { readFile } from 'node:fs/promises'
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { executeWatchlistAction } from '../src/server/watchlist-actions'
 import { readInternalWatchlist } from '../src/server/internal-watchlist'
 import { WatchlistMutationSchema } from '../src/domain/watchlist'
-import { sqliteD1 } from './sqlite-d1'
+import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 
-let publicUniverseMigration: string
-let internalWatchlistMigration: string
-let internalWatchlistValidationMigration: string
-let instrumentCatalogMigration: string
-let instrumentResolutionMigration: string
-let positionOriginMigration: string
-let store: ReturnType<typeof sqliteD1>
+let store: SqliteD1Store
 
-beforeAll(async () => {
-  [
-    publicUniverseMigration,
-    internalWatchlistMigration,
-    internalWatchlistValidationMigration,
-    instrumentCatalogMigration,
-    instrumentResolutionMigration,
-    positionOriginMigration,
-  ] = await Promise.all([
-    readFile(new URL('../migrations/0003_public_market_universe.sql', import.meta.url), 'utf8'),
-    readFile(new URL('../migrations/0006_internal_watchlist.sql', import.meta.url), 'utf8'),
-    readFile(new URL('../migrations/0007_internal_watchlist_validation.sql', import.meta.url), 'utf8'),
-    readFile(new URL('../migrations/0008_instrument_catalog.sql', import.meta.url), 'utf8'),
-    readFile(new URL('../migrations/0009_instrument_catalog_resolution.sql', import.meta.url), 'utf8'),
-    readFile(new URL('../migrations/0011_internal_watchlist_position_origin.sql', import.meta.url), 'utf8'),
-  ])
-})
-
-beforeEach(() => {
-  store = sqliteD1([
-    publicUniverseMigration,
-    internalWatchlistMigration,
-    internalWatchlistValidationMigration,
-    instrumentCatalogMigration,
-    instrumentResolutionMigration,
-    positionOriginMigration,
-  ])
+beforeEach(async () => {
+  store = await migrationStore()
   store.sqlite.exec(`
     INSERT INTO internal_watchlist_seed
       (id, status, attempt_id, started_at, seeded_at, finalized_at)

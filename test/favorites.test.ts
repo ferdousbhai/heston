@@ -1,9 +1,8 @@
-import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 
 import { stagedFavoriteSymbols } from '../src/data/favorites'
 import { mergeFavoriteSymbols, readFavoriteSymbols, removeFavoriteSymbols } from '../src/server/favorites'
-import { sqliteD1 } from './sqlite-d1'
+import { migrationStore } from './sqlite-d1'
 
 const preference = {
   id: 'primary' as const,
@@ -28,9 +27,7 @@ describe('anonymous favorite staging', () => {
 
 describe('D1 favorite synchronization', () => {
   it('converges additive device bootstraps on the per-user union and supports later removal', async () => {
-    const initial = await readFile(new URL('../migrations/0001_spice.sql', import.meta.url), 'utf8')
-    const favorites = await readFile(new URL('../migrations/0013_user_favorite_symbols.sql', import.meta.url), 'utf8')
-    const store = sqliteD1([initial, favorites])
+    const store = await migrationStore()
     store.sqlite.prepare(
       `INSERT INTO "user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
        VALUES (?, ?, ?, 1, ?, ?)`,

@@ -1,29 +1,14 @@
-import { readFile } from 'node:fs/promises'
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { persistTastytradeMarketSnapshot } from '../src/server/tastytrade-market-store'
 import { marketTickersFixture } from './fixtures/market'
 import { unsupportedDatabase, unsupportedStatement } from './fake-d1'
-import { sqliteD1 } from './sqlite-d1'
+import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 
-let migrations: string[]
-let store: ReturnType<typeof sqliteD1>
+let store: SqliteD1Store
 
-beforeAll(async () => {
-  const names = [
-    'spice', 'scheduled_runs', 'public_market_universe', 'catalyst_description',
-    'brokerage_action_state', 'internal_watchlist', 'internal_watchlist_validation',
-    'instrument_catalog', 'instrument_catalog_resolution', 'source_specific_market_data',
-    'internal_watchlist_position_origin', 'codex_catalyst_confidence',
-  ]
-  migrations = await Promise.all(names.map((name, index) => readFile(
-    new URL(`../migrations/${String(index + 1).padStart(4, '0')}_${name}.sql`, import.meta.url),
-    'utf8',
-  )))
-})
-
-beforeEach(() => {
-  store = sqliteD1(migrations)
+beforeEach(async () => {
+  store = await migrationStore()
 })
 
 afterEach(() => store.close())

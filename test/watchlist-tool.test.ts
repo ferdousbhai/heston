@@ -1,52 +1,20 @@
-import { readFile } from 'node:fs/promises'
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { buildAgentRuntimeContext, loadBrokerageContext } from '../src/server/brokerage-context'
 import { ensureInternalWatchlistSeeded, finalizeInternalWatchlist } from '../src/server/internal-watchlist'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { createWatchlistReadTool } from '../src/server/watchlist-tool'
 import { stubBroker } from './broker-stub'
-import { sqliteD1 } from './sqlite-d1'
+import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 
 const tastytrade = stubBroker()
-let publicUniverseMigration: string
-let internalWatchlistMigration: string
-let internalWatchlistValidationMigration: string
-let instrumentCatalogMigration: string
-let instrumentResolutionMigration: string
-let positionOriginMigration: string
-let store: ReturnType<typeof sqliteD1>
-
-beforeAll(async () => {
-  [
-    publicUniverseMigration,
-    internalWatchlistMigration,
-    internalWatchlistValidationMigration,
-    instrumentCatalogMigration,
-    instrumentResolutionMigration,
-    positionOriginMigration,
-  ] = await Promise.all([
-    readFile(new URL('../migrations/0003_public_market_universe.sql', import.meta.url), 'utf8'),
-    readFile(new URL('../migrations/0006_internal_watchlist.sql', import.meta.url), 'utf8'),
-    readFile(new URL('../migrations/0007_internal_watchlist_validation.sql', import.meta.url), 'utf8'),
-    readFile(new URL('../migrations/0008_instrument_catalog.sql', import.meta.url), 'utf8'),
-    readFile(new URL('../migrations/0009_instrument_catalog_resolution.sql', import.meta.url), 'utf8'),
-    readFile(new URL('../migrations/0011_internal_watchlist_position_origin.sql', import.meta.url), 'utf8'),
-  ])
-})
+let store: SqliteD1Store
 
 beforeEach(async () => {
   setBrokerApi(tastytrade)
   tastytrade.resolveAccountNumber.mockReset().mockResolvedValue('TEST123')
   tastytrade.tastyRequest.mockReset().mockResolvedValue({ data: { items: [] } })
-  store = sqliteD1([
-    publicUniverseMigration,
-    internalWatchlistMigration,
-    internalWatchlistValidationMigration,
-    instrumentCatalogMigration,
-    instrumentResolutionMigration,
-    positionOriginMigration,
-  ])
+  store = await migrationStore()
   const env = { DB: store.database }
   await ensureInternalWatchlistSeeded(env, async () => ({
     privatePayload: { data: { items: [{

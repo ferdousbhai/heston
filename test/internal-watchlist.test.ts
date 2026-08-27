@@ -1,5 +1,4 @@
-import { readFile } from 'node:fs/promises'
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   ensureInternalWatchlistSeeded,
@@ -14,43 +13,12 @@ import {
   removeInternalWatchlistSymbols,
   selectInternalWatchlistFocus,
 } from '../src/server/internal-watchlist'
-import { sqliteD1 } from './sqlite-d1'
+import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 
-let publicUniverseMigration: string
-let internalWatchlistMigration: string
-let internalWatchlistValidationMigration: string
-let instrumentCatalogMigration: string
-let instrumentResolutionMigration: string
-let positionOriginMigration: string
-let store: ReturnType<typeof sqliteD1>
+let store: SqliteD1Store
 
-beforeAll(async () => {
-  [
-    publicUniverseMigration,
-    internalWatchlistMigration,
-    internalWatchlistValidationMigration,
-    instrumentCatalogMigration,
-    instrumentResolutionMigration,
-    positionOriginMigration,
-  ] = await Promise.all([
-    readFile(new URL('../migrations/0003_public_market_universe.sql', import.meta.url), 'utf8'),
-    readFile(new URL('../migrations/0006_internal_watchlist.sql', import.meta.url), 'utf8'),
-    readFile(new URL('../migrations/0007_internal_watchlist_validation.sql', import.meta.url), 'utf8'),
-    readFile(new URL('../migrations/0008_instrument_catalog.sql', import.meta.url), 'utf8'),
-    readFile(new URL('../migrations/0009_instrument_catalog_resolution.sql', import.meta.url), 'utf8'),
-    readFile(new URL('../migrations/0011_internal_watchlist_position_origin.sql', import.meta.url), 'utf8'),
-  ])
-})
-
-beforeEach(() => {
-  store = sqliteD1([
-    publicUniverseMigration,
-    internalWatchlistMigration,
-    internalWatchlistValidationMigration,
-    instrumentCatalogMigration,
-    instrumentResolutionMigration,
-    positionOriginMigration,
-  ])
+beforeEach(async () => {
+  store = await migrationStore()
 })
 
 afterEach(() => store.close())
@@ -250,14 +218,7 @@ describe('one-time tastytrade watchlist seed', () => {
   })
 
   it('prunes only the maintained list and does not repopulate an explicit deletion', async () => {
-    const boundedStore = sqliteD1([
-      publicUniverseMigration,
-      internalWatchlistMigration,
-      internalWatchlistValidationMigration,
-      instrumentCatalogMigration,
-      instrumentResolutionMigration,
-      positionOriginMigration,
-    ])
+    const boundedStore = await migrationStore()
     const symbols = Array.from({ length: 105 }, (_, index) => symbolAt(index))
     const env = { DB: boundedStore.database }
     await ensureInternalWatchlistSeeded(env, async () => ({

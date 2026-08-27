@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { readFile } from 'node:fs/promises'
 import { stubBrokerGate } from './broker-stub'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
-import { sqliteD1 } from './sqlite-d1'
+import { migrationStore } from './sqlite-d1'
 import { ensureInternalWatchlistSeeded, finalizeInternalWatchlist } from '../src/server/internal-watchlist'
 
 afterEach(() => {
@@ -92,20 +91,7 @@ describe('public market boundary', () => {
 
   it('serves the internal list alone and never syncs a held symbol into it', async () => {
     vi.resetModules()
-    const migrationUrls = [
-      '../migrations/0001_spice.sql',
-      '../migrations/0003_public_market_universe.sql',
-      '../migrations/0004_catalyst_description.sql',
-      '../migrations/0006_internal_watchlist.sql',
-      '../migrations/0007_internal_watchlist_validation.sql',
-      '../migrations/0008_instrument_catalog.sql',
-      '../migrations/0009_instrument_catalog_resolution.sql',
-      '../migrations/0010_source_specific_market_data.sql',
-      '../migrations/0011_internal_watchlist_position_origin.sql',
-      '../migrations/0012_codex_catalyst_confidence.sql',
-    ]
-    const migrations = await Promise.all(migrationUrls.map((url) => readFile(new URL(url, import.meta.url), 'utf8')))
-    const store = sqliteD1(migrations)
+    const store = await migrationStore()
     store.sqlite.exec(`
       INSERT INTO internal_watchlist_seed
         (id, status, attempt_id, started_at, seeded_at, finalized_at)
@@ -179,20 +165,7 @@ describe('public market boundary', () => {
 
   it('reduces a restored seed universe when the owner has no active positions', async () => {
     vi.resetModules()
-    const migrationUrls = [
-      '../migrations/0001_spice.sql',
-      '../migrations/0003_public_market_universe.sql',
-      '../migrations/0004_catalyst_description.sql',
-      '../migrations/0006_internal_watchlist.sql',
-      '../migrations/0007_internal_watchlist_validation.sql',
-      '../migrations/0008_instrument_catalog.sql',
-      '../migrations/0009_instrument_catalog_resolution.sql',
-      '../migrations/0010_source_specific_market_data.sql',
-      '../migrations/0011_internal_watchlist_position_origin.sql',
-      '../migrations/0012_codex_catalyst_confidence.sql',
-    ]
-    const migrations = await Promise.all(migrationUrls.map((url) => readFile(new URL(url, import.meta.url), 'utf8')))
-    const store = sqliteD1(migrations)
+    const store = await migrationStore()
     const symbols = Array.from({ length: 105 }, (_, index) => equitySymbolAt(index))
     const env = { DB: store.database }
     await ensureInternalWatchlistSeeded(env, async () => ({
