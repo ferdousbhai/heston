@@ -292,7 +292,7 @@ export function MarketScreen({
         </CardFooter>
       </Card>
 
-      <section className="watch-table premium-table" aria-labelledby="watch-title">
+      <section className="watch-table" aria-labelledby="watch-title">
         <header className="section-header">
           <h2 className="watchlist-title" id="watch-title">{activeWatchlist.name}</h2>
           <div className="watch-search">
