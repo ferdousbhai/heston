@@ -55,12 +55,12 @@ const compactFormatter = new Intl.NumberFormat('en-US', {
   notation: 'compact',
 })
 
-function compactMetric(value: number | undefined, prefix = ''): string {
-  return value === undefined ? 'N/A' : `${prefix}${compactFormatter.format(value)}`
+function compactMetric(value: number | undefined, prefix = '', suffix = ''): string {
+  return value === undefined ? '—' : `${prefix}${compactFormatter.format(value)}${suffix}`
 }
 
 function formatSignedMetric(value: number | undefined, suffix = ''): string {
-  if (value === undefined) return 'N/A'
+  if (value === undefined) return '—'
   return `${value > 0 ? '+' : ''}${formatMarketMetric(value)}${suffix}`
 }
 
@@ -70,12 +70,12 @@ function assetLabel(ticker: Pick<Ticker, 'assetType'>): string | undefined {
 
 function borrowLabel(ticker: Pick<Ticker, 'borrowRate' | 'lendability'>): string {
   if (ticker.borrowRate !== undefined) return `${formatMarketMetric(ticker.borrowRate)}% borrow`
-  return ticker.lendability ?? 'Borrow N/A'
+  return ticker.lendability ?? '—'
 }
 
 function termStructureLabel(ticker: Pick<Ticker, 'ivTermStructure'>): string {
   const term = ticker.ivTermStructure
-  if (!term) return 'N/A'
+  if (!term) return '—'
   const spread = term.frontIv - term.backIv
   if (Math.abs(spread) < 1) return 'Flat'
   return spread > 0
@@ -156,11 +156,11 @@ export function MarketScreen({
               <div><dt>IV rank</dt><dd>{formatMarketMetric(selected.ivRank)}</dd></div>
               <div><dt>IV percentile</dt><dd>{formatMarketMetric(selected.ivPercentile)}</dd></div>
               <div><dt>IV 5-day</dt><dd>{formatSignedMetric(selected.ivIndex5DayChange, ' pts')}</dd></div>
-              <div><dt>30-day HV</dt><dd>{selected.historicalVolatility30Day === undefined ? 'N/A' : `${formatMarketMetric(selected.historicalVolatility30Day)}%`}</dd></div>
+              <div><dt>30-day HV</dt><dd>{selected.historicalVolatility30Day === undefined ? '—' : `${formatMarketMetric(selected.historicalVolatility30Day)}%`}</dd></div>
               <div><dt>IV minus HV</dt><dd>{formatSignedMetric(selected.ivHistoricalVolatility30DayDifference, ' pts')}</dd></div>
               <div><dt>Term structure</dt><dd>{termStructureLabel(selected)}</dd></div>
               <div><dt>Liquidity</dt><dd>{formatMarketMetric(selected.liquidity)}/5</dd></div>
-              <div><dt>Borrow rate</dt><dd>{selected.borrowRate === undefined ? selected.lendability ?? 'N/A' : `${formatMarketMetric(selected.borrowRate)}%`}</dd></div>
+              <div><dt>Borrow rate</dt><dd>{selected.borrowRate === undefined ? selected.lendability ?? '—' : `${formatMarketMetric(selected.borrowRate)}%`}</dd></div>
               <div><dt>Volume</dt><dd>{compactMetric(selected.volume)}</dd></div>
               <div><dt>Market cap</dt><dd>{compactMetric(selected.marketCap, '$')}</dd></div>
             </dl>
@@ -278,12 +278,12 @@ export function MarketScreen({
                     <small>{borrowLabel(ticker)}</small>
                   </TableCell>
                   <TableCell className="activity-cell">
-                    <strong>{compactMetric(ticker.volume)} vol</strong>
-                    <small>{compactMetric(ticker.marketCap, '$')} cap</small>
+                    <strong>{compactMetric(ticker.volume, '', ' vol')}</strong>
+                    <small>{compactMetric(ticker.marketCap, '$', ' cap')}</small>
                   </TableCell>
                   <TableCell className="range-cell">
                     <strong>{priceFormatter.format(ticker.price)}</strong>
-                    <small>{rangePosition === undefined ? '52w N/A' : `${Math.round(rangePosition)}% of range`}</small>
+                    <small>{rangePosition === undefined ? '—' : `${Math.round(rangePosition)}% of range`}</small>
                   </TableCell>
                 </TableRow>
               )

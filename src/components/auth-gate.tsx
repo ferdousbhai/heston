@@ -131,7 +131,6 @@ export function AuthScreen({ checking = false, error }: { checking?: boolean; er
 
   return (
     <main className="auth-shell">
-      <div className="auth-grain" />
       <header className="auth-brand" aria-label="Spice Must Flow">
         <img alt="" src="/spice-mark.svg" />
         <span>SPICE<small>MUST FLOW</small></span>

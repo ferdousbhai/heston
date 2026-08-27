@@ -1,4 +1,3 @@
-import { Avatar, AvatarFallback } from '#/components/ui/avatar'
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
 import { Empty, EmptyDescription, EmptyHeader } from '#/components/ui/empty'
@@ -36,17 +35,12 @@ export function CatalystStories({
         {visible.map(({ catalyst, ticker }) => (
           <Button
             aria-label={`${ticker.symbol}: ${catalyst.title}, ${catalyst.date}, ${catalyst.confidence}`}
-            className="story"
+            className={`story ${volatilityVerdict(ticker)}`}
             key={ticker.symbol}
             onClick={() => onSelect(ticker.symbol)}
             type="button"
             variant="ghost"
           >
-            <span className={`story-ring ${volatilityVerdict(ticker)}`}>
-              <Avatar className="story-avatar" size="lg">
-                <AvatarFallback>{ticker.symbol.slice(0, 2)}</AvatarFallback>
-              </Avatar>
-            </span>
             <span className="story-symbol">{ticker.symbol}</span>
             <Badge className={`story-catalyst ${catalyst.confidence}`} variant="outline">
               {catalystLabel(catalyst, now)}
