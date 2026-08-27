@@ -12,7 +12,8 @@ import {
 } from './tastytrade-payload'
 
 import {
-  JsonArraySchema,
+  envelopeRows,
+  envelopeTotalItems,
   jsonNumber,
   jsonObject,
   jsonText,
@@ -115,28 +116,15 @@ function agentPosition(position: BrokeragePosition): BrokeragePosition {
   return projected
 }
 
+/** A collection page whose rows must all be objects; anything else fails the section closed. */
 function strictItems(value: JsonValue): JsonObject[] {
-  const body = jsonObject(value)
-  const rawData = body?.data ?? value
-  const data = jsonObject(rawData)
-  const candidate = JsonArraySchema.safeParse(rawData).data
-    ?? JsonArraySchema.safeParse(data?.items ?? body?.items).data
+  const candidate = envelopeRows(value)
   if (!candidate) throw new Error('TastytradeAccount:invalid-collection')
   return candidate.map((item) => {
     const row = jsonObject(item)
     if (!row) throw new Error('TastytradeAccount:invalid-collection')
     return row
   })
-}
-
-function paginationTotal(value: JsonValue): number | undefined {
-  const body = jsonObject(value)
-  const data = jsonObject(body?.data)
-  const pagination = jsonObject(body?.pagination) ?? jsonObject(data?.pagination)
-  const raw = pagination?.['total-items']
-  if (raw === undefined || raw === null) return undefined
-  const parsed = jsonNumber(raw)
-  return parsed !== undefined && Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined
 }
 
 function positionFromRecord(row: JsonObject): BrokerageContext['positions'][number] | undefined {
@@ -162,42 +150,60 @@ function positionFromRecord(row: JsonObject): BrokerageContext['positions'][numb
   return position
 }
 
-function parsedPositions(result: PromiseSettledResult<JsonValue>) {
-  if (result.status !== 'fulfilled') return { available: false, positions: [] }
+type BrokerageSection<Row> = { available: boolean; rows: Row[]; truncated?: boolean }
+
+/**
+ * Every account section degrades the same way: a request that did not settle, or a page Spice
+ * could not fully decode, reports itself unavailable with no rows and no truncation claim,
+ * never a partial view the model could mistake for the whole account. Each caller keeps its
+ * own completeness rule, because per-page limits and truncation meaning differ by endpoint.
+ */
+function section<Row>(
+  results: readonly PromiseSettledResult<JsonValue>[],
+  parse: (...payloads: JsonValue[]) => BrokerageSection<Row>,
+): BrokerageSection<Row> {
+  const payloads: JsonValue[] = []
+  for (const result of results) {
+    if (result.status !== 'fulfilled') return { available: false, rows: [] }
+    payloads.push(result.value)
+  }
   try {
-    const rows = strictItems(result.value)
-    const total = paginationTotal(result.value)
+    return parse(...payloads)
+  } catch {
+    return { available: false, rows: [] }
+  }
+}
+
+function parsedPositions(result: PromiseSettledResult<JsonValue>) {
+  return section<BrokeragePosition>([result], (payload) => {
+    const rows = strictItems(payload)
+    const total = envelopeTotalItems(payload)
     if ((total !== undefined && total > rows.length) || (total === undefined && rows.length >= 200)) {
-      return { available: false, positions: [], truncated: true }
+      return { available: false, rows: [], truncated: true }
     }
     const positions = rows.flatMap((row) => {
       const position = positionFromRecord(row)
       return position ? [position] : []
     })
-    if (rows.length > 100) return { available: false, positions: [], truncated: true }
-    return { available: true, positions, truncated: false }
-  } catch {
-    return { available: false, positions: [] }
-  }
+    if (rows.length > 100) return { available: false, rows: [], truncated: true }
+    return { available: true, rows: positions, truncated: false }
+  })
 }
 
 function parsedOrders(
   orderResult: PromiseSettledResult<JsonValue>,
   complexOrderResult: PromiseSettledResult<JsonValue>,
 ) {
-  if (orderResult.status !== 'fulfilled' || complexOrderResult.status !== 'fulfilled') {
-    return { available: false, orders: [] }
-  }
-  try {
-    const ordinary = strictItems(orderResult.value)
-    const complex = strictItems(complexOrderResult.value)
-    const ordinaryTotal = paginationTotal(orderResult.value)
-    const complexTotal = paginationTotal(complexOrderResult.value)
+  return section<WorkingOrder>([orderResult, complexOrderResult], (ordinaryPayload, complexPayload) => {
+    const ordinary = strictItems(ordinaryPayload)
+    const complex = strictItems(complexPayload)
+    const ordinaryTotal = envelopeTotalItems(ordinaryPayload)
+    const complexTotal = envelopeTotalItems(complexPayload)
     if ((ordinaryTotal !== undefined && ordinaryTotal > ordinary.length)
       || (complexTotal !== undefined && complexTotal > complex.length)
       || (ordinaryTotal === undefined && ordinary.length >= 200)
       || (complexTotal === undefined && complex.length >= 200)) {
-      return { available: false, orders: [], truncated: true }
+      return { available: false, rows: [], truncated: true }
     }
     const normalized = [
       ...ordinary,
@@ -205,23 +211,18 @@ function parsedOrders(
     ].flatMap(workingOrderRecords)
     const byId = new Map(normalized.map((order) => [order.id, order]))
     const orders = [...byId.values()]
-    if (orders.length > 100) return { available: false, orders: [], truncated: true }
-    return { available: true, orders, truncated: false }
-  } catch {
-    return { available: false, orders: [] }
-  }
+    if (orders.length > 100) return { available: false, rows: [], truncated: true }
+    return { available: true, rows: orders, truncated: false }
+  })
 }
 
 function parsedTrades(result: PromiseSettledResult<JsonValue>) {
-  if (result.status !== 'fulfilled') return { available: false, trades: [] }
-  try {
-    const rows = strictItems(result.value)
-    const total = paginationTotal(result.value)
+  return section<RecentTrade>([result], (payload) => {
+    const rows = strictItems(payload)
+    const total = envelopeTotalItems(payload)
     const truncated = rows.length >= 25 || (total !== undefined && total > rows.length)
-    return { available: true, trades: rows.map(tradeTransactionRecord).slice(0, 25), truncated }
-  } catch {
-    return { available: false, trades: [] }
-  }
+    return { available: true, rows: rows.map(tradeTransactionRecord).slice(0, 25), truncated }
+  })
 }
 
 export async function loadBrokerageContext(env: AppEnv): Promise<BrokerageContext> {
@@ -257,9 +258,9 @@ export async function loadBrokerageContext(env: AppEnv): Promise<BrokerageContex
       trades: tradeSection.available,
     },
     balances,
-    positions: positionSection.positions,
-    orders: orderSection.orders,
-    recentTrades: tradeSection.trades,
+    positions: positionSection.rows,
+    orders: orderSection.rows,
+    recentTrades: tradeSection.rows,
   }
 }
 

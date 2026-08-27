@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildOrderPayload } from '../src/server/brokerage'
 import { matchesSubmittedOrder } from '../src/server/brokerage-reconciliation'
+import { buildOrderPayload } from '../src/server/order-payload'
 
 describe('brokerage submission reconciliation', () => {
   const intended = buildOrderPayload({

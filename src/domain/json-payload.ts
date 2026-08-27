@@ -87,3 +87,17 @@ export function envelopeRows(payload: JsonValue): JsonValue[] | undefined {
     ?? JsonArraySchema.safeParse(data?.items).data
     ?? JsonArraySchema.safeParse(body?.items).data
 }
+
+/**
+ * The `pagination.total-items` count a brokerage collection envelope reports, or undefined
+ * when it reports none that can be trusted. A total that is not a non-negative safe integer
+ * reads back as undefined, so callers must treat undefined as "the page count is unknown",
+ * never as "there is nothing more".
+ */
+export function envelopeTotalItems(payload: JsonValue): number | undefined {
+  const body = jsonObject(payload)
+  const data = jsonObject(body?.data)
+  const pagination = jsonObject(body?.pagination) ?? jsonObject(data?.pagination)
+  const total = jsonNumber(pagination?.['total-items'])
+  return total !== undefined && Number.isSafeInteger(total) && total >= 0 ? total : undefined
+}

@@ -4,6 +4,8 @@ import { type AgentTool } from '@earendil-works/pi-agent-core'
 import { type OrderPayload } from './order-payload'
 import { type AppEnv } from './env'
 import {
+  envelopeRows,
+  envelopeTotalItems,
   JsonArraySchema,
   jsonLooseText,
   jsonNumber,
@@ -33,21 +35,29 @@ export type ReconciliationResult = {
 const ReconcileParameters = Type.Object({}, { additionalProperties: false })
 const FINAL_ABSENCE_DELAY_MS = 15 * 60_000
 
-function orderRows(payload: JsonValue): OrderHistoryPage {
+/** Whether the broker claimed a total at all, as opposed to one we could not read. */
+function declaresTotalItems(payload: JsonValue): boolean {
   const body = jsonObject(payload)
-  const rawData = body?.data ?? payload
-  const data = jsonObject(rawData)
-  const candidate = JsonArraySchema.safeParse(rawData).data
-    ?? JsonArraySchema.safeParse(data?.items ?? body?.items).data
+  const pagination = jsonObject(body?.pagination) ?? jsonObject(jsonObject(body?.data)?.pagination)
+  return pagination?.['total-items'] !== undefined
+}
+
+function orderRows(payload: JsonValue): OrderHistoryPage {
+  const candidate = envelopeRows(payload)
   if (!candidate || candidate.length > 100) throw new Error('TastytradeReconciliation:invalid-history')
   const rows = candidate.map((value) => {
     const row = jsonObject(value)
     if (!row) throw new Error('TastytradeReconciliation:invalid-history')
     return row
   })
-  const pagination = jsonObject(body?.pagination) ?? jsonObject(data?.pagination)
-  const total = jsonNumber(pagination?.['total-items'])
-  const complete = total === undefined ? rows.length < 100 : Number.isSafeInteger(total) && total <= rows.length
+  // The history request asks for 100 rows, so a page that did not fill is the
+  // whole history. A broker that reports a total we cannot read is not evidence
+  // of completeness: staying incomplete keeps an ambiguous mutation quarantined
+  // rather than concluding the order is absent.
+  const total = envelopeTotalItems(payload)
+  const complete = total !== undefined
+    ? total <= rows.length
+    : !declaresTotalItems(payload) && rows.length < 100
   return { complete, rows }
 }
 

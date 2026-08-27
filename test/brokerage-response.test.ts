@@ -2,13 +2,12 @@ import { describe, expect, it } from 'vitest'
 
 import {
   BrokerageSubmissionUnknownError,
-  buildOrderPayload,
   rejectDryRunWarnings,
   validateOrderResponse,
   validatePlacedOrderResponse,
   validateReplacementReceipt,
 } from '../src/server/brokerage'
-import { replacementOrderPayload } from '../src/server/order-payload'
+import { buildOrderPayload, replacementOrderPayload } from '../src/server/order-payload'
 
 const intended = {
   'order-type': 'Limit' as const,
@@ -76,12 +75,12 @@ describe('broker order response boundary', () => {
       order: brokerOrder,
       'buying-power-effect': { effect: 'Debit', 'change-in-buying-power': '-505' },
       warnings: [{ code: 'review', message: 'Review this order' }],
-    } }, intended, false)).toEqual({ id: '123', warnings: ['Review this order'] })
+    } }, intended)).toEqual({ id: '123', warnings: ['Review this order'] })
 
-    expect(() => validateOrderResponse({ data: { order: brokerOrder } }, intended, false)).toThrow('missing-order-or-buying-power')
+    expect(() => validateOrderResponse({ data: { order: brokerOrder } }, intended)).toThrow('missing-order-or-buying-power')
     expect(() => validateOrderResponse({ data: {
       order: { ...brokerOrder, price: '6.00' }, 'buying-power-effect': { effect: 'Debit' },
-    } }, intended, false)).toThrow('echo-mismatch')
+    } }, intended)).toThrow('echo-mismatch')
   })
 
   it('fails closed on a dry-run warning before placement', () => {
@@ -94,11 +93,14 @@ describe('broker order response boundary', () => {
   it('rejects broker errors and quarantines a placed response without an order id', () => {
     expect(() => validateOrderResponse({ data: {
       errors: [{ code: 'invalid-price', message: 'Off tick' }],
-    } }, intended, false)).toThrow('TastytradeOrderRejected:Off tick')
+    } }, intended)).toThrow('TastytradeOrderRejected:Off tick')
 
-    expect(() => validateOrderResponse({ data: {
+    expect(validateOrderResponse({ data: {
       order: { ...brokerOrder, id: undefined }, 'buying-power-effect': { effect: 'Debit' },
-    } }, intended, true)).toThrow(BrokerageSubmissionUnknownError)
+    } }, intended).id).toBeUndefined()
+    expect(() => validatePlacedOrderResponse({ data: {
+      order: { ...brokerOrder, id: undefined }, 'buying-power-effect': { effect: 'Debit' },
+    } }, intended)).toThrow(BrokerageSubmissionUnknownError)
   })
 
   it('quarantines every unverified 2xx placement response but preserves a proven rejection', () => {

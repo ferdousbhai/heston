@@ -135,15 +135,17 @@ export async function resolveEquityOptionTuples(
     group.push({ index, tuple })
     groups.set(tuple.underlying, group)
   })
-  const resolved: Array<ResolvedEquityOptionTuple | undefined> = Array.from({ length: tuples.length })
+  // The groups partition every tuple index exactly once, and an unresolvable tuple throws,
+  // so a returned array of the requested length has no unresolved slot.
+  const resolved: ResolvedEquityOptionTuple[] = []
   for (const [underlying, group] of groups) {
     const payload = await brokerApi().tastyRequest(env, `/option-chains/${encodeURIComponent(underlying)}`)
     for (const { index, tuple } of group) {
       resolved[index] = { ...tuple, ...equityOptionContractFromChainTuple(payload, tuple, options) }
     }
   }
-  return resolved.map((contract) => {
-    if (!contract) throw new Error('Requested option contract is not available. Resolution was incomplete.')
-    return contract
-  })
+  if (resolved.length !== tuples.length) {
+    throw new Error('Requested option contract is not available. Resolution was incomplete.')
+  }
+  return resolved
 }

@@ -30,14 +30,6 @@ function quoteRows(payload: JsonValue): JsonValue[] | undefined {
   return data ? [data] : undefined
 }
 
-function exactlyOneRecord(payload: JsonValue, label: string): JsonObject {
-  const rows = quoteRows(payload)
-  if (rows?.length !== 1) throw new Error(`${label}:invalid-response`)
-  const row = jsonObject(rows[0])
-  if (!row) throw new Error(`${label}:invalid-response`)
-  return row
-}
-
 function recordRows(payload: JsonValue, label: string): JsonObject[] {
   const rows = quoteRows(payload)
   if (!rows?.length) throw new Error(`${label}:invalid-response`)
@@ -46,6 +38,12 @@ function recordRows(payload: JsonValue, label: string): JsonObject[] {
     if (!row) throw new Error(`${label}:invalid-response`)
     return row
   })
+}
+
+function exactlyOneRecord(payload: JsonValue, label: string): JsonObject {
+  const rows = recordRows(payload, label)
+  if (rows.length !== 1) throw new Error(`${label}:invalid-response`)
+  return rows[0]!
 }
 
 function tickSizeAt(rules: JsonValue, price: number, kind: 'equity' | 'option'): number {

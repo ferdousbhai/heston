@@ -13,8 +13,6 @@ import { replacementOrderPayload, type OrderPayload } from './order-payload'
 import { brokerApi } from './tastytrade'
 import { tradeGuards } from './trade-guards'
 
-export { buildOrderPayload } from './order-payload'
-
 /** A dry-run receipt: the broker order id is present only once the order is actually placed. */
 export type OrderResponseReceipt = { id?: string; warnings: string[] }
 export type PlacedOrderReceipt = { id: string; warnings: string[] }
@@ -42,11 +40,7 @@ function messageText(row: JsonObject): string {
   return value.slice(0, 160)
 }
 
-export function validateOrderResponse(
-  payload: JsonValue,
-  intended: OrderPayload,
-  requireOrderId: boolean,
-): OrderResponseReceipt {
+export function validateOrderResponse(payload: JsonValue, intended: OrderPayload): OrderResponseReceipt {
   const body = jsonObjectOrEmpty(payload)
   const data = jsonObjectOrEmpty(body.data ?? body)
   const errors = messageRows(data.errors ?? body.errors).slice(0, 5)
@@ -78,9 +72,7 @@ export function validateOrderResponse(
     })
   if (!echoesIntent) throw new Error('TastytradeOrderResponse:echo-mismatch')
   const id = order.id === undefined || order.id === null ? undefined : String(order.id)
-  const validId = id && /^\d{1,40}$/.test(id) ? id : undefined
-  if (requireOrderId && !validId) throw new BrokerageSubmissionUnknownError()
-  return { id: validId, warnings }
+  return { id: id && /^\d{1,40}$/.test(id) ? id : undefined, warnings }
 }
 
 export class BrokerageSubmissionUnknownError extends Error {
@@ -141,13 +133,16 @@ export function validateReplacementReceipt(
 
 /** Once placement returned 2xx, anything short of a verified rejection or exact receipt is ambiguous. */
 export function validatePlacedOrderResponse(payload: JsonValue, intended: OrderPayload): PlacedOrderReceipt {
+  let receipt: OrderResponseReceipt
   try {
-    const result = validateOrderResponse(payload, intended, true)
-    return { id: result.id!, warnings: result.warnings }
+    receipt = validateOrderResponse(payload, intended)
   } catch (error) {
     if (error instanceof TastytradeOrderRejectedError) throw error
     throw new BrokerageSubmissionUnknownError()
   }
+  // A 2xx placement without a usable broker order id is ambiguous, never a success.
+  if (!receipt.id) throw new BrokerageSubmissionUnknownError()
+  return { id: receipt.id, warnings: receipt.warnings }
 }
 
 export async function executeOrderPlacement(env: AppEnv, untrustedAction: JsonValue): Promise<{ detail: string; orderId?: string }> {
@@ -166,7 +161,7 @@ export async function executeOrderPlacement(env: AppEnv, untrustedAction: JsonVa
     const dryRunBody = intent.replaceOrderId ? replacementOrderPayload(intent.payload) : intent.payload
     await lease.renew()
     const dryRun = await brokerApi().tastyRequest(env, dryRunPath, { method: 'POST', body: JSON.stringify(dryRunBody) })
-    rejectDryRunWarnings(validateOrderResponse(dryRun, intent.payload, false).warnings)
+    rejectDryRunWarnings(validateOrderResponse(dryRun, intent.payload).warnings)
     let placed: JsonValue
     try {
       const path = intent.replaceOrderId
