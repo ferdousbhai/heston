@@ -4,7 +4,7 @@ const ORDERS_VERSION = '20260427'
 
 /** tastytrade versions endpoint families independently; unversioned APIs omit the header. */
 export function tastytradeApiVersion(path: string): string | undefined {
-  const pathname = path.split('?', 1)[0] ?? ''
+  const pathname = path.split('?', 1)[0]
   if (/^\/accounts\/[^/]+\/(?:balances(?:\/|$)|balance-snapshots(?:\/|$)|positions(?:\/|$))/.test(pathname)) {
     return BALANCES_AND_POSITIONS_VERSION
   }

@@ -23,6 +23,7 @@ import {
   type InternalWatchlistSeedPreview,
 } from './internal-watchlist'
 import {
+  envelopeRows,
   JsonArraySchema,
   jsonNumber,
   JsonObjectArraySchema,
@@ -52,19 +53,6 @@ import {
 const USER_AGENT = 'Spice/0.1'
 const MAX_TASTYTRADE_RESPONSE_BYTES = 16 * 1024 * 1024
 let cachedAccess: { expiresAt: number; token: string } | undefined
-
-function items(value: JsonValue): JsonObject[] {
-  const rows = JsonArraySchema.safeParse(value).data
-  if (rows) return rows.map(jsonObjectOrEmpty)
-  const body = jsonObjectOrEmpty(value)
-  const dataRows = JsonArraySchema.safeParse(body.data).data
-  if (dataRows) return dataRows.map(jsonObjectOrEmpty)
-  const data = jsonObjectOrEmpty(body.data)
-  const candidate = JsonArraySchema.safeParse(data.items ?? body.items).data
-  if (candidate) return candidate.map(jsonObjectOrEmpty)
-  if (jsonText(data.symbol)) return [data]
-  return jsonText(body.symbol) ? [body] : []
-}
 
 function bounded(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
@@ -261,9 +249,10 @@ export async function tastyRequest(
 
 async function resolveAccountNumber(env: AppEnv): Promise<string> {
   const payload = await tastyRequest(env, '/customers/me/accounts')
-  const accounts = items(payload)
+  const accounts = envelopeRows(payload) ?? []
   if (accounts.length !== 1) throw new Error('TastytradeAccount:explicit-account-required')
-  const account = jsonObjectOrEmpty(accounts[0]?.account ?? accounts[0])
+  const row = jsonObjectOrEmpty(accounts[0])
+  const account = jsonObjectOrEmpty(row.account ?? row)
   const accountNumber = jsonText(account['account-number'])
   if (!accountNumber) throw new Error('TastytradeAccount:not-found')
   return accountNumber
@@ -296,11 +285,7 @@ async function loadEquityCandleFromTime(env: AppEnv): Promise<number> {
 }
 
 function strictRows(payload: JsonValue, label: string): JsonObject[] {
-  const body = jsonObjectOrEmpty(payload)
-  const data = jsonObjectOrEmpty(body.data)
-  const candidate = JsonArraySchema.safeParse(payload).data
-    ?? JsonArraySchema.safeParse(body.data).data
-    ?? JsonArraySchema.safeParse(data.items ?? body.items).data
+  const candidate = envelopeRows(payload)
   const rows = candidate && JsonObjectArraySchema.safeParse(candidate).data
   if (!rows) throw new Error(`${label}:invalid-response`)
   return rows
@@ -426,9 +411,7 @@ type MarketSnapshotOptions = {
 }
 
 function marketStateFromSession(payload: JsonValue | undefined): MarketSnapshot['marketState'] {
-  const session = payload === undefined
-    ? {}
-    : jsonObjectOrEmpty(jsonObjectOrEmpty(payload).data ?? payload)
+  const session = jsonObjectOrEmpty(jsonObjectOrEmpty(payload).data ?? payload)
   const rawState = (jsonText(session.state) ?? '').toLowerCase()
   return rawState === 'open'
     ? 'open'
@@ -451,15 +434,13 @@ async function loadMarketFacts(
     ]),
     readInstrumentCatalog(env, symbols),
   ])
-  if (symbols.length && (metricsResult.status !== 'fulfilled' || marketDataResult.status !== 'fulfilled')) {
+  // With no symbols both entries resolve to an empty array, so an empty request settles
+  // fulfilled and `strictRows` reads back no rows.
+  if (metricsResult.status !== 'fulfilled' || marketDataResult.status !== 'fulfilled') {
     throw new Error('TastytradeSnapshot:market-data-unavailable')
   }
-  const metrics = symbols.length
-    ? strictRows(metricsResult.status === 'fulfilled' ? metricsResult.value : [], 'TastytradeMetrics')
-    : []
-  const quotes = symbols.length
-    ? strictRows(marketDataResult.status === 'fulfilled' ? marketDataResult.value : [], 'TastytradeMarketData')
-    : []
+  const metrics = strictRows(metricsResult.value, 'TastytradeMetrics')
+  const quotes = strictRows(marketDataResult.value, 'TastytradeMarketData')
   const metricBySymbol = new Map(metrics.map((row) => [jsonText(row.symbol), row]))
   const quoteBySymbol = new Map(quotes.map((row) => [jsonText(row.symbol), row]))
   const tickers = symbols.flatMap((symbol) => {

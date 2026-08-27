@@ -7,6 +7,7 @@ import { type AppEnv } from './env'
 import {
   DXLINK_REMOVE_EVENT,
   DXLINK_SNAPSHOT_BEGIN,
+  candleStreamerSymbol,
   candleSubscription,
   type LiveMarketEvent,
   type MarketFeedStatus,
@@ -17,7 +18,9 @@ import {
   parseOptionStreamerSymbols,
   parseRequestedSymbols,
 } from './market-feed-contracts'
-import { JsonArraySchema, jsonObjectOrEmpty, type JsonObject, type JsonValue } from '../domain/json-payload'
+// dxFeed COMPACT rows encode absent numeric slots as null or empty strings, which
+// `jsonNumber` already reads back as absent.
+import { JsonArraySchema, jsonNumber, jsonObjectOrEmpty, type JsonObject, type JsonValue } from '../domain/json-payload'
 import { brokerApi } from './tastytrade'
 
 const SocketAttachmentSchema = z.object({ symbols: z.array(z.string()) })
@@ -38,15 +41,6 @@ const FEED_TYPES = ['Quote', 'Trade', 'Candle', 'Greeks'] as const satisfies rea
 
 const OPTION_GREEKS_TIMEOUT_MS = 10_000
 const UPSTREAM_SETUP_TIMEOUT_MS = 15_000
-
-/** dxFeed COMPACT rows encode absent numeric slots as null or empty strings; keep them absent. */
-const CoercedNumberSchema = z.union([z.number(), z.string().trim().min(1)])
-  .transform(Number)
-  .refine(Number.isFinite)
-
-function finite(value: JsonValue): number | undefined {
-  return CoercedNumberSchema.safeParse(value).data
-}
 
 function streamRows(type: FeedType, values: JsonValue): JsonObject[] {
   const items = JsonArraySchema.safeParse(values).data
@@ -91,7 +85,7 @@ function socketSymbols(socket: FeedClientSocket): string[] {
 }
 
 function eventTimestamp(row: JsonObject): string | undefined {
-  const epoch = finite(row.time ?? row.eventTime)
+  const epoch = jsonNumber(row.time ?? row.eventTime)
   if (epoch === undefined || epoch <= 1_000_000_000) return undefined
   const milliseconds = epoch < 10_000_000_000 ? epoch * 1_000 : epoch
   if (!Number.isSafeInteger(milliseconds)) return undefined
@@ -110,25 +104,25 @@ function eventFromRow(type: Exclude<FeedType, 'Greeks'>, row: JsonObject): LiveM
   const timestamp = eventTimestamp(row)
   if (!symbol || !timestamp) return undefined
   if (type === 'Quote') {
-    const rawBid = finite(row.bidPrice)
-    const rawAsk = finite(row.askPrice)
+    const rawBid = jsonNumber(row.bidPrice)
+    const rawAsk = jsonNumber(row.askPrice)
     const bid = rawBid !== undefined && rawBid > 0 ? rawBid : undefined
     const ask = rawAsk !== undefined && rawAsk > 0 ? rawAsk : undefined
     if (bid === undefined || ask === undefined || bid > ask) return undefined
     return { type: 'market', symbol, price: (bid + ask) / 2, bid, ask, timestamp }
   }
   if (type === 'Trade') {
-    const price = finite(row.price)
-    const change = finite(row.change)
+    const price = jsonNumber(row.price)
+    const change = jsonNumber(row.change)
     if (price === undefined || price <= 0) return undefined
     const trade: LiveMarketEvent = { type: 'market', symbol, price, timestamp }
     if (change !== undefined) trade.change = change
     return trade
   }
-  const candleClose = finite(row.close)
-  const candleTime = finite(row.time)
-  const sequence = finite(row.sequence) ?? 0
-  const eventFlags = finite(row.eventFlags) ?? 0
+  const candleClose = jsonNumber(row.close)
+  const candleTime = jsonNumber(row.time)
+  const sequence = jsonNumber(row.sequence) ?? 0
+  const eventFlags = jsonNumber(row.eventFlags) ?? 0
   if (candleTime === undefined || candleTime < 0 || !Number.isInteger(candleTime)) return undefined
   if (!(eventFlags & DXLINK_REMOVE_EVENT) && !(candleClose && candleClose > 0)) return undefined
   return {
@@ -304,12 +298,12 @@ export class MarketFeedCore {
     this.clearSetupTimeout()
     this.setupTimeout = setTimeout(() => {
       if (socket !== this.upstream || this.openedChannels.size === FEED_TYPES.length) return
-      this.track(this.handleSetupTimeout(socket))
+      this.track(this.closeUpstream(socket, 1013, 'Upstream setup timed out'))
     }, UPSTREAM_SETUP_TIMEOUT_MS)
     socket.addEventListener('open', () => this.track(this.handleUpstreamOpen(socket)))
     socket.addEventListener('message', (event) => this.track(this.handleUpstreamMessage(socket, event.data, credentials.token)))
     socket.addEventListener('close', () => this.track(this.handleUpstreamClose(socket)))
-    socket.addEventListener('error', () => this.track(this.handleUpstreamError(socket)))
+    socket.addEventListener('error', () => this.track(this.closeUpstream(socket, 1011, 'Upstream error')))
   }
 
   private async handleUpstreamOpen(socket: WebSocket): Promise<void> {
@@ -349,9 +343,9 @@ export class MarketFeedCore {
       return
     }
     if (message.type === 'CHANNEL_OPENED') {
-      const channel = finite(message.channel)
-      const type = FEED_TYPES.find((candidate) => CHANNELS[candidate] === channel)
-      if (!type || !channel) return
+      const type = FEED_TYPES.find((candidate) => CHANNELS[candidate] === jsonNumber(message.channel))
+      if (!type) return
+      const channel = CHANNELS[type]
       this.openedChannels.add(channel)
       if (this.openedChannels.size === FEED_TYPES.length) {
         this.clearSetupTimeout()
@@ -379,12 +373,14 @@ export class MarketFeedCore {
       const current = this.subscribedByType.get(type) ?? new Set<string>()
       const added = [...next].filter((symbol) => !current.has(symbol))
       const removed = [...current].filter((symbol) => !next.has(symbol))
-      const decorate = (symbol: string) => type === 'Candle' ? `${symbol}{=5m,tho=true}` : symbol
       const frame: JsonObject = { type: 'FEED_SUBSCRIPTION', channel }
       if (added.length) frame.add = added.map((symbol) => type === 'Candle'
         ? candleSubscription(symbol, this.candleFromTime)
-        : { symbol: decorate(symbol), type })
-      if (removed.length) frame.remove = removed.map((symbol) => ({ symbol: decorate(symbol), type }))
+        : { symbol, type })
+      if (removed.length) frame.remove = removed.map((symbol) => ({
+        symbol: type === 'Candle' ? candleStreamerSymbol(symbol) : symbol,
+        type,
+      }))
       if ((added.length || removed.length) && !await this.sendToUpstream(socket, frame)) return
       this.subscribedByType.set(type, next)
     }
@@ -441,15 +437,10 @@ export class MarketFeedCore {
     }
   }
 
-  private async handleUpstreamError(socket: WebSocket): Promise<void> {
+  /** Close the current upstream socket and run the shared teardown, whatever ended it. */
+  private async closeUpstream(socket: WebSocket, code: number, reason: string): Promise<void> {
     if (socket !== this.upstream) return
-    try { socket.close(1011, 'Upstream error') } catch { /* Already closed. */ }
-    await this.handleUpstreamClose(socket)
-  }
-
-  private async handleSetupTimeout(socket: WebSocket): Promise<void> {
-    if (socket !== this.upstream) return
-    try { socket.close(1013, 'Upstream setup timed out') } catch { /* Already closed. */ }
+    try { socket.close(code, reason) } catch { /* Already closed. */ }
     await this.handleUpstreamClose(socket)
   }
 
@@ -489,8 +480,7 @@ export class MarketFeedCore {
     if (socket !== this.upstream) return
     this.logError('MarketFeedProtocolError', detail)
     this.broadcastStatus('degraded', detail)
-    try { socket.close(1011, 'Upstream protocol failure') } catch { /* Already closed. */ }
-    await this.handleUpstreamClose(socket)
+    await this.closeUpstream(socket, 1011, 'Upstream protocol failure')
   }
 
   private broadcastStatus(state: MarketFeedStatus['state'], detail?: string): void {

@@ -218,8 +218,17 @@ export class OptionGreeksRequestRegistry {
   }
 }
 
+/**
+ * The upstream candle stream is one symbol per aggregation period and session scope, so the
+ * suffix is part of the subscription identity. Adds and removes must build it the same way or
+ * a remove silently misses and the upstream subscription leaks.
+ */
+export function candleStreamerSymbol(symbol: string): string {
+  return `${symbol}{=5m,tho=true}`
+}
+
 export function candleSubscription(symbol: string, fromTime: number) {
-  return { type: 'Candle' as const, symbol: `${symbol}{=5m,tho=true}`, fromTime }
+  return { type: 'Candle' as const, symbol: candleStreamerSymbol(symbol), fromTime }
 }
 
 export function parseRequestedSymbols(url: URL, limit = 100): string[] {
