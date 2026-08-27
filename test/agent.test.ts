@@ -7,7 +7,10 @@ import {
   DirectAccountActionSchema,
   OrderPlacementSchema,
 } from '../src/server/agent-contracts'
-import { resolvePendingAction } from '../src/server/agent'
+import { preparePendingAction, resolvePendingAction } from '../src/server/agent'
+import { brokerApi, resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
+import { resetInternalWatchlistWriter, setInternalWatchlistWriter } from '../src/server/internal-watchlist'
+import { resetTradeGuards, setTradeGuards } from '../src/server/trade-guards'
 import { createPiRuntime } from '../src/server/pi-runtime'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
 
@@ -16,6 +19,9 @@ const pi = { stream: vi.fn() } satisfies ResponsesApi
 beforeEach(() => setResponsesApi(pi))
 afterEach(() => {
   resetResponsesApi()
+  resetBrokerApi()
+  resetInternalWatchlistWriter()
+  resetTradeGuards()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -164,5 +170,44 @@ describe('pi runtime protocol', () => {
       reasoningSummary: 'auto',
       sessionId: 'dan-run-123',
     }))
+  })
+})
+
+describe('order confirmation draft', () => {
+  it('gives the draft exactly five minutes to live', async () => {
+    const binds: unknown[][] = []
+    const db: D1Database = {
+      ...unsupportedDatabase(),
+      prepare: (sql: string) => ({
+        ...unsupportedStatement(),
+        // The reconciliation sweep and the recent-trade probe both find nothing,
+        // which leaves the insert as the only statement carrying an expiry.
+        first: async () => null,
+        run: async () => d1Result([], 0),
+        bind: (...values: unknown[]) => ({
+          ...unsupportedStatement(),
+          first: async () => null,
+          run: async () => {
+            if (sql.startsWith('INSERT INTO brokerage_actions')) binds.push(values)
+            return d1Result([], 1)
+          },
+        }),
+      }),
+    }
+    setBrokerApi({ ...brokerApi(), resolveAccountNumber: async () => 'TEST123' })
+    setInternalWatchlistWriter({ ensureSymbols: async () => [] })
+    setTradeGuards({
+      assertOrderMarketSafe: async () => ({ ask: 2, bid: 1, observedAt: '2026-08-26T13:31:00.000Z', tickSize: 0.01 }),
+      assertPortfolioActionAllowed: async () => undefined,
+    })
+
+    const draft = await preparePendingAction({ DB: db }, {
+      kind: 'place_equity_order', symbol: 'SPY', action: 'Buy to Open',
+      quantity: 1, limitPrice: 5, priceEffect: 'Debit',
+    })
+
+    const [, , , createdAt, expiresAt] = binds[0] ?? []
+    expect(Date.parse(String(expiresAt)) - Date.parse(String(createdAt))).toBe(5 * 60_000)
+    expect(Date.parse(draft.expiresAt)).toBe(Date.parse(String(expiresAt)))
   })
 })
