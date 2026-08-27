@@ -14,7 +14,6 @@ import { readBoundedJson } from './bounded-response'
 import { catalystsFromMarketMetrics, earningsDateFromMetric, persistAndLoadCatalysts } from './catalysts'
 import {
   ensureInternalWatchlistSeeded,
-  ensureInternalWatchlistSymbols,
   previewInternalWatchlistSeed,
   pruneInternalWatchlistToFocus,
   readInternalWatchlist,
@@ -693,23 +692,12 @@ async function loadMarketSnapshot(
   ])
   const positions = strictRows(positionPayload, 'TastytradePositions')
   const positionSymbols = activeEquityPositionSymbols(positions)
-  const observedAt = new Date()
-  // Positions are maintained watchlist members too. Dynamic position priority
-  // keeps them inside the 100-name set without exposing their account origin.
-  if (positionSymbols.length) {
-    await ensureInternalWatchlistSymbols(
-      env,
-      positionSymbols,
-      'position-sync',
-      observedAt,
-      positionSymbols,
-    )
-  } else {
-    // A zero-position account still completes the one-time seed reduction.
-    // Otherwise the empty ensure operation would leave every seed row live.
-    await pruneInternalWatchlistToFocus(env, MAX_PUBLIC_MARKET_SYMBOLS)
-  }
-  const focusSymbols = await readInternalWatchlistFocus(env, positionSymbols, MAX_PUBLIC_MARKET_SYMBOLS)
+  // Held names reach the watchlist on their own: Dan records the symbols it
+  // researches and trades, so a recurring position-to-watchlist sync only
+  // re-derived membership that was already there. This call remains because it
+  // reduces the one-time seed to the cap and republishes the public universe.
+  await pruneInternalWatchlistToFocus(env, MAX_PUBLIC_MARKET_SYMBOLS)
+  const focusSymbols = await readInternalWatchlistFocus(env, [], MAX_PUBLIC_MARKET_SYMBOLS)
   const privateWatchlist: Watchlist = {
     id: 'watchlist',
     kind: 'private',

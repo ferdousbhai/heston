@@ -90,7 +90,7 @@ describe('public market boundary', () => {
     expect(snapshot.tickers).toEqual([])
   })
 
-  it('loads owner positions plus the internal list without recurring tastytrade watchlist reads', async () => {
+  it('serves the internal list alone and never syncs a held symbol into it', async () => {
     vi.resetModules()
     const migrationUrls = [
       '../migrations/0001_spice.sql',
@@ -159,16 +159,18 @@ describe('public market boundary', () => {
     })
 
     expect(snapshot.watchlists).toEqual([
-      { id: 'watchlist', kind: 'private', name: 'Watchlist', symbols: ['META', 'NVDA'] },
+      { id: 'watchlist', kind: 'private', name: 'Watchlist', symbols: ['NVDA'] },
     ])
-    // The position symbol still reaches the single list and the per-ticker flag.
+    // A held symbol keeps its market data and its per-ticker flag without being
+    // synced into the watchlist: Dan records what it researches and trades, so
+    // membership arrives that way rather than from a recurring position mapping.
     expect(snapshot.tickers.find((ticker) => ticker.symbol === 'META')?.position).toBe(true)
     expect(store.sqlite.prepare(
       `SELECT origin FROM internal_watchlist_items WHERE symbol = 'META'`,
-    ).get()).toEqual({ origin: 'position-sync' })
+    ).get()).toBeUndefined()
     expect(JSON.parse(String(store.sqlite.prepare(
       `SELECT payload_json FROM public_market_universe WHERE id = 'primary'`,
-    ).get()?.payload_json))).toEqual({ symbols: ['META', 'NVDA'] })
+    ).get()?.payload_json))).toEqual({ symbols: ['NVDA'] })
     const requestedUrls = fetchMock.mock.calls.map(([input]) => String(input))
     expect(requestedUrls.some((url) => url.includes('/watchlists'))).toBe(false)
     expect(requestedUrls.some((url) => url.includes('/accounts/TEST123/positions'))).toBe(true)
