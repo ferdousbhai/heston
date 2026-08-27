@@ -46,5 +46,6 @@ This file is an index, not an architecture essay. Read the relevant code and its
 - Keep domain schemas and pure logic in `src/domain/`, Cloudflare/provider code in `src/server/`, thin HTTP adapters in `src/routes/api.*`, reactive persistence in `src/data/`, and product surfaces in `src/components/`.
 - Add or amend an adjacent comment when a non-obvious privacy, trust, persistence, concurrency, or execution decision changes. Do not recreate parallel prose documentation.
 - Preserve unrelated dirty-worktree changes. Use `rg` for discovery and `apply_patch` for edits.
+- Production auto-deploys from `main` through Cloudflare Workers Builds; do not add a GitHub Actions deploy workflow.
 - Before handoff run `git diff --check`, `npm run lint`, `npm test`, `npm run build`, and relevant Playwright tests. Never hit live order endpoints from tests.
 - Before Wrangler use, read the local Wrangler skill. Apply D1 migrations before deploying code that reads new columns, then verify public and private boundaries in production.
