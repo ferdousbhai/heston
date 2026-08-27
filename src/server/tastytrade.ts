@@ -14,6 +14,7 @@ import { readBoundedJson } from './bounded-response'
 import { catalystsFromMarketMetrics, earningsDateFromMetric, persistAndLoadCatalysts } from './catalysts'
 import {
   ensureInternalWatchlistSeeded,
+  MAX_MAINTAINED_ITEMS,
   previewInternalWatchlistSeed,
   pruneInternalWatchlistToFocus,
   readInternalWatchlist,
@@ -697,7 +698,7 @@ async function loadMarketSnapshot(
   // reduces the one-time seed to the cap and republishes the public universe.
   // Pruning already returns the retained list, so reading it back would repeat
   // the same three queries against a table nothing has touched in between.
-  const { kept: focusSymbols } = await pruneInternalWatchlistToFocus(env, MAX_PUBLIC_MARKET_SYMBOLS)
+  const { kept: focusSymbols } = await pruneInternalWatchlistToFocus(env, MAX_MAINTAINED_ITEMS)
   const privateWatchlist: Watchlist = {
     id: 'watchlist',
     kind: 'private',

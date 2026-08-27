@@ -3,6 +3,9 @@ import { z } from 'zod'
 import { EquitySymbolSchema } from '../domain/instrument'
 import { type AppEnv } from './env'
 
+// One invariant, stated twice because this module is imported by the one that
+// owns the private cap: this must stay equal to MAX_MAINTAINED_ITEMS, since the
+// public universe is a bounded projection of that list.
 export const MAX_PUBLIC_MARKET_SYMBOLS = 100
 const PublicSymbolSchema = EquitySymbolSchema
 

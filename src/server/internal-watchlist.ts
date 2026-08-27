@@ -17,7 +17,8 @@ const MAX_SOURCE_LISTS_PER_KIND = 100
 const MAX_ENTRIES_PER_SOURCE = 5_000
 const MAX_TOTAL_SEED_ENTRIES = 50_000
 const MAX_INTERNAL_ITEMS = 10_000
-const MAX_MAINTAINED_ITEMS = 100
+/** The cap on the private maintained list. The public projection derives its own bound from this. */
+export const MAX_MAINTAINED_ITEMS = 100
 const MAX_CATALOG_CANDIDATES = MAX_INTERNAL_ITEMS
 const MAX_SOURCE_METADATA_BYTES = 256_000
 const MAX_ENTRY_METADATA_BYTES = 64_000
