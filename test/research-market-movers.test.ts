@@ -70,6 +70,22 @@ describe('market-mover research', () => {
     expect(evidence[1]?.context).toContain('must not be invented')
   })
 
+  it('drops a symbol the domain schema would later refuse rather than admitting it', async () => {
+    // MarketMoverInsightSchema parses these symbols again downstream and throws
+    // on a miss, so a looser ingest rule here would take the required daily job
+    // down from a best-effort source.
+    const provider: MarketMoverProvider = {
+      screen: async (category) => ({
+        quotes: category === 'gainer' ? [quote('V2X', 9.1), quote('NVDA', 7.5)] : [],
+      }),
+      searchNews: async () => ({ news: [] }),
+    }
+    const evidence = await collectMarketMoverEvidence(provider)
+    const symbols = evidence.map((item) => item.marketMover?.symbol)
+    expect(symbols).toContain('NVDA')
+    expect(symbols).not.toContain('V2X')
+  })
+
   it('returns no evidence when every bounded screener is unavailable', async () => {
     const provider: MarketMoverProvider = {
       screen: async () => { throw new Error('unavailable') },

@@ -3,10 +3,10 @@ import createYahooFinance from 'yahoo-finance2/createYahooFinance'
 import screener from 'yahoo-finance2/modules/screener'
 import search from 'yahoo-finance2/modules/search'
 
+import { EquitySymbolSchema } from '../domain/instrument'
 import { type ResearchSourceItem } from './research-contracts'
 import { boundedYahooFetch } from './yahoo-finance-transport'
 
-const EQUITY_SYMBOL = /^[A-Z][A-Z0-9.]{0,7}$/
 const MAX_PER_CATEGORY = 2
 const MAX_NEWS_PER_MOVER = 2
 const NEWS_LOOKBACK_MS = 4 * 24 * 60 * 60 * 1_000
@@ -27,7 +27,11 @@ const MoverQuoteSchema = z.object({
   regularMarketPrice: z.number().finite().positive(),
   regularMarketVolume: z.number().finite().nonnegative(),
   shortName: z.string().trim().min(1).optional(),
-  symbol: z.string().trim().regex(EQUITY_SYMBOL),
+  // The domain schema, not a looser local copy: a mover whose symbol this
+  // accepts is parsed again by MarketMoverInsightSchema, which throws rather
+  // than skipping. A digit-bearing ticker used to pass here and take the whole
+  // required daily job down from a best-effort source.
+  symbol: EquitySymbolSchema,
 }).passthrough()
 
 const ScreenerResultSchema = z.object({
