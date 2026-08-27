@@ -348,15 +348,6 @@ export function selectTicker(symbol: string) {
   })
 }
 
-export function selectWatchlist(id: string, fallbackSymbol?: string) {
-  const current = preferenceCollection.get('primary')
-  if (!current) return
-  preferenceCollection.update('primary', (draft) => {
-    draft.selectedWatchlistId = id
-    if (fallbackSymbol) draft.selectedSymbol = fallbackSymbol
-  })
-}
-
 export async function applyWatchlistMutation(action: WatchlistMutation): Promise<void> {
   const watchlist = [...watchlistCollection.keys()]
     .map((key) => watchlistCollection.get(key))
