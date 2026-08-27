@@ -60,6 +60,19 @@ describe('Grok X catalyst boundary', () => {
     expect(result.rejected).toBe(2)
   })
 
+  it('rejects a catalyst dated past the 180-day horizon', () => {
+    const cited = 'https://x.com/nvidia/status/1234567890'
+    // NOW is 2026-08-13, so the horizon falls on 2027-02-09.
+    const result = parseXCatalystResponse(response([
+      { symbol: 'NVDA', kind: 'product-event', title: 'Inside horizon', description: 'NVIDIA scheduled a product event inside the accepted window.', date: '2027-02-01', timing: 'unknown', confidence: 'estimated', sourceUrl: cited },
+      { symbol: 'NVDA', kind: 'product-event', title: 'Beyond horizon', description: 'NVIDIA scheduled a product event beyond the accepted window.', date: '2027-06-01', timing: 'unknown', confidence: 'estimated', sourceUrl: cited },
+    ], [cited]), ['NVDA'], NOW)
+
+    expect(result.catalysts).toHaveLength(1)
+    expect(result.catalysts[0]?.date).toBe('2027-02-01')
+    expect(result.rejected).toBe(1)
+  })
+
   it('rejects earnings because tastytrade owns that catalyst source', () => {
     const cited = 'https://x.com/nvidia/status/1234567890'
     expect(() => parseXCatalystResponse(response([
