@@ -39,12 +39,13 @@ const SyncStateSchema = z.object({
   syncedAt: z.string(),
 })
 
-const PinnedSymbolSchema = EquitySymbolSchema
-
 const PreferenceSchema = z.object({
+  // New anonymous edits get an identity independent of their symbol set. The
+  // user-id field remains read-compatible only for preferences written by v2.
+  favoriteStageVersion: z.string().uuid().optional(),
   favoriteUserId: z.string().min(1).max(256).optional(),
   id: z.literal('primary'),
-  pinnedSymbols: z.array(PinnedSymbolSchema).max(MAX_LIVE_MARKET_SYMBOLS).default([]),
+  pinnedSymbols: z.array(EquitySymbolSchema).max(MAX_LIVE_MARKET_SYMBOLS).default([]),
   selectedSymbol: z.string(),
   selectedWatchlistId: z.string(),
 })
@@ -354,21 +355,6 @@ export function selectWatchlist(id: string, fallbackSymbol?: string) {
     draft.selectedWatchlistId = id
     if (fallbackSymbol) draft.selectedSymbol = fallbackSymbol
   })
-}
-
-/** Signed-out pinning stays device-local and becomes fresh anonymous staging. */
-export async function togglePinnedTicker(symbol: string): Promise<void> {
-  const parsed = PinnedSymbolSchema.safeParse(symbol)
-  const current = preferenceCollection.get('primary')
-  if (!parsed.success || !current) return
-  const mutation = preferenceCollection.update('primary', (draft) => {
-    const pinnedSymbols = draft.favoriteUserId ? [] : (draft.pinnedSymbols ?? [])
-    delete draft.favoriteUserId
-    draft.pinnedSymbols = pinnedSymbols.includes(parsed.data)
-      ? pinnedSymbols.filter((candidate) => candidate !== parsed.data)
-      : [...pinnedSymbols, parsed.data].slice(-MAX_LIVE_MARKET_SYMBOLS)
-  })
-  await mutation.isPersisted.promise
 }
 
 export async function applyWatchlistMutation(action: WatchlistMutation): Promise<void> {
