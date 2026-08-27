@@ -44,6 +44,7 @@ import {
 } from './instrument-catalog'
 import { tastytradeApiVersion } from './tastytrade-version'
 import { persistTastytradeMarketSnapshot } from './tastytrade-market-store'
+import { defineSeam, type SeamValue } from './seam'
 import {
   loadStoredPublicMarketUniverse,
   MAX_PUBLIC_MARKET_SYMBOLS,
@@ -754,33 +755,23 @@ export async function loadPublicMarketSnapshot(
  * with `setBrokerApi` instead of replacing this module. Each entry is the
  * implementation above, so the contract type cannot drift from the real signatures.
  */
-function createBrokerApi() {
-  return {
-    loadEquityCandleFromTime,
-    loadMarketSnapshot,
-    loadPublicMarketSnapshot,
-    loadQuoteToken,
-    resolveAccountNumber,
-    tastyRequest,
-    withBrokerMutationLease,
-  }
-}
+const brokerApiSeam = defineSeam(() => ({
+  loadEquityCandleFromTime,
+  loadMarketSnapshot,
+  loadPublicMarketSnapshot,
+  loadQuoteToken,
+  resolveAccountNumber,
+  tastyRequest,
+  withBrokerMutationLease,
+}))
 
-export type BrokerApi = ReturnType<typeof createBrokerApi>
-
-let installedBrokerApi: BrokerApi = createBrokerApi()
+export type BrokerApi = SeamValue<typeof brokerApiSeam>
 
 /** The broker calls currently in force. */
-export function brokerApi(): BrokerApi {
-  return installedBrokerApi
-}
+export const brokerApi = brokerApiSeam.current
 
 /** Install a stand-in broker for a test; pair every call with `resetBrokerApi()`. */
-export function setBrokerApi(next: BrokerApi): void {
-  installedBrokerApi = next
-}
+export const setBrokerApi = brokerApiSeam.set
 
 /** Restore the live Tastytrade calls. */
-export function resetBrokerApi(): void {
-  installedBrokerApi = createBrokerApi()
-}
+export const resetBrokerApi = brokerApiSeam.reset

@@ -2,6 +2,7 @@ import { type ResearchSourceItem } from './research-contracts'
 import { collectRedditSources as collectRedditEvidence } from './research-reddit'
 import { collectTickerResearchSources as collectTickerEvidence } from './research-ticker-sources'
 import { readBoundedText } from './bounded-response'
+import { defineSeam, type SeamValue } from './seam'
 
 export { type ResearchSourceItem } from './research-contracts'
 
@@ -94,29 +95,19 @@ export async function collectOfficialSources(fetcher: typeof fetch = fetch): Pro
  * `researchSources()` so a test can install a stand-in with `setResearchSources`
  * instead of replacing this module.
  */
-function createResearchSources() {
-  return {
-    collectOfficialSources,
-    collectRedditSources: collectRedditEvidence,
-    collectTickerSources: (symbols: readonly string[], now?: Date) => collectTickerEvidence(symbols, undefined, now),
-  }
-}
+const researchSourceSeam = defineSeam(() => ({
+  collectOfficialSources,
+  collectRedditSources: collectRedditEvidence,
+  collectTickerSources: (symbols: readonly string[], now?: Date) => collectTickerEvidence(symbols, undefined, now),
+}))
 
-export type ResearchSources = ReturnType<typeof createResearchSources>
-
-let installedResearchSources: ResearchSources = createResearchSources()
+export type ResearchSources = SeamValue<typeof researchSourceSeam>
 
 /** The headline collection currently in force. */
-export function researchSources(): ResearchSources {
-  return installedResearchSources
-}
+export const researchSources = researchSourceSeam.current
 
 /** Install a stand-in collector for a test; pair every call with `resetResearchSources()`. */
-export function setResearchSources(next: ResearchSources): void {
-  installedResearchSources = next
-}
+export const setResearchSources = researchSourceSeam.set
 
 /** Restore the live headline collection. */
-export function resetResearchSources(): void {
-  installedResearchSources = createResearchSources()
-}
+export const resetResearchSources = researchSourceSeam.reset

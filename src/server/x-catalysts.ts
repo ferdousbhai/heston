@@ -7,6 +7,7 @@ import { readBoundedJson } from './bounded-response'
 import { JsonArraySchema, jsonObjectOrEmpty, type JsonValue } from '../domain/json-payload'
 import { readStoredSecret } from './secrets'
 import { persistResearchedCatalysts } from './catalysts'
+import { defineSeam, type SeamValue } from './seam'
 
 const MODEL = 'grok-4.6'
 const SOURCE = 'Grok 4.6 X research'
@@ -226,22 +227,12 @@ async function runXCatalystResearchForSymbols(
   }
 }
 
-function createXCatalystResearch() {
-  return { runForSymbols: runXCatalystResearchForSymbols }
-}
+const xCatalystResearchSeam = defineSeam(() => ({ runForSymbols: runXCatalystResearchForSymbols }))
 
-export type XCatalystResearch = ReturnType<typeof createXCatalystResearch>
+export type XCatalystResearch = SeamValue<typeof xCatalystResearchSeam>
 
-let installedXCatalystResearch: XCatalystResearch = createXCatalystResearch()
+export const xCatalystResearch = xCatalystResearchSeam.current
 
-export function xCatalystResearch(): XCatalystResearch {
-  return installedXCatalystResearch
-}
+export const setXCatalystResearch = xCatalystResearchSeam.set
 
-export function setXCatalystResearch(next: XCatalystResearch): void {
-  installedXCatalystResearch = next
-}
-
-export function resetXCatalystResearch(): void {
-  installedXCatalystResearch = createXCatalystResearch()
-}
+export const resetXCatalystResearch = xCatalystResearchSeam.reset

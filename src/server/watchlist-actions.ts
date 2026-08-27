@@ -5,6 +5,7 @@ import {
   readInternalWatchlist,
   removeInternalWatchlistSymbols,
 } from './internal-watchlist'
+import { defineSeam, type SeamValue } from './seam'
 
 export async function executeWatchlistAction(
   env: AppEnv,
@@ -39,22 +40,12 @@ export async function executeWatchlistAction(
 }
 
 /** A narrow seam keeps direct-action tests faithful without replacing D1 globally. */
-function createWatchlistWriter() {
-  return { executeWatchlistAction }
-}
+const watchlistWriterSeam = defineSeam(() => ({ executeWatchlistAction }))
 
-export type WatchlistWriter = ReturnType<typeof createWatchlistWriter>
+export type WatchlistWriter = SeamValue<typeof watchlistWriterSeam>
 
-let installedWatchlistWriter: WatchlistWriter = createWatchlistWriter()
+export const watchlistWriter = watchlistWriterSeam.current
 
-export function watchlistWriter(): WatchlistWriter {
-  return installedWatchlistWriter
-}
+export const setWatchlistWriter = watchlistWriterSeam.set
 
-export function setWatchlistWriter(next: WatchlistWriter): void {
-  installedWatchlistWriter = next
-}
-
-export function resetWatchlistWriter(): void {
-  installedWatchlistWriter = createWatchlistWriter()
-}
+export const resetWatchlistWriter = watchlistWriterSeam.reset

@@ -12,6 +12,7 @@ import {
 import { EquitySymbolSchema } from '../domain/instrument'
 import { type AppEnv } from './env'
 import { publishInternalWatchlistUniverse } from './public-market-universe'
+import { defineSeam, type SeamValue } from './seam'
 
 const MAX_SOURCE_LISTS_PER_KIND = 100
 const MAX_ENTRIES_PER_SOURCE = 5_000
@@ -857,22 +858,12 @@ export async function readInternalWatchlistSeedAudit(env: AppEnv): Promise<Inter
 }
 
 /** Narrow production seam for code paths whose primary concern is not D1 persistence. */
-function createInternalWatchlistWriter() {
-  return { ensureSymbols: ensureInternalWatchlistSymbols }
-}
+const internalWatchlistWriterSeam = defineSeam(() => ({ ensureSymbols: ensureInternalWatchlistSymbols }))
 
-export type InternalWatchlistWriter = ReturnType<typeof createInternalWatchlistWriter>
+export type InternalWatchlistWriter = SeamValue<typeof internalWatchlistWriterSeam>
 
-let installedInternalWatchlistWriter: InternalWatchlistWriter = createInternalWatchlistWriter()
+export const internalWatchlistWriter = internalWatchlistWriterSeam.current
 
-export function internalWatchlistWriter(): InternalWatchlistWriter {
-  return installedInternalWatchlistWriter
-}
+export const setInternalWatchlistWriter = internalWatchlistWriterSeam.set
 
-export function setInternalWatchlistWriter(next: InternalWatchlistWriter): void {
-  installedInternalWatchlistWriter = next
-}
-
-export function resetInternalWatchlistWriter(): void {
-  installedInternalWatchlistWriter = createInternalWatchlistWriter()
-}
+export const resetInternalWatchlistWriter = internalWatchlistWriterSeam.reset

@@ -3,6 +3,7 @@ import { stream as streamOpenAIResponses } from '@earendil-works/pi-ai/api/opena
 import { XAI_MODELS } from '@earendil-works/pi-ai/providers/xai.models'
 
 import { aiGatewayHeaders } from './ai-gateway'
+import { defineSeam, type SeamValue } from './seam'
 
 const XAI_MODEL: Model<'openai-responses'> = {
   ...XAI_MODELS['grok-4.5'],
@@ -21,28 +22,18 @@ export type PiRuntime = {
  * `setResponsesApi` instead of replacing the library module; the entry is the library
  * function itself, so the contract cannot drift from it.
  */
-function createResponsesApi() {
-  return { stream: streamOpenAIResponses }
-}
+const responsesApiSeam = defineSeam(() => ({ stream: streamOpenAIResponses }))
 
-export type ResponsesApi = ReturnType<typeof createResponsesApi>
-
-let installedResponsesApi: ResponsesApi = createResponsesApi()
+export type ResponsesApi = SeamValue<typeof responsesApiSeam>
 
 /** The Responses transport currently in force. */
-function responsesApi(): ResponsesApi {
-  return installedResponsesApi
-}
+const responsesApi = responsesApiSeam.current
 
 /** Install a stand-in transport for a test; pair every call with `resetResponsesApi()`. */
-export function setResponsesApi(next: ResponsesApi): void {
-  installedResponsesApi = next
-}
+export const setResponsesApi = responsesApiSeam.set
 
 /** Restore the live Pi Responses transport. */
-export function resetResponsesApi(): void {
-  installedResponsesApi = createResponsesApi()
-}
+export const resetResponsesApi = responsesApiSeam.reset
 
 export function createPiRuntime(
   apiKey: string,

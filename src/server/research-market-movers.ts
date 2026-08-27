@@ -6,6 +6,7 @@ import search from 'yahoo-finance2/modules/search'
 import { EquitySymbolSchema } from '../domain/instrument'
 import { type ResearchSourceItem } from './research-contracts'
 import { boundedYahooFetch } from './yahoo-finance-transport'
+import { defineSeam, type SeamValue } from './seam'
 
 const MAX_PER_CATEGORY = 2
 const MAX_NEWS_PER_MOVER = 2
@@ -210,22 +211,14 @@ export async function collectMarketMoverEvidence(
   return evidence.flatMap((result) => result.status === 'fulfilled' ? result.value : [])
 }
 
-function createMarketMoverResearch() {
-  return { collect: (now?: Date) => collectMarketMoverEvidence(undefined, now) }
-}
+const marketMoverResearchSeam = defineSeam(() => ({
+  collect: (now?: Date) => collectMarketMoverEvidence(undefined, now),
+}))
 
-export type MarketMoverResearch = ReturnType<typeof createMarketMoverResearch>
+export type MarketMoverResearch = SeamValue<typeof marketMoverResearchSeam>
 
-let installedMarketMoverResearch: MarketMoverResearch = createMarketMoverResearch()
+export const marketMoverResearch = marketMoverResearchSeam.current
 
-export function marketMoverResearch(): MarketMoverResearch {
-  return installedMarketMoverResearch
-}
+export const setMarketMoverResearch = marketMoverResearchSeam.set
 
-export function setMarketMoverResearch(next: MarketMoverResearch): void {
-  installedMarketMoverResearch = next
-}
-
-export function resetMarketMoverResearch(): void {
-  installedMarketMoverResearch = createMarketMoverResearch()
-}
+export const resetMarketMoverResearch = marketMoverResearchSeam.reset
