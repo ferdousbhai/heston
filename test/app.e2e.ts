@@ -25,7 +25,7 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
   }]
   publicSnapshot.tickers = publicSnapshot.tickers
     .filter((ticker) => publicSnapshot.watchlists[0]!.symbols.includes(ticker.symbol))
-    .map((ticker) => ({ ...ticker, position: false }))
+    .map((ticker) => ({ ...ticker, position: false, sparkline: ticker.sparkline.slice(-2) }))
   await page.route('**/api/viewer', (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({ authRequired: true, user: null }),
@@ -50,6 +50,16 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
   await expect(page.locator('.selected-instrument')).toContainText('NVIDIA')
   await expect(page.locator('.premium-stats')).toContainText('Front +6.6 pts')
   await expect(page.locator('.year-range')).toContainText('$191.68')
+  await expect(page.getByRole('button', { exact: true, name: 'Price' })).toBeVisible()
+  await expect(page.getByRole('button', { exact: true, name: 'Volume' })).toBeVisible()
+  await expect(page.getByRole('button', { exact: true, name: 'Session' })).toHaveCount(0)
+  await expect(page.getByRole('button', { exact: true, name: 'Activity' })).toHaveCount(0)
+  await expect(page.locator('.premium-data-table tbody .sparkline')).toHaveCount(0)
+  const nvdaRow = page.locator('.premium-data-table tbody tr', { hasText: 'NVDA' })
+  await expect(nvdaRow.locator('.price-cell')).toContainText('$191.68')
+  await expect(nvdaRow.locator('.price-cell')).toContainText('+2.6%')
+  await expect(nvdaRow.locator('.volume-cell')).toContainText('128.4M shares')
+  await expect(nvdaRow.locator('.volume-cell')).toContainText('$4.7T cap')
   await page.getByRole('button', { name: 'Pin META' }).click()
   await expect(page.locator('.premium-data-table tbody tr').first()).toContainText('META')
   await expect(page.locator('.story')).toHaveCount(0)
@@ -198,9 +208,13 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   await expect(rows.nth(0)).toContainText('NVDA')
   await expect(rows.nth(2)).toContainText('SPY')
 
-  // Every row plots its session trend beside the signed move.
-  await page.getByRole('button', { exact: true, name: 'Session' }).click()
-  await expect(rows.nth(2)).toContainText('+3%')
+  // Price combines the quote, session move, genuine candle series, and range.
+  await page.getByRole('button', { exact: true, name: 'Price' }).click()
+  await expect(rows.nth(0)).toContainText('TSLA')
+  const beRow = page.locator('.premium-data-table tbody tr', { hasText: 'BE' })
+  await expect(beRow.locator('.price-cell')).toContainText('$43.16')
+  await expect(beRow.locator('.price-cell')).toContainText('+3%')
+  await expect(beRow.locator('.price-cell')).toContainText('52w range unavailable')
   await expect(page.locator('.premium-data-table tbody .sparkline')).toHaveCount(11)
 
   await page.getByRole('tab', { name: 'Daily read' }).click()
