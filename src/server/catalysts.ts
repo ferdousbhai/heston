@@ -1,4 +1,4 @@
-import { CatalystSchema, marketDate, type Catalyst } from '../domain/catalyst'
+import { CatalystSchema, isValidIsoDate, marketDate, type Catalyst } from '../domain/catalyst'
 import { type AppEnv } from './env'
 import { jsonObjectOrEmpty, jsonText, type JsonObject, type JsonValue } from '../domain/json-payload'
 
@@ -45,16 +45,12 @@ function catalystUpsertStatements(
   return statements
 }
 
-function date(value: JsonValue): string | undefined {
-  const candidate = jsonText(value)
-  if (!candidate || !/^\d{4}-\d{2}-\d{2}$/.test(candidate)) return undefined
-  const [year, month, day] = candidate.split('-').map(Number)
-  const parsed = new Date(Date.UTC(year, month - 1, day))
-  return parsed.getUTCFullYear() === year
-    && parsed.getUTCMonth() === month - 1
-    && parsed.getUTCDate() === day
-    ? candidate
-    : undefined
+/** An upcoming, visible tastytrade earnings date, or undefined. */
+function upcomingEarningsDate(earnings: JsonObject, today: string): string | undefined {
+  if (earnings.visible === false) return undefined
+  const candidate = jsonText(earnings['expected-report-date'])
+  if (!candidate || !isValidIsoDate(candidate) || candidate < today) return undefined
+  return candidate
 }
 
 function iso(value: JsonValue, fallback: string): string {
@@ -78,32 +74,26 @@ export function catalystsFromMarketMetrics(metrics: readonly JsonObject[], now =
     const symbol = jsonText(metric.symbol)?.toUpperCase()
     if (!symbol) return []
     const earnings = jsonObjectOrEmpty(metric.earnings)
-    const rows: Catalyst[] = []
-    const candidateEarningsDate = earnings.visible === false ? undefined : date(earnings['expected-report-date'])
-    const earningsDate = candidateEarningsDate && candidateEarningsDate >= today ? candidateEarningsDate : undefined
-    if (earningsDate) {
-      rows.push(CatalystSchema.parse({
-        id: `tastytrade:${symbol}:earnings`,
-        symbol,
-        kind: 'earnings',
-        title: `${symbol} earnings`,
-        date: earningsDate,
-        timing: earningsTiming(earnings['time-of-day']),
-        confidence: earnings.estimated === false ? 'confirmed' : 'estimated',
-        source: 'tastytrade market metrics',
-        sourceUrl: TASTYTRADE_METRICS_URL,
-        updatedAt: iso(earnings['updated-at'] ?? metric['updated-at'], observedAt),
-      }))
-    }
-
-    return rows
+    const earningsDate = upcomingEarningsDate(earnings, today)
+    if (!earningsDate) return []
+    return [CatalystSchema.parse({
+      id: `tastytrade:${symbol}:earnings`,
+      symbol,
+      kind: 'earnings',
+      title: `${symbol} earnings`,
+      date: earningsDate,
+      timing: earningsTiming(earnings['time-of-day']),
+      confidence: earnings.estimated === false ? 'confirmed' : 'estimated',
+      source: 'tastytrade market metrics',
+      sourceUrl: TASTYTRADE_METRICS_URL,
+      updatedAt: iso(earnings['updated-at'] ?? metric['updated-at'], observedAt),
+    })]
   })
 }
 
 export function earningsDateFromMetric(metric: JsonObject | undefined, now = new Date()): string | null {
   const earnings = jsonObjectOrEmpty(metric?.earnings)
-  const candidate = earnings.visible === false ? undefined : date(earnings['expected-report-date'])
-  return candidate && candidate >= marketDate(now) ? candidate : null
+  return upcomingEarningsDate(earnings, marketDate(now)) ?? null
 }
 
 export async function persistAndLoadCatalysts(

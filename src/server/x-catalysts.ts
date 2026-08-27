@@ -102,12 +102,10 @@ export function parseXCatalystResponse(
   const today = marketDate(now)
   const horizon = addDays(today, 180)
   const accepted = new Map<string, Catalyst>()
-  let rejected = 0
   for (const finding of findings) {
     const symbol = finding.symbol.toUpperCase()
     const sourceUrl = canonicalXPostUrl(finding.sourceUrl)
     if (!symbols.has(symbol) || !isValidIsoDate(finding.date) || finding.date < today || finding.date > horizon || !sourceUrl || !citations.has(sourceUrl)) {
-      rejected++
       continue
     }
     const id = `xai-x-search:${symbol}:${finding.kind}:${finding.date}`
@@ -115,7 +113,9 @@ export function parseXCatalystResponse(
     const current = accepted.get(id)
     if (!current || (current.confidence === 'estimated' && catalyst.confidence === 'confirmed')) accepted.set(id, catalyst)
   }
-  return { catalysts: [...accepted.values()], rejected: rejected + findings.length - rejected - accepted.size }
+  // Everything the loop did not accept, which counts findings dropped by the
+  // guards and duplicates collapsed onto an existing id alike.
+  return { catalysts: [...accepted.values()], rejected: findings.length - accepted.size }
 }
 
 function responseSchema() {
