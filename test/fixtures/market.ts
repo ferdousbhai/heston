@@ -29,7 +29,6 @@ export const marketTickersFixture: Ticker[] = [
 ]
 
 export const marketWatchlistsFixture: Watchlist[] = [
-  { id: 'positions', kind: 'positions', name: 'Active Positions', symbols: ['NVDA', 'SPCX', 'META'] },
   {
     id: 'watchlist', kind: 'private', name: 'Watchlist',
     symbols: ['NVDA', 'SPCX', 'META', 'BE', 'INTC', 'SPY', 'QQQ', 'IWM', 'TSLA', 'AAPL', 'AMD'],

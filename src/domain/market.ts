@@ -5,7 +5,10 @@ import { CandlePointSchema } from './candle'
 import { EquitySymbolSchema } from './instrument'
 import { type JsonValue } from './json-payload'
 
-const WatchlistKindSchema = z.enum(['private', 'positions', 'public'])
+// One list, two audiences: `private` is the owner's authoritative D1 internal
+// watchlist, `public` its published projection. The kind still gates the manage
+// button and every mutation, so audience separation survives the single-list shape.
+const WatchlistKindSchema = z.enum(['private', 'public'])
 
 export const WatchlistSchema = z.object({
   id: z.string(),

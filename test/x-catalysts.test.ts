@@ -72,11 +72,10 @@ describe('Grok X catalyst boundary', () => {
     expect(canonicalXPostUrl('https://x.com/nvidia')).toBeUndefined()
   })
 
-  it('researches positions first, then private watchlists, and excludes public lists', () => {
+  it('researches the private watchlist only and excludes public lists', () => {
     expect(catalystResearchSymbols([
-      { kind: 'private', symbols: ['AAPL', 'NVDA'] },
-      { kind: 'positions', symbols: ['SPY', 'NVDA'] },
+      { kind: 'private', symbols: ['AAPL', 'NVDA', 'AAPL'] },
       { kind: 'public', symbols: ['TSLA'] },
-    ])).toEqual(['SPY', 'NVDA', 'AAPL'])
+    ])).toEqual(['AAPL', 'NVDA'])
   })
 })

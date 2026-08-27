@@ -159,9 +159,10 @@ describe('public market boundary', () => {
     })
 
     expect(snapshot.watchlists).toEqual([
-      { id: 'positions', kind: 'positions', name: 'Active Positions', symbols: ['META'] },
       { id: 'watchlist', kind: 'private', name: 'Watchlist', symbols: ['META', 'NVDA'] },
     ])
+    // The position symbol still reaches the single list and the per-ticker flag.
+    expect(snapshot.tickers.find((ticker) => ticker.symbol === 'META')?.position).toBe(true)
     expect(store.sqlite.prepare(
       `SELECT origin FROM internal_watchlist_items WHERE symbol = 'META'`,
     ).get()).toEqual({ origin: 'position-sync' })
@@ -244,8 +245,8 @@ describe('public market boundary', () => {
       TASTYTRADE_REFRESH_TOKEN: secret,
     })
 
-    expect(snapshot.watchlists[0]?.symbols).toEqual([])
-    expect(snapshot.watchlists[1]?.symbols).toHaveLength(100)
+    expect(snapshot.watchlists).toHaveLength(1)
+    expect(snapshot.watchlists[0]?.symbols).toHaveLength(100)
     expect(store.sqlite.prepare('SELECT count(*) AS count FROM internal_watchlist_items').get())
       .toEqual({ count: 100 })
     expect(JSON.parse(String(store.sqlite.prepare(

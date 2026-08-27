@@ -24,7 +24,9 @@ import {
 } from '../domain/market'
 import { type WatchlistMutation } from '../domain/watchlist'
 
-export const OFFLINE_SNAPSHOT_VERSION = 5
+// Bumped when the persisted snapshot shape changes. v6 drops the derived positions
+// list, so stale two-list rows must not be restored into the single-watchlist UI.
+export const OFFLINE_SNAPSHOT_VERSION = 6
 export const MAX_LIVE_MARKET_SYMBOLS = 100
 export type SnapshotAudience = 'owner' | 'public'
 
@@ -239,9 +241,8 @@ async function hydrateCollectionsImmediately(snapshot: MarketSnapshot, audience:
     replaceRows(researchCollection, [snapshot.research], (brief) => brief.id),
   ])
 
-  const defaultWatchlist = snapshot.watchlists.find((watchlist) => watchlist.kind === 'private')
-    ?? snapshot.watchlists.find((watchlist) => watchlist.kind === 'positions')
-    ?? snapshot.watchlists[0]
+  // Each audience publishes exactly one watchlist, so the first row is the default.
+  const defaultWatchlist = snapshot.watchlists[0]
   const defaultSymbol = defaultWatchlist?.symbols[0] ?? snapshot.tickers[0]?.symbol ?? 'SPY'
   const currentPreference = preferenceCollection.get('primary')
   if (!currentPreference) {
@@ -249,7 +250,7 @@ async function hydrateCollectionsImmediately(snapshot: MarketSnapshot, audience:
       id: 'primary',
       pinnedSymbols: [],
       selectedSymbol: defaultSymbol,
-      selectedWatchlistId: defaultWatchlist?.id ?? 'positions',
+      selectedWatchlistId: defaultWatchlist?.id ?? 'watchlist',
     })
     await preference.isPersisted.promise
   } else {
@@ -258,7 +259,7 @@ async function hydrateCollectionsImmediately(snapshot: MarketSnapshot, audience:
     if (!watchlistIds.has(currentPreference.selectedWatchlistId) || !tickerSymbols.has(currentPreference.selectedSymbol)) {
       const preference = preferenceCollection.update('primary', (draft) => {
         draft.selectedSymbol = defaultSymbol
-        draft.selectedWatchlistId = defaultWatchlist?.id ?? 'positions'
+        draft.selectedWatchlistId = defaultWatchlist?.id ?? 'watchlist'
       })
       await preference.isPersisted.promise
     }

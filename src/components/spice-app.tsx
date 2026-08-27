@@ -16,14 +16,12 @@ import {
   restoreOfflineSnapshot,
   selectTicker,
   selectLiveMarketSymbols,
-  selectWatchlist,
   syncFromCloud,
   syncStateCollection,
   tickerCollection,
   togglePinnedTicker,
   watchlistCollection,
 } from '../data/collections'
-import { type Watchlist } from '../domain/market'
 import { type WatchlistMutation, WatchlistMutationResultSchema } from '../domain/watchlist'
 import { useLiveMarket } from '../data/live-market'
 import { AgentScreen } from './agent-screen'
@@ -74,15 +72,10 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
   const syncAbort = useRef<AbortController | undefined>(undefined)
   const syncRevision = useRef(0)
   const closeWatchlistEditor = useCallback(() => setWatchlistEditorOpen(false), [setWatchlistEditorOpen])
-  const selectableWatchlists = [
-    ...watchlists.filter((watchlist) => watchlist.kind === 'private'),
-    ...watchlists.filter((watchlist) => watchlist.kind === 'positions'),
-    ...watchlists.filter((watchlist) => watchlist.kind === 'public'),
-  ]
-  const activeWatchlist = selectableWatchlists.find((watchlist) => watchlist.id === preference?.selectedWatchlistId)
-    ?? selectableWatchlists.find((watchlist) => watchlist.kind === 'private')
-    ?? selectableWatchlists.find((watchlist) => watchlist.kind === 'positions')
-    ?? selectableWatchlists[0]
+  // One D1-backed watchlist reaches each audience; the preference only survives
+  // so a stale stored id cannot outrank the list the snapshot actually carries.
+  const activeWatchlist = watchlists.find((watchlist) => watchlist.id === preference?.selectedWatchlistId)
+    ?? watchlists[0]
   const selected = tickers.find((ticker) => ticker.symbol === preference?.selectedSymbol)
     ?? tickers.find((ticker) => activeWatchlist?.symbols.includes(ticker.symbol))
     ?? tickers[0]
@@ -153,13 +146,6 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
     selectTicker(symbol)
     setTab('market')
   }
-  const chooseWatchlist = (watchlist: Watchlist) => {
-    const fallbackSymbol = selected && watchlist.symbols.includes(selected.symbol)
-      ? undefined
-      : watchlist.symbols[0]
-    selectWatchlist(watchlist.id, fallbackSymbol)
-    if (watchlist.kind !== 'private') closeWatchlistEditor()
-  }
   const mutateWatchlist = async (action: WatchlistMutation) => {
     if (!viewer) throw new Error('Owner authentication is required')
     const response = await fetch('/api/watchlists', {
@@ -214,13 +200,11 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
                 activeWatchlist={activeWatchlist}
                 catalysts={catalysts}
                 onManageWatchlist={() => setWatchlistEditorOpen(true)}
-                onSelectWatchlist={chooseWatchlist}
                 onSelectTicker={chooseSymbol}
                 onTogglePinned={(symbol) => void togglePinnedTicker(symbol)}
                 pinnedSymbols={preference?.pinnedSymbols ?? []}
                 selected={selected}
                 tickers={tickers}
-                watchlists={watchlists}
               />
             )}
             {snapshotReady && tab === 'market' && (!selected || !activeWatchlist) && (

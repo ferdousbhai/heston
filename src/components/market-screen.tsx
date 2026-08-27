@@ -1,18 +1,11 @@
 import { useState } from 'react'
 import { ArrowDown, ArrowUp, Search, Settings2, Star } from 'lucide-react'
+import { matchSorter } from 'match-sorter'
 
 import { Button } from '#/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader } from '#/components/ui/card'
 import { Empty, EmptyDescription, EmptyHeader } from '#/components/ui/empty'
 import { Progress } from '#/components/ui/progress'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '#/components/ui/select'
 import {
   Table,
   TableBody,
@@ -23,6 +16,7 @@ import {
 } from '#/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#/components/ui/tooltip'
 import { cn } from '#/lib/utils'
+import { type CandlePoint } from '../domain/candle'
 import { catalystLabel, nextCatalystForSymbol, type Catalyst } from '../domain/catalyst'
 import {
   fiftyTwoWeekPosition,
@@ -75,16 +69,36 @@ function borrowLabel(ticker: Pick<Ticker, 'borrowRate' | 'lendability'>): string
 }
 
 type SortDirection = 'asc' | 'desc'
-type SortKey = 'symbol' | 'premium' | 'rank' | 'liquidity' | 'activity' | 'range'
+type SortKey = 'symbol' | 'trend' | 'premium' | 'rank' | 'liquidity' | 'activity' | 'range'
 
 const SORT_COLUMNS: { defaultDirection: SortDirection; key: SortKey; label: string }[] = [
   { defaultDirection: 'asc', key: 'symbol', label: 'Instrument' },
+  { defaultDirection: 'desc', key: 'trend', label: 'Session' },
   { defaultDirection: 'desc', key: 'premium', label: 'Option premium' },
   { defaultDirection: 'desc', key: 'rank', label: 'IV rank' },
   { defaultDirection: 'desc', key: 'liquidity', label: 'Liquidity' },
   { defaultDirection: 'desc', key: 'activity', label: 'Activity' },
   { defaultDirection: 'desc', key: 'range', label: '52-week range' },
 ]
+
+/**
+ * The stroke stays neutral: green and red are already spoken for by the
+ * premium verdict, and the shape plus the signed percentage carry direction.
+ */
+function Sparkline({ points }: { points: readonly CandlePoint[] }) {
+  const closes = points.map((point) => point.close)
+  const low = Math.min(...closes)
+  const span = Math.max(...closes) - low || 1
+  const step = closes.length > 1 ? 100 / (closes.length - 1) : 0
+  const line = closes
+    .map((close, index) => `${(index * step).toFixed(2)},${(23 - ((close - low) / span) * 21).toFixed(2)}`)
+    .join(' ')
+  return (
+    <svg aria-hidden="true" className="sparkline" preserveAspectRatio="none" viewBox="0 0 100 26">
+      <polyline points={line} />
+    </svg>
+  )
+}
 
 /**
  * Traded notional, the closest activity proxy the snapshot carries: tastytrade
@@ -95,6 +109,7 @@ function dollarVolume(ticker: Pick<Ticker, 'price' | 'volume'>): number | undefi
 }
 
 const SORT_METRICS = {
+  trend: (ticker) => ticker.changePercent,
   premium: premiumScore,
   rank: (ticker) => ticker.ivRank,
   liquidity: (ticker) => ticker.liquidity,
@@ -131,34 +146,31 @@ export function MarketScreen({
   activeWatchlist,
   catalysts,
   onManageWatchlist,
-  onSelectWatchlist,
   onSelectTicker,
   onTogglePinned,
   pinnedSymbols,
   selected,
   tickers,
-  watchlists,
 }: {
   activeWatchlist: Watchlist
   catalysts: Catalyst[]
   onManageWatchlist: () => void
-  onSelectWatchlist: (watchlist: Watchlist) => void
   onSelectTicker: (symbol: string) => void
   onTogglePinned: (symbol: string) => void
   pinnedSymbols: readonly string[]
   selected: Ticker
   tickers: Ticker[]
-  watchlists: Watchlist[]
 }) {
   const now = new Date()
   const [sort, setSort] = useState<{ direction: SortDirection; key: SortKey }>({ direction: 'desc', key: 'activity' })
   const [query, setQuery] = useState('')
   const pinned = new Set(pinnedSymbols)
-  const trimmedQuery = query.trim().toLowerCase()
-  // A search reaches every loaded instrument; an empty query shows the active watchlist.
+  const trimmedQuery = query.trim()
+  // A search reaches every loaded instrument; an empty query shows the active
+  // watchlist. match-sorter supplies the fuzzy matching; the active column, not
+  // its relevance ranking, still orders the rows so the sort indicator holds.
   const universe = trimmedQuery
-    ? tickers.filter((ticker) => ticker.symbol.toLowerCase().includes(trimmedQuery)
-      || ticker.name.toLowerCase().includes(trimmedQuery))
+    ? matchSorter(tickers, trimmedQuery, { keys: ['symbol', 'name'] })
     : activeWatchlist.symbols.flatMap((symbol) => {
         const ticker = tickers.find((candidate) => candidate.symbol === symbol)
         return ticker ? [ticker] : []
@@ -174,16 +186,10 @@ export function MarketScreen({
       : { direction: column.defaultDirection, key: column.key })
   }
   const pinnedTickers = tickers.filter((ticker) => pinned.has(ticker.symbol))
-  const selectableWatchlists = [
-    ...watchlists.filter((watchlist) => watchlist.kind === 'private'),
-    ...watchlists.filter((watchlist) => watchlist.kind === 'positions'),
-    ...watchlists.filter((watchlist) => watchlist.kind === 'public'),
-  ]
   const selectedVerdict = volatilityVerdict(selected)
   const selectedCopy = verdictCopy[selectedVerdict]
   const selectedAsset = assetLabel(selected)
   const selectedRangePosition = fiftyTwoWeekPosition(selected)
-  const watchlistOptions = selectableWatchlists.map((watchlist) => ({ label: watchlist.name, value: watchlist.id }))
 
   return (
     <div className="market-screen">
@@ -236,32 +242,7 @@ export function MarketScreen({
 
       <section className="watch-table premium-table" aria-labelledby="watch-title">
         <header className="section-header">
-          {selectableWatchlists.length > 1
-            ? (
-                <>
-                  <Select
-                    items={watchlistOptions}
-                    onValueChange={(value) => {
-                      const watchlist = selectableWatchlists.find((candidate) => candidate.id === value)
-                      if (watchlist) onSelectWatchlist(watchlist)
-                    }}
-                    value={activeWatchlist.id}
-                  >
-                    <SelectTrigger aria-labelledby="watch-title" className="watchlist-selector">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent alignItemWithTrigger={false} side="bottom">
-                      <SelectGroup>
-                        {watchlistOptions.map((watchlist) => (
-                          <SelectItem key={watchlist.value} value={watchlist.value}>{watchlist.label}</SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                  <h2 className="sr-only" id="watch-title">Watchlist</h2>
-                </>
-              )
-            : <h2 className="watchlist-title" id="watch-title">{activeWatchlist.name}</h2>}
+          <h2 className="watchlist-title" id="watch-title">{activeWatchlist.name}</h2>
           <div className="watch-search">
             <Search aria-hidden="true" />
             <input
@@ -326,17 +307,26 @@ export function MarketScreen({
                   </TableCell>
                   <TableCell className="instrument-cell">
                     <Button
-                      aria-label={`${ticker.symbol}, ${ticker.name}, ${copy.label} option premium, IV rank ${formatMarketMetric(ticker.ivRank)}`}
+                      aria-label={`${ticker.symbol}, ${ticker.name}, ${ticker.position ? 'held, ' : ''}${copy.label} option premium, IV rank ${formatMarketMetric(ticker.ivRank)}`}
                       aria-pressed={ticker.symbol === selected.symbol}
                       className="ticker-table-button"
                       onClick={() => onSelectTicker(ticker.symbol)}
                       type="button"
                       variant="ghost"
                     >
-                      <span><strong>{ticker.symbol}</strong>{type ? <small>{type}</small> : null}</span>
+                      {/* `position` is false for every public reader, so this marker is owner-only by construction. */}
+                      <span>
+                        <strong>{ticker.symbol}</strong>
+                        {type ? <small>{type}</small> : null}
+                        {ticker.position ? <small className="held-marker">Held</small> : null}
+                      </span>
                       <small>{ticker.name}</small>
                       {catalyst ? <small>{catalystLabel(catalyst, now)}</small> : null}
                     </Button>
+                  </TableCell>
+                  <TableCell className="trend-cell">
+                    <Sparkline points={ticker.sparkline} />
+                    <small>{formatSignedMetric(ticker.changePercent, '%')}</small>
                   </TableCell>
                   <TableCell className={`premium-cell ${verdict}`}>
                     <strong>{copy.label}</strong>
@@ -364,7 +354,7 @@ export function MarketScreen({
             })}
             {!watchTickers.length && (
               <TableRow>
-                <TableCell colSpan={7}>
+                <TableCell colSpan={8}>
                   <Empty className="watch-empty">
                     <EmptyHeader>
                       <EmptyDescription>

@@ -129,7 +129,7 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   await expect(page.getByText('Premium looks')).toHaveCount(0)
   await expect(page.locator('.intent-label')).toHaveCount(0)
   await expect(page.locator('.premium-data-table [data-slot="badge"]')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: /NVDA, NVIDIA, Expensive option premium/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /NVDA, NVIDIA, held, Expensive option premium/ })).toBeVisible()
   await expect(page.getByRole('tab', { name: 'Watch', exact: true })).toHaveAttribute('aria-selected', 'true')
   await expect(page.locator('#selected-premium-title')).toHaveText('Expensive')
   await expect(page.getByRole('region', { name: 'Upcoming catalysts' })).toBeVisible()
@@ -144,13 +144,13 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   await expect(page.locator('.selected-symbol')).toHaveText('TSLA')
   await page.getByRole('button', { name: /NVDA: NVDA earnings/ }).click()
   await expect(page.locator('.selected-symbol')).toHaveText('NVDA')
-  const watchlistSelector = page.getByRole('combobox', { name: 'Watchlist' })
-  await expect(watchlistSelector).toContainText('Watchlist')
-  await watchlistSelector.click()
-  const watchlistNames = await page.getByRole('option').allTextContents()
-  expect(watchlistNames).toEqual(['Watchlist', 'Active Positions'])
-  await page.keyboard.press('Escape')
-  await expect(page.getByRole('button', { name: /SPCX, SpaceX Corporation, Cheap/ })).toBeVisible()
+  // The owner reads the one D1-backed list, so there is nothing to choose between.
+  await expect(page.locator('.watchlist-title')).toHaveText('Watchlist')
+  await expect(page.getByRole('combobox', { name: 'Watchlist' })).toHaveCount(0)
+  // Held positions are marked in place of the retired Active Positions list.
+  await expect(page.getByRole('button', { name: /NVDA, NVIDIA, held, Expensive/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /SPCX, SpaceX Corporation, held, Cheap/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /BE, Bloom Energy, Fair/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /BE, Bloom Energy, Fair/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /INTC, Intel, Cheap/ })).toBeVisible()
 
@@ -173,9 +173,6 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   await expect(watchlistEditor.locator('.watchlist-member', { hasText: 'FULL' })).toHaveCount(0)
   await watchlistEditor.getByRole('button', { name: 'Close watchlist editor' }).click()
   await expect(page.getByRole('button', { name: 'Manage Watchlist' })).toBeFocused()
-  await watchlistSelector.click()
-  await page.getByRole('option', { name: 'Active Positions' }).click()
-  await expect(page.getByRole('button', { name: 'Manage Watchlist' })).toHaveCount(0)
 
   const selectedSymbol = page.locator('.selected-symbol')
   // Searching reaches every loaded instrument, not only the active watchlist.
@@ -188,13 +185,23 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   await expect(page.getByText('No loaded symbol matches your search.')).toBeVisible()
   await search.fill('')
 
-  // Column headers sort the table; the same header toggles the direction.
-  // Pinned NVDA holds the top row, so the sort is read from the rows below it.
+  // Column headers sort the table and the same header toggles the direction.
+  // Pinned NVDA and TSLA hold the top rows, ordered among themselves by the
+  // active column, so the unpinned order is read from the third row down.
+  const rows = page.locator('.premium-data-table tbody tr')
   const rankHeader = page.getByRole('button', { exact: true, name: 'IV rank' })
   await rankHeader.click()
-  await expect(page.locator('.premium-data-table tbody tr').nth(1)).toContainText('META')
+  await expect(rows.nth(0)).toContainText('TSLA')
+  await expect(rows.nth(1)).toContainText('NVDA')
+  await expect(rows.nth(2)).toContainText('BE')
   await rankHeader.click()
-  await expect(page.locator('.premium-data-table tbody tr').nth(1)).toContainText('SPCX')
+  await expect(rows.nth(0)).toContainText('NVDA')
+  await expect(rows.nth(2)).toContainText('SPY')
+
+  // Every row plots its session trend beside the signed move.
+  await page.getByRole('button', { exact: true, name: 'Session' }).click()
+  await expect(rows.nth(2)).toContainText('+3%')
+  await expect(page.locator('.premium-data-table tbody .sparkline')).toHaveCount(11)
 
   await page.getByRole('tab', { name: 'Daily read' }).click()
   await expect(page.getByRole('tab', { name: 'Daily read' })).toHaveAttribute('aria-selected', 'true')

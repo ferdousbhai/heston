@@ -709,9 +709,6 @@ async function loadMarketSnapshot(
     // Otherwise the empty ensure operation would leave every seed row live.
     await pruneInternalWatchlistToFocus(env, MAX_PUBLIC_MARKET_SYMBOLS)
   }
-  const positionList: Watchlist = {
-    id: 'positions', kind: 'positions', name: 'Active Positions', symbols: positionSymbols,
-  }
   const focusSymbols = await readInternalWatchlistFocus(env, positionSymbols, MAX_PUBLIC_MARKET_SYMBOLS)
   const privateWatchlist: Watchlist = {
     id: 'watchlist',
@@ -719,7 +716,10 @@ async function loadMarketSnapshot(
     name: 'Watchlist',
     symbols: focusSymbols,
   }
-  const watchlists = [positionList, privateWatchlist]
+  // The owner sees exactly one list: the D1 internal watchlist. Position symbols are
+  // never surfaced as their own list — they stay a `position-sync` origin, a focus
+  // priority, and the per-ticker `position` flag, so account membership is not a list.
+  const watchlists = [privateWatchlist]
   const requestedSymbols = (options.symbols ?? [])
     .map((symbol) => EquitySymbolSchema.safeParse(symbol).data)
     .filter((symbol): symbol is string => Boolean(symbol))

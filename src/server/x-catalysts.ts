@@ -13,10 +13,14 @@ const SOURCE = 'Grok 4.6 X research'
 const MAX_RESPONSE_BYTES = 2_000_000
 const MAX_SYMBOLS = 40
 
+/**
+ * Research only owner-private lists; public projections never widen the model's scope.
+ * Active positions need no separate branch: the owner snapshot syncs them into the D1
+ * internal watchlist under the `position-sync` origin, so the private list covers them.
+ */
 export function catalystResearchSymbols(watchlists: readonly { kind: string; symbols: readonly string[] }[]): string[] {
-  const positions = watchlists.filter((watchlist) => watchlist.kind === 'positions')
-  const privateLists = watchlists.filter((watchlist) => watchlist.kind === 'private')
-  return [...new Set([...positions, ...privateLists]
+  return [...new Set(watchlists
+    .filter((watchlist) => watchlist.kind === 'private')
     .flatMap((watchlist) => watchlist.symbols.map((symbol) => symbol.toUpperCase())))]
     .slice(0, MAX_SYMBOLS)
 }
