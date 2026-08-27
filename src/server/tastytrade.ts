@@ -18,7 +18,6 @@ import {
   pruneInternalWatchlistToFocus,
   readInternalWatchlist,
   readInternalWatchlistCatalogCandidates,
-  readInternalWatchlistFocus,
   type InternalWatchlistSeedPayloads,
   type InternalWatchlistSeedPreview,
 } from './internal-watchlist'
@@ -696,8 +695,9 @@ async function loadMarketSnapshot(
   // researches and trades, so a recurring position-to-watchlist sync only
   // re-derived membership that was already there. This call remains because it
   // reduces the one-time seed to the cap and republishes the public universe.
-  await pruneInternalWatchlistToFocus(env, MAX_PUBLIC_MARKET_SYMBOLS)
-  const focusSymbols = await readInternalWatchlistFocus(env, [], MAX_PUBLIC_MARKET_SYMBOLS)
+  // Pruning already returns the retained list, so reading it back would repeat
+  // the same three queries against a table nothing has touched in between.
+  const { kept: focusSymbols } = await pruneInternalWatchlistToFocus(env, MAX_PUBLIC_MARKET_SYMBOLS)
   const privateWatchlist: Watchlist = {
     id: 'watchlist',
     kind: 'private',

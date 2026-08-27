@@ -603,7 +603,6 @@ export async function ensureInternalWatchlistSymbols(
   symbols: readonly string[],
   origin: Exclude<InternalWatchlistOrigin, 'tastytrade-seed'>,
   now = new Date(),
-  prioritySymbols: readonly string[] = [],
 ): Promise<string[]> {
   const db = requiredDatabase(env)
   await requireFinalizedSeed(db)
@@ -618,9 +617,9 @@ export async function ensureInternalWatchlistSymbols(
   // the only automatic eviction target remains a retained broker-seed row.
   await db.batch([
     upsertSymbolsStatement(db, normalized, parsedOrigin, timestamp),
-    pruneStatement(db, MAX_MAINTAINED_ITEMS, prioritySymbols),
+    pruneStatement(db, MAX_MAINTAINED_ITEMS, []),
   ])
-  const kept = await readInternalWatchlistFocus(env, prioritySymbols, MAX_MAINTAINED_ITEMS)
+  const kept = await focusFromStore(db, [], MAX_MAINTAINED_ITEMS)
   await publishInternalWatchlistUniverse(env, now)
   const retained = new Set(kept)
   return normalized.filter((symbol) => retained.has(symbol))
@@ -654,6 +653,15 @@ const StoredItemSchema = z.object({
 export async function readInternalWatchlist(env: AppEnv): Promise<InternalWatchlistItem[]> {
   const db = requiredDatabase(env)
   await requireFinalizedSeed(db)
+  return readItems(db)
+}
+
+/**
+ * The ungated read. Callers that already hold the finalized-seed gate use this
+ * so one request does not pay for the same gate query two or three times; the
+ * gate itself stays mandatory on every entry point that is reached directly.
+ */
+async function readItems(db: D1Database): Promise<InternalWatchlistItem[]> {
   const result = await db.prepare(
     `SELECT symbol, instrument_type, origin, metadata_json, created_at, updated_at
      FROM internal_watchlist_items ORDER BY symbol ASC LIMIT ${MAX_INTERNAL_ITEMS + 1}`,
@@ -724,8 +732,18 @@ export async function readInternalWatchlistFocus(
   limit = 100,
 ): Promise<string[]> {
   const db = requiredDatabase(env)
+  await requireFinalizedSeed(db)
+  return focusFromStore(db, positionSymbols, limit)
+}
+
+/** The ungated focus read, for callers already holding the seed gate. */
+async function focusFromStore(
+  db: D1Database,
+  positionSymbols: readonly string[],
+  limit: number,
+): Promise<string[]> {
   const [items, result] = await Promise.all([
-    readInternalWatchlist(env),
+    readItems(db),
     db.prepare(
       `SELECT upper(e.broker_symbol) AS symbol
        FROM internal_watchlist_seed_entries e
@@ -759,12 +777,11 @@ export async function readInternalWatchlistFocus(
 export async function pruneInternalWatchlistToFocus(
   env: AppEnv,
   limit = MAX_MAINTAINED_ITEMS,
-  prioritySymbols: readonly string[] = [],
 ): Promise<{ kept: string[]; removedCount: number }> {
   const db = requiredDatabase(env)
   await requireFinalizedSeed(db)
-  const result = await pruneStatement(db, limit, prioritySymbols).run()
-  const retained = await readInternalWatchlistFocus(env, prioritySymbols, limit)
+  const result = await pruneStatement(db, limit, []).run()
+  const retained = await focusFromStore(db, [], limit)
   await publishInternalWatchlistUniverse(env)
   return { kept: retained, removedCount: result.meta.changes }
 }
