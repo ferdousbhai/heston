@@ -8,7 +8,11 @@ import { Spinner } from '#/components/ui/spinner'
 import { authClient } from '../data/auth-client'
 import { toError } from '../domain/failure'
 
-const ViewerSchema = z.object({ name: z.string() })
+const ViewerSchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  role: z.enum(['member', 'owner']),
+})
 
 export type Viewer = z.infer<typeof ViewerSchema>
 
@@ -57,6 +61,7 @@ export function AuthGate({ children }: { children: (viewer: Viewer) => ReactNode
   if (state.phase === 'checking') return <AuthScreen checking />
   if (state.phase === 'error') return <AuthScreen error={state.message} />
   if (!state.user) return <AuthScreen />
+  if (state.user.role !== 'owner') return <OwnerAccessScreen signedIn />
   return children(state.user)
 }
 
@@ -97,7 +102,7 @@ export function GoogleSignInButton({ compact = false }: { compact?: boolean }) {
       >
         {!compact && !submitting && <GoogleMark />}
         {submitting && <Spinner data-icon="inline-start" />}
-        <span>{submitting ? 'Opening Google…' : compact ? 'Owner sign in' : 'Continue with Google'}</span>
+        <span>{submitting ? 'Opening Google…' : compact ? 'Sign in' : 'Continue with Google'}</span>
       </Button>
       {signInError && (
         <Alert className="auth-inline-error" variant="destructive">
@@ -109,19 +114,29 @@ export function GoogleSignInButton({ compact = false }: { compact?: boolean }) {
   )
 }
 
-export function OwnerAccessScreen({ authError }: { authError?: string }) {
+export function OwnerAccessScreen({
+  authError,
+  signedIn = false,
+}: {
+  authError?: string
+  signedIn?: boolean
+}) {
   return (
     <section className="owner-access" aria-labelledby="owner-access-title">
       <p className="owner-access-kicker">Private account workspace</p>
-      <h1 id="owner-access-title">Dan can trade.<br />Only for <em>you.</em></h1>
-      <p>Sign in with the invited Google account to open the trading chat, account context, live positions, and watchlist controls.</p>
+      <h1 id="owner-access-title">
+        {signedIn ? <>Dan is<br /><em>owner-only.</em></> : <>Dan can trade.<br />Only for <em>you.</em></>}
+      </h1>
+      <p>{signedIn
+        ? 'Your ticker favorites sync across devices. Trading chat, brokerage context, live positions, and operations remain restricted to the owner account.'
+        : 'Sign in with the owner Google account to open the trading chat, account context, live positions, and watchlist controls.'}</p>
       {authError && (
         <Alert className="owner-access-error" variant="destructive">
           <AlertTitle>Owner sign-in unavailable</AlertTitle>
           <AlertDescription>{authError}</AlertDescription>
         </Alert>
       )}
-      <GoogleSignInButton />
+      {!signedIn && <GoogleSignInButton />}
       <small>Watch and Daily read remain public. Trade actions still require an explicit confirmation before submission.</small>
     </section>
   )
@@ -137,7 +152,7 @@ export function AuthScreen({ checking = false, error }: { checking?: boolean; er
       </header>
       <section className="auth-copy" aria-busy={checking}>
         <h1>Your market.<br /><em>In motion.</em></h1>
-        <p>Public options intelligence and a daily market read. Your account, positions, and trading agent stay private.</p>
+        <p>Public options intelligence and a daily market read. Sign in to sync favorites; brokerage access and the trading agent stay owner-only.</p>
         {checking ? (
           <div className="auth-checking" role="status"><Spinner />Checking your session</div>
         ) : error ? (
@@ -151,7 +166,7 @@ export function AuthScreen({ checking = false, error }: { checking?: boolean; er
         )}
       </section>
       <footer className="auth-footer">
-        <span>Public reads · owner-only trading</span>
+        <span>Synced favorites · owner-only trading</span>
         <nav aria-label="Legal and support">
           <Link to="/support">Support</Link>
           <Link to="/terms">Terms</Link>

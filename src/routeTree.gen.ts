@@ -15,6 +15,7 @@ import { Route as OpsRouteImport } from './routes/ops'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as SupportRouteImport } from './routes/support'
 import { Route as TermsRouteImport } from './routes/terms'
+import { Route as ApiFavoritesRouteImport } from './routes/api.favorites'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
 import { Route as ApiPublicSnapshotRouteImport } from './routes/api.public-snapshot'
 import { Route as ApiSnapshotRouteImport } from './routes/api.snapshot'
@@ -53,6 +54,11 @@ const SupportRoute = SupportRouteImport.update({
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiFavoritesRoute = ApiFavoritesRouteImport.update({
+  id: '/api/favorites',
+  path: '/api/favorites',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
@@ -108,6 +114,7 @@ export interface FileRoutesByFullPath {
   '/privacy': typeof PrivacyRoute
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
+  '/api/favorites': typeof ApiFavoritesRoute
   '/api/health': typeof ApiHealthRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
   '/api/snapshot': typeof ApiSnapshotRoute
@@ -125,6 +132,7 @@ export interface FileRoutesByTo {
   '/privacy': typeof PrivacyRoute
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
+  '/api/favorites': typeof ApiFavoritesRoute
   '/api/health': typeof ApiHealthRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
   '/api/snapshot': typeof ApiSnapshotRoute
@@ -143,6 +151,7 @@ export interface FileRoutesById {
   '/privacy': typeof PrivacyRoute
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
+  '/api/favorites': typeof ApiFavoritesRoute
   '/api/health': typeof ApiHealthRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
   '/api/snapshot': typeof ApiSnapshotRoute
@@ -162,6 +171,7 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/support'
     | '/terms'
+    | '/api/favorites'
     | '/api/health'
     | '/api/public-snapshot'
     | '/api/snapshot'
@@ -179,6 +189,7 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/support'
     | '/terms'
+    | '/api/favorites'
     | '/api/health'
     | '/api/public-snapshot'
     | '/api/snapshot'
@@ -196,6 +207,7 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/support'
     | '/terms'
+    | '/api/favorites'
     | '/api/health'
     | '/api/public-snapshot'
     | '/api/snapshot'
@@ -214,6 +226,7 @@ export interface RootRouteChildren {
   PrivacyRoute: typeof PrivacyRoute
   SupportRoute: typeof SupportRoute
   TermsRoute: typeof TermsRoute
+  ApiFavoritesRoute: typeof ApiFavoritesRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiPublicSnapshotRoute: typeof ApiPublicSnapshotRoute
   ApiSnapshotRoute: typeof ApiSnapshotRoute
@@ -267,6 +280,13 @@ declare module '@tanstack/react-router' {
       path: '/terms'
       fullPath: '/terms'
       preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/favorites': {
+      id: '/api/favorites'
+      path: '/api/favorites'
+      fullPath: '/api/favorites'
+      preLoaderRoute: typeof ApiFavoritesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/health': {
@@ -342,6 +362,7 @@ const rootRouteChildren: RootRouteChildren = {
   PrivacyRoute: PrivacyRoute,
   SupportRoute: SupportRoute,
   TermsRoute: TermsRoute,
+  ApiFavoritesRoute: ApiFavoritesRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiPublicSnapshotRoute: ApiPublicSnapshotRoute,
   ApiSnapshotRoute: ApiSnapshotRoute,

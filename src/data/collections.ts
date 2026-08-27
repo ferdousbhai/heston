@@ -42,12 +42,14 @@ const SyncStateSchema = z.object({
 const PinnedSymbolSchema = EquitySymbolSchema
 
 const PreferenceSchema = z.object({
+  favoriteUserId: z.string().min(1).max(256).optional(),
   id: z.literal('primary'),
   pinnedSymbols: z.array(PinnedSymbolSchema).max(MAX_LIVE_MARKET_SYMBOLS).default([]),
   selectedSymbol: z.string(),
   selectedWatchlistId: z.string(),
 })
 
+export type Preference = z.infer<typeof PreferenceSchema>
 export type SyncState = z.infer<typeof SyncStateSchema>
 
 type SnapshotCollectionName = 'catalysts' | 'research' | 'sync-state' | 'tickers' | 'watchlists'
@@ -354,7 +356,7 @@ export function selectWatchlist(id: string, fallbackSymbol?: string) {
   })
 }
 
-/** Pinning is a device-local display preference, never an internal-watchlist mutation. */
+/** Signed-out pinning stays device-local and is merged into D1 only after authentication. */
 export async function togglePinnedTicker(symbol: string): Promise<void> {
   const parsed = PinnedSymbolSchema.safeParse(symbol)
   const current = preferenceCollection.get('primary')
