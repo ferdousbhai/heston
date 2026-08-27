@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/query-core'
 import { queryCollectionOptions } from '@tanstack/query-db-collection'
-import { createCollection } from '@tanstack/react-db'
+import { createCollection, localStorageCollectionOptions } from '@tanstack/react-db'
 import { z } from 'zod'
 
 import {
@@ -9,13 +9,51 @@ import {
   type FavoriteMutation,
 } from '../domain/favorites'
 import { EquitySymbolSchema } from '../domain/instrument'
-import { preferenceCollection, togglePinnedTicker, type Preference } from './collections'
+import { MAX_LIVE_MARKET_SYMBOLS, preferenceCollection, type Preference } from './collections'
 
 const FAVORITE_REFRESH_INTERVAL_MS = 15_000
 const FavoriteRowSchema = z.strictObject({ symbol: EquitySymbolSchema })
+const FavoriteStageMarkerSchema = z.strictObject({
+  consumedStageId: z.string().max(4_096),
+  id: z.literal('primary'),
+})
 
-export function stagedFavoriteSymbols(preference: Preference | undefined): string[] {
-  return preference?.favoriteUserId ? [] : [...(preference?.pinnedSymbols ?? [])]
+export type FavoriteStageMarker = z.infer<typeof FavoriteStageMarkerSchema>
+
+// Consumption lives under its own storage key. An authenticated response can
+// therefore mark only the stage it sent without overwriting a newer preference
+// row written by another tab while that request was in flight.
+export const favoriteStageMarkerCollection = createCollection(
+  localStorageCollectionOptions({
+    id: 'spice-favorite-stage-markers',
+    storageKey: 'spice.favorite-stage.v1',
+    schema: FavoriteStageMarkerSchema,
+    getKey: (marker) => marker.id,
+    startSync: true,
+  }),
+)
+
+type AnonymousFavoriteStage = {
+  id: string
+  symbols: string[]
+}
+
+function anonymousFavoriteStage(preference: Preference | undefined): AnonymousFavoriteStage | undefined {
+  if (!preference) return
+  const symbols = [...preference.pinnedSymbols]
+  if (preference.favoriteStageVersion) {
+    return { id: `version:${preference.favoriteStageVersion}`, symbols }
+  }
+  if (preference.favoriteUserId) return
+  return { id: `legacy:${JSON.stringify([...symbols].sort())}`, symbols }
+}
+
+export function stagedFavoriteSymbols(
+  preference: Preference | undefined,
+  marker?: FavoriteStageMarker,
+): string[] {
+  const stage = anonymousFavoriteStage(preference)
+  return stage && stage.id !== marker?.consumedStageId ? stage.symbols : []
 }
 
 async function requestFavoriteSymbols(
@@ -35,12 +73,33 @@ async function requestFavoriteSymbols(
   return FavoriteSymbolsResponseSchema.parse(await response.json()).symbols
 }
 
-async function markAnonymousStageConsumed(userId: string): Promise<void> {
+async function markAnonymousStageConsumed(stageId: string): Promise<void> {
+  const current = favoriteStageMarkerCollection.get('primary')
+  if (current?.consumedStageId === stageId) return
+  const mutation = current
+    ? favoriteStageMarkerCollection.update('primary', (draft) => {
+        draft.consumedStageId = stageId
+      })
+    : favoriteStageMarkerCollection.insert({ consumedStageId: stageId, id: 'primary' })
+  await mutation.isPersisted.promise
+}
+
+async function toggleAnonymousFavorite(symbol: string): Promise<void> {
+  await Promise.all([
+    preferenceCollection.preload(),
+    favoriteStageMarkerCollection.preload(),
+  ])
   const current = preferenceCollection.get('primary')
   if (!current) return
+  const marker = favoriteStageMarkerCollection.get('primary')
+  const pinnedSymbols = stagedFavoriteSymbols(current, marker)
+  const nextSymbols = pinnedSymbols.includes(symbol)
+    ? pinnedSymbols.filter((candidate) => candidate !== symbol)
+    : [...pinnedSymbols, symbol].slice(-MAX_LIVE_MARKET_SYMBOLS)
   const mutation = preferenceCollection.update('primary', (draft) => {
-    draft.favoriteUserId = userId
-    draft.pinnedSymbols = []
+    draft.favoriteStageVersion = crypto.randomUUID()
+    delete draft.favoriteUserId
+    draft.pinnedSymbols = nextSymbols
   })
   await mutation.isPersisted.promise
 }
@@ -56,7 +115,6 @@ function favoriteRows(symbols: readonly string[]) {
 export function createFavoriteSync(userId: string) {
   const queryClient = new QueryClient()
   const queryKey = ['spice-favorites', userId] as const
-  let anonymousStageConsumed = false
   let mutationTail: Promise<void> = Promise.resolve()
 
   const enqueueMutation = <T,>(task: () => Promise<T>): Promise<T> => {
@@ -78,19 +136,19 @@ export function createFavoriteSync(userId: string) {
       refetchOnWindowFocus: 'always',
       retry: 2,
       queryFn: async ({ signal }) => {
-        if (anonymousStageConsumed) {
-          return favoriteRows(await requestFavoriteSymbols(undefined, signal))
-        }
-
-        await preferenceCollection.preload()
+        await Promise.all([
+          preferenceCollection.preload(),
+          favoriteStageMarkerCollection.preload(),
+        ])
         const preference = preferenceCollection.get('primary')
-        const anonymousSymbols = stagedFavoriteSymbols(preference)
-        const symbols = anonymousSymbols.length
-          ? await requestFavoriteSymbols({ kind: 'merge', symbols: anonymousSymbols }, signal)
+        const stage = anonymousFavoriteStage(preference)
+        const marker = favoriteStageMarkerCollection.get('primary')
+        const pendingStage = stage?.id === marker?.consumedStageId ? undefined : stage
+        const symbols = pendingStage?.symbols.length
+          ? await requestFavoriteSymbols({ kind: 'merge', symbols: pendingStage.symbols }, signal)
           : await requestFavoriteSymbols(undefined, signal)
         if (signal.aborted) throw new DOMException('Favorite sync was superseded', 'AbortError')
-        await markAnonymousStageConsumed(userId)
-        anonymousStageConsumed = true
+        if (pendingStage) await markAnonymousStageConsumed(pendingStage.id)
         return favoriteRows(symbols)
       },
       onInsert: async ({ transaction }) => {
@@ -115,7 +173,7 @@ export async function toggleFavoriteSymbol(
 ): Promise<void> {
   const parsed = EquitySymbolSchema.safeParse(symbol)
   if (!parsed.success) return
-  if (!favoriteSync) return togglePinnedTicker(parsed.data)
+  if (!favoriteSync) return toggleAnonymousFavorite(parsed.data)
 
   await favoriteSync.collection.preload()
   const transaction = favoriteSync.collection.get(parsed.data)
