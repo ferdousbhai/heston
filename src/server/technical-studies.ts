@@ -124,13 +124,15 @@ export function normalizeStudies(inputs: StudyInput[] | undefined): NormalizedSt
   if (!inputs) return []
   if (!Array.isArray(inputs) || inputs.length > MAX_STUDIES) throw new Error('Price studies are invalid.')
   const seen = new Set<string>()
+  const remember = (key: string) => {
+    if (seen.has(key)) throw new Error('Duplicate price studies are not allowed.')
+    seen.add(key)
+  }
   return inputs.map((input) => {
     if (!JsonObjectSchema.safeParse(input).success) throw new Error('Price studies are invalid.')
     if (input.kind === 'SMA' || input.kind === 'EMA' || input.kind === 'RSI') {
       const period = boundedInteger(input.period, 14, 2, 200, `${input.kind} period`)
-      const key = `${input.kind}:${period}`
-      if (seen.has(key)) throw new Error('Duplicate price studies are not allowed.')
-      seen.add(key)
+      remember(`${input.kind}:${period}`)
       return { kind: input.kind, period }
     }
     if (input.kind === 'BBANDS') {
@@ -139,19 +141,16 @@ export function normalizeStudies(inputs: StudyInput[] | undefined): NormalizedSt
       if (!Number.isFinite(standardDeviations) || standardDeviations < 0.1 || standardDeviations > 5) {
         throw new Error('Bollinger deviations are invalid.')
       }
-      const key = `${input.kind}:${period}:${standardDeviations}`
-      if (seen.has(key)) throw new Error('Duplicate price studies are not allowed.')
-      seen.add(key)
+      remember(`${input.kind}:${period}:${standardDeviations}`)
       return { kind: input.kind, period, standardDeviations }
     }
+    // Reachable: `inputs` is untrusted model output, not yet a closed union.
     if (input.kind !== 'MACD') throw new Error('Price studies are invalid.')
     const fastPeriod = boundedInteger(input.fastPeriod, 12, 2, 100, 'MACD fast period')
     const slowPeriod = boundedInteger(input.slowPeriod, 26, 3, 200, 'MACD slow period')
     const signalPeriod = boundedInteger(input.signalPeriod, 9, 2, 100, 'MACD signal period')
     if (fastPeriod >= slowPeriod) throw new Error('MACD fast period must be less than slow period.')
-    const key = `${input.kind}:${fastPeriod}:${slowPeriod}:${signalPeriod}`
-    if (seen.has(key)) throw new Error('Duplicate price studies are not allowed.')
-    seen.add(key)
+    remember(`${input.kind}:${fastPeriod}:${slowPeriod}:${signalPeriod}`)
     return { fastPeriod, kind: input.kind, signalPeriod, slowPeriod }
   })
 }
