@@ -3,6 +3,35 @@ import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 
 describe('brokerage action migrations', () => {
+  it('stores only constrained, per-user favorite symbols and cascades account deletion', async () => {
+    const initial = await readFile(new URL('../migrations/0001_spice.sql', import.meta.url), 'utf8')
+    const favorites = await readFile(new URL('../migrations/0013_user_favorite_symbols.sql', import.meta.url), 'utf8')
+    const db = new DatabaseSync(':memory:')
+    db.exec('PRAGMA foreign_keys = ON')
+    db.exec(initial)
+    db.exec(favorites)
+    db.prepare(
+      `INSERT INTO "user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
+       VALUES ('member-1', 'Member', 'member@example.com', 1, 'now', 'now')`,
+    ).run()
+    db.prepare(
+      `INSERT INTO user_favorite_symbols (user_id, symbol, created_at)
+       VALUES ('member-1', 'NVDA', 'now')`,
+    ).run()
+
+    expect(() => db.prepare(
+      `INSERT INTO user_favorite_symbols (user_id, symbol, created_at)
+       VALUES ('member-1', 'nvda', 'now')`,
+    ).run()).toThrow()
+    expect(() => db.prepare(
+      `INSERT INTO user_favorite_symbols (user_id, symbol, created_at)
+       VALUES ('missing-user', 'META', 'now')`,
+    ).run()).toThrow()
+    db.prepare(`DELETE FROM "user" WHERE "id" = 'member-1'`).run()
+    expect(db.prepare('SELECT count(*) AS count FROM user_favorite_symbols').get()).toEqual({ count: 0 })
+    db.close()
+  })
+
   it('serializes every order kind after the exact production-applied 0005 migration', async () => {
     const initial = await readFile(new URL('../migrations/0001_spice.sql', import.meta.url), 'utf8')
     const migration = await readFile(new URL('../migrations/0005_brokerage_action_state.sql', import.meta.url), 'utf8')

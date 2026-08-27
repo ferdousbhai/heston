@@ -1,14 +1,15 @@
 import { betterAuth } from 'better-auth'
-import { APIError } from 'better-auth/api'
 
 import { type AppEnv } from './env'
 import { readBoundSecret } from './secrets'
 
-const AUTHORIZED_EMAIL = 'ferdousbd@gmail.com'
+const OWNER_EMAIL = 'ferdousbd@gmail.com'
 
-export function isAuthorizedEmail(email: string): boolean {
-  return email.toLowerCase() === AUTHORIZED_EMAIL
+export function isOwnerEmail(email: string): boolean {
+  return email.toLowerCase() === OWNER_EMAIL
 }
+
+export type AuthenticatedIdentity = { email: string; id: string; name: string }
 
 function requireProductionOrigin(value: string | undefined): string {
   if (!value) throw new Error('AuthBaseUrlMissing')
@@ -41,18 +42,6 @@ function configureAuth(
     },
     account: {
       encryptOAuthTokens: true,
-    },
-    databaseHooks: {
-      user: {
-        create: {
-          before: async (user) => {
-            if (!isAuthorizedEmail(user.email)) {
-              throw new APIError('FORBIDDEN', { message: 'This Google account is not invited to Spice Must Flow.' })
-            }
-            return { data: user }
-          },
-        },
-      },
     },
   })
 }
@@ -91,9 +80,13 @@ export function getAuthRuntime(env: AppEnv): Promise<AuthRuntime> {
   return cachedRuntime
 }
 
-export async function getOwnerSession(request: Request, env: AppEnv) {
+/** Google identity is available to favorite sync; it grants no brokerage or agent authority. */
+export async function getAuthenticatedIdentity(
+  request: Request,
+  env: AppEnv,
+): Promise<AuthenticatedIdentity | null> {
   const runtime = await getAuthRuntime(env)
   const session = await runtime.auth.api.getSession({ headers: request.headers })
-  if (!session || !isAuthorizedEmail(session.user.email)) return null
-  return session
+  if (!session) return null
+  return { email: session.user.email, id: session.user.id, name: session.user.name }
 }
