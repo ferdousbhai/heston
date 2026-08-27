@@ -22,6 +22,7 @@ import {
   fiftyTwoWeekPosition,
   formatMarketMetric,
   volatilityVerdict,
+  type ResearchBrief,
   type Ticker,
   type VolatilityVerdict,
   type Watchlist,
@@ -50,6 +51,13 @@ const compactFormatter = new Intl.NumberFormat('en-US', {
   notation: 'compact',
 })
 
+const catalystDateFormatter = new Intl.DateTimeFormat('en-US', {
+  day: 'numeric',
+  month: 'short',
+  timeZone: 'UTC',
+  year: 'numeric',
+})
+
 function compactMetric(value: number | undefined, prefix = '', suffix = ''): string {
   return value === undefined ? '—' : `${prefix}${compactFormatter.format(value)}${suffix}`
 }
@@ -69,16 +77,15 @@ function borrowLabel(ticker: Pick<Ticker, 'borrowRate' | 'lendability'>): string
 }
 
 type SortDirection = 'asc' | 'desc'
-type SortKey = 'symbol' | 'trend' | 'premium' | 'rank' | 'liquidity' | 'activity' | 'range'
+type SortKey = 'symbol' | 'price' | 'premium' | 'rank' | 'liquidity' | 'volume'
 
 const SORT_COLUMNS: { defaultDirection: SortDirection; key: SortKey; label: string }[] = [
   { defaultDirection: 'asc', key: 'symbol', label: 'Instrument' },
-  { defaultDirection: 'desc', key: 'trend', label: 'Session' },
+  { defaultDirection: 'desc', key: 'price', label: 'Price' },
   { defaultDirection: 'desc', key: 'premium', label: 'Option premium' },
   { defaultDirection: 'desc', key: 'rank', label: 'IV rank' },
   { defaultDirection: 'desc', key: 'liquidity', label: 'Liquidity' },
-  { defaultDirection: 'desc', key: 'activity', label: 'Activity' },
-  { defaultDirection: 'desc', key: 'range', label: '52-week range' },
+  { defaultDirection: 'desc', key: 'volume', label: 'Volume' },
 ]
 
 /**
@@ -100,21 +107,12 @@ function Sparkline({ points }: { points: readonly CandlePoint[] }) {
   )
 }
 
-/**
- * Traded notional, the closest activity proxy the snapshot carries: tastytrade
- * reports equity day volume, never option contract volume.
- */
-function dollarVolume(ticker: Pick<Ticker, 'price' | 'volume'>): number | undefined {
-  return ticker.volume === undefined ? undefined : ticker.volume * ticker.price
-}
-
 const SORT_METRICS = {
-  trend: (ticker) => ticker.changePercent,
+  price: (ticker) => ticker.price,
   premium: premiumScore,
   rank: (ticker) => ticker.ivRank,
   liquidity: (ticker) => ticker.liquidity,
-  activity: dollarVolume,
-  range: fiftyTwoWeekPosition,
+  volume: (ticker) => ticker.volume,
 } satisfies Record<Exclude<SortKey, 'symbol'>, (ticker: Ticker) => number | undefined>
 
 function compareBySort(left: Ticker, right: Ticker, sort: { direction: SortDirection; key: SortKey }): number {
@@ -142,6 +140,55 @@ function termStructureLabel(ticker: Pick<Ticker, 'ivTermStructure'>): string {
     : `Back +${formatMarketMetric(Math.abs(spread))} pts`
 }
 
+function SelectedSymbolContext({
+  catalyst,
+  idea,
+  symbol,
+}: {
+  catalyst: Catalyst | undefined
+  idea: ResearchBrief['ideas'][number] | undefined
+  symbol: string
+}) {
+  if (!catalyst && !idea) {
+    return (
+      <div className="focus-context">
+        <p className="focus-context-empty">No upcoming catalyst or Daily Brief thesis is available for {symbol}.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="focus-context">
+      {catalyst && (
+        <section>
+          <header className="focus-context-heading">
+            <h3>Next catalyst</h3>
+            <span>
+              <time dateTime={catalyst.date}>
+                {catalystDateFormatter.format(new Date(`${catalyst.date}T00:00:00Z`))}
+              </time>
+              {' · '}{catalyst.confidence}
+            </span>
+          </header>
+          <strong>{catalyst.title}</strong>
+          {catalyst.description && <p>{catalyst.description}</p>}
+        </section>
+      )}
+      {idea && (
+        <section>
+          <header className="focus-context-heading">
+            <h3>Daily Brief thesis</h3>
+            <span>{idea.direction}</span>
+          </header>
+          <strong>{idea.headline}</strong>
+          <p>{idea.description}</p>
+          <p className="focus-context-risk"><span>Risk</span>{idea.risk}</p>
+        </section>
+      )}
+    </div>
+  )
+}
+
 export function MarketScreen({
   activeWatchlist,
   catalysts,
@@ -149,6 +196,7 @@ export function MarketScreen({
   onSelectTicker,
   onTogglePinned,
   pinnedSymbols,
+  research,
   selected,
   tickers,
 }: {
@@ -158,11 +206,12 @@ export function MarketScreen({
   onSelectTicker: (symbol: string) => void
   onTogglePinned: (symbol: string) => void
   pinnedSymbols: readonly string[]
+  research?: ResearchBrief
   selected: Ticker
   tickers: Ticker[]
 }) {
   const now = new Date()
-  const [sort, setSort] = useState<{ direction: SortDirection; key: SortKey }>({ direction: 'desc', key: 'activity' })
+  const [sort, setSort] = useState<{ direction: SortDirection; key: SortKey }>({ direction: 'desc', key: 'volume' })
   const [query, setQuery] = useState('')
   const pinned = new Set(pinnedSymbols)
   const trimmedQuery = query.trim()
@@ -189,6 +238,8 @@ export function MarketScreen({
   const selectedVerdict = volatilityVerdict(selected)
   const selectedCopy = verdictCopy[selectedVerdict]
   const selectedAsset = assetLabel(selected)
+  const selectedCatalyst = nextCatalystForSymbol(selected.symbol, catalysts, now)
+  const selectedIdea = research?.ideas.find((idea) => idea.symbol === selected.symbol)
   const selectedRangePosition = fiftyTwoWeekPosition(selected)
 
   return (
@@ -205,6 +256,7 @@ export function MarketScreen({
         <CardContent>
           <strong className="premium-focus-verdict" id="selected-premium-title">{selectedCopy.label}</strong>
           <Progress className="premium-axis" aria-label={`Relative premium score ${premiumScore(selected)} out of 100, from cheap to expensive`} value={premiumScore(selected)} />
+          <SelectedSymbolContext catalyst={selectedCatalyst} idea={selectedIdea} symbol={selected.symbol} />
         </CardContent>
         <CardFooter>
           <div className="premium-details">
@@ -324,9 +376,16 @@ export function MarketScreen({
                       {catalyst ? <small>{catalystLabel(catalyst, now)}</small> : null}
                     </Button>
                   </TableCell>
-                  <TableCell className="trend-cell">
-                    <Sparkline points={ticker.sparkline} />
-                    <small>{formatSignedMetric(ticker.changePercent, '%')}</small>
+                  <TableCell className="price-cell">
+                    <div className="price-session">
+                      {/* Snapshot quotes carry two synthetic endpoints; only render a chart for a richer live candle series. */}
+                      {ticker.sparkline.length > 2 ? <Sparkline points={ticker.sparkline} /> : null}
+                      <span>
+                        <strong>{priceFormatter.format(ticker.price)}</strong>
+                        <small>{formatSignedMetric(ticker.changePercent, '%')}</small>
+                      </span>
+                    </div>
+                    <small>{rangePosition === undefined ? '52w range unavailable' : `${Math.round(rangePosition)}% of 52w range`}</small>
                   </TableCell>
                   <TableCell className={`premium-cell ${verdict}`}>
                     <strong>{copy.label}</strong>
@@ -341,20 +400,17 @@ export function MarketScreen({
                     <strong>{formatMarketMetric(ticker.liquidity)}/5</strong>
                     <small>{borrowLabel(ticker)}</small>
                   </TableCell>
-                  <TableCell className="activity-cell">
-                    <strong>{compactMetric(dollarVolume(ticker), '$', ' traded')}</strong>
+                  {/* tastytrade reports equity day share volume here, not 24-hour or option-contract volume. */}
+                  <TableCell className="volume-cell">
+                    <strong>{compactMetric(ticker.volume, '', ' shares')}</strong>
                     <small>{compactMetric(ticker.marketCap, '$', ' cap')}</small>
-                  </TableCell>
-                  <TableCell className="range-cell">
-                    <strong>{priceFormatter.format(ticker.price)}</strong>
-                    <small>{rangePosition === undefined ? '—' : `${Math.round(rangePosition)}% of range`}</small>
                   </TableCell>
                 </TableRow>
               )
             })}
             {!watchTickers.length && (
               <TableRow>
-                <TableCell colSpan={8}>
+                <TableCell colSpan={7}>
                   <Empty className="watch-empty">
                     <EmptyHeader>
                       <EmptyDescription>

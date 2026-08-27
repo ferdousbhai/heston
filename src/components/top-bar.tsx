@@ -11,9 +11,8 @@ export function TopBar({
 }) {
   return (
     <header className="top-bar">
-      <Link aria-label="Spice Must Flow home" className="brand" to="/">
+      <Link aria-label="Spice home" className="brand" to="/">
         <span>SPICE</span>
-        <small>MUST FLOW</small>
       </Link>
       <div className="top-actions">
         <Button nativeButton={false} render={<Link className="top-link" to="/support" />} size="sm" variant="link">Support</Button>

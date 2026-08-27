@@ -203,6 +203,7 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
                 onSelectTicker={chooseSymbol}
                 onTogglePinned={(symbol) => void togglePinnedTicker(symbol)}
                 pinnedSymbols={preference?.pinnedSymbols ?? []}
+                research={research}
                 selected={selected}
                 tickers={tickers}
               />
