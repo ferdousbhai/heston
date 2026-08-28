@@ -276,6 +276,7 @@ describe('tastytrade normalization', () => {
       marketCap: 900_000_000_000, volume: 12_345_678,
       position: true, updatedAt: '2026-08-13T13:31:00.000Z',
     })
+    expect(liveTickerFromRecords('SPY', { ...metrics, 'market-cap': '0' }, quote, true)?.marketCap).toBeUndefined()
     expect(liveTickerFromRecords('SPCX', metrics, quote, false, {
       symbol: 'SPCX', description: 'SpaceX Corporation',
     })).toMatchObject({ name: 'SpaceX Corporation' })

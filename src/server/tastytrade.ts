@@ -387,7 +387,8 @@ export function liveTickerFromRecords(
       true,
     ),
     lendability: jsonText(metrics.lendability ?? instrument?.lendability),
-    marketCap: marketCap !== undefined && marketCap >= 0 ? marketCap : undefined,
+    // ETFs and indices report exactly 0 for market cap; that is absence, not a reading.
+    marketCap: marketCap !== undefined && marketCap > 0 ? marketCap : undefined,
     price,
     change,
     changePercent,
