@@ -343,6 +343,9 @@ function strictRows(payload: JsonValue, label: string): JsonObject[] {
   return rows
 }
 
+/** Speculative names have printed front-month IVs near 1,000%, so the required `ivIndex` clamp sits above every real reading. */
+const MAX_IV_INDEX_POINTS = 2_000
+
 export function liveTickerFromRecords(
   symbol: string,
   metrics: JsonObject | undefined,
@@ -355,7 +358,7 @@ export function liveTickerFromRecords(
   const previousClose = previousCloseValue(quote)
   const explicitChange = jsonNumber(quote.change)
   const explicitChangePercent = jsonNumber(quote['change-percent'] ?? quote.changePercent)
-  const ivIndex = percentMetric(metrics['implied-volatility-index'], 500)
+  const ivIndex = percentMetric(metrics['implied-volatility-index'], MAX_IV_INDEX_POINTS)
   const ivRank = percentMetric(metrics['implied-volatility-index-rank'] ?? metrics['implied-volatility-rank'])
   const ivPercentile = percentMetric(metrics['implied-volatility-percentile'])
   const liquidityValue = jsonNumber(metrics['liquidity-rating'])
@@ -518,7 +521,7 @@ async function loadMarketFacts(
       metricCount: metrics.length,
       quoteCount: quotes.length,
       sample: {
-        hasIvIndex: percentMetric(metric?.['implied-volatility-index'], 500) !== undefined,
+        hasIvIndex: percentMetric(metric?.['implied-volatility-index'], MAX_IV_INDEX_POINTS) !== undefined,
         hasIvPercentile: percentMetric(metric?.['implied-volatility-percentile']) !== undefined,
         hasIvRank: percentMetric(metric?.['implied-volatility-index-rank'] ?? metric?.['implied-volatility-rank']) !== undefined,
         hasLiquidity: jsonNumber(metric?.['liquidity-rating']) !== undefined,

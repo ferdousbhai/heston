@@ -178,6 +178,7 @@ describe('tastytrade normalization', () => {
     expect(percentMetric('0.184')).toBeCloseTo(18.4)
     expect(percentMetric(undefined)).toBeUndefined()
     expect(percentMetric('1.5', 500)).toBe(150)
+    expect(percentMetric('7.5', 2_000)).toBe(750)
   })
 
   it('clamps required rank and percentile ratios that land just above 1.0', () => {
