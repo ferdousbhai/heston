@@ -12,6 +12,7 @@
     "build": "vite build && tsc --noEmit",
     "preview": "vite preview",
     "deploy": "npm run build && wrangler deploy --config dist/server/wrangler.json",
+    "deploy:preview": "npm run build && wrangler versions upload --config dist/server/wrangler.json",
     "cf-typegen": "wrangler types",
     "test": "vitest run",
     "test:watch": "vitest",

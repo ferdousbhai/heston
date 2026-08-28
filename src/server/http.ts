@@ -8,6 +8,7 @@ import { type AppEnv } from './env'
 
 const CANONICAL_ORIGIN = 'https://tryspice.xyz'
 const NON_CANONICAL_HOSTS = new Set(['www.tryspice.xyz'])
+export const PUBLIC_RESPONSE_CACHE_CONTROL = 'public, max-age=30, s-maxage=60, stale-while-revalidate=120'
 
 export function canonicalHostRedirect(request: Request): Response | undefined {
   const url = new URL(request.url)
@@ -24,7 +25,7 @@ export function jsonNoStore(value: JsonValue, init: ResponseInit = {}): Response
 /** Public, account-free market data. Shared caches may retain it briefly to protect broker limits. */
 export function jsonPublic(value: JsonValue, init: ResponseInit = {}): Response {
   const headers = new Headers(init.headers)
-  headers.set('Cache-Control', 'public, max-age=30, s-maxage=60, stale-while-revalidate=120')
+  headers.set('Cache-Control', PUBLIC_RESPONSE_CACHE_CONTROL)
   return Response.json(value, { ...init, headers })
 }
 
