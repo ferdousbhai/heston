@@ -58,6 +58,10 @@ const compactFormatter = new Intl.NumberFormat('en-US', {
   notation: 'compact',
 })
 
+const borrowRateFormatter = new Intl.NumberFormat('en-US', {
+  maximumFractionDigits: 4,
+})
+
 const catalystDateFormatter = new Intl.DateTimeFormat('en-US', {
   day: 'numeric',
   month: 'short',
@@ -78,21 +82,21 @@ function assetLabel(ticker: Pick<Ticker, 'assetType'>): string | undefined {
   return ticker.assetType === 'etf' ? 'ETF' : ticker.assetType === 'index' ? 'Index' : undefined
 }
 
-function borrowLabel(ticker: Pick<Ticker, 'borrowRate' | 'lendability'>): string {
-  if (ticker.borrowRate !== undefined) return `${formatMarketMetric(ticker.borrowRate)}% borrow`
-  return ticker.lendability ?? '—'
+function formatBorrowRate(rate: number): string {
+  return `${borrowRateFormatter.format(rate)}%`
 }
 
 type SortDirection = 'asc' | 'desc'
-type SortKey = 'symbol' | 'price' | 'premium' | 'rank' | 'liquidity' | 'volume'
+type SortKey = 'symbol' | 'marketCap' | 'price' | 'volume' | 'premium' | 'rank' | 'liquidity'
 
 const SORT_COLUMNS: { defaultDirection: SortDirection; key: SortKey; label: string }[] = [
   { defaultDirection: 'asc', key: 'symbol', label: 'Instrument' },
+  { defaultDirection: 'desc', key: 'marketCap', label: 'Market cap' },
   { defaultDirection: 'desc', key: 'price', label: 'Price' },
+  { defaultDirection: 'desc', key: 'volume', label: 'Volume' },
   { defaultDirection: 'desc', key: 'premium', label: 'Option premium' },
   { defaultDirection: 'desc', key: 'rank', label: 'IV rank' },
   { defaultDirection: 'desc', key: 'liquidity', label: 'Liquidity' },
-  { defaultDirection: 'desc', key: 'volume', label: 'Volume' },
 ]
 
 function Sparkline({ points }: { points: readonly CandlePoint[] }) {
@@ -111,11 +115,12 @@ function Sparkline({ points }: { points: readonly CandlePoint[] }) {
 }
 
 const SORT_METRICS = {
+  marketCap: (ticker) => ticker.marketCap,
   price: (ticker) => ticker.price,
+  volume: (ticker) => ticker.volume,
   premium: premiumScore,
   rank: (ticker) => ticker.ivRank,
   liquidity: (ticker) => ticker.liquidity,
-  volume: (ticker) => ticker.volume,
 } satisfies Record<Exclude<SortKey, 'symbol'>, (ticker: Ticker) => number | undefined>
 
 function compareBySort(left: Ticker, right: Ticker, sort: { direction: SortDirection; key: SortKey }): number {
@@ -162,7 +167,8 @@ function focusTape(ticker: Ticker): Array<[label: string, value: string]> {
     ['Pct', formatMarketMetric(ticker.ivPercentile)],
     ['Term', formatIfReported(ticker.ivTermStructure, termStructureLabel)],
     ['Liq', `${formatMarketMetric(ticker.liquidity)}/5`],
-    ['Borrow', formatIfReported(ticker.borrowRate, (rate) => `${formatMarketMetric(rate)}%`) ?? ticker.lendability],
+    ['Lend', ticker.lendability],
+    ['Borrow', formatIfReported(ticker.borrowRate, formatBorrowRate)],
     ['Vol', formatIfReported(ticker.volume, (volume) => compactMetric(volume))],
     ['Cap', formatIfReported(ticker.marketCap, (cap) => compactMetric(cap, '$'))],
     ['52w', yearRangeLabel(ticker)],
@@ -445,6 +451,9 @@ export function MarketScreen({
                       {catalyst ? <small>{catalystLabel(catalyst, now)}</small> : null}
                     </Button>
                   </TableCell>
+                  <TableCell className="market-cap-cell">
+                    <strong>{compactMetric(ticker.marketCap, '$')}</strong>
+                  </TableCell>
                   <TableCell className="price-cell">
                     <div className="price-session">
                       {/* Snapshot quotes carry two synthetic endpoints; only render a chart for a richer live candle series. */}
@@ -454,7 +463,13 @@ export function MarketScreen({
                         <small>{formatSignedMetric(ticker.changePercent, '%')}</small>
                       </span>
                     </div>
-                    <small>{rangePosition === undefined ? '52w range unavailable' : `${Math.round(rangePosition)}% of 52w range`}</small>
+                    {rangePosition === undefined
+                      ? <small>52w range unavailable</small>
+                      : <Progress className="price-range" aria-label={`${Math.round(rangePosition)}% of 52-week range`} value={rangePosition} />}
+                  </TableCell>
+                  {/* tastytrade reports equity day share volume here, not 24-hour or option-contract volume. */}
+                  <TableCell className="volume-cell">
+                    <strong>{compactMetric(ticker.volume, '', ' shares')}</strong>
                   </TableCell>
                   <TableCell className={`premium-cell ${verdict}`}>
                     <strong>{copy.label}</strong>
@@ -467,19 +482,15 @@ export function MarketScreen({
                   </TableCell>
                   <TableCell className="liquidity-cell">
                     <strong>{formatMarketMetric(ticker.liquidity)}/5</strong>
-                    <small>{borrowLabel(ticker)}</small>
-                  </TableCell>
-                  {/* tastytrade reports equity day share volume here, not 24-hour or option-contract volume. */}
-                  <TableCell className="volume-cell">
-                    <strong>{compactMetric(ticker.volume, '', ' shares')}</strong>
-                    <small>{compactMetric(ticker.marketCap, '$', ' cap')}</small>
+                    <small>{ticker.lendability ?? 'Lendability unavailable'}</small>
+                    <small>{ticker.borrowRate === undefined ? 'Rate unavailable' : `${formatBorrowRate(ticker.borrowRate)} borrow`}</small>
                   </TableCell>
                 </TableRow>
               )
             })}
             {!watchTickers.length && (
               <TableRow>
-                <TableCell colSpan={7}>
+                <TableCell colSpan={8}>
                   <Empty className="watch-empty">
                     <EmptyHeader>
                       <EmptyDescription>

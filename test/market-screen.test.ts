@@ -97,3 +97,19 @@ describe('selected market context', () => {
     expect(html).not.toContain('Thesis')
   })
 })
+
+describe('watchlist market data', () => {
+  it('orders the core market columns and keeps lendability separate from a precise borrow rate', () => {
+    const snapshot = marketSnapshotFixture()
+    const nvda = snapshot.tickers.find((ticker) => ticker.symbol === 'NVDA')!
+    nvda.borrowRate = 0.0375
+
+    const html = renderMarket(snapshot, { symbol: 'NVDA' })
+    const header = html.match(/<thead[^>]*>(.*?)<\/thead>/s)?.[1]
+
+    expect(header).toMatch(/Market cap.*Price.*Volume/)
+    expect(html).toContain('price-range')
+    expect(html).toContain('Easy To Borrow')
+    expect(html).toContain('0.0375% borrow')
+  })
+})
