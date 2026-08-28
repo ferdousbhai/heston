@@ -52,7 +52,7 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
   await expect(page.locator('.story')).toHaveCount(0)
   await expect(page.locator('.selected-instrument')).toContainText('NVIDIA')
   await expect(page.locator('.focus-tape')).toContainText('Front +6.6 pts')
-  await expect(page.locator('.focus-tape')).toContainText('$191.68')
+  await expect(page.locator('.selected-price')).toContainText('$191.68')
   await expect(page.locator('.focus-signals')).toContainText('Front month priced 6.6 pts over back')
   await expect(page.getByRole('button', { exact: true, name: 'Market cap' })).toBeVisible()
   await expect(page.getByRole('button', { exact: true, name: 'Price' })).toBeVisible()

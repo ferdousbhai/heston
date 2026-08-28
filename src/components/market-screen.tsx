@@ -158,8 +158,6 @@ function formatIfReported<T>(reading: T | undefined, format: (reading: T) => str
 
 function focusTape(ticker: Ticker): Array<[label: string, value: string]> {
   const reported: Array<[label: string, value: string | undefined]> = [
-    ['Price', formatMarketPrice(ticker.price)],
-    ['Day', formatSignedMetric(ticker.changePercent, '%')],
     ['IV', `${formatMarketMetric(ticker.ivIndex)}%`],
     ['HV30', formatIfReported(ticker.historicalVolatility30Day, (hv) => `${formatMarketMetric(hv)}%`)],
     ['IV−HV', formatIfReported(ticker.ivHistoricalVolatility30DayDifference, (gap) => formatSignedMetric(gap, ' pts'))],
@@ -427,9 +425,15 @@ export function MarketScreen({
 
       <Card className={cn('instrument-focus', selectedVerdict)} variant="flat" aria-labelledby="selected-instrument-title">
         <CardHeader>
-          <div className="selected-instrument">
-            <h2 className="selected-symbol" id="selected-instrument-title">{selected.symbol}</h2>
-            <p>{selected.name}{selectedAsset ? ` · ${selectedAsset}` : ''}</p>
+          <div className="selected-summary">
+            <div className="selected-instrument">
+              <h2 className="selected-symbol" id="selected-instrument-title">{selected.symbol}</h2>
+              <p>{selected.name}{selectedAsset ? ` · ${selectedAsset}` : ''}</p>
+            </div>
+            <div className="selected-price">
+              <strong>{formatMarketPrice(selected.price)}</strong>
+              <span>{formatSignedMetric(selected.changePercent, '%')}</span>
+            </div>
           </div>
           {/* The premium verdict keeps the product's gradient axis, at a scale that
               leaves the thesis and the runway as the panel's primary reading. */}
@@ -439,12 +443,9 @@ export function MarketScreen({
             <Progress className="premium-axis" aria-label={`Relative premium score ${premiumScore(selected)} out of 100, from cheap to expensive`} value={premiumScore(selected)} />
           </div>
         </CardHeader>
-        <CardContent className={cn('focus-narrative', selectedIdea && 'with-thesis')}>
-          {selectedIdea && <ThesisPanel idea={selectedIdea} />}
-          <CatalystRunway catalysts={catalysts} now={now} symbol={selected.symbol} />
-        </CardContent>
-        <CardFooter>
-          <div className="focus-secondary">
+        <CardContent className={cn('focus-narrative', selectedIdea && 'with-thesis', !selectedIdea && selectedSignals.length === 0 && 'runway-only')}>
+          <div className="focus-context">
+            {selectedIdea && <ThesisPanel idea={selectedIdea} />}
             {/* In-band instruments omit this section entirely; the tape still reports their available metrics. */}
             {selectedSignals.length > 0 && (
               <section className="focus-signals" aria-labelledby="focus-signals-title">
@@ -462,12 +463,15 @@ export function MarketScreen({
                 </ul>
               </section>
             )}
-            <dl className="focus-tape" aria-label={`${selected.symbol} metrics`}>
-              {selectedTape.map(([label, value]) => (
-                <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
-              ))}
-            </dl>
           </div>
+          <CatalystRunway catalysts={catalysts} now={now} symbol={selected.symbol} />
+        </CardContent>
+        <CardFooter>
+          <dl className="focus-tape" aria-label={`${selected.symbol} metrics`}>
+            {selectedTape.map(([label, value]) => (
+              <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
+            ))}
+          </dl>
         </CardFooter>
       </Card>
 
