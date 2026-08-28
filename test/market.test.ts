@@ -3,11 +3,12 @@ import { describe, expect, it } from 'vitest'
 import {
   fiftyTwoWeekPosition,
   formatMarketMetric,
+  instrumentSignals,
   MarketSnapshotSchema,
   parseStoredResearchBrief,
   volatilityVerdict,
 } from '../src/domain/market'
-import { marketSnapshotFixture } from './fixtures/market'
+import { marketSnapshotFixture, marketTickersFixture } from './fixtures/market'
 import {
   equityCandleFromTime,
   liveTickerFromRecords,
@@ -36,6 +37,75 @@ describe('volatility classification', () => {
     expect(fiftyTwoWeekPosition({ price: 75, yearLow: 50, yearHigh: 100 })).toBe(50)
     expect(fiftyTwoWeekPosition({ price: 125, yearLow: 50, yearHigh: 100 })).toBe(100)
     expect(fiftyTwoWeekPosition({ price: 75, yearLow: 50 })).toBeUndefined()
+  })
+})
+
+describe('instrument signals', () => {
+  // SPY otherwise sits at 97% of its 52-week range; widen it so every reading is in-band.
+  const quiet = { ...marketTickersFixture.find((ticker) => ticker.symbol === 'SPY')!, yearHigh: 900 }
+
+  it('flags nothing for an instrument inside every band', () => {
+    expect(instrumentSignals(quiet)).toEqual([])
+  })
+
+  it('names every out-of-band reading with its direction and exact supporting figures', () => {
+    const signals = instrumentSignals({
+      ...quiet,
+      borrowRate: 12.4,
+      change: -14.2,
+      changePercent: -6.1,
+      historicalVolatility30Day: 30,
+      ivHistoricalVolatility30DayDifference: 18.2,
+      ivIndex: 48.2,
+      ivIndex5DayChange: -7,
+      ivTermStructure: { backExpiration: '2026-09-11', backIv: 40.1, frontExpiration: '2026-09-04', frontIv: 46.7 },
+      liquidity: 2,
+      price: 218.7,
+      yearHigh: 350,
+      yearLow: 210,
+    })
+
+    expect(signals.map((signal) => [signal.key, signal.tone, signal.label, signal.detail])).toEqual([
+      ['day-move', 'note', 'Down 6.1% today', '−$14.20 to $218.70'],
+      ['iv-vs-hv', 'rich', 'IV 18.2 pts above realized', 'IV 48.2% · 30-day HV 30%'],
+      ['iv-5-day', 'cheap', 'IV down 7 pts in 5 days', 'IV now 48.2%'],
+      ['term-structure', 'note', 'Front month priced 6.6 pts over back', '2026-09-04 46.7% · 2026-09-11 40.1%'],
+      ['liquidity', 'rich', 'Thin options liquidity', '2/5 tastytrade liquidity'],
+      ['borrow', 'rich', 'Hard to borrow', '12.4% borrow'],
+      ['range-edge', 'note', 'Near 52-week low', '6% of $210.00–$350.00'],
+    ])
+  })
+
+  it('reads the opposite directions and a lendability-only borrow flag', () => {
+    const signals = instrumentSignals({
+      ...quiet,
+      borrowRate: undefined,
+      changePercent: 4,
+      ivHistoricalVolatility30DayDifference: -10,
+      ivIndex5DayChange: 5,
+      ivTermStructure: { backExpiration: '2026-09-11', backIv: 20, frontExpiration: '2026-09-04', frontIv: 17 },
+      lendability: 'Locate Required',
+      price: 690,
+      yearHigh: 698.44,
+    })
+
+    expect(signals.map((signal) => [signal.key, signal.tone, signal.label, signal.detail])).toEqual([
+      ['day-move', 'note', 'Up 4% today', '+$3.82 to $690.00'],
+      ['iv-vs-hv', 'cheap', 'IV 10 pts below realized', 'IV 14.8% · 30-day HV 12.9%'],
+      ['iv-5-day', 'rich', 'IV up 5 pts in 5 days', 'IV now 14.8%'],
+      ['term-structure', 'note', 'Back month priced 3 pts over front', '2026-09-04 17% · 2026-09-11 20%'],
+      ['borrow', 'rich', 'Hard to borrow', 'Locate Required'],
+      ['range-edge', 'note', 'Near 52-week high', '96% of $481.80–$698.44'],
+    ])
+  })
+
+  it('omits volatility-gap and term-structure flags when required readings are missing', () => {
+    expect(instrumentSignals({
+      ...quiet,
+      historicalVolatility30Day: undefined,
+      ivHistoricalVolatility30DayDifference: 25,
+      ivTermStructure: undefined,
+    })).toEqual([])
   })
 })
 

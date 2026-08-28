@@ -31,7 +31,11 @@ import {
 import {
   fiftyTwoWeekPosition,
   formatMarketMetric,
+  formatMarketPrice,
+  instrumentSignals,
+  termStructureSpread,
   volatilityVerdict,
+  type IvTermStructure,
   type ResearchBrief,
   type Ticker,
   type VolatilityVerdict,
@@ -48,13 +52,6 @@ const verdictCopy = {
 function premiumScore(ticker: Pick<Ticker, 'ivRank' | 'ivPercentile'>): number {
   return Math.round((ticker.ivRank + ticker.ivPercentile) / 2)
 }
-
-const priceFormatter = new Intl.NumberFormat('en-US', {
-  currency: 'USD',
-  maximumFractionDigits: 2,
-  minimumFractionDigits: 2,
-  style: 'currency',
-})
 
 const compactFormatter = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 1,
@@ -140,14 +137,48 @@ function compareBySort(left: Ticker, right: Ticker, sort: { direction: SortDirec
   return sort.direction === 'asc' ? delta : -delta
 }
 
-function termStructureLabel(ticker: Pick<Ticker, 'ivTermStructure'>): string {
-  const term = ticker.ivTermStructure
-  if (!term) return '—'
-  const spread = term.frontIv - term.backIv
+function termStructureLabel(term: IvTermStructure): string {
+  const spread = termStructureSpread(term)
   if (Math.abs(spread) < 1) return 'Flat'
   return spread > 0
     ? `Front +${formatMarketMetric(spread)} pts`
     : `Back +${formatMarketMetric(Math.abs(spread))} pts`
+}
+
+function yearRangeLabel(ticker: Pick<Ticker, 'price' | 'yearHigh' | 'yearLow'>): string | undefined {
+  const position = fiftyTwoWeekPosition(ticker)
+  if (position === undefined || ticker.yearLow === undefined || ticker.yearHigh === undefined) return undefined
+  return `${formatMarketPrice(ticker.yearLow)}–${formatMarketPrice(ticker.yearHigh)} · ${Math.round(position)}%`
+}
+
+/** Unlike the table's em dash, an unreported tape figure has no cell at all, so it is never formatted. */
+function formatIfReported<T>(reading: T | undefined, format: (reading: T) => string): string | undefined {
+  return reading === undefined ? undefined : format(reading)
+}
+
+/** The tape states each reported figure once, in a fixed order, however few of them arrived. */
+function focusTape(ticker: Ticker): Array<[label: string, value: string]> {
+  const reported: Array<[label: string, value: string | undefined]> = [
+    ['Price', formatMarketPrice(ticker.price)],
+    ['Day', formatSignedMetric(ticker.changePercent, '%')],
+    ['IV', `${formatMarketMetric(ticker.ivIndex)}%`],
+    ['HV30', formatIfReported(ticker.historicalVolatility30Day, (hv) => `${formatMarketMetric(hv)}%`)],
+    ['IV−HV', formatIfReported(ticker.ivHistoricalVolatility30DayDifference, (gap) => formatSignedMetric(gap, ' pts'))],
+    ['5d', formatIfReported(ticker.ivIndex5DayChange, (change) => formatSignedMetric(change, ' pts'))],
+    ['Rank', formatMarketMetric(ticker.ivRank)],
+    ['Pct', formatMarketMetric(ticker.ivPercentile)],
+    ['Term', formatIfReported(ticker.ivTermStructure, termStructureLabel)],
+    ['Liq', `${formatMarketMetric(ticker.liquidity)}/5`],
+    ['Borrow', formatIfReported(ticker.borrowRate, (rate) => `${formatMarketMetric(rate)}%`) ?? ticker.lendability],
+    ['Vol', formatIfReported(ticker.volume, (volume) => compactMetric(volume))],
+    ['Cap', formatIfReported(ticker.marketCap, (cap) => compactMetric(cap, '$'))],
+    ['52w', yearRangeLabel(ticker)],
+  ]
+  const tape: Array<[label: string, value: string]> = []
+  for (const [label, value] of reported) {
+    if (value !== undefined) tape.push([label, value])
+  }
+  return tape
 }
 
 /** Runway rows stay scannable; anything past this is summarized as a count. */
@@ -302,7 +333,8 @@ export function MarketScreen({
   const selectedCopy = verdictCopy[selectedVerdict]
   const selectedAsset = assetLabel(selected)
   const selectedIdea = research?.ideas.find((idea) => idea.symbol === selected.symbol)
-  const selectedRangePosition = fiftyTwoWeekPosition(selected)
+  const selectedSignals = instrumentSignals(selected)
+  const selectedTape = focusTape(selected)
 
   return (
     <div className="market-screen">
@@ -328,34 +360,28 @@ export function MarketScreen({
         </CardContent>
         <CardFooter>
           <div className="focus-secondary">
-            <dl className="focus-metrics">
-              <div><dt>IV</dt><dd>{formatMarketMetric(selected.ivIndex)}%</dd></div>
-              <div><dt>IV rank</dt><dd>{formatMarketMetric(selected.ivRank)}</dd></div>
-              <div><dt>IV percentile</dt><dd>{formatMarketMetric(selected.ivPercentile)}</dd></div>
-              <div><dt>IV 5-day</dt><dd>{formatSignedMetric(selected.ivIndex5DayChange, ' pts')}</dd></div>
-              <div><dt>30-day HV</dt><dd>{selected.historicalVolatility30Day === undefined ? '—' : `${formatMarketMetric(selected.historicalVolatility30Day)}%`}</dd></div>
-              <div><dt>IV minus HV</dt><dd>{formatSignedMetric(selected.ivHistoricalVolatility30DayDifference, ' pts')}</dd></div>
-              <div><dt>Term structure</dt><dd>{termStructureLabel(selected)}</dd></div>
-              <div><dt>Liquidity</dt><dd>{formatMarketMetric(selected.liquidity)}/5</dd></div>
-              <div><dt>Borrow rate</dt><dd>{selected.borrowRate === undefined ? selected.lendability ?? '—' : `${formatMarketMetric(selected.borrowRate)}%`}</dd></div>
-              <div><dt>Volume</dt><dd>{compactMetric(selected.volume)}</dd></div>
-              <div><dt>Market cap</dt><dd>{compactMetric(selected.marketCap, '$')}</dd></div>
+            {/* In-band instruments omit this section entirely; the tape still reports their available metrics. */}
+            {selectedSignals.length > 0 && (
+              <section className="focus-signals" aria-labelledby="focus-signals-title">
+                <header className="focus-eyebrow">
+                  <h3 id="focus-signals-title">What stands out</h3>
+                  <span>{selectedSignals.length} flag{selectedSignals.length === 1 ? '' : 's'}</span>
+                </header>
+                <ul className="signal-list">
+                  {selectedSignals.map((signal) => (
+                    <li className={cn('signal', signal.tone)} key={signal.key}>
+                      <strong>{signal.label}</strong>
+                      <span>{signal.detail}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            <dl className="focus-tape" aria-label={`${selected.symbol} metrics`}>
+              {selectedTape.map(([label, value]) => (
+                <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
+              ))}
             </dl>
-            <div className="year-range">
-              <span>52-week range</span>
-              {selectedRangePosition === undefined || selected.yearLow === undefined || selected.yearHigh === undefined
-                ? <strong>Range unavailable</strong>
-                : (
-                    <>
-                      <div className="year-range-values">
-                        <span>{priceFormatter.format(selected.yearLow)}</span>
-                        <strong>{priceFormatter.format(selected.price)}</strong>
-                        <span>{priceFormatter.format(selected.yearHigh)}</span>
-                      </div>
-                      <Progress aria-label={`${selected.symbol} is ${Math.round(selectedRangePosition)} percent through its 52-week range`} value={selectedRangePosition} />
-                    </>
-                  )}
-            </div>
           </div>
         </CardFooter>
       </Card>
@@ -449,7 +475,7 @@ export function MarketScreen({
                       {/* Snapshot quotes carry two synthetic endpoints; only render a chart for a richer live candle series. */}
                       {ticker.sparkline.length > 2 ? <Sparkline points={ticker.sparkline} /> : null}
                       <span>
-                        <strong>{priceFormatter.format(ticker.price)}</strong>
+                        <strong>{formatMarketPrice(ticker.price)}</strong>
                         <small>{formatSignedMetric(ticker.changePercent, '%')}</small>
                       </span>
                     </div>

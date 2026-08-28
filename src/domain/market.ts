@@ -174,6 +174,7 @@ export const MarketSnapshotSchema = z.object({
 
 export type Watchlist = z.infer<typeof WatchlistSchema>
 export type Ticker = z.infer<typeof TickerSchema>
+export type IvTermStructure = z.infer<typeof IvTermStructureSchema>
 export type ResearchBrief = z.infer<typeof ResearchBriefSchema>
 export type MarketSnapshot = z.infer<typeof MarketSnapshotSchema>
 
@@ -183,6 +184,18 @@ const marketMetricFormatter = new Intl.NumberFormat('en-US', { maximumFractionDi
 
 export function formatMarketMetric(value: number): string {
   return marketMetricFormatter.format(value)
+}
+
+const marketPriceFormatter = new Intl.NumberFormat('en-US', {
+  currency: 'USD',
+  maximumFractionDigits: 2,
+  minimumFractionDigits: 2,
+  style: 'currency',
+})
+
+/** Prices live in the domain so a signal detail and the tape beside it never disagree on grouping. */
+export function formatMarketPrice(value: number): string {
+  return marketPriceFormatter.format(value)
 }
 
 export function fiftyTwoWeekPosition(
@@ -198,4 +211,135 @@ export function volatilityVerdict(ticker: Pick<Ticker, 'ivRank' | 'ivPercentile'
   if (ticker.ivRank <= 30 && ticker.ivPercentile <= 35) return 'cheap'
   if (ticker.ivRank >= 70 || ticker.ivPercentile >= 80) return 'rich'
   return 'fair'
+}
+
+export type InstrumentSignal = {
+  detail: string
+  key: 'day-move' | 'iv-vs-hv' | 'iv-5-day' | 'term-structure' | 'liquidity' | 'borrow' | 'range-edge'
+  label: string
+  tone: 'cheap' | 'rich' | 'note'
+}
+
+/**
+ * These bands are trading heuristics, not statistical claims: a 4% day merits
+ * explanation, ten IV points over realized or five points in a week marks clear
+ * repricing, three term points suggests an event premium, liquidity at two and
+ * borrow at 1% add execution friction, and the outer range decile marks an edge.
+ */
+const SIGNAL_BANDS = {
+  borrowRatePercent: 1,
+  dayMovePercent: 4,
+  ivFiveDayPoints: 5,
+  ivOverHvPoints: 10,
+  rangeEdgePercent: 10,
+  termSpreadPoints: 3,
+  thinLiquidityScore: 2,
+}
+
+/** Pluralize on the rounded figure the reader sees, so a displayed "1" never reads "1 pts". */
+function formatSignalPoints(value: number): string {
+  const magnitude = formatMarketMetric(Math.abs(value))
+  return `${magnitude} pt${magnitude === '1' ? '' : 's'}`
+}
+
+/** One sign convention for both the tape label and the signal: positive means front over back. */
+export function termStructureSpread(term: IvTermStructure): number {
+  return term.frontIv - term.backIv
+}
+
+/**
+ * A reported rate settles the question on its own, so a rate inside the band
+ * suppresses the coarser lendability label rather than letting it flag anyway.
+ */
+function borrowFrictionDetail(ticker: Pick<Ticker, 'borrowRate' | 'lendability'>): string | undefined {
+  if (ticker.borrowRate !== undefined) {
+    if (ticker.borrowRate < SIGNAL_BANDS.borrowRatePercent) return undefined
+    return `${formatMarketMetric(ticker.borrowRate)}% borrow`
+  }
+  if (ticker.lendability === undefined || ticker.lendability === 'Easy To Borrow') return undefined
+  return ticker.lendability
+}
+
+export function instrumentSignals(ticker: Ticker): InstrumentSignal[] {
+  const signals: InstrumentSignal[] = []
+
+  if (Math.abs(ticker.changePercent) >= SIGNAL_BANDS.dayMovePercent) {
+    signals.push({
+      detail: `${ticker.change >= 0 ? '+' : '−'}${formatMarketPrice(Math.abs(ticker.change))} to ${formatMarketPrice(ticker.price)}`,
+      key: 'day-move',
+      label: `${ticker.changePercent >= 0 ? 'Up' : 'Down'} ${formatMarketMetric(Math.abs(ticker.changePercent))}% today`,
+      tone: 'note',
+    })
+  }
+
+  const ivOverHv = ticker.ivHistoricalVolatility30DayDifference
+  if (ivOverHv !== undefined && ticker.historicalVolatility30Day !== undefined
+    && Math.abs(ivOverHv) >= SIGNAL_BANDS.ivOverHvPoints) {
+    signals.push({
+      detail: `IV ${formatMarketMetric(ticker.ivIndex)}% · 30-day HV ${formatMarketMetric(ticker.historicalVolatility30Day)}%`,
+      key: 'iv-vs-hv',
+      label: `IV ${formatSignalPoints(ivOverHv)} ${ivOverHv > 0 ? 'above' : 'below'} realized`,
+      tone: ivOverHv > 0 ? 'rich' : 'cheap',
+    })
+  }
+
+  const ivFiveDay = ticker.ivIndex5DayChange
+  if (ivFiveDay !== undefined && Math.abs(ivFiveDay) >= SIGNAL_BANDS.ivFiveDayPoints) {
+    signals.push({
+      detail: `IV now ${formatMarketMetric(ticker.ivIndex)}%`,
+      key: 'iv-5-day',
+      label: `IV ${ivFiveDay > 0 ? 'up' : 'down'} ${formatSignalPoints(ivFiveDay)} in 5 days`,
+      tone: ivFiveDay > 0 ? 'rich' : 'cheap',
+    })
+  }
+
+  const term = ticker.ivTermStructure
+  if (term !== undefined) {
+    const spread = termStructureSpread(term)
+    if (Math.abs(spread) >= SIGNAL_BANDS.termSpreadPoints) {
+      signals.push({
+        detail: `${term.frontExpiration} ${formatMarketMetric(term.frontIv)}% · ${term.backExpiration} ${formatMarketMetric(term.backIv)}%`,
+        key: 'term-structure',
+        label: spread > 0
+          ? `Front month priced ${formatSignalPoints(spread)} over back`
+          : `Back month priced ${formatSignalPoints(spread)} over front`,
+        tone: 'note',
+      })
+    }
+  }
+
+  if (ticker.liquidity <= SIGNAL_BANDS.thinLiquidityScore) {
+    signals.push({
+      detail: `${formatMarketMetric(ticker.liquidity)}/5 tastytrade liquidity`,
+      key: 'liquidity',
+      label: 'Thin options liquidity',
+      tone: 'rich',
+    })
+  }
+
+  const borrowDetail = borrowFrictionDetail(ticker)
+  if (borrowDetail !== undefined) {
+    signals.push({
+      detail: borrowDetail,
+      key: 'borrow',
+      label: 'Hard to borrow',
+      tone: 'rich',
+    })
+  }
+
+  const rangePosition = fiftyTwoWeekPosition(ticker)
+  if (rangePosition !== undefined && ticker.yearLow !== undefined && ticker.yearHigh !== undefined) {
+    const nearLow = rangePosition <= SIGNAL_BANDS.rangeEdgePercent
+    const nearHigh = rangePosition >= 100 - SIGNAL_BANDS.rangeEdgePercent
+    if (nearLow || nearHigh) {
+      signals.push({
+        detail: `${Math.round(rangePosition)}% of ${formatMarketPrice(ticker.yearLow)}–${formatMarketPrice(ticker.yearHigh)}`,
+        key: 'range-edge',
+        label: nearLow ? 'Near 52-week low' : 'Near 52-week high',
+        tone: 'note',
+      })
+    }
+  }
+
+  return signals
 }
