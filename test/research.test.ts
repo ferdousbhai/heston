@@ -308,6 +308,14 @@ describe('daily intelligence pipeline', () => {
       event: 'DailyResearchIdeasBound', bound: 1, candidates: 1, runId: expect.any(String),
     })
     const briefCall = run.mock.calls.find((call) => call[1].text.format.name === 'spice_daily_intelligence')
+    const catalystCall = run.mock.calls.find((call) => call[1].text.format.name === 'spice_reddit_catalysts')
+    expect(catalystCall?.[1]).toMatchObject({
+      max_output_tokens: 4_000,
+      reasoning: { effort: 'low' },
+      text: { format: { type: 'json_schema', name: 'spice_reddit_catalysts', strict: true } },
+    })
+    expect(catalystCall?.[1].input[0].content).toContain('credible fetched linked-page excerpt')
+    expect(catalystCall?.[1].input[0].content).toContain('does not establish a catalyst')
     expect(briefCall?.[0]).toBe('@cf/openai/gpt-oss-120b')
     expect(briefCall?.[1]).toMatchObject({
       text: { format: { type: 'json_schema', name: 'spice_daily_intelligence', strict: true } },
