@@ -12,6 +12,7 @@ import {
   marketMoverInsightsFromCandidates,
   marketMoverPacket,
   mentionsDiscoverySource,
+  parseGeneratedRedditCatalysts,
   parseGeneratedResearch,
   redditCatalystsFromCandidates,
   researchIdeasForDate,
@@ -751,6 +752,18 @@ describe('daily intelligence pipeline', () => {
     const output = generatedResearch()
     output.ideas = Array.from({ length: 4 }, () => ({ ...output.ideas[0]! }))
     expect(() => parseGeneratedResearch({ output_text: JSON.stringify(output) })).toThrow()
+  })
+
+  it('names the editor response when its JSON is malformed or truncated', () => {
+    const truncated = JSON.stringify(generatedResearch()).slice(0, 120)
+
+    expect(() => parseGeneratedResearch({ output_text: truncated }))
+      .toThrow(/^DailyResearchEditorResponse:invalid-json:/)
+    // An editor that answered with nothing at all must still name the editor.
+    expect(() => parseGeneratedResearch({}))
+      .toThrow('DailyResearchEditorResponse:invalid-json:0-chars')
+    expect(() => parseGeneratedRedditCatalysts({ output_text: '{"catalysts":[' }))
+      .toThrow(/^DailyResearchCatalystModelResponse:invalid-json:/)
   })
 
   it('cites the fetched article that supplied an idea instead of its aggregator page', () => {

@@ -9,6 +9,7 @@ import {
 } from '../domain/instrument'
 import { JsonArraySchema, jsonObject, jsonObjectOrEmpty, type JsonValue } from '../domain/json-payload'
 import { MarketMoverInsightSchema, ResearchIdeaSchema, type ResearchBrief } from '../domain/market'
+import { parseLabeledJson } from './bounded-response'
 import { type RecentTickerCoverage } from './research-coverage'
 import { MAX_DAILY_RESEARCH_IDEAS, type ResearchSourceItem } from './research-contracts'
 import { REDDIT_RESEARCH_SOURCE } from './research-reddit'
@@ -239,9 +240,14 @@ export function mentionsDiscoverySource(value: string): boolean {
   return DISCOVERY_SOURCE_PATTERNS.some((pattern) => pattern.test(value))
 }
 
-function extractJson(response: string): JsonValue {
+/**
+ * The editor and catalyst models answer with JSON, sometimes fenced. A truncated or
+ * malformed answer must name which model response it came from: without the label the
+ * run dies on a bare SyntaxError indistinguishable from a provider body failing to parse.
+ */
+function extractJson(response: string, label: string): JsonValue {
   const fenced = response.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]
-  return JSON.parse(fenced ?? response)
+  return parseLabeledJson(fenced ?? response, label)
 }
 
 function modelOutputText(payload: JsonValue): string | undefined {
@@ -288,13 +294,13 @@ function normalizeModelResearch(value: JsonValue): JsonValue {
 
 export function parseGeneratedResearch(payload: JsonValue): GeneratedResearch {
   return GeneratedResearchSchema.parse(
-    normalizeModelResearch(extractJson(modelOutputText(payload) ?? '')),
+    normalizeModelResearch(extractJson(modelOutputText(payload) ?? '', 'DailyResearchEditorResponse')),
   )
 }
 
 export function parseGeneratedRedditCatalysts(payload: JsonValue): JsonValue {
   return GeneratedRedditCatalystResponseSchema.parse(
-    extractJson(modelOutputText(payload) ?? ''),
+    extractJson(modelOutputText(payload) ?? '', 'DailyResearchCatalystModelResponse'),
   ).catalysts
 }
 

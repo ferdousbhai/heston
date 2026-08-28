@@ -1,3 +1,4 @@
+import { toError } from '../domain/failure'
 import { type JsonValue } from '../domain/json-payload'
 
 /** Read an upstream response without allocating past the declared boundary. */
@@ -31,6 +32,27 @@ export async function readBoundedText(response: Response, maxBytes: number, labe
   return text + decoder.decode()
 }
 
+/**
+ * A bare `JSON.parse` SyntaxError names neither the provider nor the endpoint, so a
+ * provider that transiently returns malformed or truncated JSON fails a scheduled run
+ * undiagnosably. Every parse of an untrusted payload goes through here and rethrows under
+ * the caller's label in the same `label:code` shape as the size and status errors, so the
+ * `errorCode` digest recorded by scheduled-jobs leads with the source that failed.
+ *
+ * Failure semantics are unchanged: what threw before still throws. The hint stays
+ * structural — decoded length and the offset the parser reported — because provider bodies
+ * must never reach Worker logs.
+ */
+export function parseLabeledJson(text: string, label: string): JsonValue {
+  try {
+    return JSON.parse(text)
+  } catch (cause) {
+    const position = toError(cause)?.message.match(/position (\d+)/)?.[1]
+    const at = position === undefined ? '' : `:at-${position}`
+    throw new Error(`${label}:invalid-json:${text.length}-chars${at}`, { cause })
+  }
+}
+
 export async function readBoundedJson(response: Response, maxBytes: number, label: string): Promise<JsonValue> {
-  return JSON.parse(await readBoundedText(response, maxBytes, label))
+  return parseLabeledJson(await readBoundedText(response, maxBytes, label), label)
 }

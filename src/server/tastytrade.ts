@@ -265,7 +265,9 @@ export async function tastyRequest(
     throw error
   }
   if (response.status === 204) return {}
-  return readBoundedJson(response, MAX_TASTYTRADE_RESPONSE_BYTES, 'TastytradeApi')
+  // The label carries the redacted endpoint so an oversized or malformed body names the
+  // same request the status error above would have named.
+  return readBoundedJson(response, MAX_TASTYTRADE_RESPONSE_BYTES, `TastytradeApi:${safeEndpoint(path)}`)
 }
 
 async function resolveAccountNumber(env: AppEnv): Promise<string> {
