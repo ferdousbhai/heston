@@ -120,6 +120,33 @@ function playExpiryDate(play: string, today: string): string | undefined {
   return undefined
 }
 
+/**
+ * The chain-resolver tuple for a `TICKER STRIKE(c/p) M/D` play. It is declared here rather
+ * than imported so this module keeps no broker dependency; it is structurally the
+ * `EquityOptionTuple` that `option-contract` resolves against a live chain.
+ */
+export interface ResearchPlayTuple {
+  expiry: string
+  optionType: 'C' | 'P'
+  strike: number
+  underlying: string
+}
+
+/**
+ * The exact contract an editor play names. The weekday rule above only proves the date
+ * *could* be an expiration; resolving this tuple against the current chain is what proves
+ * the contract is actually listed.
+ */
+export function researchPlayTuple(play: string, today: string): ResearchPlayTuple | undefined {
+  const [underlying, contract] = play.split(' ')
+  const expiry = playExpiryDate(play, today)
+  if (!underlying || !contract || expiry === undefined) return undefined
+  const optionType = contract.endsWith('c') ? 'C' : contract.endsWith('p') ? 'P' : undefined
+  const strike = Number(contract.slice(0, -1))
+  if (!optionType || !Number.isFinite(strike) || strike <= 0) return undefined
+  return { expiry, optionType, strike, underlying }
+}
+
 function normalizedThesis(headline: string, description: string): string {
   return `${headline} ${description}`.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 }

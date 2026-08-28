@@ -15,6 +15,7 @@ import {
   parseGeneratedResearch,
   redditCatalystsFromCandidates,
   researchIdeasForDate,
+  researchPlayTuple,
   UNCONFIRMED_MOVER_HEADLINE,
 } from '../src/server/research-output'
 import {
@@ -66,9 +67,75 @@ function generatedResearch() {
   }
 }
 
+/**
+ * One live chain row for the fixture play `NVDA 225c 10/16`. Every published idea is
+ * resolved against the current chain, so the pipeline needs a real chain by default; the
+ * chain-verification tests below narrow or fail this payload.
+ */
+function chainRow(fields: Partial<{
+  'expiration-date': string
+  'option-type': 'C' | 'P'
+  'strike-price': string
+}> = {}) {
+  return {
+    active: true,
+    'expiration-date': '2026-10-16',
+    'instrument-type': 'Equity Option',
+    'is-closing-only': false,
+    'option-chain-type': 'Standard',
+    'option-type': 'C',
+    'root-symbol': 'NVDA',
+    'shares-per-contract': 100,
+    'streamer-symbol': '.NVDA261016C225',
+    'strike-price': '225',
+    symbol: 'NVDA  261016C00225000',
+    'underlying-symbol': 'NVDA',
+    ...fields,
+  }
+}
+
+function optionChain(...rows: ReturnType<typeof chainRow>[]) {
+  return { data: { items: rows } }
+}
+
+/** The evidence trail an NVDA idea needs to survive symbol and citation binding. */
+function nvdaEvidence() {
+  sources.collectRedditSources.mockResolvedValueOnce([{
+    context: 'NVDA demand is drawing renewed attention.',
+    source: 'Reddit · r/wallstreetbets', symbols: ['NVDA'], title: 'NVDA demand discussion',
+    url: 'https://www.reddit.com/r/wallstreetbets/comments/abc123/nvda_discussion/',
+  }])
+  sources.collectTickerSources.mockResolvedValueOnce([{
+    context: 'Reuters reports a new NVIDIA supply agreement.',
+    publishedAt: '2026-08-14T12:00:00.000Z', source: 'Yahoo Finance ticker research',
+    symbols: ['NVDA'], title: 'NVDA · NVIDIA supply agreement', url: 'https://finance.yahoo.com/quote/NVDA',
+  }])
+}
+
+async function runDailyBrief() {
+  const run = vi.fn().mockImplementation(async (_model, options) => ({
+    output_text: JSON.stringify(
+      options.text.format.name === 'spice_reddit_catalysts' ? { catalysts: [] } : generatedResearch(),
+    ),
+  }))
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+  try {
+    const brief = await generateDailyResearch({
+      AI: { ...unsupportedAi(), run },
+      REDDIT_CLIENT_ID: secret,
+      REDDIT_CLIENT_SECRET: secret,
+    }, new Date('2026-08-14T13:30:00.000Z'))
+    const logged: unknown[] = info.mock.calls.map((call) => JSON.parse(String(call[0])))
+    return { brief, logged }
+  } finally {
+    info.mockRestore()
+  }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   broker.loadMarketSnapshot.mockResolvedValue(marketSnapshotFixture())
+  broker.tastyRequest.mockResolvedValue(optionChain(chainRow()))
   setBrokerApi(broker)
   setResearchSources(sources)
   setXCatalystResearch(xResearch)
@@ -377,6 +444,72 @@ describe('daily intelligence pipeline', () => {
     expect(logged).toContainEqual({
       event: 'DailyResearchIdeasBound', bound: 0, candidates: 1, runId: expect.any(String),
     })
+  })
+
+  it('publishes a play only after the current chain lists that exact contract', async () => {
+    nvdaEvidence()
+
+    const { brief, logged } = await runDailyBrief()
+
+    expect(broker.tastyRequest).toHaveBeenCalledWith(expect.anything(), '/option-chains/NVDA')
+    expect(brief.ideas[0]?.play).toBe('NVDA 225c 10/16')
+    expect(logged).toContainEqual({
+      event: 'DailyResearchPlaysChecked', chainUnavailable: 0, checked: 1, dropped: 0, runId: expect.any(String),
+    })
+  })
+
+  it('drops an idea whose strike or expiration the current chain does not list', async () => {
+    // A date-plausible play is still a fabrication when the chain has no such contract.
+    nvdaEvidence()
+    broker.tastyRequest.mockResolvedValueOnce(optionChain(chainRow({ 'strike-price': '230' })))
+
+    const missingStrike = await runDailyBrief()
+
+    expect(missingStrike.brief.ideas).toEqual([])
+    expect(missingStrike.logged).toContainEqual({
+      event: 'DailyResearchPlaysChecked', chainUnavailable: 0, checked: 1, dropped: 1, runId: expect.any(String),
+    })
+    expect(missingStrike.logged).toContainEqual({
+      event: 'DailyResearchIdeasBound', bound: 0, candidates: 1, runId: expect.any(String),
+    })
+
+    nvdaEvidence()
+    broker.tastyRequest.mockResolvedValueOnce(optionChain(chainRow({ 'expiration-date': '2026-10-23' })))
+
+    const missingExpiration = await runDailyBrief()
+
+    expect(missingExpiration.brief.ideas).toEqual([])
+    // A put at the same strike is a different contract than the call the play names.
+    nvdaEvidence()
+    broker.tastyRequest.mockResolvedValueOnce(optionChain(chainRow({ 'option-type': 'P' })))
+
+    await expect(runDailyBrief().then((result) => result.brief.ideas)).resolves.toEqual([])
+  })
+
+  it('drops the idea when the option chain cannot be read', async () => {
+    // tastytrade is a required input to this job, so an unverifiable play fails closed
+    // instead of publishing a date-validated guess.
+    nvdaEvidence()
+    broker.tastyRequest.mockRejectedValueOnce(new Error('TastytradeUnavailable'))
+
+    const { brief, logged } = await runDailyBrief()
+
+    expect(brief.ideas).toEqual([])
+    expect(brief.summary).toBe('No evidence-linked options thesis was strong enough to surface today.')
+    expect(logged).toContainEqual({
+      event: 'DailyResearchPlaysChecked', chainUnavailable: 1, checked: 1, dropped: 1, runId: expect.any(String),
+    })
+  })
+
+  it('reads the exact contract an editor play names', () => {
+    expect(researchPlayTuple('NVDA 225c 10/16', '2026-08-14')).toEqual({
+      expiry: '2026-10-16', optionType: 'C', strike: 225, underlying: 'NVDA',
+    })
+    expect(researchPlayTuple('SPY 725.5p 1/15', '2026-12-01')).toEqual({
+      expiry: '2027-01-15', optionType: 'P', strike: 725.5, underlying: 'SPY',
+    })
+    expect(researchPlayTuple('NVDA 225x 10/16', '2026-08-14')).toBeUndefined()
+    expect(researchPlayTuple('NVDA 225c 2/30', '2026-08-14')).toBeUndefined()
   })
 
   it('binds Reddit catalyst candidates to watched symbols and exact post provenance', () => {

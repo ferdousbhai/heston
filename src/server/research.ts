@@ -18,8 +18,10 @@ import {
   redditCatalystResponseSchema,
   redditCatalystsFromCandidates,
   researchIdeasForDate,
+  researchPlayTuple,
   UNCONFIRMED_MOVER_HEADLINE,
 } from './research-output'
+import { equityOptionContractFromChainTuple } from './option-contract'
 import { searchRecentTickerCoverage } from './research-coverage'
 import { researchSources } from './research-sources'
 import { readStoredSecret } from './secrets'
@@ -119,6 +121,74 @@ async function researchRedditCatalysts(
     allowedSymbols,
     now,
   )
+}
+
+/**
+ * Resolve every surviving idea's play against the current tastytrade chain and drop the
+ * ideas whose contract is not listed.
+ *
+ * A play is illustrative, but a reader acts on it, and the editor writes it from prose: a
+ * production brief shipped plays expiring on a Sunday. The weekday rule in
+ * `research-output` fixed impossible dates without knowing which contracts tastytrade
+ * actually lists, so the exact tuple is resolved here through the same chain resolver the
+ * order path uses. Chains are fetched once per underlying and released immediately; a
+ * brief carries at most three ideas.
+ *
+ * Outage posture: an unreadable chain drops the idea rather than publishing a
+ * date-validated guess. tastytrade is a required input to this job — the run already fails
+ * outright when its market snapshot is unavailable — and an unverifiable contract is
+ * exactly the missing binding `AGENTS.md` requires to fail closed. The failure is scoped to
+ * the affected underlying; other ideas and the rest of the brief still publish.
+ */
+async function chainVerifiedIdeas(
+  env: AppEnv,
+  ideas: ResearchBrief['ideas'],
+  today: string,
+  runId: string,
+): Promise<ResearchBrief['ideas']> {
+  const chains = new Map<string, { payload: JsonValue } | undefined>()
+  const verified: ResearchBrief['ideas'] = []
+  let chainUnavailable = 0
+  let checked = 0
+  for (const idea of ideas) {
+    // A stored idea may carry no play at all; there is then no contract to verify.
+    if (idea.play === null) {
+      verified.push(idea)
+      continue
+    }
+    checked += 1
+    if (!chains.has(idea.symbol)) {
+      chains.set(idea.symbol, await brokerApi()
+        .tastyRequest(env, `/option-chains/${encodeURIComponent(idea.symbol)}`)
+        .then((payload) => ({ payload }))
+        .catch(() => undefined))
+    }
+    const chain = chains.get(idea.symbol)
+    if (!chain) {
+      chainUnavailable += 1
+      continue
+    }
+    const tuple = researchPlayTuple(idea.play, today)
+    if (!tuple) continue
+    try {
+      // A malformed or incomplete chain payload throws here too, so it counts as a
+      // contract the chain does not list; only a failed fetch is an outage.
+      equityOptionContractFromChainTuple(chain.payload, tuple)
+      verified.push(idea)
+    } catch {
+      continue
+    }
+  }
+  // Without this counter a brief that dropped a thesis on the chain looks identical to
+  // one whose editor never proposed it, and a broker outage looks like a quiet day.
+  console.info(JSON.stringify({
+    event: 'DailyResearchPlaysChecked',
+    chainUnavailable,
+    checked,
+    dropped: ideas.length - verified.length,
+    runId,
+  }))
+  return verified
 }
 
 /**
@@ -225,10 +295,13 @@ export async function generateDailyResearch(env: AppEnv, now = new Date()): Prom
   }))
   // A watched symbol can lack a complete current tastytrade row. Bind ideas to
   // the exact metrics packet supplied to the editor, not the wider source universe.
-  const ideas = researchIdeasForDate(generated.ideas, today, evidence, discussionLeadSymbols, recentCoverage)
+  const boundIdeas = researchIdeasForDate(generated.ideas, today, evidence, discussionLeadSymbols, recentCoverage)
+  // Only a bound idea is worth a chain request: binding has already proved the symbol,
+  // citations, and a plausible expiry date.
+  const ideas = await chainVerifiedIdeas(env, boundIdeas, today, gatewayRunId)
   // Ideas have no unconfirmed fallback, so a zero-idea brief is silent about its
   // cause: the same counter pair separates "the editor surfaced nothing" from
-  // "every thesis failed symbol, expiry, coverage, or citation validation".
+  // "every thesis failed symbol, expiry, coverage, citation, or chain validation".
   console.info(JSON.stringify({
     event: 'DailyResearchIdeasBound',
     bound: ideas.length,
