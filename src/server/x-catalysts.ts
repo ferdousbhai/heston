@@ -8,6 +8,10 @@ import { JsonArraySchema, jsonObject, jsonObjectOrEmpty, type JsonValue } from '
 import { readStoredSecret } from './secrets'
 import { persistResearchedCatalysts } from './catalysts'
 import { defineSeam, type SeamValue } from './seam'
+import { lastResponsesOutputText } from './model-output'
+import { canonicalXPostUrl } from './x-url'
+
+export { canonicalXPostUrl } from './x-url'
 
 const MODEL = 'grok-4.6'
 const SOURCE = 'Grok 4.6 X research'
@@ -80,26 +84,11 @@ const FindingSchema = z.object({
 
 const FindingsSchema = z.object({ findings: z.array(FindingSchema).max(100) })
 
-const VerbatimModelTextSchema = z.string()
-
 export type XCatalystResult = { catalysts: Catalyst[]; rejected: number }
 
 function addDays(date: string, days: number): string {
   const [year, month, day] = date.split('-').map(Number)
   return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10)
-}
-
-export function canonicalXPostUrl(value: JsonValue): string | undefined {
-  const raw = VerbatimModelTextSchema.safeParse(value).data
-  if (raw === undefined) return undefined
-  try {
-    const url = new URL(raw)
-    if (url.protocol !== 'https:' || !['x.com', 'www.x.com', 'twitter.com', 'www.twitter.com'].includes(url.hostname.toLowerCase())) return undefined
-    if (!/^\/(?:[A-Za-z0-9_]{1,15}|i)\/status\/\d+$/.test(url.pathname)) return undefined
-    return `https://x.com${url.pathname}`
-  } catch {
-    return undefined
-  }
 }
 
 /**
@@ -156,19 +145,6 @@ function citationUrls(payload: JsonValue): Set<string> {
   return urls
 }
 
-function outputText(payload: JsonValue): string | undefined {
-  let finalText: string | undefined
-  for (const item of (JsonArraySchema.safeParse(jsonObjectOrEmpty(payload).output).data ?? []).map(jsonObjectOrEmpty)) {
-    for (const content of (JsonArraySchema.safeParse(item.content).data ?? []).map(jsonObjectOrEmpty)) {
-      const text = VerbatimModelTextSchema.safeParse(content.text).data
-      // Grok's agentic Responses output includes progress messages before the final
-      // fenced findings document. Only the last output_text is the completed answer.
-      if (content.type === 'output_text' && text !== undefined) finalText = text
-    }
-  }
-  return finalText
-}
-
 /**
  * How many X searches the provider reports it actually ran. Grok chooses on its own
  * whether to search, so this is the one field that separates "searched and the window
@@ -212,7 +188,7 @@ export function parseXCatalystResponse(
   allowedSymbols: readonly string[],
   now = new Date(),
 ): XCatalystResult & { citations: number; searches: number | undefined } {
-  const text = outputText(payload)
+  const text = lastResponsesOutputText(payload)
   if (!text) throw new Error('XCatalystResponse:missing-output')
   const findings = FindingsSchema.parse(findingsJson(text)).findings
   const citations = citationUrls(payload)

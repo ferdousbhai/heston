@@ -7,6 +7,8 @@ import { type AppEnv } from './env'
 import { type ResearchSourceItem } from './research-contracts'
 import { type dailyResearchResponseSchema } from './research-output'
 import { readStoredSecret } from './secrets'
+import { lastResponsesOutputText } from './model-output'
+import { canonicalXPostUrl } from './x-url'
 
 const MODEL = 'grok-4.6'
 const MAX_RESPONSE_BYTES = 2_000_000
@@ -59,6 +61,8 @@ async function requestGrok(
 function safeHttpsUrl(value: JsonValue): string | undefined {
   const raw = z.string().safeParse(value).data
   if (!raw) return undefined
+  const xPostUrl = canonicalXPostUrl(raw)
+  if (xPostUrl) return xPostUrl
   try {
     const url = new URL(raw)
     if (url.protocol !== 'https:' || url.username || url.password) return undefined
@@ -99,16 +103,6 @@ function citationUrls(payload: JsonValue): Set<string> {
   const urls = new Set<string>()
   collectCitationUrls(payload, false, urls, { nodes: MAX_CITATION_NODES })
   return urls
-}
-
-function outputText(payload: JsonValue): string | undefined {
-  for (const item of (JsonArraySchema.safeParse(jsonObjectOrEmpty(payload).output).data ?? []).map(jsonObjectOrEmpty)) {
-    for (const content of (JsonArraySchema.safeParse(item.content).data ?? []).map(jsonObjectOrEmpty)) {
-      const text = z.string().safeParse(content.text).data
-      if (content.type === 'output_text' && text !== undefined) return text
-    }
-  }
-  return z.string().safeParse(jsonObjectOrEmpty(payload).output_text).data
 }
 
 function fencedJson(text: string): JsonValue {
@@ -177,7 +171,8 @@ export async function collectOnlineResearch(
     fetcher,
   )
   if (!payload) return []
-  const text = outputText(payload)
+  const text = lastResponsesOutputText(payload)
+    ?? z.string().safeParse(jsonObjectOrEmpty(payload).output_text).data
   if (!text) throw new Error('OnlineResearchResponse:missing-output')
   const findings = FindingsSchema.parse(fencedJson(text)).findings
   const citations = citationUrls(payload)

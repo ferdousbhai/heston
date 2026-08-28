@@ -100,7 +100,7 @@ describe('Grok X catalyst boundary', () => {
     expect(result.catalysts).toMatchObject([{
       id: 'xai-x-search:NVDA:product-event:2026-09-01',
       symbol: 'NVDA', description: 'NVIDIA scheduled a product event focused on its next accelerator platform.',
-      source: 'Grok 4.6 X research', sourceUrl: cited,
+      source: 'Grok 4.6 X research', sourceUrl: canonicalXPostUrl(cited),
     }])
     expect(result.rejected).toBe(2)
   })
@@ -112,7 +112,7 @@ describe('Grok X catalyst boundary', () => {
       NOW,
     )
 
-    expect(result.catalysts).toMatchObject([{ symbol: 'NVDA', sourceUrl: FINDING.sourceUrl }])
+    expect(result.catalysts).toMatchObject([{ symbol: 'NVDA', sourceUrl: canonicalXPostUrl(FINDING.sourceUrl) }])
     expect(result.citations).toBe(1)
     expect(result.rejected).toBe(0)
   })
@@ -124,13 +124,13 @@ describe('Grok X catalyst boundary', () => {
       NOW,
     )
 
-    expect(result.catalysts).toMatchObject([{ sourceUrl: FINDING.sourceUrl }])
+    expect(result.catalysts).toMatchObject([{ sourceUrl: canonicalXPostUrl(FINDING.sourceUrl) }])
   })
 
-  it('accepts the handle-less status URL form X Search cites', () => {
-    const cited = 'https://x.com/i/status/1975607901571199086'
+  it('matches a handle-form finding to the handle-less status URL X Search cites', () => {
+    const cited = 'https://x.com/i/status/1234567890'
     const result = parseXCatalystResponse(
-      searchedResponse([{ ...FINDING, sourceUrl: cited }], [cited]),
+      searchedResponse([FINDING], [cited]),
       ['NVDA'],
       NOW,
     )
@@ -151,7 +151,7 @@ describe('Grok X catalyst boundary', () => {
     const fenced = `Here is what I found on X.\n\n\`\`\`json\n${JSON.stringify({ findings: [FINDING] })}\n\`\`\`\n\nLet me know if you want more.`
 
     expect(parseXCatalystResponse(textResponse(fenced, [cited]), ['NVDA'], NOW).catalysts)
-      .toMatchObject([{ symbol: 'NVDA', sourceUrl: cited }])
+      .toMatchObject([{ symbol: 'NVDA', sourceUrl: canonicalXPostUrl(cited) }])
     expect(parseXCatalystResponse(
       textResponse(`Findings: ${JSON.stringify({ findings: [FINDING] })}`, [cited]),
       ['NVDA'],
@@ -167,7 +167,7 @@ describe('Grok X catalyst boundary', () => {
     }
 
     expect(parseXCatalystResponse({ ...payload, output: [progress, ...payload.output] }, ['NVDA'], NOW).catalysts)
-      .toMatchObject([{ symbol: 'NVDA', sourceUrl: FINDING.sourceUrl }])
+      .toMatchObject([{ symbol: 'NVDA', sourceUrl: canonicalXPostUrl(FINDING.sourceUrl) }])
   })
 
   it('fails loudly when the answer carries no usable findings JSON', () => {
@@ -234,7 +234,7 @@ describe('Grok X catalyst boundary', () => {
   })
 
   it('canonicalizes only direct X status URLs', () => {
-    expect(canonicalXPostUrl('https://twitter.com/nvidia/status/123?ref=home')).toBe('https://x.com/nvidia/status/123')
+    expect(canonicalXPostUrl('https://twitter.com/nvidia/status/123?ref=home')).toBe('https://x.com/i/status/123')
     expect(canonicalXPostUrl('https://x.com/nvidia')).toBeUndefined()
   })
 

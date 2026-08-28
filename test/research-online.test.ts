@@ -10,6 +10,8 @@ const NOW = new Date('2026-08-28T13:30:00.000Z')
 describe('adaptive online research boundary', () => {
   it('keeps only watched findings backed by provider-returned citations', async () => {
     const cited = 'https://example.com/nvda-supply'
+    const xCited = 'https://x.com/i/status/1234567890'
+    const xModelUrl = 'https://x.com/nvidia/status/1234567890'
     const invented = 'https://example.com/invented'
     const fetcher = vi.fn<typeof fetch>(async (input, init) => {
       expect(input).toBe('https://gateway.example/spice/grok/v1/responses')
@@ -21,21 +23,30 @@ describe('adaptive online research boundary', () => {
       expect(request.tool_choice).toBe('required')
       expect(request).not.toHaveProperty('text')
       return Response.json({
-        output: [{ type: 'message', content: [{
-          type: 'output_text',
-          text: `\`\`\`json\n${JSON.stringify({ findings: [{
-            symbol: 'NVDA', title: 'NVIDIA signs a supply agreement',
-            context: 'A signed supply agreement may improve near-term demand visibility; execution remains the key uncertainty.',
-            sourceLabel: 'Example Wire', sourceUrl: cited,
-          }, {
-            symbol: 'NVDA', title: 'Invented source', context: 'This URL came only from prose.',
-            sourceLabel: 'Unknown', sourceUrl: invented,
-          }, {
-            symbol: 'AAPL', title: 'Not in scope', context: 'This symbol was not requested.',
-            sourceLabel: 'Example Wire', sourceUrl: cited,
-          }] })}\n\`\`\``,
-          annotations: [{ type: 'url_citation', url: cited }],
-        }] }],
+        output: [
+          { type: 'message', content: [{
+            type: 'output_text', text: 'I will search the web and X for every maintained symbol.',
+          }] },
+          { type: 'message', content: [{
+            type: 'output_text',
+            text: `\`\`\`json\n${JSON.stringify({ findings: [{
+              symbol: 'NVDA', title: 'NVIDIA signs a supply agreement',
+              context: 'A signed supply agreement may improve near-term demand visibility; execution remains the key uncertainty.',
+              sourceLabel: 'Example Wire', sourceUrl: cited,
+            }, {
+              symbol: 'NVDA', title: 'NVIDIA announces a dated event on X',
+              context: 'The company announced a dated event; the contents and market impact remain uncertain.',
+              sourceLabel: 'NVIDIA on X', sourceUrl: xModelUrl,
+            }, {
+              symbol: 'NVDA', title: 'Invented source', context: 'This URL came only from prose.',
+              sourceLabel: 'Unknown', sourceUrl: invented,
+            }, {
+              symbol: 'AAPL', title: 'Not in scope', context: 'This symbol was not requested.',
+              sourceLabel: 'Example Wire', sourceUrl: cited,
+            }] })}\n\`\`\``,
+            annotations: [{ type: 'url_citation', url: cited }, { type: 'url_citation', url: xCited }],
+          }] },
+        ],
         usage: { server_side_tool_usage_details: { web_search_calls: 2, x_search_calls: 1 } },
       })
     })
@@ -58,10 +69,16 @@ describe('adaptive online research boundary', () => {
         symbols: ['NVDA'],
         title: 'NVIDIA signs a supply agreement',
         url: cited,
+      }, {
+        context: 'The company announced a dated event; the contents and market impact remain uncertain.',
+        source: 'Grok research · x.com',
+        symbols: ['NVDA'],
+        title: 'NVIDIA announces a dated event on X',
+        url: xCited,
       }])
       const logged = info.mock.calls.map((call) => JSON.parse(String(call[0])))
       expect(logged).toContainEqual(expect.objectContaining({
-        event: 'OnlineResearchCompleted', accepted: 1, rejected: 2, webSearches: 2, xSearches: 1,
+        event: 'OnlineResearchCompleted', accepted: 2, rejected: 2, webSearches: 2, xSearches: 1,
       }))
     } finally {
       info.mockRestore()

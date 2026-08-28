@@ -18,6 +18,7 @@ import { parseLabeledJson } from './bounded-response'
 import { type RecentTickerCoverage } from './research-coverage'
 import { MAX_DAILY_RESEARCH_IDEAS, type ResearchSourceItem } from './research-contracts'
 import { REDDIT_RESEARCH_SOURCE } from './research-reddit'
+import { lastResponsesOutputText } from './model-output'
 
 const GeneratedRedditCatalystSchema = z.object({
   sourceIndex: z.number().int().nonnegative(),
@@ -311,13 +312,7 @@ function modelOutputText(payload: JsonValue): string | undefined {
     const content = VerbatimModelTextSchema.safeParse(jsonObjectOrEmpty(choice.message).content).data
     if (content !== undefined) return content
   }
-  for (const item of (JsonArraySchema.safeParse(body.output).data ?? []).map(jsonObjectOrEmpty)) {
-    for (const content of (JsonArraySchema.safeParse(item.content).data ?? []).map(jsonObjectOrEmpty)) {
-      const text = VerbatimModelTextSchema.safeParse(content.text).data
-      if (content.type === 'output_text' && text !== undefined) return text
-    }
-  }
-  return undefined
+  return lastResponsesOutputText(payload)
 }
 
 function normalizeDirection(value: JsonValue): JsonValue {
