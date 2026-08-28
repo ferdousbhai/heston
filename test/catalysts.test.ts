@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { catalystLabel, nextCatalystForSymbol, sortSymbolsByCatalyst, upcomingCatalystSymbols, type Catalyst } from '../src/domain/catalyst'
+import { catalystLabel, nextCatalystForSymbol, recentCodexWebCatalysts, sortSymbolsByCatalyst, upcomingCatalystSymbols, type Catalyst } from '../src/domain/catalyst'
 import {
   catalystsFromMarketMetrics,
   earningsDateFromMetric,
@@ -117,6 +117,47 @@ describe('research catalyst storage', () => {
     expect(batch).toHaveBeenCalledOnce()
     expect(batchStatementCount).toBe(125)
     expect(Math.max(...boundParameterCounts)).toBe(96)
+  })
+})
+
+describe('local Codex catalyst evidence', () => {
+  function codexCatalyst(symbol: string, date: string, updatedAt = '2026-08-13T12:00:00.000Z'): Catalyst {
+    return {
+      id: `codex-web:${symbol}:conference:${date}:abc`,
+      symbol,
+      kind: 'conference',
+      title: `${symbol} investor event`,
+      date,
+      timing: 'unknown',
+      confidence: 'estimated',
+      source: 'Codex web · example.com',
+      sourceUrl: `https://example.com/${symbol.toLowerCase()}`,
+      updatedAt,
+    }
+  }
+
+  it('keeps only fresh, watched, upcoming Codex rows in nearest-date order', () => {
+    const watched = new Set(['NVDA', 'META'])
+    const fresh = codexCatalyst('NVDA', '2026-09-10')
+    const sooner = codexCatalyst('META', '2026-08-20')
+    const selected = recentCodexWebCatalysts([
+      fresh,
+      codexCatalyst('META', '2026-09-12', '2026-08-05T12:00:00.000Z'),
+      codexCatalyst('PLTR', '2026-09-11'),
+      codexCatalyst('NVDA', '2026-08-12'),
+      { ...codexCatalyst('NVDA', '2026-09-09'), id: 'x:NVDA:conference:2026-09-09', source: 'X · @nvidia' },
+      sooner,
+    ], watched, NOW)
+    expect(selected).toEqual([sooner, fresh])
+  })
+
+  it('caps the packet at the forty nearest findings', () => {
+    const isoDaysAhead = (days: number) => new Date(NOW.getTime() + days * 86_400_000).toISOString().slice(0, 10)
+    const rows = Array.from({ length: 45 }, (_, index) => codexCatalyst('NVDA', isoDaysAhead(index + 1)))
+    const selected = recentCodexWebCatalysts([...rows].reverse(), new Set(['NVDA']), NOW)
+    expect(selected).toHaveLength(40)
+    expect(selected[0]?.date).toBe(isoDaysAhead(1))
+    expect(selected.at(-1)?.date).toBe(isoDaysAhead(40))
   })
 })
 

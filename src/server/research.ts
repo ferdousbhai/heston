@@ -1,4 +1,4 @@
-import { marketDate, type Catalyst } from '../domain/catalyst'
+import { marketDate, recentCodexWebCatalysts, type Catalyst } from '../domain/catalyst'
 import { type JsonValue } from '../domain/json-payload'
 import { ResearchBriefSchema, type ResearchBrief, type Ticker } from '../domain/market'
 import { persistResearchedCatalysts } from './catalysts'
@@ -196,6 +196,9 @@ async function chainVerifiedIdeas(
  * Reddit is a required private discovery input: code extracts at most six exact
  * watchlist symbols from it, then the editor sees only fresh independent ticker
  * searches. Yahoo movers and official feeds remain bounded secondary context.
+ * Local Codex catalysts ride along in the stored snapshot rather than being
+ * researched here: the laptop runner is scheduled ahead of this job, and when it
+ * did not run the packet simply lacks them.
  */
 export async function generateDailyResearch(env: AppEnv, now = new Date()): Promise<ResearchBrief> {
   if (!env.AI) throw new Error('ResearchModelUnavailable')
@@ -240,10 +243,12 @@ export async function generateDailyResearch(env: AppEnv, now = new Date()): Prom
     searchRecentTickerCoverage(env, discussionLeadSymbols, now),
     researchRedditCatalysts(env.AI, discussionEvidence, symbols, today, now, gatewayRunId),
   ])
+  const codexWebCatalysts = recentCodexWebCatalysts(snapshot.catalysts, focusSymbols, now)
   const evidence = bindEvidenceSymbols([
     ...officialEvidence,
     ...tickerEvidence,
     ...catalystEvidence(xResult.catalysts),
+    ...catalystEvidence(codexWebCatalysts),
     ...marketMoverEvidence,
   ], compactMarket)
   const detectedMovers = marketMoverPacket(evidence)
@@ -274,8 +279,11 @@ export async function generateDailyResearch(env: AppEnv, now = new Date()): Prom
     signal: AbortSignal.timeout(90_000),
     tags: ['spice', 'daily-research'],
   })
+  // The Codex count is the only trace of whether the laptop runner contributed:
+  // an empty packet from a closed laptop and one from a failed run look the same.
   console.info(JSON.stringify({
     event: 'DailyResearchModelCompleted',
+    codexWebCatalysts: codexWebCatalysts.length,
     gatewayLogId: env.AI.aiGatewayLogId,
     runId: gatewayRunId,
   }))

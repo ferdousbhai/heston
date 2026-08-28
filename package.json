@@ -18,7 +18,9 @@
     "test:e2e": "playwright test",
     "watchlist:seed": "bash tools/seed-internal-watchlist.sh",
     "catalog:refresh": "bash ops/instrument-catalog/run.sh",
-    "catalysts:bootstrap": "bash ops/catalyst-research/run.sh"
+    "catalysts:research": "bash ops/catalyst-research/run.sh",
+    "catalysts:daily": "bash ops/catalyst-research/daily.sh",
+    "catalysts:timer": "bash ops/catalyst-research/systemd/install.sh"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

@@ -177,3 +177,30 @@ export function upcomingCatalystSymbols(
     .slice(0, Math.max(0, limit))
     .map(({ symbol }) => symbol)
 }
+
+/** Every local Codex finding is keyed by this prefix; the D1 table CHECKs the same GLOB. */
+export const CODEX_WEB_CATALYST_ID_PREFIX = 'codex-web:'
+const CODEX_WEB_EVIDENCE_MAX_AGE_DAYS = 7
+const CODEX_WEB_EVIDENCE_MAX_ROWS = 40
+
+/**
+ * Bounds the additive local Codex rows before they become editor evidence. Only
+ * findings the local run re-verified within the last week qualify, so a runner
+ * that stops working decays out of the brief instead of feeding it six-month-old
+ * rows, and the nearest-dated forty keep the packet a fixed size.
+ */
+export function recentCodexWebCatalysts(
+  catalysts: readonly Catalyst[],
+  symbols: ReadonlySet<string>,
+  now = new Date(),
+): Catalyst[] {
+  const freshSince = now.getTime() - CODEX_WEB_EVIDENCE_MAX_AGE_DAYS * 86_400_000
+  const today = marketDate(now)
+  return catalysts
+    .filter((catalyst) => catalyst.id.startsWith(CODEX_WEB_CATALYST_ID_PREFIX)
+      && symbols.has(catalyst.symbol)
+      && catalyst.date >= today
+      && Date.parse(catalyst.updatedAt) >= freshSince)
+    .sort((left, right) => left.date.localeCompare(right.date) || left.symbol.localeCompare(right.symbol))
+    .slice(0, CODEX_WEB_EVIDENCE_MAX_ROWS)
+}

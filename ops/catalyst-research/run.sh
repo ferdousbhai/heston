@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ops_worker='spice-catalyst-research-bootstrap-20260826'
+ops_worker='spice-catalyst-research-ops'
 ops_mode="${SPICE_CATALYST_MODE:-preview}"
 ops_input="$(mktemp)"
 ops_deployed='false'

@@ -1,6 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { z } from 'zod'
 
+import { type Catalyst } from '../src/domain/catalyst'
 import { generateDailyResearch, shouldRunDailyResearch } from '../src/server/research'
 import { type ResearchSourceItem } from '../src/server/research-contracts'
 import {
@@ -113,6 +114,21 @@ function nvdaEvidence() {
   }])
 }
 
+/** The user-turn prompt of the model call made with the named response schema. */
+function promptFor(run: Mock, name: string): string {
+  return String(run.mock.calls.find((call) => call[1].text.format.name === name)?.[1].input[1].content)
+}
+
+/** The raw JSON a prompt embeds between a section label and the sentence that follows it. */
+function promptSection(prompt: string, label: string, next: string): string {
+  return prompt.split(label)[1]!.split(next)[0]!
+}
+
+/** The raw JSON of the evidence packet embedded in the brief prompt, in the order the editor sees it. */
+function briefEvidencePacketJson(briefPrompt: string): string {
+  return promptSection(briefPrompt, 'cite an item by copying its own index field: ', '. Recent ticker coverage')
+}
+
 async function runDailyBrief() {
   const run = vi.fn().mockImplementation(async (_model, options) => ({
     output_text: JSON.stringify(
@@ -127,7 +143,7 @@ async function runDailyBrief() {
       REDDIT_CLIENT_SECRET: secret,
     }, new Date('2026-08-14T13:30:00.000Z'))
     const logged: unknown[] = info.mock.calls.map((call) => JSON.parse(String(call[0])))
-    return { brief, logged }
+    return { brief, briefPrompt: promptFor(run, 'spice_daily_intelligence'), logged }
   } finally {
     info.mockRestore()
   }
@@ -376,20 +392,19 @@ describe('daily intelligence pipeline', () => {
       REDDIT_CLIENT_SECRET: secret,
     }, new Date('2026-08-14T13:30:00.000Z'))
 
-    const promptFor = (name: string) => String(
-      run.mock.calls.find((call) => call[1].text.format.name === name)?.[1].input[1].content,
-    )
     const packetIndices = (prompt: string, label: string, next: string): number[] => z
       .array(z.object({ index: z.number() }))
-      .parse(JSON.parse(prompt.split(label)[1]!.split(next)[0]!))
+      .parse(JSON.parse(promptSection(prompt, label, next)))
       .map((item) => item.index)
     const positions = (indices: readonly number[]) => indices.map((_index, position) => position)
 
-    const briefPrompt = promptFor('spice_daily_intelligence')
-    const evidence = packetIndices(briefPrompt, 'cite an item by copying its own index field: ', '. Recent ticker coverage')
+    const briefPrompt = promptFor(run, 'spice_daily_intelligence')
+    const packetEvidence = z.array(z.object({ index: z.number(), marketMover: z.object({ symbol: z.string() }).optional() }))
+      .parse(JSON.parse(briefEvidencePacketJson(briefPrompt)))
+    const evidence = packetEvidence.map((item) => item.index)
     const coverage = packetIndices(briefPrompt, 'addressed by the same index field: ', '. Detected market movers')
     const redditEvidence = packetIndices(
-      promptFor('spice_reddit_catalysts'),
+      promptFor(run, 'spice_reddit_catalysts'),
       'cite an item by copying its own index field: ',
       '. A catalyst may be emitted',
     )
@@ -406,15 +421,32 @@ describe('daily intelligence pipeline', () => {
     // The mover section addresses the same evidence array, so a row's listed
     // indices must be the positions the binder resolves for that symbol.
     const detectedMovers = z.array(z.object({ evidenceIndices: z.array(z.number()), symbol: z.string() }))
-      .parse(JSON.parse(
-        briefPrompt.split('you may cite for that move: ')[1]!.split('. Return title')[0]!,
-      ))
-    const packetEvidence = z.array(z.object({ index: z.number(), marketMover: z.object({ symbol: z.string() }).optional() }))
-      .parse(JSON.parse(
-        briefPrompt.split('cite an item by copying its own index field: ')[1]!.split('. Recent ticker coverage')[0]!,
-      ))
+      .parse(JSON.parse(promptSection(briefPrompt, 'you may cite for that move: ', '. Return title')))
     expect(detectedMovers).toEqual([{ evidenceIndices: [2], symbol: 'PLTR' }])
     expect(packetEvidence[2]?.marketMover?.symbol).toBe('PLTR')
+  })
+
+  it('feeds fresh local Codex catalysts to the editor and lets stale rows decay', async () => {
+    const codexRow = (symbol: string, date: string, updatedAt: string): Catalyst => ({
+      id: `codex-web:${symbol}:conference:${date}:abc`, symbol, kind: 'conference',
+      title: `${symbol} investor day`, description: 'Dated by the company.', date, timing: 'unknown',
+      confidence: 'estimated', source: 'Codex web · example.com',
+      sourceUrl: `https://example.com/${symbol.toLowerCase()}`, updatedAt,
+    })
+    const snapshot = marketSnapshotFixture()
+    snapshot.catalysts.push(
+      codexRow('NVDA', '2026-09-10', '2026-08-14T12:30:00.000Z'),
+      codexRow('META', '2026-09-12', '2026-08-01T12:00:00.000Z'),
+    )
+    broker.loadMarketSnapshot.mockResolvedValueOnce(snapshot)
+
+    const { briefPrompt, logged } = await runDailyBrief()
+
+    const evidence = z.array(z.object({ source: z.string(), symbols: z.array(z.string()).optional(), url: z.string() }))
+      .parse(JSON.parse(briefEvidencePacketJson(briefPrompt)))
+    expect(evidence.filter((item) => item.source.startsWith('Codex web')))
+      .toEqual([{ source: 'Codex web · example.com', symbols: ['NVDA'], url: 'https://example.com/nvda' }])
+    expect(logged).toContainEqual(expect.objectContaining({ event: 'DailyResearchModelCompleted', codexWebCatalysts: 1 }))
   })
 
   it('rejects ideas for watched symbols that lack complete tastytrade metrics', async () => {

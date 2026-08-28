@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -61,20 +61,29 @@ const manifest = {
   today,
 }
 const manifestPath = path.join(runsPath, 'manifest.json')
-try {
-  const existing = JSON.parse(await readFile(manifestPath, 'utf8'))
-  if (JSON.stringify(existing) !== JSON.stringify(manifest)) throw new Error('Catalyst resume manifest does not match')
-} catch (cause) {
-  if (cause instanceof Error && cause.message === 'Catalyst resume manifest does not match') throw cause
-  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
+const existingManifest = await readFile(manifestPath, 'utf8').then(JSON.parse).catch(() => undefined)
+if (existingManifest && JSON.stringify(existingManifest) !== JSON.stringify(manifest)) {
+  // Chunk files are keyed by position, so partial work for a different instrument
+  // list would be reused for the wrong symbols. The daily timer resumes into one
+  // directory per day, and the watchlist can change between an interrupted run and
+  // its catch-up; park the stale files instead of failing the whole day.
+  const staleDir = path.join(runsPath, `stale-${String(existingManifest.inputHash ?? 'unknown').slice(0, 12)}`)
+  await mkdir(staleDir, { recursive: true })
+  for (const name of await readdir(runsPath)) {
+    if (/^(chunk-\d{3}\.jsonl?|manifest\.json)$/.test(name)) {
+      await rename(path.join(runsPath, name), path.join(staleDir, name))
+    }
+  }
+  process.stderr.write(`Catalyst input changed; moved the previous partial run to ${staleDir}\n`)
 }
+await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
 
 function prompt(instruments) {
-  return `You are doing a one-time bootstrap of an upcoming catalyst calendar for an options investor.
+  return `You are running today's local refresh of an upcoming catalyst calendar for an options investor. A scheduled Worker job separately researches X and Reddit; your job is the official-source calendar it cannot reach.
 
 Use Codex's native live web search. Do not use Reddit, X, Twitter, or other social posts as evidence in this run. Search each supplied instrument carefully, preferring its investor-relations site, official newsroom, regulator records, clinical-trial records, government pages, and official event or conference organizers. Follow second-order leads until you either find a direct dated source or conclude that no qualifying event is known.
 
-Today in New York is ${today}. Return only material, scheduled, ticker-specific events from ${today} through ${horizon}. Exclude earnings, dividends, routine filings, past events, undated possibilities, analyst forecasts, rumors, and generic product roadmaps. An exact date must be stated by the source. Use reputable secondary reporting only when no direct source is available. Every finding in this manual run is stored as estimated. Never infer that a similarly named security or company belongs to a ticker.
+Today in New York is ${today}. Return only material, scheduled, ticker-specific events from ${today} through ${horizon}. Exclude earnings, dividends, routine filings, past events, undated possibilities, analyst forecasts, rumors, and generic product roadmaps. An exact date must be stated by the source. Use reputable secondary reporting only when no direct source is available. Every finding in this local run is stored as estimated. Re-report an event that is still scheduled even if it may have been found on an earlier day; the importer keys findings by event and source, so repeats refresh rather than duplicate. Never infer that a similarly named security or company belongs to a ticker.
 
 For every finding, echo symbol and instrumentName exactly from this input. Use the direct HTTPS page that establishes the date, not a search result page or home page. Keep the description factual and under 500 characters. Use unknown timing unless the source establishes pre-market, intraday, or after-hours. Return an empty findings array when the evidence bar is not met.
 

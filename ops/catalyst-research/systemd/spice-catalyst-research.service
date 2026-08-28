@@ -1,0 +1,16 @@
+[Unit]
+Description=Spice local Codex catalyst refresh
+Documentation=https://github.com/ferdousbhai/spice
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/github.com/ferdousbhai/spice
+# A login shell so mise-managed node, npx, and codex resolve exactly as they do
+# in a terminal; Wrangler and Codex both read their own user-level credentials.
+ExecStart=/bin/bash -lc 'ops/catalyst-research/daily.sh'
+Nice=5
+# One full 100-symbol run has taken about 45 minutes; a stuck Codex chunk must
+# not block tomorrow's timer.
+TimeoutStartSec=3h

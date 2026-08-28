@@ -1,0 +1,14 @@
+[Unit]
+Description=Run the Spice local Codex catalyst refresh before the 09:30 NY Worker job
+
+[Timer]
+# A full run has taken ~45 minutes, so start an hour ahead of the 09:30 New York
+# daily research Cron. Persistent=true lets a laptop that was asleep catch up
+# later in the day; a late run still feeds tomorrow's brief and never blocks today's.
+OnCalendar=Mon..Fri 08:30 America/New_York
+AccuracySec=1min
+Persistent=true
+Unit=spice-catalyst-research.service
+
+[Install]
+WantedBy=timers.target

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { CatalystKindSchema, CatalystSchema, isValidIsoDate, marketDate, type Catalyst } from '../domain/catalyst'
+import { CatalystKindSchema, CatalystSchema, CODEX_WEB_CATALYST_ID_PREFIX, isValidIsoDate, marketDate, type Catalyst } from '../domain/catalyst'
 import { EquitySymbolSchema, instrumentDisplayName, type InstrumentCatalogItem } from '../domain/instrument'
 import { type JsonValue } from '../domain/json-payload'
 import { persistResearchedCatalysts } from './catalysts'
@@ -89,7 +89,7 @@ function catalystFromFinding(
     confidence: 'estimated',
     date: finding.date,
     description,
-    id: `codex-web:${finding.symbol}:${finding.kind}:${finding.date}:${shortStableHash(identity)}`,
+    id: `${CODEX_WEB_CATALYST_ID_PREFIX}${finding.symbol}:${finding.kind}:${finding.date}:${shortStableHash(identity)}`,
     kind: finding.kind,
     source: `Codex web · ${sourceName}`,
     sourceUrl,

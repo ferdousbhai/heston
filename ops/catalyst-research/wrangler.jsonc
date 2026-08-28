@@ -1,6 +1,6 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  "name": "spice-catalyst-research-bootstrap-20260826",
+  "name": "spice-catalyst-research-ops",
   "main": "./worker.ts",
   "compatibility_date": "2026-08-18",
   "compatibility_flags": ["nodejs_compat"],
