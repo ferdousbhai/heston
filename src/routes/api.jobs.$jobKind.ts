@@ -27,6 +27,7 @@ export const Route = createFileRoute('/api/jobs/$jobKind')({
           const brief = await generateDailyResearch(appEnv, runAt, { persist: false })
           return jsonNoStore({ brief, job: params.jobKind, runAt: runAt.toISOString(), status: 'preview' })
         } catch (error) {
+          console.error('DailyResearchPreviewFailed', toError(error)?.message ?? 'UnknownError')
           return jsonNoStore({ error: publicError(toError(error)) }, { status: 502 })
         }
       },
