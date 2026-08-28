@@ -64,6 +64,9 @@ describe('Grok X catalyst boundary', () => {
       expect(request.tools).toEqual([{ type: 'x_search', from_date: '2026-02-14', to_date: '2026-08-14' }])
       // X Search is the only tool offered, so a required tool call can only search X.
       expect(request.tool_choice).toBe('required')
+      // The response text is the findings JSON, so inline citation markdown would be
+      // written into a finding's prose. Annotations survive this; only the markers go.
+      expect(request.include).toEqual(['no_inline_citations'])
       const prompt = JSON.stringify(request.input)
       expect(prompt).toContain('publication window, not the event window')
       // The forward event horizon stays 180 days and stays distinct from that window.
@@ -142,6 +145,38 @@ describe('Grok X catalyst boundary', () => {
     expect(result.catalysts).toEqual([])
     expect(result.citations).toBe(0)
     expect(result.rejected).toBe(1)
+  })
+
+  it('strips inline citation markdown the model wrote into a finding', () => {
+    const cited = 'https://x.com/nvidia/status/1234567890'
+    const result = parseXCatalystResponse(searchedResponse([{
+      ...FINDING,
+      title: 'NVIDIA product event [[1]](https://x.com/nvidia/status/1234567890)',
+      description: `NVIDIA scheduled a product event [[1]](${cited}) for its next accelerator platform.`,
+      sourceUrl: cited,
+    }], [cited]), ['NVDA'], NOW)
+
+    expect(result.catalysts).toMatchObject([{
+      title: 'NVIDIA product event',
+      description: 'NVIDIA scheduled a product event for its next accelerator platform.',
+    }])
+  })
+
+  it('keeps a finding whose citation markdown would have overrun the description bound', () => {
+    // The bound applies after stripping. Applying it first would throw on the whole
+    // document and discard every other finding in the sweep along with this one.
+    const cited = 'https://x.com/nvidia/status/1234567890'
+    const description = `${'NVIDIA scheduled a product event. '.repeat(14)}[[1]](${cited})`
+    expect(description.length).toBeGreaterThan(500)
+
+    const result = parseXCatalystResponse(
+      searchedResponse([{ ...FINDING, description, sourceUrl: cited }], [cited]),
+      ['NVDA'],
+      NOW,
+    )
+
+    expect(result.catalysts).toHaveLength(1)
+    expect(result.catalysts[0]?.description).not.toContain('[[1]]')
   })
 
   it('reports whether the provider actually ran an X search', () => {
