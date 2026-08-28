@@ -41,6 +41,7 @@ describe('recent ticker coverage search', () => {
     expect(bind).toHaveBeenCalledWith(
       '2026-08-13T13:30:00.000Z',
       '2026-08-27T13:30:00.000Z',
+      'brief-2026-08-27',
       'NVDA',
       'META',
     )
@@ -50,6 +51,24 @@ describe('recent ticker coverage search', () => {
       headline: 'Legacy setup',
       symbol: 'META',
     }))
+  })
+
+  it('excludes the current market date so a rerun does not read its own brief as coverage', async () => {
+    const all = vi.fn().mockResolvedValue({ results: [] })
+    const bind = vi.fn(() => ({ ...unsupportedStatement(), all }))
+    const prepare = vi.fn(() => ({ ...unsupportedStatement(), bind }))
+    const DB: D1Database = { ...unsupportedDatabase(), prepare }
+
+    // An evening rerun of the same session: 21:00 New York is still 08-27's brief.
+    await searchRecentTickerCoverage({ DB }, ['NVDA'], new Date('2026-08-28T01:00:00.000Z'))
+
+    expect(prepare).toHaveBeenCalledWith(expect.stringContaining('brief.id <> ?'))
+    expect(bind).toHaveBeenCalledWith(
+      '2026-08-14T01:00:00.000Z',
+      '2026-08-28T01:00:00.000Z',
+      'brief-2026-08-27',
+      'NVDA',
+    )
   })
 
   it('does not query D1 when there is no bounded ticker scope', async () => {

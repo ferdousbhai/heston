@@ -4,13 +4,14 @@ import { ResearchBriefSchema, type ResearchBrief, type Ticker } from '../domain/
 import { persistResearchedCatalysts } from './catalysts'
 import { SPICE_AI_GATEWAY } from './ai-gateway'
 import { type AppEnv } from './env'
-import { MAX_DAILY_RESEARCH_LEADS, type ResearchSourceItem } from './research-contracts'
+import { MAX_DAILY_RESEARCH_LEADS, researchBriefId, type ResearchSourceItem } from './research-contracts'
 import { bindEvidenceSymbols } from './research-evidence'
 import { marketMoverResearch } from './research-market-movers'
 import {
   addDays,
   dailyResearchResponseSchema,
   marketMoverInsightsFromCandidates,
+  marketMoverPacket,
   mentionsDiscoverySource,
   parseGeneratedResearch,
   parseGeneratedRedditCatalysts,
@@ -175,6 +176,7 @@ export async function generateDailyResearch(env: AppEnv, now = new Date()): Prom
     ...catalystEvidence(xResult.catalysts),
     ...marketMoverEvidence,
   ], compactMarket)
+  const detectedMovers = marketMoverPacket(evidence)
   const result = await env.AI.run('@cf/openai/gpt-oss-120b', {
     input: [
       {
@@ -183,11 +185,14 @@ export async function generateDailyResearch(env: AppEnv, now = new Date()): Prom
       },
       {
         role: 'user',
-        content: `Edit the byte-size daily options read for ${now.toISOString()}. Focus-list tastytrade metrics: ${JSON.stringify(compactMarket)}. Independently researched idea symbols, capped at six: ${JSON.stringify(discussionLeadSymbols)}. Evidence packet; cite an item by copying its own index field: ${JSON.stringify(indexedPacket(evidence))}. Recent ticker coverage from the prior 14 days, addressed by the same index field: ${JSON.stringify(indexedPacket(recentCoverage))}. Return title, summary, regime, regimeDetail, zero to three highest-quality ideas, and one marketMovers item per distinct supplied market-mover symbol (or zero when none were supplied). Rank aggressively; one excellent thesis is better than three merely plausible ones. Keep every prose field comfortably below its limit and end sentences cleanly. Each idea must contain symbol, direction, headline, description, play, risk, one to three sourceIndices, recentCoverageIndices, and thesisChange. The symbol must exist in both the independently researched idea symbols and focus-list metrics, and every sourceIndex must be copied from the index field of an evidence item whose symbols array contains that exact symbol. Never infer ticker identity from a similar company or product name. Review every recent-coverage row for the idea symbol. If that ticker was covered, skip it unless newer evidence materially changes the thesis, direction, catalyst, or invalidation; a new option strike, expiry, price, or volatility reading alone is not a thesis change. For a materially changed thesis, recentCoverageIndices must contain the index field of every same-symbol coverage row and thesisChange must concisely state what changed. For a ticker with no recent coverage, return an empty recentCoverageIndices array and an empty thesisChange string. Headline is the development in one short line. Description is two concise sentences: your thesis and why it matters now, without mentioning how the ticker entered the research scope. Play is an illustrative single option in exactly TICKER STRIKE(c/p) M/D form, for example SPY 725p 9/18; use lowercase c or p, no dollar sign or year, and an expiry 21-90 days after ${today}. The play ticker must equal symbol. If independent evidence or option metrics do not support a coherent play, omit the idea. Each marketMovers item must contain symbol, headline, description, and one to three sourceIndices, each copied from the index field of a market-mover evidence item for that same symbol. Investigate the likely reason for the move from those headlines, explicitly label an association as possible when causation is not established, and say the driver is unconfirmed when evidence is insufficient. Do not return source URLs; the application binds trusted URLs by sourceIndex.`,
+        content: `Edit the byte-size daily options read for ${now.toISOString()}. Focus-list tastytrade metrics: ${JSON.stringify(compactMarket)}. Independently researched idea symbols, capped at six: ${JSON.stringify(discussionLeadSymbols)}. Evidence packet; cite an item by copying its own index field: ${JSON.stringify(indexedPacket(evidence))}. Recent ticker coverage from the prior 14 days, addressed by the same index field: ${JSON.stringify(indexedPacket(recentCoverage))}. Detected market movers, one row per detected move, each row listing the only evidence indices you may cite for that move: ${JSON.stringify(detectedMovers)}. Return title, summary, regime, regimeDetail, zero to three highest-quality ideas, and exactly one marketMovers item for every detected market-mover row, in the order those rows are listed (zero items only when no rows were supplied). Rank aggressively; one excellent thesis is better than three merely plausible ones. Keep every prose field comfortably below its limit and end sentences cleanly. Each idea must contain symbol, direction, headline, description, play, risk, one to three sourceIndices, recentCoverageIndices, and thesisChange. The symbol must exist in both the independently researched idea symbols and focus-list metrics, and every sourceIndex must be copied from the index field of an evidence item whose symbols array contains that exact symbol. Never infer ticker identity from a similar company or product name. Review every recent-coverage row for the idea symbol. If that ticker was covered, skip it unless newer evidence materially changes the thesis, direction, catalyst, or invalidation; a new option strike, expiry, price, or volatility reading alone is not a thesis change. For a materially changed thesis, recentCoverageIndices must contain the index field of every same-symbol coverage row and thesisChange must concisely state what changed. For a ticker with no recent coverage, return an empty recentCoverageIndices array and an empty thesisChange string. Headline is the development in one short line. Description is two concise sentences: your thesis and why it matters now, without mentioning how the ticker entered the research scope. Play is an illustrative single option in exactly TICKER STRIKE(c/p) M/D form, for example SPY 725p 9/18; use lowercase c or p, no dollar sign or year, and an expiry 21-90 days after ${today}. The play ticker must equal symbol. If independent evidence or option metrics do not support a coherent play, omit the idea. Each marketMovers item must contain symbol, headline, description, and one to three sourceIndices. Answer the detected market movers row by row. Every row must produce exactly one item whose symbol equals that row's symbol and whose sourceIndices are copied from that same row's evidenceIndices; never cite an index listed under another row, never emit a mover symbol that has no row, and never leave a row unanswered. Read that row's own headlines before answering: when one of them states or plausibly explains the move, explain it in headline and description and explicitly label the link as possible when causation is not established; when none of them does, still return the item, cite that row's first evidenceIndex, and decline plainly by saying the driver is unconfirmed. Do not return source URLs; the application binds trusted URLs by sourceIndex.`,
       },
     ],
     text: { format: { type: 'json_schema', name: 'spice_daily_intelligence', strict: true, schema: dailyResearchResponseSchema() } },
-    max_output_tokens: 3_000,
+    // Every detected mover row now requires its own answer, so a full brief is
+    // three ideas plus six movers. A truncated response fails the whole brief,
+    // and the ceiling only bounds a runaway; it does not invite longer prose.
+    max_output_tokens: 4_000,
     temperature: 0.2,
   }, {
     gateway: {
@@ -221,6 +226,15 @@ export async function generateDailyResearch(env: AppEnv, now = new Date()): Prom
   // A watched symbol can lack a complete current tastytrade row. Bind ideas to
   // the exact metrics packet supplied to the editor, not the wider source universe.
   const ideas = researchIdeasForDate(generated.ideas, today, evidence, discussionLeadSymbols, recentCoverage)
+  // Ideas have no unconfirmed fallback, so a zero-idea brief is silent about its
+  // cause: the same counter pair separates "the editor surfaced nothing" from
+  // "every thesis failed symbol, expiry, coverage, or citation validation".
+  console.info(JSON.stringify({
+    event: 'DailyResearchIdeasBound',
+    bound: ideas.length,
+    candidates: generated.ideas.length,
+    runId: gatewayRunId,
+  }))
   // If deterministic validation removes an editor candidate, do not retain a
   // top-level summary that may still repeat the rejected thesis.
   const summary = ideas.length === generated.ideas.length && ideas.length > 0
@@ -236,8 +250,11 @@ export async function generateDailyResearch(env: AppEnv, now = new Date()): Prom
     regimeDetail: mentionsDiscoverySource(generated.regimeDetail) ? 'Only independently supported setups survived.' : generated.regimeDetail,
     ideas,
     marketMovers,
-    id: `brief-${today}`,
-    publishedAt: now.toISOString(),
+    id: researchBriefId(today),
+    // Dated when the brief exists, not when the run started: research, three model
+    // calls, and binding took five and a half minutes in production, and readers
+    // order and age briefs by this stamp.
+    publishedAt: new Date().toISOString(),
     sources: researchSourceLinks(evidence),
   })
   // Deterministic validation has now bound every surviving idea and mover to a

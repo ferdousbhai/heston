@@ -1,8 +1,9 @@
 import { z } from 'zod'
 
+import { marketDate } from '../domain/catalyst'
 import { EquitySymbolSchema } from '../domain/instrument'
 import { type AppEnv } from './env'
-import { MAX_DAILY_RESEARCH_LEADS } from './research-contracts'
+import { MAX_DAILY_RESEARCH_LEADS, researchBriefId } from './research-contracts'
 
 const RECENT_COVERAGE_DAYS = 14
 const MAX_COVERAGE_PER_SYMBOL = 3
@@ -37,6 +38,10 @@ function coverageCutoff(now: Date): string {
  * Search only the requested ticker rows inside recent stored briefs. Returning the
  * latest three per symbol keeps repetition review bounded without exposing entire
  * historical briefs or relying on the model to infer tickers from prose.
+ *
+ * The current market date's own brief is excluded. A rerun replaces that row, so
+ * without this a second run of the same day reads the morning's brief as prior
+ * coverage and suppresses every symbol it just published as already covered.
  */
 export async function searchRecentTickerCoverage(
   env: AppEnv,
@@ -61,10 +66,16 @@ export async function searchRecentTickerCoverage(
      FROM research_briefs AS brief, json_each(brief.payload_json, '$.ideas') AS idea
      WHERE brief.published_at >= ?
        AND brief.published_at < ?
+       AND brief.id <> ?
        AND json_extract(idea.value, '$.symbol') IN (${placeholders})
      ORDER BY brief.published_at DESC
      LIMIT ${MAX_COVERAGE_ROWS}`,
-  ).bind(coverageCutoff(now), now.toISOString(), ...requested).all()
+  ).bind(
+    coverageCutoff(now),
+    now.toISOString(),
+    researchBriefId(marketDate(now)),
+    ...requested,
+  ).all()
 
   const perSymbol = new Map<string, number>()
   return rows.results.flatMap((value) => {

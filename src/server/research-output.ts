@@ -187,9 +187,29 @@ export function researchIdeasForDate(
   })
 }
 
-/** Discovery providers shape private search scope but are never named in Daily Read prose. */
+/**
+ * Discovery providers shape private search scope but are never named in Daily Read
+ * prose, and neither is the fact that public discussion shaped it at all. Naming the
+ * venue generically ("chatter on the forum", "social media buzz") leaks the same thing
+ * as naming the site, so both are rejected.
+ *
+ * Every pattern must stay narrow enough for ordinary market prose. Two deliberate
+ * choices carry that: bare `X` is a word an editor writes for many reasons — and is a
+ * real US ticker — so only the platform phrasings (`on X`, `X users`, `X posts`) match,
+ * case-sensitively; and `forum` matches only in lower case, which keeps proper names
+ * such as the World Economic Forum out. Rejection is cheap here (a generic title, or
+ * one dropped idea) and a leak is not, but over-wide patterns silently empty the brief.
+ */
+const DISCOVERY_SOURCE_PATTERNS: readonly RegExp[] = [
+  /\b(?:sub)?reddits?\b|wallstreetbets|\br\/[a-z0-9_]{2,}/i,
+  /\btwitter\b|\bx\.com\b|\b(?:re)?tweet(?:ed|ing|s)?\b/i,
+  /\bon X\b|\bX (?:users?|posts?|threads?|accounts?)\b/,
+  /\bsocial media\b|\b(?:message|discussion|bulletin)[ -]boards?\b/i,
+  /\bforums?\b/,
+]
+
 export function mentionsDiscoverySource(value: string): boolean {
-  return /\breddit\b|wallstreetbets|r\/wallstreetbets/i.test(value)
+  return DISCOVERY_SOURCE_PATTERNS.some((pattern) => pattern.test(value))
 }
 
 function extractJson(response: string): JsonValue {
@@ -384,6 +404,49 @@ function evidenceSourceLink(source: ResearchSourceItem): ResearchBrief['sources'
  * A brief whose movers all carry this headline means the editor bound nothing.
  */
 export const UNCONFIRMED_MOVER_HEADLINE = 'Move detected; driver not established'
+
+export interface MarketMoverPacketRow {
+  changePercent: number
+  category: 'gainer' | 'loser' | 'most-active'
+  evidenceIndices: number[]
+  headlines: string[]
+  name: string
+  price: number
+  symbol: string
+}
+
+/**
+ * The editor's own section for detected movers. Mixed into the flat evidence list,
+ * the mover task was free recall — find every mover, then find its rows — and a
+ * production run bound one of six movers while on-point earnings articles for three
+ * more sat in the packet. Each detected move is named once here with the exact
+ * evidence indices that may be cited for it, which turns the task into a per-row
+ * fill-in the prompt can require an answer for.
+ *
+ * The indices are positions in the same evidence array `marketMoverInsightsFromCandidates`
+ * resolves against, so this changes only what the editor can find, never what binds:
+ * a copied index still has to carry the candidate's own symbol.
+ */
+export function marketMoverPacket(evidence: readonly ResearchSourceItem[]): MarketMoverPacketRow[] {
+  const rows = new Map<string, MarketMoverPacketRow>()
+  evidence.forEach((item, index) => {
+    const mover = item.marketMover
+    if (!mover) return
+    const row = rows.get(mover.symbol) ?? {
+      changePercent: mover.changePercent,
+      category: mover.category,
+      evidenceIndices: [],
+      headlines: [],
+      name: mover.name,
+      price: mover.price,
+      symbol: mover.symbol,
+    }
+    row.evidenceIndices.push(index)
+    row.headlines.push(item.outbound?.label ?? item.title)
+    rows.set(mover.symbol, row)
+  })
+  return [...rows.values()]
+}
 
 /**
  * The editor explains possible drivers, but code supplies every move metric and

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { generateDailyResearch, shouldRunDailyResearch } from '../src/server/research'
+import { type ResearchSourceItem } from '../src/server/research-contracts'
 import {
   resetMarketMoverResearch,
   setMarketMoverResearch,
@@ -9,6 +10,8 @@ import {
 } from '../src/server/research-market-movers'
 import {
   marketMoverInsightsFromCandidates,
+  marketMoverPacket,
+  mentionsDiscoverySource,
   parseGeneratedResearch,
   redditCatalystsFromCandidates,
   researchIdeasForDate,
@@ -209,6 +212,11 @@ describe('daily intelligence pipeline', () => {
     expect(logged).toContainEqual({
       event: 'DailyResearchMoversBound', bound: 1, candidates: 1, detected: 1, runId: expect.any(String),
     })
+    // A zero-idea brief is otherwise silent about whether the editor surfaced
+    // nothing or every thesis failed deterministic validation.
+    expect(logged).toContainEqual({
+      event: 'DailyResearchIdeasBound', bound: 1, candidates: 1, runId: expect.any(String),
+    })
     const briefCall = run.mock.calls.find((call) => call[1].text.format.name === 'spice_daily_intelligence')
     expect(briefCall?.[0]).toBe('@cf/openai/gpt-oss-120b')
     expect(briefCall?.[1]).toMatchObject({
@@ -311,7 +319,7 @@ describe('daily intelligence pipeline', () => {
 
     const briefPrompt = promptFor('spice_daily_intelligence')
     const evidence = packetIndices(briefPrompt, 'cite an item by copying its own index field: ', '. Recent ticker coverage')
-    const coverage = packetIndices(briefPrompt, 'addressed by the same index field: ', '. Return title')
+    const coverage = packetIndices(briefPrompt, 'addressed by the same index field: ', '. Detected market movers')
     const redditEvidence = packetIndices(
       promptFor('spice_reddit_catalysts'),
       'cite an item by copying its own index field: ',
@@ -326,6 +334,19 @@ describe('daily intelligence pipeline', () => {
     expect(coverage).toEqual(positions(coverage))
     expect(redditEvidence.length).toBeGreaterThan(1)
     expect(redditEvidence).toEqual(positions(redditEvidence))
+
+    // The mover section addresses the same evidence array, so a row's listed
+    // indices must be the positions the binder resolves for that symbol.
+    const detectedMovers = z.array(z.object({ evidenceIndices: z.array(z.number()), symbol: z.string() }))
+      .parse(JSON.parse(
+        briefPrompt.split('you may cite for that move: ')[1]!.split('. Return title')[0]!,
+      ))
+    const packetEvidence = z.array(z.object({ index: z.number(), marketMover: z.object({ symbol: z.string() }).optional() }))
+      .parse(JSON.parse(
+        briefPrompt.split('cite an item by copying its own index field: ')[1]!.split('. Recent ticker coverage')[0]!,
+      ))
+    expect(detectedMovers).toEqual([{ evidenceIndices: [2], symbol: 'PLTR' }])
+    expect(packetEvidence[2]?.marketMover?.symbol).toBe('PLTR')
   })
 
   it('rejects ideas for watched symbols that lack complete tastytrade metrics', async () => {
@@ -341,13 +362,21 @@ describe('daily intelligence pipeline', () => {
     }])
     const run = vi.fn().mockResolvedValue({ output_text: JSON.stringify(generatedResearch()) })
 
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
     const brief = await generateDailyResearch({
       AI: { ...unsupportedAi(), run },
       REDDIT_CLIENT_ID: secret,
       REDDIT_CLIENT_SECRET: secret,
     }, new Date('2026-08-14T13:30:00.000Z'))
+    const logged: unknown[] = info.mock.calls.map((call) => JSON.parse(String(call[0])))
+    info.mockRestore()
 
     expect(brief.ideas).toEqual([])
+    // An editor thesis that failed binding must not read like an editor that
+    // surfaced nothing; the brief itself retains no model output.
+    expect(logged).toContainEqual({
+      event: 'DailyResearchIdeasBound', bound: 0, candidates: 1, runId: expect.any(String),
+    })
   })
 
   it('binds Reddit catalyst candidates to watched symbols and exact post provenance', () => {
@@ -404,6 +433,59 @@ describe('daily intelligence pipeline', () => {
     }))
     // The published fallback wording is a product string; changing it changes the brief.
     expect(UNCONFIRMED_MOVER_HEADLINE).toBe('Move detected; driver not established')
+  })
+
+  it('binds every detected mover when the editor answers the packet row by row', () => {
+    const moverEvidence = (
+      symbol: string, changePercent: number, headlines: readonly string[],
+    ): ResearchSourceItem[] => headlines.map((headline) => ({
+      context: `${symbol} moved ${changePercent}%.`,
+      marketMover: {
+        category: changePercent >= 0 ? 'gainer' : 'loser',
+        changePercent, name: `${symbol} Inc`, price: 100, symbol, volume: 5_000_000,
+      },
+      outbound: { label: `Reuters · ${headline}`, url: `https://www.reuters.com/${symbol.toLowerCase()}-${headline.length}` },
+      source: 'Yahoo Finance market movers', symbols: [symbol],
+      title: `${symbol} · ${headline}`, url: `https://finance.yahoo.com/quote/${symbol}`,
+    }))
+    const evidence: ResearchSourceItem[] = [
+      { source: 'Official source', title: 'Macro note', url: 'https://example.com/macro' },
+      ...moverEvidence('OKTA', 28.6, ['Okta beats and raises', 'Okta guidance lifts peers']),
+      ...moverEvidence('CRWD', 9.4, ['CrowdStrike tops estimates']),
+      ...moverEvidence('HQY', -7.2, ['HealthEquity cuts outlook']),
+    ]
+
+    const packet = marketMoverPacket(evidence)
+
+    // One addressable row per detected move, carrying the exact citable indices.
+    expect(packet.map((row) => [row.symbol, row.evidenceIndices])).toEqual([
+      ['OKTA', [1, 2]], ['CRWD', [3]], ['HQY', [4]],
+    ])
+    expect(packet[0]?.headlines).toEqual(['Reuters · Okta beats and raises', 'Reuters · Okta guidance lifts peers'])
+    expect(packet[0]?.changePercent).toBe(28.6)
+
+    const answer = packet.map((row) => ({
+      description: `${row.name} moved after its report. The cited coverage is a possible driver.`,
+      headline: 'Earnings report is the likely driver',
+      sourceIndices: row.evidenceIndices,
+      symbol: row.symbol,
+    }))
+    const bound = marketMoverInsightsFromCandidates(answer, evidence)
+
+    expect(bound.map((mover) => mover.symbol)).toEqual(['OKTA', 'CRWD', 'HQY'])
+    expect(bound.some((mover) => mover.headline === UNCONFIRMED_MOVER_HEADLINE)).toBe(false)
+    expect(bound[0]?.sources).toEqual([
+      { label: 'Reuters · Okta beats and raises', url: evidence[1]!.outbound!.url },
+      { label: 'Reuters · Okta guidance lifts peers', url: evidence[2]!.outbound!.url },
+    ])
+
+    // Addressable rows never loosen the symbol match: answering one row with
+    // another row's indices still falls back to the unconfirmed driver.
+    const crossed = marketMoverInsightsFromCandidates(
+      [{ ...answer[0]!, sourceIndices: packet[1]!.evidenceIndices }],
+      evidence,
+    )
+    expect(crossed.find((mover) => mover.symbol === 'OKTA')?.headline).toBe(UNCONFIRMED_MOVER_HEADLINE)
   })
 
   it('rejects impossible and out-of-horizon model play dates in deterministic code', () => {
@@ -486,6 +568,38 @@ describe('daily intelligence pipeline', () => {
         headline: changed.headline,
         sources: [{ label: 'Independent wire · NVIDIA supply agreement', url: 'https://example.com/nvda' }],
       })])
+  })
+
+  it('rejects every discovery venue, named or generic, without catching ordinary prose', () => {
+    for (const leak of [
+      'Reddit attention supports the setup.',
+      'A subreddit thread flagged the print.',
+      'Chatter in r/wallstreetbets preceded the move.',
+      'The r/options crowd is positioned long.',
+      'Twitter sentiment turned sharply positive.',
+      'A viral tweet about the recall spread quickly.',
+      'Traders retweeted the filing all morning.',
+      'Posts on X.com pointed at the guidance cut.',
+      'Retail piled in after the print circulated on X.',
+      'X users flagged the unusual call volume.',
+      'Social media enthusiasm outran the fundamentals.',
+      'The message boards lit up after hours.',
+      'A discussion board thread named the supplier.',
+      'The forum crowd is already long calls.',
+    ]) expect(mentionsDiscoverySource(leak), leak).toBe(true)
+
+    for (const clean of [
+      'Participation is broadening. Cheap index premium keeps convexity accessible.',
+      'Management guided above consensus at the analyst day.',
+      'The World Economic Forum panel raised tariff risk.',
+      'The board approved a new buyback authorization.',
+      'Media coverage of the merger has been broadly neutral.',
+      'Xilinx-era design wins still anchor the segment.',
+      'Extended-hours volume confirmed the gap.',
+      'Open interest at the 225 strike doubled into the print.',
+      'The company hosts an investor day on September 18.',
+      'A sweet spot in the term structure favors October expiries.',
+    ]) expect(mentionsDiscoverySource(clean), clean).toBe(false)
   })
 
   it('does not publish discovery-provider names in an idea', () => {
