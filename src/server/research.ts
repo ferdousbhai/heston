@@ -386,7 +386,13 @@ async function persistDailyResearch(
 }
 
 /**
- * X, Reddit, and broad market-mover research all start in this same Promise.all.
+ * X, Reddit, official, and broad market-mover research all start together. The X sweep
+ * is the long pole, so the other discovery channels immediately launch independent
+ * online research and Reddit catalyst extraction for their preliminary candidates
+ * instead of waiting for it. Once both branches settle, X still contributes to the
+ * final candidate set; X-only names carry their cited catalyst plus fresh ticker
+ * research even though they were not known in time for the concurrent online sweep.
+ *
  * Reddit remains the required private baseline discovery input, while exact symbols
  * from X, local Codex, movers, and official sources reserve space in the research set.
  * The editor sees only fetched linked pages and fresh independent ticker research.
@@ -400,7 +406,8 @@ export async function generateDailyResearch(
   options: GenerateDailyResearchOptions = {},
 ): Promise<ResearchBrief> {
   const persist = options.persist ?? true
-  if (!env.AI) throw new Error('ResearchModelUnavailable')
+  const ai = env.AI
+  if (!ai) throw new Error('ResearchModelUnavailable')
   if (!env.REDDIT_CLIENT_ID || !env.REDDIT_CLIENT_SECRET) throw new Error('RedditResearchUnavailable')
   const [redditClientId, redditClientSecret, snapshot] = await Promise.all([
     readStoredSecret(env.REDDIT_CLIENT_ID, 'REDDIT_CLIENT_ID'),
@@ -414,18 +421,44 @@ export async function generateDailyResearch(
   const today = marketDate(now)
   const gatewayRunId = crypto.randomUUID()
   const sources = researchSources()
-  const [officialEvidence, redditEvidence, xResult, marketMoverEvidence] = await Promise.all([
-    sources.collectOfficialSources(),
-    sources.collectRedditSources({ clientId: redditClientId, clientSecret: redditClientSecret }),
-    xCatalystResearch().runForSymbols(env, symbols, now, gatewayRunId, persist),
-    marketMoverResearch().collect(now),
-  ])
   const focusSymbols = new Set(symbols)
   const compactMarket = compactMarketMetrics(snapshot.tickers, focusSymbols)
-  const discussionEvidence = bindEvidenceSymbols(redditEvidence, compactMarket)
   const codexWebCatalysts = recentCodexWebCatalysts(snapshot.catalysts, focusSymbols, now)
-  const xEvidence = bindEvidenceSymbols(catalystEvidence(xResult.catalysts), compactMarket)
   const codexEvidence = bindEvidenceSymbols(catalystEvidence(codexWebCatalysts), compactMarket)
+  const xResultPromise = xCatalystResearch().runForSymbols(env, symbols, now, gatewayRunId, persist)
+  const baselineResearchPromise = Promise.all([
+    sources.collectOfficialSources(),
+    sources.collectRedditSources({ clientId: redditClientId, clientSecret: redditClientSecret }),
+    marketMoverResearch().collect(now),
+  ]).then(async ([officialEvidence, redditEvidence, marketMoverEvidence]) => {
+    const discussionEvidence = bindEvidenceSymbols(redditEvidence, compactMarket)
+    const moverDiscoveryEvidence = bindEvidenceSymbols(marketMoverEvidence, compactMarket)
+    const officialDiscoveryEvidence = bindEvidenceSymbols(officialEvidence, compactMarket)
+    const allowedCandidates = new Set(compactMarket.map((ticker) => ticker.symbol))
+    const preliminarySymbols = researchCandidateSymbols(
+      discussionEvidence,
+      [],
+      codexEvidence,
+      moverDiscoveryEvidence,
+      officialDiscoveryEvidence,
+      allowedCandidates,
+    )
+    const preliminaryMarket = compactMarket.filter((ticker) => preliminarySymbols.includes(ticker.symbol))
+    const [onlineEvidence, redditCatalysts] = await Promise.all([
+      collectOnlineResearch(env, preliminarySymbols, preliminaryMarket, now, gatewayRunId),
+      researchRedditCatalysts(ai, discussionEvidence, symbols, today, now, gatewayRunId),
+    ])
+    return { discussionEvidence, marketMoverEvidence, officialEvidence, onlineEvidence, redditCatalysts }
+  })
+  const [xResult, baselineResearch] = await Promise.all([xResultPromise, baselineResearchPromise])
+  const {
+    discussionEvidence,
+    marketMoverEvidence,
+    officialEvidence,
+    onlineEvidence,
+    redditCatalysts,
+  } = baselineResearch
+  const xEvidence = bindEvidenceSymbols(catalystEvidence(xResult.catalysts), compactMarket)
   const moverDiscoveryEvidence = bindEvidenceSymbols(marketMoverEvidence, compactMarket)
   const officialDiscoveryEvidence = bindEvidenceSymbols(officialEvidence, compactMarket)
   const allowedCandidates = new Set(compactMarket.map((ticker) => ticker.symbol))
@@ -437,17 +470,17 @@ export async function generateDailyResearch(
     officialDiscoveryEvidence,
     allowedCandidates,
   )
-  const candidateMarket = compactMarket.filter((ticker) => candidateSymbols.includes(ticker.symbol))
-  const [tickerEvidence, onlineEvidence, recentCoverage, redditCatalysts] = await Promise.all([
+  const candidateSet = new Set(candidateSymbols)
+  const relevantOnlineEvidence = onlineEvidence.filter((item) =>
+    item.symbols?.some((symbol) => candidateSet.has(symbol)))
+  const [tickerEvidence, recentCoverage] = await Promise.all([
     sources.collectTickerSources(candidateSymbols, now),
-    collectOnlineResearch(env, candidateSymbols, candidateMarket, now, gatewayRunId),
     searchRecentTickerCoverage(env, candidateSymbols, now),
-    researchRedditCatalysts(env.AI, discussionEvidence, symbols, today, now, gatewayRunId),
   ])
   const evidence = bindEvidenceSymbols([
     ...officialEvidence,
     ...tickerEvidence,
-    ...onlineEvidence,
+    ...relevantOnlineEvidence,
     ...discussionLinkEvidence(discussionEvidence),
     ...xEvidence,
     ...codexEvidence,
@@ -465,7 +498,7 @@ export async function generateDailyResearch(
   )
   const result = await editDailyResearch(
     env,
-    env.AI,
+    ai,
     editorPrompt,
     today,
     gatewayRunId,
@@ -475,7 +508,7 @@ export async function generateDailyResearch(
   console.info(JSON.stringify({
     event: 'DailyResearchModelCompleted',
     codexWebCatalysts: codexWebCatalysts.length,
-    gatewayLogId: env.AI.aiGatewayLogId,
+    gatewayLogId: ai.aiGatewayLogId,
     runId: gatewayRunId,
   }))
   // The output module treats every provider field as untrusted and validates the

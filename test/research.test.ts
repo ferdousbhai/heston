@@ -223,6 +223,34 @@ describe('daily intelligence pipeline', () => {
     await expect(pending).resolves.toMatchObject({ id: 'brief-2026-08-14' })
   })
 
+  it('extracts baseline catalysts while the independent X sweep is still running', async () => {
+    let releaseX!: (result: { catalysts: []; rejected: number }) => void
+    runXResearch.mockImplementationOnce(() => new Promise((resolve) => { releaseX = resolve }))
+    sources.collectRedditSources.mockResolvedValueOnce([{
+      context: 'NVDA demand is drawing renewed attention.',
+      source: 'Reddit · r/wallstreetbets', symbols: ['NVDA'], title: 'NVDA demand discussion',
+      url: 'https://www.reddit.com/r/wallstreetbets/comments/abc123/nvda_discussion/',
+    }])
+    const run = vi.fn().mockImplementation(async (_model, options) => ({
+      output_text: JSON.stringify(
+        options.text.format.name === 'spice_reddit_catalysts' ? { catalysts: [] } : generatedResearch(),
+      ),
+    }))
+
+    const pending = generateDailyResearch({
+      AI: { ...unsupportedAi(), run },
+      REDDIT_CLIENT_ID: secret,
+      REDDIT_CLIENT_SECRET: secret,
+    }, new Date('2026-08-14T13:30:00.000Z'))
+
+    await vi.waitFor(() => expect(run.mock.calls.some(
+      (call) => call[1].text.format.name === 'spice_reddit_catalysts',
+    )).toBe(true))
+    expect(sources.collectTickerSources).not.toHaveBeenCalled()
+    releaseX({ catalysts: [], rejected: 0 })
+    await expect(pending).resolves.toMatchObject({ id: 'brief-2026-08-14' })
+  })
+
   it('skips catalyst extraction when discussion has no bound focus symbol', async () => {
     sources.collectRedditSources.mockResolvedValueOnce([{
       context: 'A broad market conversation without a watched company.',
