@@ -89,6 +89,37 @@ describe('Grok X catalyst boundary', () => {
     expect(fetcher).toHaveBeenCalledOnce()
   })
 
+  it('batches a wide required X sweep before the provider response can exceed its bound', async () => {
+    const requestedBatches: string[][] = []
+    const metadata: Array<Record<string, string>> = []
+    const fetcher = vi.fn<typeof fetch>(async (_input, init) => {
+      const request = JsonObjectSchema.parse(JSON.parse(String(init?.body)))
+      const prompt = JSON.stringify(request.input)
+      const symbols = prompt.match(/only these tickers: ([^.]+)\./)?.[1]?.split(', ') ?? []
+      requestedBatches.push(symbols)
+      metadata.push(JSON.parse(new Headers(init?.headers).get('cf-aig-metadata') ?? '{}'))
+      return Response.json(searchedResponse([], [], [], 2))
+    })
+    const secret = (value: string): SecretsStoreSecret => ({ get: async () => value })
+    const symbols = Array.from({ length: 17 }, (_, index) => `T${index}`)
+
+    // SAFETY: discoverXCatalysts reaches only getUrl; every other fake AI method throws.
+    await discoverXCatalysts({
+      AI: {
+        ...unsupportedAi(),
+        gateway: () => ({ getUrl: async () => 'https://gateway.example/spice/grok' }) as AiGateway,
+      },
+      AI_GATEWAY_TOKEN: secret('gateway-token'),
+      XAI_API_KEY: secret('xai-key'),
+    }, symbols, NOW, fetcher, 'parent-run')
+
+    expect(fetcher).toHaveBeenCalledTimes(3)
+    expect(requestedBatches.map((batch) => batch.length)).toEqual([8, 8, 1])
+    expect(requestedBatches.flat()).toEqual(symbols)
+    expect(metadata.map((item) => item.batch)).toEqual(['1/3', '2/3', '3/3'])
+    expect(new Set(metadata.map((item) => item.run_id)).size).toBe(3)
+  })
+
   it('accepts only future watched catalysts backed by returned X citations', () => {
     const cited = 'https://x.com/nvidia/status/1234567890'
     const result = parseXCatalystResponse(response([
