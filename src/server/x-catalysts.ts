@@ -13,8 +13,6 @@ const MODEL = 'grok-4.6'
 const SOURCE = 'Grok 4.6 X research'
 const MAX_RESPONSE_BYTES = 2_000_000
 const MAX_SYMBOLS = 40
-const MAX_SYMBOLS_PER_REQUEST = 8
-const MAX_CONCURRENT_REQUESTS = 2
 
 const CATALYST_HORIZON_DAYS = 180
 
@@ -159,13 +157,16 @@ function citationUrls(payload: JsonValue): Set<string> {
 }
 
 function outputText(payload: JsonValue): string | undefined {
+  let finalText: string | undefined
   for (const item of (JsonArraySchema.safeParse(jsonObjectOrEmpty(payload).output).data ?? []).map(jsonObjectOrEmpty)) {
     for (const content of (JsonArraySchema.safeParse(item.content).data ?? []).map(jsonObjectOrEmpty)) {
       const text = VerbatimModelTextSchema.safeParse(content.text).data
-      if (content.type === 'output_text' && text !== undefined) return text
+      // Grok's agentic Responses output includes progress messages before the final
+      // fenced findings document. Only the last output_text is the completed answer.
+      if (content.type === 'output_text' && text !== undefined) finalText = text
     }
   }
-  return undefined
+  return finalText
 }
 
 /**
@@ -260,17 +261,16 @@ const OUTPUT_CONTRACT = 'Reply with one fenced ```json code block and no text af
   + 'estimated), sourceUrl (a direct https://x.com/<handle>/status/<id> URL). Use '
   + '{"findings": []} when nothing qualifies. Any answer without that JSON block is discarded.'
 
-async function discoverXCatalystBatch(
+export async function discoverXCatalysts(
   env: AppEnv,
   symbols: readonly string[],
-  now: Date,
-  fetcher: typeof fetch,
-  gatewayRunId: string,
+  now = new Date(),
+  fetcher: typeof fetch = fetch,
+  gatewayRunId: string = crypto.randomUUID(),
   parentRunId?: string,
-  batchIndex = 0,
-  batchCount = 1,
-): Promise<ReturnType<typeof parseXCatalystResponse>> {
-  const watched = [...new Set(symbols.map((symbol) => symbol.toUpperCase()))]
+): Promise<XCatalystResult> {
+  const watched = [...new Set(symbols.map((symbol) => symbol.toUpperCase()))].slice(0, MAX_SYMBOLS)
+  if (!watched.length) return { catalysts: [], rejected: 0 }
   const [apiKey, gatewayToken, gatewayBaseUrl] = await Promise.all([
     readStoredSecret(env.XAI_API_KEY, 'XAI_API_KEY'),
     readStoredSecret(env.AI_GATEWAY_TOKEN, 'AI_GATEWAY_TOKEN'),
@@ -287,9 +287,8 @@ async function discoverXCatalystBatch(
       headers: {
         Authorization: `Bearer ${apiKey}`,
         ...aiGatewayHeaders(gatewayToken, {
-          app: 'spice', batch: `${batchIndex + 1}/${batchCount}`,
-          feature: 'x-catalyst-research', market_date: today,
-          parent_run_id: parentRunId ?? gatewayRunId, run_id: `${gatewayRunId}:${batchIndex + 1}`,
+          app: 'spice', feature: 'x-catalyst-research', market_date: today,
+          parent_run_id: parentRunId ?? gatewayRunId, run_id: gatewayRunId,
         }),
         'Content-Type': 'application/json',
       },
@@ -325,72 +324,26 @@ async function discoverXCatalystBatch(
       await response.body?.cancel()
       throw new Error(`XCatalystProvider:${response.status}`)
     }
-    return parseXCatalystResponse(
+    const result = parseXCatalystResponse(
       await readBoundedJson(response, MAX_RESPONSE_BYTES, 'XCatalystProvider'),
       watched,
       now,
     )
+    // Counts and an opaque run id only, never provider content. The run row cannot say
+    // why a sweep accepted nothing; `searches` and `citations` are what tell the owner
+    // whether the next barren run searched X and found nothing or never searched at all.
+    console.info(JSON.stringify({
+      event: 'XCatalystSearchCompleted',
+      accepted: result.catalysts.length,
+      citations: result.citations,
+      rejected: result.rejected,
+      runId: gatewayRunId,
+      searches: result.searches ?? null,
+      symbols: watched.length,
+    }))
+    return result
   } finally {
     clearTimeout(timeout)
-  }
-}
-
-/**
- * Search the complete private watchlist without allowing one provider response to grow
- * with every symbol. A 40-symbol production request expanded to 60 X searches and a
- * provider payload above the two-megabyte trust boundary, so the valid final answer was
- * deliberately rejected before parsing. Small batches preserve that response cap, and
- * two-at-a-time execution keeps the required sweep inside the Cron duration budget.
- * Any failed batch still rejects the complete sweep; X research never silently degrades.
- */
-export async function discoverXCatalysts(
-  env: AppEnv,
-  symbols: readonly string[],
-  now = new Date(),
-  fetcher: typeof fetch = fetch,
-  gatewayRunId: string = crypto.randomUUID(),
-  parentRunId?: string,
-): Promise<XCatalystResult> {
-  const watched = [...new Set(symbols.map((symbol) => symbol.toUpperCase()))].slice(0, MAX_SYMBOLS)
-  if (!watched.length) return { catalysts: [], rejected: 0 }
-  const batches = Array.from(
-    { length: Math.ceil(watched.length / MAX_SYMBOLS_PER_REQUEST) },
-    (_, index) => watched.slice(index * MAX_SYMBOLS_PER_REQUEST, (index + 1) * MAX_SYMBOLS_PER_REQUEST),
-  )
-  const results: Array<ReturnType<typeof parseXCatalystResponse>> = []
-  for (let offset = 0; offset < batches.length; offset += MAX_CONCURRENT_REQUESTS) {
-    const wave = batches.slice(offset, offset + MAX_CONCURRENT_REQUESTS)
-    results.push(...await Promise.all(wave.map((batch, waveIndex) => discoverXCatalystBatch(
-      env,
-      batch,
-      now,
-      fetcher,
-      gatewayRunId,
-      parentRunId,
-      offset + waveIndex,
-      batches.length,
-    ))))
-  }
-  const catalysts = results.flatMap((result) => result.catalysts)
-  const searches = results.every((result) => result.searches !== undefined)
-    ? results.reduce((total, result) => total + (result.searches ?? 0), 0)
-    : undefined
-  // Counts and an opaque run id only, never provider content. The run row cannot say
-  // why a sweep accepted nothing; `searches` and `citations` distinguish a barren search
-  // from a provider response that never established trusted source metadata.
-  console.info(JSON.stringify({
-    event: 'XCatalystSearchCompleted',
-    accepted: catalysts.length,
-    batches: batches.length,
-    citations: results.reduce((total, result) => total + result.citations, 0),
-    rejected: results.reduce((total, result) => total + result.rejected, 0),
-    runId: gatewayRunId,
-    searches: searches ?? null,
-    symbols: watched.length,
-  }))
-  return {
-    catalysts,
-    rejected: results.reduce((total, result) => total + result.rejected, 0),
   }
 }
 
