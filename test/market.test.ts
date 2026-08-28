@@ -226,6 +226,23 @@ describe('tastytrade normalization', () => {
     expect(ticker?.ivHistoricalVolatility30DayDifference).toBeUndefined()
   })
 
+  it('keeps a nonnegative annual borrow percent as reported and rejects a negative one', () => {
+    function borrowRate(reported: string): number | undefined {
+      return liveTickerFromRecords('BE', {
+        symbol: 'BE', 'borrow-rate': reported, 'implied-volatility-index': '0.18',
+        'implied-volatility-index-rank': '0.25', 'implied-volatility-percentile': '0.3',
+        'liquidity-rating': '5',
+      }, {
+        symbol: 'BE', mark: '700', 'previous-close': '695',
+        'updated-at': '2026-08-13T13:31:00.000Z',
+      }, false)?.borrowRate
+    }
+
+    expect(borrowRate('-1')).toBeUndefined()
+    expect(borrowRate('0')).toBe(0)
+    expect(borrowRate('951.1531')).toBe(951.1531)
+  })
+
   it('drops an implausible expiration from the term structure', () => {
     const ticker = liveTickerFromRecords('BE', {
       symbol: 'BE', 'implied-volatility-index': '0.18',
@@ -288,7 +305,7 @@ describe('tastytrade normalization', () => {
       'updated-at': '2026-08-13T13:31:00.000Z',
       'year-high-price': '710', 'year-low-price': '480',
     }, false, {
-      symbol: 'SPY', description: 'SPDR S&P 500 ETF', 'borrow-rate': '0.004',
+      symbol: 'SPY', description: 'SPDR S&P 500 ETF', 'borrow-rate': '0.4',
       lendability: 'Easy To Borrow', 'is-etf': true,
     })
 

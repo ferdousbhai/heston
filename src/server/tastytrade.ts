@@ -74,9 +74,10 @@ function previousCloseValue(quote: JsonObject | undefined): number | undefined {
  * tastytrade market metrics mix two units, established from production D1 rows
  * rather than documentation: `implied-volatility-index`, its rank, percentile,
  * 5-day change, and per-expiration IVs are decimal ratios (0.261 = 26.1%), while
- * `historical-volatility-30-day` (30.8) and `iv-hv-30-day-difference` (-4.7) are
- * already percentage points. Multiplying those two by 100 rejected or distorted
- * real observations, so the `*Points` helpers below keep them as reported.
+ * `historical-volatility-30-day` (30.8), `iv-hv-30-day-difference` (-4.7), and the
+ * annual `borrow-rate` (1.5 for Easy To Borrow, 951.15 for PCLA Locate Required) are
+ * already percentage points. Multiplying those by 100 rejected or distorted real
+ * observations, so the `*Points` helpers below keep them as reported.
  */
 
 /** Decimal-ratio metrics; the UI contract uses percentage points. */
@@ -101,8 +102,8 @@ export function plausiblePercentMetric(value: JsonValue, max = 100): number | un
   return points >= 0 && points <= max ? points : undefined
 }
 
-/** Rate deltas and borrow costs use the same decimal-ratio wire format but may be negative. */
-export function plausibleSignedPercentMetric(value: JsonValue, maxAbsolute = 10_000): number | undefined {
+/** Decimal-ratio metrics such as the IV index 5-day change, which may be negative. */
+export function plausibleSignedPercentMetric(value: JsonValue, maxAbsolute: number): number | undefined {
   const parsed = jsonNumber(value)
   if (parsed === undefined) return undefined
   const points = parsed * 100
@@ -379,7 +380,12 @@ export function liveTickerFromRecords(
     symbol,
     name: jsonText(instrument?.description ?? instrument?.['short-description'] ?? quote.description) ?? symbol,
     assetType: assetType(instrument),
-    borrowRate: plausibleSignedPercentMetric(metrics['borrow-rate'] ?? instrument?.['borrow-rate'] ?? instrument?.borrowRate),
+    // Zero is a real easy-to-borrow reading rather than a missing metric, so it is allowed.
+    borrowRate: plausiblePercentPoints(
+      metrics['borrow-rate'] ?? instrument?.['borrow-rate'] ?? instrument?.borrowRate,
+      10_000,
+      true,
+    ),
     lendability: jsonText(metrics.lendability ?? instrument?.lendability),
     marketCap: marketCap !== undefined && marketCap >= 0 ? marketCap : undefined,
     price,

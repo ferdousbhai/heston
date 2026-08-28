@@ -224,10 +224,12 @@ export type InstrumentSignal = {
  * These bands are trading heuristics, not statistical claims: a 4% day merits
  * explanation, ten IV points over realized or five points in a week marks clear
  * repricing, three term points suggests an event premium, liquidity at two and
- * borrow at 1% add execution friction, and the outer range decile marks an edge.
+ * borrow at 5% add execution friction, and the outer range decile marks an edge.
+ * tastytrade quotes easy-to-borrow names at up to 1.5% a year, so a 1% band would
+ * flag most of the list; 5% is where locate-required names begin.
  */
 const SIGNAL_BANDS = {
-  borrowRatePercent: 1,
+  borrowRatePercent: 5,
   dayMovePercent: 4,
   ivFiveDayPoints: 5,
   ivOverHvPoints: 10,
