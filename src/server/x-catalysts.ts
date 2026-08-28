@@ -57,11 +57,12 @@ export function catalystResearchSymbols(watchlists: readonly { kind: string; sym
 /**
  * Grok writes inline citations as `[[1]](https://x.com/...)` markdown directly into the
  * response text, and on the Responses API that is the default
- * (https://docs.x.ai/developers/tools/citations). Here the response text *is* the findings
- * JSON, so a marker lands inside a title or description. The request asks for them to be
- * suppressed, and this strips whatever arrives anyway, because the cost of missing one is
- * not cosmetic: a marker pushes a description past its 500-character bound, and that
- * failure throws out the entire sweep rather than the single finding it damaged.
+ * (https://docs.x.ai/developers/tools/citations). The findings JSON now arrives fenced
+ * inside ordinary prose, so a marker can land inside a title or description as easily as
+ * in the surrounding sentences. The request asks for them to be suppressed, and this
+ * strips whatever arrives anyway, because the cost of missing one is not cosmetic: a
+ * marker pushes a description past its 500-character bound, and that failure throws out
+ * the entire sweep rather than the single finding it damaged.
  */
 function withoutInlineCitations(value: string): string {
   return value.replace(/\[\[\d+\]\](?:\([^\s)]*\))?/g, '').replace(/[ \t]{2,}/g, ' ')
@@ -151,9 +152,10 @@ function collectCitationUrls(
  * than the `x_search_call` item type the docs name.
  *
  * The set stays trusted because model prose never reaches it. The model's only output
- * channel is one opaque JSON string inside an `output_text` block, so a model-authored
- * `sourceUrl` is characters inside that string and never a traversable `url` field of its
- * own; a finding still has to match a URL the provider put in the payload.
+ * channel is one opaque string inside an `output_text` block, so a model-authored
+ * `sourceUrl` — or any URL it writes into the surrounding prose — is characters inside
+ * that string and never a traversable `url` field of its own; a finding still has to
+ * match a URL the provider put in the payload.
  */
 function citationUrls(payload: JsonValue): Set<string> {
   const urls = new Set<string>()
@@ -182,6 +184,33 @@ function xSearchCalls(payload: JsonValue): number | undefined {
   return z.number().safeParse(details.x_search_calls).data
 }
 
+/**
+ * The findings document, lifted out of an ordinary answer.
+ *
+ * This request cannot ask for structured output: a strict `json_schema` response format
+ * suppresses server-side tool invocation on Grok, so the model answered from parametric
+ * memory — zero searches, zero citations, zero findings, every run — and `tool_choice:
+ * 'required'` did not change that. The model now writes prose and fences the JSON inside
+ * it, which is the same shape `research-output.ts` reads (kept local so this module stays
+ * self-contained). Candidates are tried in order of how deliberate they are: each fenced
+ * block, then the whole answer for a bare document, then the outermost braces for a
+ * document announced in a sentence. `FindingsSchema` is still the only gate — an
+ * unparseable answer throws rather than passing an empty sweep off as a real one.
+ */
+function findingsJson(text: string): JsonValue {
+  const fenced = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)].map((match) => match[1] ?? '')
+  const braced = text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)
+  for (const candidate of [...fenced, text, braced]) {
+    if (!candidate.trim()) continue
+    try {
+      return JSON.parse(candidate)
+    } catch {
+      continue
+    }
+  }
+  throw new Error('XCatalystResponse:unparsable-findings')
+}
+
 export function parseXCatalystResponse(
   payload: JsonValue,
   allowedSymbols: readonly string[],
@@ -189,7 +218,7 @@ export function parseXCatalystResponse(
 ): XCatalystResult & { citations: number; searches: number | undefined } {
   const text = outputText(payload)
   if (!text) throw new Error('XCatalystResponse:missing-output')
-  const findings = FindingsSchema.parse(JSON.parse(text)).findings
+  const findings = FindingsSchema.parse(findingsJson(text)).findings
   const citations = citationUrls(payload)
   const symbols = new Set(allowedSymbols.map((symbol) => symbol.toUpperCase()))
   const today = marketDate(now)
@@ -219,35 +248,22 @@ export function parseXCatalystResponse(
 }
 
 /**
- * The shape asked of the model. xAI accepts `strict` only for OpenAI compatibility and
- * ignores it, so nothing here may be treated as enforced: `FindingSchema` re-validates
- * every field, and `CatalystSchema` validates again before anything reaches D1. This
- * schema steers the model; the Zod parses are what actually bind the output.
+ * The shape asked of the model, written into the prompt rather than a response format.
+ *
+ * A strict `json_schema` response format suppresses server-side tool invocation on Grok,
+ * so asking for this shape as structured output cost the search the whole request exists
+ * to run. Nothing stated here is enforced by the provider either way: `FindingSchema`
+ * re-validates every field and `CatalystSchema` validates again before anything reaches
+ * D1. This text steers the model; the Zod parses are what actually bind the output.
  */
-function responseSchema() {
-  return {
-    type: 'object', additionalProperties: false, required: ['findings'],
-    properties: {
-      findings: {
-        type: 'array', maxItems: 100,
-        items: {
-          type: 'object', additionalProperties: false,
-          required: ['symbol', 'kind', 'title', 'description', 'date', 'timing', 'confidence', 'sourceUrl'],
-          properties: {
-            symbol: { type: 'string' },
-            kind: { type: 'string', enum: ['investor-event', 'product-event', 'regulatory', 'clinical', 'conference', 'shareholder'] },
-            title: { type: 'string', minLength: 1, maxLength: 160 },
-            description: { type: 'string', minLength: 1, maxLength: 500 },
-            date: { type: 'string' },
-            timing: { type: 'string', enum: ['pre-market', 'intraday', 'after-hours', 'unknown'] },
-            confidence: { type: 'string', enum: ['confirmed', 'estimated'] },
-            sourceUrl: { type: 'string' },
-          },
-        },
-      },
-    },
-  }
-}
+const OUTPUT_CONTRACT = 'Reply with one fenced ```json code block and no text after it. '
+  + 'The block holds a single object {"findings": [...]} with at most 100 findings, and '
+  + 'each finding is an object with exactly these fields: symbol (the ticker), kind (one '
+  + 'of investor-event, product-event, regulatory, clinical, conference, shareholder), '
+  + 'title (1-160 characters), description (1-500 characters), date (YYYY-MM-DD), timing '
+  + '(one of pre-market, intraday, after-hours, unknown), confidence (confirmed or '
+  + 'estimated), sourceUrl (a direct https://x.com/<handle>/status/<id> URL). Use '
+  + '{"findings": []} when nothing qualifies. Any answer without that JSON block is discarded.'
 
 export async function discoverXCatalysts(
   env: AppEnv,
@@ -282,14 +298,15 @@ export async function discoverXCatalysts(
       },
       body: JSON.stringify({
         model: MODEL,
-        // The response text is one JSON document, so the inline `[[N]](url)` citation
-        // markdown the Responses API adds by default would land inside a finding's prose.
-        // Suppressing it keeps the annotations that carry the trusted source URLs: they
-        // simply stop carrying offsets into prose, which a JSON document never had.
+        // The inline `[[N]](url)` citation markdown the Responses API adds by default
+        // would land inside a finding's prose, and the findings now travel through a
+        // fenced JSON block in ordinary output text where a marker breaks the document
+        // outright. Suppressing it keeps the annotations that carry the trusted source
+        // URLs; they simply stop carrying offsets into the prose.
         include: ['no_inline_citations'],
         input: [
-          { role: 'system', content: 'Find only material, scheduled, ticker-specific future catalysts announced in public X posts. Call the X search tool before answering; every finding must come from a post you actually retrieved, and an announcing post is normally much older than the event it announces. Do not include earnings or dividends. Never infer a date or claim that the cited post does not support. confirmed means a first-party company, executive, regulator, trial sponsor, exchange, or event organizer states an exact date; otherwise use estimated. Write a concise factual description of what is scheduled and why it may matter, using only the cited post. Copy each sourceUrl verbatim from the retrieved post; a URL you did not retrieve is discarded. Return an empty array when evidence is weak.' },
-          { role: 'user', content: `Search X for scheduled catalysts for only these tickers: ${watched.join(', ')}. Search each ticker. X search covers posts published from ${searchFrom} through ${today}; that is the publication window, not the event window. Keep an event only when it is scheduled from ${today} through ${horizon}, however long ago the post announcing it was written. Each sourceUrl must be the direct cited X status URL. Each description must be no more than 500 characters. Deduplicate equivalent events.` },
+          { role: 'system', content: `Find only material, scheduled, ticker-specific future catalysts announced in public X posts. Call the X search tool before answering; every finding must come from a post you actually retrieved, and an announcing post is normally much older than the event it announces. Do not include earnings or dividends. Never infer a date or claim that the cited post does not support. confirmed means a first-party company, executive, regulator, trial sponsor, exchange, or event organizer states an exact date; otherwise use estimated. Write a concise factual description of what is scheduled and why it may matter, using only the cited post. Copy each sourceUrl verbatim from the retrieved post; a URL you did not retrieve is discarded. Report no finding when evidence is weak. ${OUTPUT_CONTRACT}` },
+          { role: 'user', content: `Search X for scheduled catalysts for only these tickers: ${watched.join(', ')}. Search each ticker. X search covers posts published from ${searchFrom} through ${today}; that is the publication window, not the event window. Keep an event only when it is scheduled from ${today} through ${horizon}, however long ago the post announcing it was written. Each sourceUrl must be the direct cited X status URL. Each description must be no more than 500 characters. Deduplicate equivalent events. Answer with the fenced json findings block and nothing after it.` },
         ],
         // Publication-date bounds; see SEARCH_LOOKBACK_DAYS. `to_date` is documented as
         // inclusive but observed to behave as the instant `to_date 00:00:00Z`, which
@@ -298,8 +315,13 @@ export async function discoverXCatalysts(
         // Grok decides for itself whether to search, and it repeatedly answered this
         // request in under half a minute without searching at all. `x_search` is the only
         // tool offered, so requiring a tool call can only mean searching X.
+        //
+        // No `text.format`: a strict json_schema response format suppresses server-side
+        // tool invocation on Grok, and it outranked `tool_choice: 'required'` — the sweep
+        // returned `x_search_calls: null` with zero citations in 20 seconds for 40
+        // symbols, an answer from parametric memory. The findings shape is asked for in
+        // the prompt instead and extracted from the fenced block in the answer.
         tool_choice: 'required',
-        text: { format: { type: 'json_schema', name: 'spice_upcoming_catalysts', strict: true, schema: responseSchema() } },
       }),
     })
     if (!response.ok) {

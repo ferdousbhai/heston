@@ -6,29 +6,45 @@ import { unsupportedAi } from './fake-ai'
 
 const NOW = new Date('2026-08-13T22:30:00.000Z')
 
+/** An answer whose whole body is the bare findings document, with no prose around it. */
 function response(findings: unknown[], citations: string[]) {
+  return textResponse(JSON.stringify({ findings }), citations)
+}
+
+function textResponse(text: string, citations: string[]) {
   return {
     output: [{ type: 'message', content: [{
-      type: 'output_text', text: JSON.stringify({ findings }),
+      type: 'output_text', text,
       annotations: citations.map((url) => ({ type: 'url_citation', url })),
     }] }],
   }
 }
 
 /**
- * A Responses answer that actually searched X. The Responses API has no top-level
- * `citations` field — that one belongs to chat completions and the xAI SDK — so the
- * sources reach us as `url_citation` annotations, and X Search surfaces as a
- * `custom_tool_call` rather than the `x_search_call` item type the docs name.
- * https://docs.x.ai/developers/tools/citations
+ * A Responses answer that actually searched X. Without a structured response format the
+ * model writes ordinary prose — including URLs it names in a sentence — and fences the
+ * findings document inside it, so the fixture carries both.
+ *
+ * The Responses API has no top-level `citations` field — that one belongs to chat
+ * completions and the xAI SDK — so the sources reach us as `url_citation` annotations,
+ * and X Search surfaces as a `custom_tool_call` rather than the `x_search_call` item type
+ * the docs name. https://docs.x.ai/developers/tools/citations
  */
 function searchedResponse(findings: unknown[], annotations: string[], toolResults: string[] = [], searches = 4) {
+  const text = [
+    'I searched X for each ticker. The strongest post was',
+    'https://x.com/nvidia/status/1234567890, and the findings follow.',
+    '',
+    '```json',
+    JSON.stringify({ findings }),
+    '```',
+  ].join('\n')
   return {
     output: [
       { type: 'custom_tool_call', name: 'x_semantic_search', call_id: 'xs_call_1', status: 'completed',
         results: toolResults.map((url) => ({ url, title: 'Post' })) },
       { type: 'message', content: [{
-        type: 'output_text', text: JSON.stringify({ findings }),
+        type: 'output_text', text,
         annotations: annotations.map((url, index) => ({
           type: 'url_citation', url, start_index: 0, end_index: 1, title: String(index + 1),
         })),
@@ -64,13 +80,21 @@ describe('Grok X catalyst boundary', () => {
       expect(request.tools).toEqual([{ type: 'x_search', from_date: '2026-02-14', to_date: '2026-08-14' }])
       // X Search is the only tool offered, so a required tool call can only search X.
       expect(request.tool_choice).toBe('required')
-      // The response text is the findings JSON, so inline citation markdown would be
-      // written into a finding's prose. Annotations survive this; only the markers go.
+      // A strict json_schema response format suppresses server-side tool invocation on
+      // Grok and outranked tool_choice: the sweep answered from memory with zero searches
+      // and zero citations. The findings shape is asked for in the prompt instead.
+      expect(request).not.toHaveProperty('text')
+      expect(request).not.toHaveProperty('response_format')
+      // Inline citation markdown would be written into a finding's prose, and into the
+      // fenced JSON block that carries it. Annotations survive this; only the markers go.
       expect(request.include).toEqual(['no_inline_citations'])
       const prompt = JSON.stringify(request.input)
       expect(prompt).toContain('publication window, not the event window')
       // The forward event horizon stays 180 days and stays distinct from that window.
       expect(prompt).toContain('2027-02-09')
+      // The prompt now carries the output contract the response format used to carry.
+      expect(prompt).toContain('fenced ```json code block')
+      expect(prompt).toContain('investor-event, product-event, regulatory, clinical, conference, shareholder')
       return Response.json(response([], []))
     })
 
@@ -138,13 +162,41 @@ describe('Grok X catalyst boundary', () => {
   })
 
   it('never lets the model certify its own source URL', () => {
-    // The findings document is one opaque string inside output_text, so the URL the model
-    // wrote there must never reach the trusted set, however the provider frames the payload.
+    // The answer is one opaque string inside output_text, so neither the URL the model
+    // wrote into a finding nor the one it named in its prose may reach the trusted set,
+    // however the provider frames the payload.
     const result = parseXCatalystResponse(searchedResponse([FINDING], []), ['NVDA'], NOW)
 
     expect(result.catalysts).toEqual([])
     expect(result.citations).toBe(0)
     expect(result.rejected).toBe(1)
+  })
+
+  it('reads the findings JSON out of the prose the model wrapped around it', () => {
+    // Nothing asks the provider for structured output any more, because doing so stopped
+    // it searching X at all, so the document arrives fenced inside an ordinary answer.
+    const cited = FINDING.sourceUrl
+    const fenced = `Here is what I found on X.\n\n\`\`\`json\n${JSON.stringify({ findings: [FINDING] })}\n\`\`\`\n\nLet me know if you want more.`
+
+    expect(parseXCatalystResponse(textResponse(fenced, [cited]), ['NVDA'], NOW).catalysts)
+      .toMatchObject([{ symbol: 'NVDA', sourceUrl: cited }])
+    // An unfenced document announced in a sentence is read the same way.
+    expect(parseXCatalystResponse(
+      textResponse(`Findings: ${JSON.stringify({ findings: [FINDING] })}`, [cited]),
+      ['NVDA'],
+      NOW,
+    ).catalysts).toHaveLength(1)
+  })
+
+  it('fails loudly when the answer carries no usable findings JSON', () => {
+    // A sweep that cannot be parsed must not be reported as a sweep that found nothing.
+    expect(() => parseXCatalystResponse(textResponse('I could not find any catalysts.', []), ['NVDA'], NOW))
+      .toThrow(/unparsable-findings/)
+    expect(() => parseXCatalystResponse(textResponse('```json\n{"findings": [ {,,, ]\n```', []), ['NVDA'], NOW))
+      .toThrow(/unparsable-findings/)
+    // A well-formed document of the wrong shape is still the schema's to reject.
+    expect(() => parseXCatalystResponse(textResponse('```json\n{"catalysts": []}\n```', []), ['NVDA'], NOW))
+      .toThrow()
   })
 
   it('strips inline citation markdown the model wrote into a finding', () => {
