@@ -35,6 +35,15 @@ export const Route = createRootRoute({
       },
     ],
     links: [
+      // Starts the public boot read alongside the bundle. `syncFromCloud` only reuses this
+      // preload while both sides stay a plain CORS fetch, so keep `crossOrigin` here and
+      // request headers off the public read there.
+      {
+        rel: 'preload',
+        href: '/api/public-snapshot',
+        as: 'fetch',
+        crossOrigin: 'anonymous',
+      },
       {
         rel: 'stylesheet',
         href: appCss,

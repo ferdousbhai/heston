@@ -3,7 +3,7 @@ import { Button } from '#/components/ui/button'
 import { Empty, EmptyDescription, EmptyHeader } from '#/components/ui/empty'
 import {
   catalystLabel,
-  nextCatalystForSymbol,
+  nextCatalystsBySymbol,
   upcomingCatalystSymbols,
   type Catalyst,
 } from '../domain/catalyst'
@@ -22,10 +22,11 @@ export function CatalystStories({
   tickers: readonly Ticker[]
 }) {
   const tickerBySymbol = new Map(tickers.map((ticker) => [ticker.symbol, ticker]))
+  const nextCatalysts = nextCatalystsBySymbol(catalysts, now)
   const visible = upcomingCatalystSymbols(tickers.map((ticker) => ticker.symbol), catalysts, now)
     .flatMap((symbol) => {
       const ticker = tickerBySymbol.get(symbol)
-      const catalyst = nextCatalystForSymbol(symbol, catalysts, now)
+      const catalyst = nextCatalysts.get(symbol)
       return ticker && catalyst ? [{ catalyst, ticker }] : []
     })
 

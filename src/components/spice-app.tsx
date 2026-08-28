@@ -31,7 +31,7 @@ import { toError } from '../domain/failure'
 import { type WatchlistMutation, WatchlistMutationResultSchema } from '../domain/watchlist'
 import { useLiveMarket } from '../data/live-market'
 import { AgentScreen } from './agent-screen'
-import { AuthScreen, OwnerAccessScreen, type Viewer, useViewer } from './auth-gate'
+import { OwnerAccessScreen, type Viewer, useViewer } from './auth-gate'
 import { BriefScreen } from './brief-screen'
 import { MarketScreen } from './market-screen'
 import { TopBar } from './top-bar'
@@ -44,7 +44,10 @@ type Tab = z.infer<typeof TabSchema>
 
 export function SpiceApp() {
   const auth = useViewer()
-  if (auth.phase === 'checking') return <AuthScreen checking />
+  // Boot the source-neutral public surface while the session check is in flight
+  // instead of holding the whole app behind it. If the viewer turns out to be the
+  // owner, the audience-tagged sync marker keeps public rows from ever being
+  // rendered as the private snapshot; the workspace re-syncs for that audience.
   return (
     <SpiceWorkspace
       authError={auth.phase === 'error' ? auth.message : undefined}
@@ -95,6 +98,7 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
   const syncAbort = useRef<AbortController | undefined>(undefined)
   const syncRevision = useRef(0)
   const closeWatchlistEditor = useCallback(() => setWatchlistEditorOpen(false), [setWatchlistEditorOpen])
+  const openWatchlistEditor = useCallback(() => setWatchlistEditorOpen(true), [setWatchlistEditorOpen])
   // One D1-backed watchlist reaches each audience; the preference only survives
   // so a stale stored id cannot outrank the list the snapshot actually carries.
   const activeWatchlist = watchlists.find((watchlist) => watchlist.id === preference?.selectedWatchlistId)
@@ -165,10 +169,17 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
     }
   }, [audience, synchronize])
 
-  const chooseSymbol = (symbol: string) => {
+  // Stable row callbacks keep the memoized market rows from re-rendering on every
+  // workspace render.
+  const chooseSymbol = useCallback((symbol: string) => {
     selectTicker(symbol)
     setTab('market')
-  }
+  }, [setTab])
+  const togglePinned = useCallback((symbol: string) => {
+    void toggleFavoriteSymbol(symbol, favoriteSync).catch((cause: unknown) => {
+      console.error('FavoriteMutationFailed', toError(cause)?.message ?? 'UnknownError')
+    })
+  }, [favoriteSync])
   const mutateWatchlist = async (action: WatchlistMutation) => {
     if (!owner) throw new Error('Owner authentication is required')
     const response = await fetch('/api/watchlists', {
@@ -222,11 +233,9 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
               <MarketScreen
                 activeWatchlist={activeWatchlist}
                 catalysts={catalysts}
-                onManageWatchlist={() => setWatchlistEditorOpen(true)}
+                onManageWatchlist={openWatchlistEditor}
                 onSelectTicker={chooseSymbol}
-                onTogglePinned={(symbol) => void toggleFavoriteSymbol(symbol, favoriteSync).catch((cause: unknown) => {
-                  console.error('FavoriteMutationFailed', toError(cause)?.message ?? 'UnknownError')
-                })}
+                onTogglePinned={togglePinned}
                 pinnedSymbols={pinnedSymbols}
                 research={research}
                 selected={selected}

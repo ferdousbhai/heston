@@ -44,23 +44,45 @@ const KIND_PRIORITY = {
   shareholder: 6,
 } satisfies Record<Catalyst['kind'], number>
 
-function dateParts(date: Date, timeZone = 'America/New_York') {
-  return Object.fromEntries(new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(date).map((part) => [part.type, part.value]))
-}
+const MARKET_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
 
 export function marketDate(date = new Date()): string {
-  const parts = dateParts(date)
+  const parts = Object.fromEntries(MARKET_DATE_FORMATTER.formatToParts(date).map((part) => [part.type, part.value]))
   return `${parts.year}-${parts.month}-${parts.day}`
 }
 
 function epochDay(date: string): number {
   const [year, month, day] = date.split('-').map(Number)
   return Math.floor(Date.UTC(year, month - 1, day) / 86_400_000)
+}
+
+/** Soonest date first, then by kind priority; each caller adds its own final tiebreak. */
+function compareCatalystSchedule(left: Catalyst, right: Catalyst): number {
+  return left.date.localeCompare(right.date) || KIND_PRIORITY[left.kind] - KIND_PRIORITY[right.kind]
+}
+
+function compareCatalystOrder(left: Catalyst, right: Catalyst): number {
+  return compareCatalystSchedule(left, right) || left.id.localeCompare(right.id)
+}
+
+/** One pass that indexes what `nextCatalystForSymbol` would return for every symbol at once. */
+export function nextCatalystsBySymbol(
+  catalysts: readonly Catalyst[],
+  now = new Date(),
+): ReadonlyMap<string, Catalyst> {
+  const today = marketDate(now)
+  const next = new Map<string, Catalyst>()
+  for (const catalyst of catalysts) {
+    if (catalyst.date < today) continue
+    const current = next.get(catalyst.symbol)
+    if (!current || compareCatalystOrder(catalyst, current) < 0) next.set(catalyst.symbol, catalyst)
+  }
+  return next
 }
 
 export function daysUntilCatalyst(catalyst: Catalyst, now = new Date()): number {
@@ -75,11 +97,7 @@ export function upcomingCatalystsForSymbol(
   const today = marketDate(now)
   return catalysts
     .filter((catalyst) => catalyst.symbol === symbol && catalyst.date >= today)
-    .sort((left, right) => (
-      left.date.localeCompare(right.date)
-      || KIND_PRIORITY[left.kind] - KIND_PRIORITY[right.kind]
-      || left.id.localeCompare(right.id)
-    ))
+    .sort(compareCatalystOrder)
 }
 
 export function nextCatalystForSymbol(
@@ -136,15 +154,14 @@ export function sortSymbolsByCatalyst(
   now = new Date(),
 ): string[] {
   const originalOrder = new Map(symbols.map((symbol, index) => [symbol, index]))
-  const next = new Map(symbols.map((symbol) => [symbol, nextCatalystForSymbol(symbol, catalysts, now)]))
+  const next = nextCatalystsBySymbol(catalysts, now)
   return [...symbols].sort((left, right) => {
     const leftCatalyst = next.get(left)
     const rightCatalyst = next.get(right)
     if (!leftCatalyst && !rightCatalyst) return originalOrder.get(left)! - originalOrder.get(right)!
     if (!leftCatalyst) return 1
     if (!rightCatalyst) return -1
-    return leftCatalyst.date.localeCompare(rightCatalyst.date)
-      || KIND_PRIORITY[leftCatalyst.kind] - KIND_PRIORITY[rightCatalyst.kind]
+    return compareCatalystSchedule(leftCatalyst, rightCatalyst)
       || originalOrder.get(left)! - originalOrder.get(right)!
   })
 }
@@ -156,15 +173,15 @@ export function upcomingCatalystSymbols(
   horizonDays = 30,
   limit = 12,
 ): string[] {
+  const nextCatalysts = nextCatalystsBySymbol(catalysts, now)
   return [...new Set(symbols)]
-    .map((symbol) => ({ catalyst: nextCatalystForSymbol(symbol, catalysts, now), symbol }))
-    .filter((item): item is typeof item & { catalyst: Catalyst } => Boolean(
-      item.catalyst
-      && daysUntilCatalyst(item.catalyst, now) >= 0
-      && daysUntilCatalyst(item.catalyst, now) <= horizonDays,
-    ))
-    .sort((left, right) => left.catalyst.date.localeCompare(right.catalyst.date)
-      || KIND_PRIORITY[left.catalyst.kind] - KIND_PRIORITY[right.catalyst.kind]
+    .flatMap((symbol) => {
+      const catalyst = nextCatalysts.get(symbol)
+      if (!catalyst) return []
+      const days = daysUntilCatalyst(catalyst, now)
+      return days >= 0 && days <= horizonDays ? [{ catalyst, symbol }] : []
+    })
+    .sort((left, right) => compareCatalystSchedule(left.catalyst, right.catalyst)
       || left.symbol.localeCompare(right.symbol))
     .slice(0, Math.max(0, limit))
     .map(({ symbol }) => symbol)

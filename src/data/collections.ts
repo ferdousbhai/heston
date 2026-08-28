@@ -132,11 +132,11 @@ export const preferenceCollection = createCollection(
 )
 
 type MutableCollection<T extends object, TKey extends string> = {
-  delete: (key: TKey) => PersistedMutation
+  delete: (keys: TKey[]) => PersistedMutation
   get: (key: TKey) => T | undefined
-  insert: (value: T) => PersistedMutation
+  insert: (rows: T[]) => PersistedMutation
   keys: () => IterableIterator<TKey>
-  update: (key: TKey, callback: (draft: T) => void) => PersistedMutation
+  update: (keys: TKey[], callback: (drafts: T[]) => void) => PersistedMutation
 }
 
 type PersistedMutation = { isPersisted: { promise: Promise<unknown> } }
@@ -164,18 +164,23 @@ async function replaceRows<T extends object, TKey extends string>(
   const mutations: PersistedMutation[] = []
   const incoming = new Set(rows.map(getKey))
   // TanStack applies deletes optimistically, so snapshot the iterator before mutating it.
-  const existingKeys = Array.from(collection.keys())
-  for (const key of existingKeys) {
-    if (!incoming.has(key)) mutations.push(collection.delete(key))
-  }
+  const deletedKeys = Array.from(collection.keys()).filter((key) => !incoming.has(key))
+  if (deletedKeys.length) mutations.push(collection.delete(deletedKeys))
+  const insertedRows: T[] = []
+  const updatedRows: T[] = []
   for (const row of rows) {
-    const key = getKey(row)
-    if (collection.get(key)) {
-      mutations.push(collection.update(key, (draft) => merge(draft, row)))
-    } else {
-      mutations.push(collection.insert(row))
-    }
+    if (collection.get(getKey(row))) updatedRows.push(row)
+    else insertedRows.push(row)
   }
+  // The local-storage adapter rewrites its whole collection per transaction, so each
+  // operation kind moves as one batch instead of one serialization per row.
+  if (updatedRows.length) {
+    mutations.push(collection.update(
+      updatedRows.map(getKey),
+      (drafts) => drafts.forEach((draft, index) => merge(draft, updatedRows[index]!)),
+    ))
+  }
+  if (insertedRows.length) mutations.push(collection.insert(insertedRows))
   await Promise.all(mutations.map((mutation) => mutation.isPersisted.promise))
 }
 
@@ -184,32 +189,19 @@ async function replaceLiveTickers(
   preserveNewerMarketFields = false,
   replaceExisting = false,
 ): Promise<void> {
-  const mutations: PersistedMutation[] = []
-  const incoming = new Set(rows.map((ticker) => ticker.symbol))
-  const existingKeys = Array.from(tickerCollection.keys())
-  for (const key of existingKeys) {
-    if (!incoming.has(key)) mutations.push(tickerCollection.delete(key))
-  }
-  for (const ticker of rows) {
-    if (!tickerCollection.get(ticker.symbol)) {
-      mutations.push(tickerCollection.insert(ticker))
-      continue
+  await replaceRows(tickerCollection, rows, (ticker) => ticker.symbol, (draft, ticker) => {
+    if (replaceExisting) {
+      Object.assign(draft, ticker)
+      return
     }
-    mutations.push(tickerCollection.update(ticker.symbol, (draft) => {
-      if (replaceExisting) {
-        Object.assign(draft, ticker)
-        return
-      }
-      const sparkline = reconcileCandleSeries(draft.sparkline, ticker.sparkline)
-      if (preserveNewerMarketFields && Date.parse(draft.updatedAt) > Date.parse(ticker.updatedAt)) {
-        const { change, changePercent, price, updatedAt } = draft
-        Object.assign(draft, ticker, { change, changePercent, price, sparkline, updatedAt })
-        return
-      }
-      Object.assign(draft, ticker, { sparkline })
-    }))
-  }
-  await Promise.all(mutations.map((mutation) => mutation.isPersisted.promise))
+    const sparkline = reconcileCandleSeries(draft.sparkline, ticker.sparkline)
+    if (preserveNewerMarketFields && Date.parse(draft.updatedAt) > Date.parse(ticker.updatedAt)) {
+      const { change, changePercent, price, updatedAt } = draft
+      Object.assign(draft, ticker, { change, changePercent, price, sparkline, updatedAt })
+      return
+    }
+    Object.assign(draft, ticker, { sparkline })
+  })
 }
 
 async function hydrateCollectionsImmediately(snapshot: MarketSnapshot, audience: SnapshotAudience) {
@@ -329,10 +321,11 @@ export async function syncFromCloud(
   isCurrent: () => boolean = () => true,
   audience: SnapshotAudience = 'owner',
 ): Promise<MarketSnapshot> {
-  const response = await fetch(audience === 'owner' ? '/api/snapshot' : '/api/public-snapshot', {
-    headers: { Accept: 'application/json' },
-    signal,
-  })
+  // The root document preloads the public snapshot as a fetch. Any extra request header
+  // here would miss that preload and refetch it, so the public read sends none.
+  const response = audience === 'owner'
+    ? await fetch('/api/snapshot', { headers: { Accept: 'application/json' }, signal })
+    : await fetch('/api/public-snapshot', { signal })
   if (!response.ok) throw new Error(`Snapshot sync failed (${response.status})`)
   const snapshot = MarketSnapshotSchema.parse(await response.json())
   if (signal?.aborted || !isCurrent()) throw new DOMException('Snapshot was superseded', 'AbortError')

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, ArrowUpRight, Search, Settings2, Star } from 'lucide-react'
 import { matchSorter } from 'match-sorter'
 
@@ -24,7 +24,8 @@ import {
   catalystKindName,
   catalystLabel,
   catalystTimingLabel,
-  nextCatalystForSymbol,
+  marketDate,
+  nextCatalystsBySymbol,
   upcomingCatalystsForSymbol,
   type Catalyst,
 } from '../domain/catalyst'
@@ -268,6 +269,103 @@ function CatalystRunway({
   )
 }
 
+// A live quote replaces one ticker object at a time, so memoizing on the default shallow
+// prop compare keeps every other row off the render path. The screen passes only
+// referentially stable props, `now` included.
+const MarketTickerRow = memo(function MarketTickerRow({
+  catalyst,
+  isPinned,
+  isSelected,
+  now,
+  onSelectTicker,
+  onTogglePinned,
+  ticker,
+}: {
+  catalyst: Catalyst | undefined
+  isPinned: boolean
+  isSelected: boolean
+  now: Date
+  onSelectTicker: (symbol: string) => void
+  onTogglePinned: (symbol: string) => void
+  ticker: Ticker
+}) {
+  const verdict = volatilityVerdict(ticker)
+  const copy = verdictCopy[verdict]
+  const rangePosition = fiftyTwoWeekPosition(ticker)
+  const type = assetLabel(ticker)
+
+  return (
+    <TableRow data-state={isSelected ? 'selected' : undefined}>
+      <TableCell className="pin-cell">
+        <Button
+          aria-label={`${isPinned ? 'Unpin' : 'Pin'} ${ticker.symbol}`}
+          aria-pressed={isPinned}
+          className={cn('pin-button', isPinned && 'pinned')}
+          onClick={() => onTogglePinned(ticker.symbol)}
+          size="icon-sm"
+          type="button"
+          variant="ghost"
+        >
+          <Star aria-hidden="true" fill={isPinned ? 'currentColor' : 'none'} />
+        </Button>
+      </TableCell>
+      <TableCell className="instrument-cell">
+        <Button
+          aria-label={`${ticker.symbol}, ${ticker.name}, ${ticker.position ? 'held, ' : ''}${copy.label} option premium, IV rank ${formatMarketMetric(ticker.ivRank)}`}
+          aria-pressed={isSelected}
+          className="ticker-table-button"
+          onClick={() => onSelectTicker(ticker.symbol)}
+          type="button"
+          variant="ghost"
+        >
+          {/* `position` is false for every public reader, so this marker is owner-only by construction. */}
+          <span>
+            <strong>{ticker.symbol}</strong>
+            {type ? <small>{type}</small> : null}
+            {ticker.position ? <small className="held-marker">Held</small> : null}
+          </span>
+          <small>{ticker.name}</small>
+          {catalyst ? <small>{catalystLabel(catalyst, now)}</small> : null}
+        </Button>
+      </TableCell>
+      <TableCell className="market-cap-cell">
+        <strong>{compactMetric(ticker.marketCap, '$')}</strong>
+      </TableCell>
+      <TableCell className="price-cell">
+        <div className="price-session">
+          {/* Snapshot quotes carry two synthetic endpoints; only render a chart for a richer live candle series. */}
+          {ticker.sparkline.length > 2 ? <Sparkline points={ticker.sparkline} /> : null}
+          <span>
+            <strong>{formatMarketPrice(ticker.price)}</strong>
+            <small>{formatSignedMetric(ticker.changePercent, '%')}</small>
+          </span>
+        </div>
+        {rangePosition === undefined
+          ? <small>52w range unavailable</small>
+          : <Progress className="price-range" aria-label={`${Math.round(rangePosition)}% of 52-week range`} value={rangePosition} />}
+      </TableCell>
+      {/* tastytrade reports equity day share volume here, not 24-hour or option-contract volume. */}
+      <TableCell className="volume-cell">
+        <strong>{compactMetric(ticker.volume, '', ' shares')}</strong>
+      </TableCell>
+      <TableCell className={`premium-cell ${verdict}`}>
+        <strong>{copy.label}</strong>
+        <small>{formatMarketMetric(ticker.ivIndex)}% IV</small>
+        <small>{formatSignedMetric(ticker.ivIndex5DayChange, ' pts 5d')}</small>
+      </TableCell>
+      <TableCell className="rank-cell">
+        <strong>{formatMarketMetric(ticker.ivRank)}</strong>
+        <small>{formatMarketMetric(ticker.ivPercentile)} pct</small>
+      </TableCell>
+      <TableCell className="liquidity-cell">
+        <strong>{formatMarketMetric(ticker.liquidity)}/5</strong>
+        <small>{ticker.lendability ?? 'Lendability unavailable'}</small>
+        <small>{ticker.borrowRate === undefined ? 'Rate unavailable' : `${formatBorrowRate(ticker.borrowRate)} borrow`}</small>
+      </TableCell>
+    </TableRow>
+  )
+})
+
 export function MarketScreen({
   activeWatchlist,
   catalysts,
@@ -289,7 +387,12 @@ export function MarketScreen({
   selected: Ticker
   tickers: Ticker[]
 }) {
-  const now = new Date()
+  const marketDay = marketDate()
+  // Every catalyst label here is day-granular, so the screen's clock advances only with the
+  // New York market date: a `now` rebuilt on each render would re-render every memoized row
+  // for labels that cannot have changed. Midday UTC falls on the same New York day, so this
+  // anchor reads back as `marketDay`.
+  const now = useMemo(() => new Date(`${marketDay}T12:00:00Z`), [marketDay])
   const [sort, setSort] = useState<{ direction: SortDirection; key: SortKey }>({ direction: 'desc', key: 'volume' })
   const [query, setQuery] = useState('')
   const pinned = new Set(pinnedSymbols)
@@ -304,6 +407,7 @@ export function MarketScreen({
     Number(pinned.has(right.symbol)) - Number(pinned.has(left.symbol))
     || compareBySort(left, right, sort)
     || left.symbol.localeCompare(right.symbol))
+  const nextCatalysts = nextCatalystsBySymbol(catalysts, now)
   const toggleSort = (column: typeof SORT_COLUMNS[number]) => {
     setSort((current) => current.key === column.key
       ? { direction: current.direction === 'asc' ? 'desc' : 'asc', key: column.key }
@@ -410,84 +514,18 @@ export function MarketScreen({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {watchTickers.map((ticker) => {
-              const catalyst = nextCatalystForSymbol(ticker.symbol, catalysts, now)
-              const verdict = volatilityVerdict(ticker)
-              const copy = verdictCopy[verdict]
-              const isPinned = pinned.has(ticker.symbol)
-              const rangePosition = fiftyTwoWeekPosition(ticker)
-              const type = assetLabel(ticker)
-              return (
-                <TableRow data-state={ticker.symbol === selected.symbol ? 'selected' : undefined} key={ticker.symbol}>
-                  <TableCell className="pin-cell">
-                    <Button
-                      aria-label={`${isPinned ? 'Unpin' : 'Pin'} ${ticker.symbol}`}
-                      aria-pressed={isPinned}
-                      className={cn('pin-button', isPinned && 'pinned')}
-                      onClick={() => onTogglePinned(ticker.symbol)}
-                      size="icon-sm"
-                      type="button"
-                      variant="ghost"
-                    >
-                      <Star aria-hidden="true" fill={isPinned ? 'currentColor' : 'none'} />
-                    </Button>
-                  </TableCell>
-                  <TableCell className="instrument-cell">
-                    <Button
-                      aria-label={`${ticker.symbol}, ${ticker.name}, ${ticker.position ? 'held, ' : ''}${copy.label} option premium, IV rank ${formatMarketMetric(ticker.ivRank)}`}
-                      aria-pressed={ticker.symbol === selected.symbol}
-                      className="ticker-table-button"
-                      onClick={() => onSelectTicker(ticker.symbol)}
-                      type="button"
-                      variant="ghost"
-                    >
-                      {/* `position` is false for every public reader, so this marker is owner-only by construction. */}
-                      <span>
-                        <strong>{ticker.symbol}</strong>
-                        {type ? <small>{type}</small> : null}
-                        {ticker.position ? <small className="held-marker">Held</small> : null}
-                      </span>
-                      <small>{ticker.name}</small>
-                      {catalyst ? <small>{catalystLabel(catalyst, now)}</small> : null}
-                    </Button>
-                  </TableCell>
-                  <TableCell className="market-cap-cell">
-                    <strong>{compactMetric(ticker.marketCap, '$')}</strong>
-                  </TableCell>
-                  <TableCell className="price-cell">
-                    <div className="price-session">
-                      {/* Snapshot quotes carry two synthetic endpoints; only render a chart for a richer live candle series. */}
-                      {ticker.sparkline.length > 2 ? <Sparkline points={ticker.sparkline} /> : null}
-                      <span>
-                        <strong>{formatMarketPrice(ticker.price)}</strong>
-                        <small>{formatSignedMetric(ticker.changePercent, '%')}</small>
-                      </span>
-                    </div>
-                    {rangePosition === undefined
-                      ? <small>52w range unavailable</small>
-                      : <Progress className="price-range" aria-label={`${Math.round(rangePosition)}% of 52-week range`} value={rangePosition} />}
-                  </TableCell>
-                  {/* tastytrade reports equity day share volume here, not 24-hour or option-contract volume. */}
-                  <TableCell className="volume-cell">
-                    <strong>{compactMetric(ticker.volume, '', ' shares')}</strong>
-                  </TableCell>
-                  <TableCell className={`premium-cell ${verdict}`}>
-                    <strong>{copy.label}</strong>
-                    <small>{formatMarketMetric(ticker.ivIndex)}% IV</small>
-                    <small>{formatSignedMetric(ticker.ivIndex5DayChange, ' pts 5d')}</small>
-                  </TableCell>
-                  <TableCell className="rank-cell">
-                    <strong>{formatMarketMetric(ticker.ivRank)}</strong>
-                    <small>{formatMarketMetric(ticker.ivPercentile)} pct</small>
-                  </TableCell>
-                  <TableCell className="liquidity-cell">
-                    <strong>{formatMarketMetric(ticker.liquidity)}/5</strong>
-                    <small>{ticker.lendability ?? 'Lendability unavailable'}</small>
-                    <small>{ticker.borrowRate === undefined ? 'Rate unavailable' : `${formatBorrowRate(ticker.borrowRate)} borrow`}</small>
-                  </TableCell>
-                </TableRow>
-              )
-            })}
+            {watchTickers.map((ticker) => (
+              <MarketTickerRow
+                catalyst={nextCatalysts.get(ticker.symbol)}
+                isPinned={pinned.has(ticker.symbol)}
+                isSelected={ticker.symbol === selected.symbol}
+                key={ticker.symbol}
+                now={now}
+                onSelectTicker={onSelectTicker}
+                onTogglePinned={onTogglePinned}
+                ticker={ticker}
+              />
+            ))}
             {!watchTickers.length && (
               <TableRow>
                 <TableCell colSpan={8}>
