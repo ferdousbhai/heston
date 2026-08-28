@@ -15,6 +15,36 @@ function response(findings: unknown[], citations: string[]) {
   }
 }
 
+/**
+ * A Responses answer that actually searched X. The Responses API has no top-level
+ * `citations` field — that one belongs to chat completions and the xAI SDK — so the
+ * sources reach us as `url_citation` annotations, and X Search surfaces as a
+ * `custom_tool_call` rather than the `x_search_call` item type the docs name.
+ * https://docs.x.ai/developers/tools/citations
+ */
+function searchedResponse(findings: unknown[], annotations: string[], toolResults: string[] = [], searches = 4) {
+  return {
+    output: [
+      { type: 'custom_tool_call', name: 'x_semantic_search', call_id: 'xs_call_1', status: 'completed',
+        results: toolResults.map((url) => ({ url, title: 'Post' })) },
+      { type: 'message', content: [{
+        type: 'output_text', text: JSON.stringify({ findings }),
+        annotations: annotations.map((url, index) => ({
+          type: 'url_citation', url, start_index: 0, end_index: 1, title: String(index + 1),
+        })),
+      }] },
+    ],
+    usage: { server_side_tool_usage_details: { x_search_calls: searches } },
+  }
+}
+
+const FINDING = {
+  symbol: 'NVDA', kind: 'product-event', title: 'NVIDIA product event',
+  description: 'NVIDIA scheduled a product event focused on its next accelerator platform.',
+  date: '2026-09-01', timing: 'intraday', confidence: 'confirmed',
+  sourceUrl: 'https://x.com/nvidia/status/1234567890',
+}
+
 describe('Grok X catalyst boundary', () => {
   it('does not cap Grok native X Search tool calls', async () => {
     const fetcher = vi.fn<typeof fetch>(async (input, init) => {
@@ -27,6 +57,17 @@ describe('Grok X catalyst boundary', () => {
       expect(JSON.parse(headers.get('cf-aig-metadata') ?? '{}')).toMatchObject({
         app: 'spice', feature: 'x-catalyst-research', market_date: '2026-08-13',
       })
+      // The publication window has to reach back far enough to hold the post that
+      // announced an event still ahead of us; a few days of posts can only ever contain
+      // catalysts announced this week, which is why this sweep never emitted a candidate.
+      // to_date runs one day past today because the bound behaves exclusively in practice.
+      expect(request.tools).toEqual([{ type: 'x_search', from_date: '2026-02-14', to_date: '2026-08-14' }])
+      // X Search is the only tool offered, so a required tool call can only search X.
+      expect(request.tool_choice).toBe('required')
+      const prompt = JSON.stringify(request.input)
+      expect(prompt).toContain('publication window, not the event window')
+      // The forward event horizon stays 180 days and stays distinct from that window.
+      expect(prompt).toContain('2027-02-09')
       return Response.json(response([], []))
     })
 
@@ -58,6 +99,56 @@ describe('Grok X catalyst boundary', () => {
       source: 'Grok 4.6 X research', sourceUrl: cited,
     }])
     expect(result.rejected).toBe(2)
+  })
+
+  it('trusts the url_citation annotations a searched answer reports', () => {
+    const result = parseXCatalystResponse(
+      searchedResponse([FINDING], [FINDING.sourceUrl]),
+      ['NVDA'],
+      NOW,
+    )
+
+    expect(result.catalysts).toMatchObject([{ symbol: 'NVDA', sourceUrl: FINDING.sourceUrl }])
+    expect(result.citations).toBe(1)
+    expect(result.rejected).toBe(0)
+  })
+
+  it('trusts a source the X Search tool item reported', () => {
+    const result = parseXCatalystResponse(
+      searchedResponse([FINDING], [], [`${FINDING.sourceUrl}?s=20`]),
+      ['NVDA'],
+      NOW,
+    )
+
+    expect(result.catalysts).toMatchObject([{ sourceUrl: FINDING.sourceUrl }])
+  })
+
+  it('accepts the handle-less status URL form X Search cites', () => {
+    const cited = 'https://x.com/i/status/1975607901571199086'
+    const result = parseXCatalystResponse(
+      searchedResponse([{ ...FINDING, sourceUrl: cited }], [cited]),
+      ['NVDA'],
+      NOW,
+    )
+
+    expect(result.catalysts).toMatchObject([{ sourceUrl: cited }])
+  })
+
+  it('never lets the model certify its own source URL', () => {
+    // The findings document is one opaque string inside output_text, so the URL the model
+    // wrote there must never reach the trusted set, however the provider frames the payload.
+    const result = parseXCatalystResponse(searchedResponse([FINDING], []), ['NVDA'], NOW)
+
+    expect(result.catalysts).toEqual([])
+    expect(result.citations).toBe(0)
+    expect(result.rejected).toBe(1)
+  })
+
+  it('reports whether the provider actually ran an X search', () => {
+    // A run that accepts nothing is unreadable without this: it is what tells the owner
+    // whether Grok searched X and found nothing or answered without searching at all.
+    expect(parseXCatalystResponse(searchedResponse([], [], [], 7), ['NVDA'], NOW).searches).toBe(7)
+    expect(parseXCatalystResponse(response([], []), ['NVDA'], NOW).searches).toBeUndefined()
   })
 
   it('rejects a catalyst dated past the 180-day horizon', () => {
