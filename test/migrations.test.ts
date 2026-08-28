@@ -44,7 +44,6 @@ describe('brokerage action migrations', () => {
       '0012_codex_catalyst_confidence.sql', '0013_user_favorite_symbols.sql',
     ]) db.exec(await read(name))
 
-    // A class share stored in the old NASDAQ dot rendering, plus a plain symbol.
     db.exec(`
       INSERT INTO internal_watchlist_items
         (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
@@ -66,7 +65,6 @@ describe('brokerage action migrations', () => {
 
     db.exec(await read('0014_tastytrade_equity_symbology.sql'))
 
-    // Every dotted row survives in the broker's own notation, tick tiers included.
     expect(db.prepare('SELECT symbol FROM internal_watchlist_items ORDER BY symbol').all())
       .toEqual([{ symbol: 'BRK/B' }, { symbol: 'NVDA' }])
     expect(db.prepare('SELECT symbol FROM instrument_catalog').all()).toEqual([{ symbol: 'BRK/B' }])
@@ -90,7 +88,6 @@ describe('brokerage action migrations', () => {
       expect(() => insertItem.run(rejected)).toThrow()
     }
 
-    // The rebuilt favorites table still cascades away with its owning user row.
     db.prepare(`DELETE FROM "user" WHERE "id" = 'member-1'`).run()
     expect(db.prepare('SELECT count(*) AS count FROM user_favorite_symbols').get()).toEqual({ count: 0 })
     db.close()
@@ -106,8 +103,8 @@ describe('brokerage action migrations', () => {
         (id, status, payload_json, token_digest, created_at, expires_at)
        VALUES (?, ?, ?, 'digest', '2026-08-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z')`,
     )
-    // This kind was outside the original allowlist. Production had no duplicate
-    // in-flight row when 0005 was applied, so the immutable migration can replace it.
+    // Production had no duplicate in-flight row when 0005 was applied, so the
+    // immutable migration can replace 0001's kind-scoped in-flight index.
     insert.run('legacy-vertical', 'pending', JSON.stringify({ kind: 'place_vertical_spread_order' }))
 
     expect(() => db.exec(migration)).not.toThrow()

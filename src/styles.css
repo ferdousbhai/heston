@@ -6,10 +6,9 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Design system: dark options terminal.
- * One brand accent (--spice) plus the semantic verdict trio (--cheap/--fair-tone/--rich).
- * Data labels are 10px uppercase mono; body text 13px; one display moment per screen.
- * The cheap→fair→expensive premium axis is the visual signature — everything else stays flat.
+ * Design system: dark options terminal. One brand accent (--spice) plus the verdict
+ * trio (--cheap/--fair-tone/--rich); the cheap→fair→expensive premium axis is the
+ * visual signature and everything else stays flat.
  */
 :root {
   color-scheme: dark;
@@ -99,7 +98,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .auth-brand > span { display: grid; font-size: 17px; line-height: .85; font-weight: 850; letter-spacing: -.045em; }
 .auth-brand small { margin-top: 7px; color: #9699a2; font-size: 7px; letter-spacing: .28em; }
 .auth-copy { width: min(100%, 560px); align-self: end; padding: 56px 0 9vh; }
-/* The verdict-axis gradient is the product's signature; the auth page carries one echo of it. */
 .auth-copy h1::before { content: ""; display: block; width: 72px; height: 2px; margin-bottom: 30px; background: var(--axis-gradient); }
 .auth-copy h1 { margin: 0; font-size: clamp(46px, 14vw, 74px); line-height: .9; letter-spacing: -.07em; font-weight: 820; }
 .auth-copy h1 em { color: var(--spice); font-family: Georgia, "Times New Roman", serif; font-weight: 500; }
@@ -161,7 +159,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
 .market-screen { padding-bottom: 14px; }
 
-/* Upcoming-catalyst chips: symbol + event, verdict encoded by the leading dot. */
 .stories { padding: 10px 0; border-bottom: 1px solid var(--hairline); }
 .story-row { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 0 20px; }
 .story-row::-webkit-scrollbar { display: none; }
@@ -175,12 +172,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .story-catalyst.estimated { color: #d8a86f; }
 .story-empty[data-slot="empty"] { min-height: 36px; padding: 0; align-items: flex-start; justify-content: center; border: 0; color: var(--ink-muted); text-align: left; }
 
-/*
- * Instrument focus. The panel answers "what could re-rate this name" first:
- * the thesis and the dated runway are the reading, the premium verdict is a
- * gauge in the masthead, and the option metrics settle into a hairline tape
- * along the bottom.
- */
 .instrument-focus { padding: 20px 20px 0; border-bottom: 1px solid var(--hairline); }
 .selected-instrument { min-width: 0; }
 .selected-instrument p { max-width: 100%; margin: 5px 0 0; overflow: hidden; color: var(--ink-faint); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
@@ -193,13 +184,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .instrument-focus.rich .premium-verdict { color: var(--rich); }
 
 .focus-narrative { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--hairline); display: grid; gap: 22px; }
-/* Stacked, the two readings are separated by a rule; side by side, by the gutter. */
 .focus-narrative.with-thesis .focus-runway { padding-top: 20px; border-top: 1px solid var(--hairline); }
 .focus-eyebrow { min-height: 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .focus-eyebrow h3 { margin: 0; color: var(--spice); font: 9px/1 var(--mono); font-weight: 650; text-transform: uppercase; letter-spacing: .13em; }
 .focus-eyebrow > span { flex: 0 0 auto; color: var(--ink-faint); font: 9px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
 
-/* The thesis headline is the panel's one display moment. */
 .thesis-headline { margin: 12px 0 0; font-size: clamp(20px, 5.4vw, 25px); font-weight: 760; line-height: 1.14; letter-spacing: -.035em; }
 .thesis-body { margin: 10px 0 0; max-width: 54ch; color: #adafb7; font-size: 12px; line-height: 1.62; }
 .thesis-risk, .thesis-play { margin: 12px 0 0; padding-top: 11px; border-top: 1px solid var(--hairline); font-size: 11px; line-height: 1.55; }
@@ -213,7 +202,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .thesis-sources a:hover, .thesis-sources a:focus-visible, .runway-body > a:hover, .runway-body > a:focus-visible { color: var(--text); }
 .thesis-sources svg, .runway-body > a svg { width: 10px; height: 10px; flex: 0 0 auto; }
 
-/* Runway: a dated rail. Marker filled = confirmed date, hollow = estimated. */
 .runway { margin: 14px 0 0; padding: 0; list-style: none; }
 .runway-event { position: relative; display: grid; grid-template-columns: 52px 10px minmax(0, 1fr); column-gap: 13px; padding-bottom: 20px; }
 .runway-event:last-child { padding-bottom: 0; }
@@ -239,11 +227,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .runway-empty strong { color: var(--text); }
 .runway-more { margin: 12px 0 0; padding-top: 11px; border-top: 1px solid var(--hairline); color: var(--ink-faint); font: 9px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
 
-/*
- * Secondary block. Signals wrap in a grid keyed by the tone square, and the tape
- * beneath them runs as text: cells separate with a middot rather than rules, so a
- * sparsely reported instrument leaves no gaps and any wrap width reads evenly.
- */
 .focus-secondary { width: 100%; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--hairline); }
 .signal-list { margin: 12px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px 24px; }
 .signal { position: relative; min-width: 0; padding-left: 16px; }
@@ -445,7 +428,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .watchlist-member span { overflow: hidden; color: var(--ink-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .watchlist-empty { min-height: 90px; margin: 0; display: grid; place-items: center; color: var(--ink-muted); font-size: 11px; }
 
-/* Product-level composition for the installed shadcn primitives. */
 .app-shell[data-slot="tabs"] { display: block; gap: 0; }
 .market-state-loading { width: min(100%, 260px); display: flex; flex-direction: column; gap: 10px; }
 .market-state-loading [data-slot="skeleton"]:first-child { width: 54%; height: 13px; margin-inline: auto; }
@@ -530,7 +512,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .watchlist-member [data-slot="item-title"] { font-size: 13px; }
 .watchlist-member [data-slot="item-description"] { color: var(--ink-muted); font-size: 10px; }
 
-/* Desktop: frameless terminal. Market becomes two columns; nav docks as a top-center pill. */
 @media (min-width: 960px) {
   .auth-shell { padding-inline: max(7vw, 42px); }
   .auth-copy { padding-bottom: 12vh; }
@@ -545,12 +526,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
   .story-row { padding-inline: 24px; }
 
-  /* Masthead spans the panel; thesis and runway read side by side beneath it. */
   .instrument-focus { padding: 22px 24px 2px; }
   .focus-narrative.with-thesis { grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); column-gap: 0; }
   .focus-narrative.with-thesis .focus-thesis { padding-right: clamp(28px, 3.6vw, 60px); }
   .focus-narrative.with-thesis .focus-runway { padding: 0 0 0 clamp(28px, 3.6vw, 60px); border-top: 0; border-left: 1px solid var(--hairline); }
-  /* Flags read across the full width, so the desktop layout only widens their columns. */
   .signal-list { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
 
   .watch-table { padding: 24px 24px 16px; }

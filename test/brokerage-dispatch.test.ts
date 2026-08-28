@@ -12,7 +12,6 @@ const guards = {
 
 const broker = stubBroker()
 
-/** One handle over both stand-ins, so the tests below read as a single broker session. */
 const mocks = { ...broker, ...guards }
 
 beforeEach(() => {

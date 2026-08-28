@@ -39,7 +39,6 @@ export async function executeWatchlistAction(
   }
 }
 
-/** A narrow seam keeps direct-action tests faithful without replacing D1 globally. */
 const watchlistWriterSeam = defineSeam(() => ({ executeWatchlistAction }))
 
 export type WatchlistWriter = SeamValue<typeof watchlistWriterSeam>

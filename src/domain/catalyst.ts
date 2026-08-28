@@ -67,11 +67,6 @@ export function daysUntilCatalyst(catalyst: Catalyst, now = new Date()): number 
   return epochDay(catalyst.date) - epochDay(marketDate(now))
 }
 
-/**
- * Every dated event still ahead of the symbol, nearest first. The detail view
- * shows the whole runway rather than only the next row, because a re-rating is
- * usually judged against the sequence of what is coming, not a single date.
- */
 export function upcomingCatalystsForSymbol(
   symbol: string,
   catalysts: readonly Catalyst[],
@@ -119,19 +114,16 @@ export function catalystKindName(kind: Catalyst['kind']): string {
   return KIND_NAMES[kind]
 }
 
-/** Ordered by the same materiality priority the runway sorts ties with. */
 export const CATALYST_KIND_NAMES: readonly string[] = CatalystKindSchema.options
   .slice()
   .sort((left, right) => KIND_PRIORITY[left] - KIND_PRIORITY[right])
   .map((kind) => KIND_NAMES[kind])
 
-/** Short mono countdown for the runway rail; the full date sits beside it. */
 export function catalystCountdown(catalyst: Catalyst, now = new Date()): string {
   const days = daysUntilCatalyst(catalyst, now)
   return days <= 0 ? 'TODAY' : `${days}D`
 }
 
-/** `unknown` timing is absent rather than guessed, so it renders nothing. */
 export function catalystTimingLabel(timing: Catalyst['timing']): string | undefined {
   return ({
     'pre-market': 'Pre-market', intraday: 'Intraday', 'after-hours': 'After hours', unknown: undefined,

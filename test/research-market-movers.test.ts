@@ -18,12 +18,10 @@ function quote(symbol: string, changePercent: number) {
   }
 }
 
-/** Yahoo stamps screener quotes with their own observation time, in epoch seconds. */
 function observedQuote(symbol: string, changePercent: number, observedAt: string) {
   return { ...quote(symbol, changePercent), regularMarketTime: Date.parse(observedAt) / 1_000 }
 }
 
-/** The weekday research job fires one second after the 09:30 New York open. */
 const JUST_AFTER_THE_OPEN = new Date('2026-08-27T13:30:31.000Z')
 
 describe('market-mover research', () => {
@@ -79,10 +77,6 @@ describe('market-mover research', () => {
   })
 
   it('drops a symbol the domain schema would later refuse rather than admitting it', async () => {
-    // MarketMoverInsightSchema parses these symbols again downstream and throws
-    // on a miss, so a looser ingest rule here would take the required daily job
-    // down from a best-effort source. `BRK-B` is the screener's own dash rendering
-    // of a class share, which is not tastytrade symbology and must not be admitted.
     const provider: MarketMoverProvider = {
       screen: async (category) => ({
         quotes: category === 'gainer' ? [quote('BRK-B', 9.1), quote('NVDA', 7.5)] : [],
@@ -96,10 +90,6 @@ describe('market-mover research', () => {
   })
 
   it('drops a screen quote whose change contradicts the screen it came from', async () => {
-    // Production Daily Read, 09:30:31 ET: Yahoo still served the prior session's
-    // regularMarket fields, so `day_gainers` returned ANF at -3.26% and BHVN at
-    // -0.42%, and `day_losers` returned GENB at +3.28%. A shipped mover's
-    // category must never contradict the sign of its own changePercent.
     const provider: MarketMoverProvider = {
       screen: async (category) => ({
         quotes: category === 'gainer'
@@ -156,8 +146,6 @@ describe('market-mover research', () => {
   })
 
   it('drops a quote observed in the prior New York session even when its sign agrees', async () => {
-    // WBS shipped as a most active with 91.3M shares — 15x its three-month
-    // average — one second after the open, because that was Tuesday's volume.
     const provider: MarketMoverProvider = {
       screen: async (category) => ({
         quotes: category === 'most-active'

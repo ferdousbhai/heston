@@ -67,7 +67,6 @@ export async function runScheduledJob(
   }
 }
 
-/** One dispatch boundary shared by Cron and the owner-only run-now endpoint. */
 export function runScheduledJobKind(
   env: AppEnv,
   kind: ScheduledJobKind,

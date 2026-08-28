@@ -14,8 +14,7 @@ const SOURCE = 'Grok 4.6 X research'
 const MAX_RESPONSE_BYTES = 2_000_000
 const MAX_SYMBOLS = 40
 
-/** How far ahead an accepted catalyst may be scheduled. */
-const HORIZON_DAYS = 180
+const CATALYST_HORIZON_DAYS = 180
 
 /**
  * How far back the X Search corpus reaches, measured in post publication dates.
@@ -39,14 +38,10 @@ const SEARCH_LOOKBACK_DAYS = 180
  */
 const REQUEST_TIMEOUT_MS = 7 * 60_000
 
-/** A provider payload cannot make the citation walk do unbounded work. */
 const MAX_CITATION_NODES = 50_000
 
-/**
- * Research only owner-private lists; public projections never widen the model's scope.
- * Active positions need no separate branch: the owner snapshot syncs them into the D1
- * internal watchlist under the `position-sync` origin, so the private list covers them.
- */
+// Research only the maintained private list; public projections and current
+// account positions never widen the model's scope.
 export function catalystResearchSymbols(watchlists: readonly { kind: string; symbols: readonly string[] }[]): string[] {
   return [...new Set(watchlists
     .filter((watchlist) => watchlist.kind === 'private')
@@ -68,16 +63,15 @@ function withoutInlineCitations(value: string): string {
   return value.replace(/\[\[\d+\]\](?:\([^\s)]*\))?/g, '').replace(/[ \t]{2,}/g, ' ')
 }
 
-/** Prose the model wrote, cleaned of inline citation markdown before any bound applies. */
-function citedProse(max: number) {
+function cleanedModelProseSchema(max: number) {
   return z.string().transform(withoutInlineCitations).pipe(z.string().trim().min(1).max(max))
 }
 
 const FindingSchema = z.object({
   symbol: z.string(),
   kind: CatalystKindSchema.exclude(['earnings']),
-  title: citedProse(160),
-  description: citedProse(500),
+  title: cleanedModelProseSchema(160),
+  description: cleanedModelProseSchema(500),
   date: z.string(),
   timing: z.enum(['pre-market', 'intraday', 'after-hours', 'unknown']),
   confidence: z.enum(['confirmed', 'estimated']),
@@ -86,8 +80,7 @@ const FindingSchema = z.object({
 
 const FindingsSchema = z.object({ findings: z.array(FindingSchema).max(100) })
 
-/** Model output text is compared verbatim, so it is never trimmed on the way in. */
-const ModelTextSchema = z.string()
+const VerbatimModelTextSchema = z.string()
 
 export type XCatalystResult = { catalysts: Catalyst[]; rejected: number }
 
@@ -97,7 +90,7 @@ function addDays(date: string, days: number): string {
 }
 
 export function canonicalXPostUrl(value: JsonValue): string | undefined {
-  const raw = ModelTextSchema.safeParse(value).data
+  const raw = VerbatimModelTextSchema.safeParse(value).data
   if (raw === undefined) return undefined
   try {
     const url = new URL(raw)
@@ -166,7 +159,7 @@ function citationUrls(payload: JsonValue): Set<string> {
 function outputText(payload: JsonValue): string | undefined {
   for (const item of (JsonArraySchema.safeParse(jsonObjectOrEmpty(payload).output).data ?? []).map(jsonObjectOrEmpty)) {
     for (const content of (JsonArraySchema.safeParse(item.content).data ?? []).map(jsonObjectOrEmpty)) {
-      const text = ModelTextSchema.safeParse(content.text).data
+      const text = VerbatimModelTextSchema.safeParse(content.text).data
       if (content.type === 'output_text' && text !== undefined) return text
     }
   }
@@ -222,7 +215,7 @@ export function parseXCatalystResponse(
   const citations = citationUrls(payload)
   const symbols = new Set(allowedSymbols.map((symbol) => symbol.toUpperCase()))
   const today = marketDate(now)
-  const horizon = addDays(today, HORIZON_DAYS)
+  const horizon = addDays(today, CATALYST_HORIZON_DAYS)
   const accepted = new Map<string, Catalyst>()
   for (const finding of findings) {
     const symbol = finding.symbol.toUpperCase()
@@ -282,7 +275,7 @@ export async function discoverXCatalysts(
   ])
   const today = marketDate(now)
   const searchFrom = addDays(today, -SEARCH_LOOKBACK_DAYS)
-  const horizon = addDays(today, HORIZON_DAYS)
+  const horizon = addDays(today, CATALYST_HORIZON_DAYS)
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
   try {

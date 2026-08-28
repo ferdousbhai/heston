@@ -96,13 +96,11 @@ export function buildExpiryAwareness(positions: readonly BrokeragePosition[], no
 type AgentMarketTicker = Pick<Ticker,
   'changePercent' | 'earningsDate' | 'ivIndex' | 'ivPercentile' | 'ivRank' | 'liquidity' | 'marketCap' | 'price' | 'symbol' | 'volume'>
 
-/** The market slice of Dan's runtime context, keyed by the symbols his positions actually touch. */
 type AgentMarketContext = {
   marketMetrics?: Record<string, Omit<AgentMarketTicker, 'symbol'>>
   selectedSymbol?: string
 }
 
-/** Positions as Dan sees them: the stored position with absent optional fields left out. */
 function agentPosition(position: BrokeragePosition): BrokeragePosition {
   const projected: BrokeragePosition = {
     direction: position.direction,
@@ -116,7 +114,6 @@ function agentPosition(position: BrokeragePosition): BrokeragePosition {
   return projected
 }
 
-/** A collection page whose rows must all be objects; anything else fails the section closed. */
 function strictItems(value: JsonValue): JsonObject[] {
   const candidate = envelopeRows(value)
   if (!candidate) throw new Error('TastytradeAccount:invalid-collection')
@@ -264,7 +261,6 @@ export async function loadBrokerageContext(env: AppEnv): Promise<BrokerageContex
   }
 }
 
-/** Keep model context factual and compact while retaining the account data needed for brokerage actions. */
 export function buildAgentRuntimeContext(
   context: BrokerageContext | undefined,
   tickers: readonly AgentMarketTicker[] = [],

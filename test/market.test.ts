@@ -43,7 +43,6 @@ describe('volatility classification', () => {
 })
 
 describe('instrument signals', () => {
-  // SPY otherwise sits at 97% of its 52-week range; widen it so every reading is in-band.
   const quiet = { ...marketTickersFixture.find((ticker) => ticker.symbol === 'SPY')!, yearHigh: 900 }
 
   it('flags nothing for an instrument inside every band', () => {

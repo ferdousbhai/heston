@@ -45,7 +45,6 @@ function catalystUpsertStatements(
   return statements
 }
 
-/** An upcoming, visible tastytrade earnings date, or undefined. */
 function upcomingEarningsDate(earnings: JsonObject, today: string): string | undefined {
   if (earnings.visible === false) return undefined
   const candidate = jsonText(earnings['expected-report-date'])
@@ -66,7 +65,6 @@ function earningsTiming(value: JsonValue): Catalyst['timing'] {
   return 'unknown'
 }
 
-/** Normalize only upcoming earnings returned by tastytrade market metrics. */
 export function catalystsFromMarketMetrics(metrics: readonly JsonObject[], now = new Date()): Catalyst[] {
   const observedAt = now.toISOString()
   const today = marketDate(now)

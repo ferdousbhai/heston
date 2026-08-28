@@ -72,7 +72,6 @@ function tickSizes(value: JsonValue, kind: InstrumentTickSize['kind']): Instrume
   })
 }
 
-/** Parse the complete interesting subset of tastytrade's documented Equity model. */
 export function instrumentCatalogFromPayload(
   payload: JsonValue,
   requestedSymbols: readonly string[],

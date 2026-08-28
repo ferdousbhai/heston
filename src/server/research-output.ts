@@ -63,8 +63,7 @@ const GeneratedRedditCatalystResponseSchema = z.object({
 
 export type GeneratedResearch = z.infer<typeof GeneratedResearchSchema>
 
-/** Model output text is compared verbatim, so it is never trimmed on the way in. */
-const ModelTextSchema = z.string()
+const VerbatimModelTextSchema = z.string()
 
 export function addDays(date: string, days: number): string {
   const [year, month, day] = date.split('-').map(Number)
@@ -252,17 +251,17 @@ function extractJson(response: string, label: string): JsonValue {
 
 function modelOutputText(payload: JsonValue): string | undefined {
   const body = jsonObjectOrEmpty(payload)
-  const direct = ModelTextSchema.safeParse(body.output_text ?? body.response).data
+  const direct = VerbatimModelTextSchema.safeParse(body.output_text ?? body.response).data
   if (direct !== undefined) return direct
   if (jsonObject(body.response)) return JSON.stringify(body.response)
 
   for (const choice of (JsonArraySchema.safeParse(body.choices).data ?? []).map(jsonObjectOrEmpty)) {
-    const content = ModelTextSchema.safeParse(jsonObjectOrEmpty(choice.message).content).data
+    const content = VerbatimModelTextSchema.safeParse(jsonObjectOrEmpty(choice.message).content).data
     if (content !== undefined) return content
   }
   for (const item of (JsonArraySchema.safeParse(body.output).data ?? []).map(jsonObjectOrEmpty)) {
     for (const content of (JsonArraySchema.safeParse(item.content).data ?? []).map(jsonObjectOrEmpty)) {
-      const text = ModelTextSchema.safeParse(content.text).data
+      const text = VerbatimModelTextSchema.safeParse(content.text).data
       if (content.type === 'output_text' && text !== undefined) return text
     }
   }
@@ -270,7 +269,7 @@ function modelOutputText(payload: JsonValue): string | undefined {
 }
 
 function normalizeDirection(value: JsonValue): JsonValue {
-  const raw = ModelTextSchema.safeParse(value).data
+  const raw = VerbatimModelTextSchema.safeParse(value).data
   if (raw === undefined) return value
   const direction = raw.toLowerCase()
   if (direction.includes('bull') || direction.includes('upside') || direction === 'positive') return 'bullish'
@@ -392,7 +391,6 @@ function redditPostId(url: string): string | undefined {
   }
 }
 
-/** Bind model candidates to a watched symbol and the exact same-symbol Reddit post selected by code. */
 export function redditCatalystsFromCandidates(
   value: JsonValue,
   evidence: readonly ResearchSourceItem[],
@@ -423,7 +421,6 @@ export function redditCatalystsFromCandidates(
   return [...accepted.values()]
 }
 
-/** Cite the fetched article when it supplied the evidence, not its aggregator row. */
 function evidenceSourceLink(source: ResearchSourceItem): ResearchBrief['sources'][number] {
   return source.outbound
     ? { label: source.outbound.label, url: source.outbound.url }

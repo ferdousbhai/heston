@@ -180,8 +180,6 @@ describe('order confirmation draft', () => {
       ...unsupportedDatabase(),
       prepare: (sql: string) => ({
         ...unsupportedStatement(),
-        // The reconciliation sweep and the recent-trade probe both find nothing,
-        // which leaves the insert as the only statement carrying an expiry.
         first: async () => null,
         run: async () => d1Result([], 0),
         bind: (...values: unknown[]) => ({

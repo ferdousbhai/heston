@@ -12,7 +12,6 @@ function part(parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTyp
   return parts.find((candidate) => candidate.type === type)?.value ?? ''
 }
 
-/** Stable, machine-readable New York wall-clock facts for each agent turn and scheduled run. */
 export function newYorkClock(now = new Date()): NewYorkClock {
   if (!Number.isFinite(now.getTime())) throw new Error('New York clock requires a valid date.')
   const dateParts = new Intl.DateTimeFormat('en-CA', {

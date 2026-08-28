@@ -68,7 +68,6 @@ export async function authorizePersonalRequest(
   return undefined
 }
 
-/** Maps a failure decoded by `toError` onto a message that is safe to show a caller. */
 export function publicError(error: Error | undefined): string {
   if (!error) return 'Request failed'
   if (error.message.includes('expired')) return 'This confirmation has expired'

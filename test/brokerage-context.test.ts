@@ -21,7 +21,6 @@ const balance = {
   'net-liquidating-value': '100000',
 }
 
-/** Every mocked collection endpoint answers with a `data.items` page. */
 type BrokerPage = { data: { items: JsonValue[] } }
 
 function pageFor(path: string): BrokerPage {

@@ -13,7 +13,6 @@
 
 DROP VIEW public_market_overview;
 
--- Maintained live watchlist rows.
 DROP INDEX internal_watchlist_items_updated;
 ALTER TABLE internal_watchlist_items RENAME TO internal_watchlist_items_pre_symbology;
 
@@ -130,7 +129,6 @@ DROP TABLE instrument_catalog_pre_symbology;
 CREATE INDEX instrument_catalog_status_refresh
   ON instrument_catalog(status_refreshed_at ASC, symbol ASC);
 
--- tastytrade market metrics.
 DROP INDEX tastytrade_market_metrics_observed;
 ALTER TABLE tastytrade_market_metrics RENAME TO tastytrade_market_metrics_pre_symbology;
 
@@ -173,7 +171,6 @@ DROP TABLE tastytrade_market_metrics_pre_symbology;
 CREATE INDEX tastytrade_market_metrics_observed
   ON tastytrade_market_metrics(observed_at DESC, symbol ASC);
 
--- tastytrade delayed quotes.
 DROP INDEX tastytrade_market_quotes_observed;
 ALTER TABLE tastytrade_market_quotes RENAME TO tastytrade_market_quotes_pre_symbology;
 
@@ -208,7 +205,6 @@ DROP TABLE tastytrade_market_quotes_pre_symbology;
 CREATE INDEX tastytrade_market_quotes_observed
   ON tastytrade_market_quotes(observed_at DESC, symbol ASC);
 
--- Per-member source-neutral favorites. The cascade to the owning user row is preserved.
 ALTER TABLE user_favorite_symbols RENAME TO user_favorite_symbols_pre_symbology;
 
 CREATE TABLE user_favorite_symbols (

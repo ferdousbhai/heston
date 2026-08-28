@@ -17,9 +17,8 @@ describe('Dan Markets-notes doctrine', () => {
     expect(DAN_SYSTEM_PROMPT).toContain('Correct direction can still lose')
   })
 
-  // Dan can name a strike and an expiry that no chain lists; the Daily Read shipped
-  // exactly that. Nothing downstream inspects free prose for a contract, so the rule
-  // that a recommendation follows a chain lookup lives only here.
+  // Nothing downstream inspects free prose for a contract, so the rule that a
+  // recommendation follows a chain lookup lives only in the doctrine.
   it('requires a current chain lookup before any specific contract is named', () => {
     expect(DAN_SYSTEM_PROMPT).toContain('A contract exists only if the current chain lists it')
     expect(DAN_SYSTEM_PROMPT).toContain('find that exact contract with the option-contract finder')

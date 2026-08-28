@@ -16,11 +16,6 @@ export function stubBrokerGate() {
   return { gate, namespace }
 }
 
-/**
- * A broker whose every call is a recorded fake, standing in for the live Tastytrade
- * API. Install it with `setBrokerApi` in `beforeEach` and undo it with `resetBrokerApi`
- * in `afterEach`; `satisfies BrokerApi` keeps the stub in step with the real contract.
- */
 export function stubBroker() {
   const renewBrokerMutationLease = vi.fn(async () => undefined)
   return {

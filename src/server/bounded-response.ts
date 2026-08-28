@@ -1,7 +1,6 @@
 import { toError } from '../domain/failure'
 import { type JsonValue } from '../domain/json-payload'
 
-/** Read an upstream response without allocating past the declared boundary. */
 export async function readBoundedText(response: Response, maxBytes: number, label: string): Promise<string> {
   const declared = Number(response.headers.get('Content-Length'))
   if (Number.isFinite(declared) && declared > maxBytes) {

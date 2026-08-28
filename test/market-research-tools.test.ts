@@ -53,7 +53,6 @@ function priceProvider(
   }
 }
 
-/** Yahoo daily bars are stamped at the exchange open, which stays inside the same UTC day. */
 function chartDate(date: string): Date {
   return new Date(`${date}T13:30:00.000Z`)
 }

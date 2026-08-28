@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Link the user-level systemd units into place and enable the timer.
 set -euo pipefail
 
 # readlink rather than cd+pwd: a cd hook that echoes the directory would end up in the link target.

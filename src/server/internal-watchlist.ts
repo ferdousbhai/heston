@@ -18,7 +18,6 @@ const MAX_SOURCE_LISTS_PER_KIND = 100
 const MAX_ENTRIES_PER_SOURCE = 5_000
 const MAX_TOTAL_SEED_ENTRIES = 50_000
 const MAX_INTERNAL_ITEMS = 10_000
-/** The cap on the private maintained list. The public projection derives its own bound from this. */
 export const MAX_MAINTAINED_ITEMS = 100
 
 /**
@@ -747,7 +746,6 @@ export async function readInternalWatchlistFocus(
   return focusFromStore(db, positionSymbols, limit)
 }
 
-/** The ungated focus read, for callers already holding the seed gate. */
 async function focusFromStore(
   db: D1Database,
   positionSymbols: readonly string[],
@@ -857,7 +855,6 @@ export async function readInternalWatchlistSeedAudit(env: AppEnv): Promise<Inter
   }
 }
 
-/** Narrow production seam for code paths whose primary concern is not D1 persistence. */
 const internalWatchlistWriterSeam = defineSeam(() => ({ ensureSymbols: ensureInternalWatchlistSymbols }))
 
 export type InternalWatchlistWriter = SeamValue<typeof internalWatchlistWriterSeam>

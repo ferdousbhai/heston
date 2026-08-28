@@ -47,7 +47,6 @@ function endDate(start: string, horizonDays: number): string {
   return date.toISOString().slice(0, 10)
 }
 
-/** Read only option-relevant catalysts. */
 export async function readCatalysts(
   env: AppEnv,
   requestedSymbols: readonly string[],

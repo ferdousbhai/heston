@@ -49,7 +49,6 @@ function safeHttpsUrl(value: string | undefined, baseUrl: string): string | unde
   }
 }
 
-/** Parse the small RSS/Atom subset used by the fixed official feeds. */
 export function parseResearchFeed(xml: string, feed: FeedDefinition): ResearchSourceItem[] {
   const rssItems = xml.match(/<item(?:\s[^>]*)?>[\s\S]*?<\/item>/gi) ?? []
   const atomItems = xml.match(/<entry(?:\s[^>]*)?>[\s\S]*?<\/entry>/gi) ?? []
@@ -90,11 +89,6 @@ export async function collectOfficialSources(fetcher: typeof fetch = fetch): Pro
   return results.flatMap((result) => result.status === 'fulfilled' ? result.value : [])
 }
 
-/**
- * The headline collection the daily brief depends on. Production goes through
- * `researchSources()` so a test can install a stand-in with `setResearchSources`
- * instead of replacing this module.
- */
 const researchSourceSeam = defineSeam(() => ({
   collectOfficialSources,
   collectRedditSources: collectRedditEvidence,
@@ -103,11 +97,8 @@ const researchSourceSeam = defineSeam(() => ({
 
 export type ResearchSources = SeamValue<typeof researchSourceSeam>
 
-/** The headline collection currently in force. */
 export const researchSources = researchSourceSeam.current
 
-/** Install a stand-in collector for a test; pair every call with `resetResearchSources()`. */
 export const setResearchSources = researchSourceSeam.set
 
-/** Restore the live headline collection. */
 export const resetResearchSources = researchSourceSeam.reset

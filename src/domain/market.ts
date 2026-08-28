@@ -193,7 +193,6 @@ const marketPriceFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
 })
 
-/** Prices live in the domain so a signal detail and the tape beside it never disagree on grouping. */
 export function formatMarketPrice(value: number): string {
   return marketPriceFormatter.format(value)
 }
@@ -238,7 +237,6 @@ const SIGNAL_BANDS = {
   thinLiquidityScore: 2,
 }
 
-/** Pluralize on the rounded figure the reader sees, so a displayed "1" never reads "1 pts". */
 function formatSignalPoints(value: number): string {
   const magnitude = formatMarketMetric(Math.abs(value))
   return `${magnitude} pt${magnitude === '1' ? '' : 's'}`

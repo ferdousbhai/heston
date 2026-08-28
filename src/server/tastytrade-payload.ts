@@ -69,7 +69,6 @@ export function isWorkingOrderRecord(row: JsonObject): boolean {
   return !TERMINAL_ORDER_STATUSES.has(status)
 }
 
-/** Broker identifiers arrive as strings or numbers and must stay short enough to log and index. */
 function id(value: JsonValue): string | undefined {
   const parsed = jsonLooseText(value)
   return parsed !== undefined && parsed.length <= 80 ? parsed : undefined
@@ -81,7 +80,6 @@ function requiredNumber(row: JsonObject, field: string): number {
   return parsed
 }
 
-/** Extract the complete compact balance set needed by Dan; partial records are unavailable. */
 export function accountBalancesFromPayload(payload: JsonValue, accountNumber: string): AccountBalances | undefined {
   const row = accountBalanceRecord(payload, accountNumber)
   if (!row) return undefined
@@ -133,7 +131,6 @@ function workingOrder(row: JsonObject, complexOrderId?: string): WorkingOrder {
   return order
 }
 
-/** Normalize either an ordinary order or the active children of a complex order. */
 export function workingOrderRecords(row: JsonObject): WorkingOrder[] {
   if (!isWorkingOrderRecord(row)) return []
   if (JsonArraySchema.safeParse(row.legs).success) return [workingOrder(row)]
@@ -158,7 +155,6 @@ export function workingOrderRecords(row: JsonObject): WorkingOrder[] {
   return nested.filter(isWorkingOrderRecord).map((order) => workingOrder(order, complexOrderId))
 }
 
-/** Normalize one canonical Trade transaction without fees or descriptive broker text. */
 export function tradeTransactionRecord(row: JsonObject): RecentTrade {
   const action = jsonText(row.action)
   const executedAt = jsonText(row['executed-at']) ?? jsonText(row['transaction-date'])

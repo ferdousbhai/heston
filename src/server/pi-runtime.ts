@@ -16,23 +16,14 @@ export type PiRuntime = {
   stream: StreamFunction
 }
 
-/**
- * The one call this codebase makes into the Pi Responses adapter. Production goes
- * through `responsesApi()` so a test can install a recording stand-in with
- * `setResponsesApi` instead of replacing the library module; the entry is the library
- * function itself, so the contract cannot drift from it.
- */
 const responsesApiSeam = defineSeam(() => ({ stream: streamOpenAIResponses }))
 
 export type ResponsesApi = SeamValue<typeof responsesApiSeam>
 
-/** The Responses transport currently in force. */
 const responsesApi = responsesApiSeam.current
 
-/** Install a stand-in transport for a test; pair every call with `resetResponsesApi()`. */
 export const setResponsesApi = responsesApiSeam.set
 
-/** Restore the live Pi Responses transport. */
 export const resetResponsesApi = responsesApiSeam.reset
 
 export function createPiRuntime(

@@ -19,8 +19,6 @@ describe('bounded upstream response reader', () => {
   })
 
   it('names the provider when an upstream body is malformed or truncated', async () => {
-    // Production evidence: a transiently truncated provider body failed a whole Daily
-    // Read run as a bare SyntaxError that identified neither provider nor endpoint.
     const truncated = new Response('{"catalysts":[{"symbol":"NVDA"', {
       headers: { 'Content-Type': 'application/json' },
     })

@@ -10,12 +10,10 @@ function unsupported(): never {
   throw new Error('UnsupportedD1Call')
 }
 
-/** Every `D1PreparedStatement` call, each one throwing until a test overrides it. */
 export function unsupportedStatement() {
   return { all: unsupported, bind: unsupported, first: unsupported, raw: unsupported, run: unsupported }
 }
 
-/** Every `D1Database` call, each one throwing until a test overrides it. */
 export function unsupportedDatabase() {
   return {
     batch: unsupported,
@@ -26,7 +24,6 @@ export function unsupportedDatabase() {
   }
 }
 
-/** A D1 result envelope. Callers read `results`, `success`, and `meta.changes`; the rest is filler. */
 export function d1Result<T>(results: T[], changes = 0): D1Result<T> {
   return {
     meta: {

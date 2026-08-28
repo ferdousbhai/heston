@@ -13,7 +13,6 @@ import { replacementOrderPayload, type OrderPayload } from './order-payload'
 import { brokerApi } from './tastytrade'
 import { tradeGuards } from './trade-guards'
 
-/** A dry-run receipt: the broker order id is present only once the order is actually placed. */
 export type OrderResponseReceipt = { id?: string; warnings: string[] }
 export type PlacedOrderReceipt = { id: string; warnings: string[] }
 export type ReplacementReceipt = { id: string }

@@ -4,10 +4,8 @@ type CloudflareSubtleCrypto = SubtleCrypto & {
   timingSafeEqual(left: ArrayBuffer | ArrayBufferView, right: ArrayBuffer | ArrayBufferView): boolean
 }
 
-/** Every temporary ops Worker is authorized by the same one-run bearer token binding. */
 export type OpsEnv = AppEnv & { OPS_AUTH_TOKEN?: string }
 
-/** Temporary ops Workers use a one-run bearer token and disclose no route on auth failure. */
 export async function authorizedOpsRequest(request: Request, expected: string | undefined): Promise<boolean> {
   const provided = request.headers.get('Authorization')?.match(/^Bearer (\S+)$/)?.[1]
   if (!expected || !provided) return false

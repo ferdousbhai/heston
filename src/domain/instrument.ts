@@ -21,7 +21,6 @@ import { z } from 'zod'
  */
 const EQUITY_SYMBOL_BODY = '[A-Z0-9]{1,6}(?:/[A-Z0-9]{1,3})?'
 
-/** Longest symbol the rule admits: a six-character root, the slash, and a three-character class. */
 export const MAX_EQUITY_SYMBOL_LENGTH = 10
 
 export const EQUITY_SYMBOL_PATTERN = `^${EQUITY_SYMBOL_BODY}$`
@@ -49,7 +48,6 @@ export const InstrumentTickSizeSchema = z.object({
 
 export type InstrumentTickSize = z.infer<typeof InstrumentTickSizeSchema>
 
-/** Typed, provider-neutral shape read by research and market rendering. */
 export const InstrumentCatalogItemSchema = z.object({
   active: OptionalBoolean,
   borrowRate: z.number().finite().nullable(),

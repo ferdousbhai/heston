@@ -66,7 +66,6 @@ describe('selected market context', () => {
     expect(html).not.toContain('Unrelated META thesis')
   })
 
-  // A re-rating is read off the whole runway, so every dated event shows, in order.
   it('lists every upcoming catalyst nearest first and drops past dates', () => {
     const snapshot = marketSnapshotFixture()
     const template = snapshot.catalysts[0]!

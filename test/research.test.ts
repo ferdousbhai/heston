@@ -69,11 +69,6 @@ function generatedResearch() {
   }
 }
 
-/**
- * One live chain row for the fixture play `NVDA 225c 10/16`. Every published idea is
- * resolved against the current chain, so the pipeline needs a real chain by default; the
- * chain-verification tests below narrow or fail this payload.
- */
 function chainRow(fields: Partial<{
   'expiration-date': string
   'option-type': 'C' | 'P'
@@ -100,7 +95,6 @@ function optionChain(...rows: ReturnType<typeof chainRow>[]) {
   return { data: { items: rows } }
 }
 
-/** The evidence trail an NVDA idea needs to survive symbol and citation binding. */
 function nvdaEvidence() {
   sources.collectRedditSources.mockResolvedValueOnce([{
     context: 'NVDA demand is drawing renewed attention.',
@@ -114,17 +108,14 @@ function nvdaEvidence() {
   }])
 }
 
-/** The user-turn prompt of the model call made with the named response schema. */
 function promptFor(run: Mock, name: string): string {
   return String(run.mock.calls.find((call) => call[1].text.format.name === name)?.[1].input[1].content)
 }
 
-/** The raw JSON a prompt embeds between a section label and the sentence that follows it. */
 function promptSection(prompt: string, label: string, next: string): string {
   return prompt.split(label)[1]!.split(next)[0]!
 }
 
-/** The raw JSON of the evidence packet embedded in the brief prompt, in the order the editor sees it. */
 function briefEvidencePacketJson(briefPrompt: string): string {
   return promptSection(briefPrompt, 'cite an item by copying its own index field: ', '. Recent ticker coverage')
 }
@@ -291,13 +282,9 @@ describe('daily intelligence pipeline', () => {
     const logged: unknown[] = info.mock.calls.map((call) => JSON.parse(String(call[0])))
     info.mockRestore()
 
-    // Nothing retains model output, so the run must record how many mover
-    // candidates the editor returned and how many survived deterministic binding.
     expect(logged).toContainEqual({
       event: 'DailyResearchMoversBound', bound: 1, candidates: 1, detected: 1, runId: expect.any(String),
     })
-    // A zero-idea brief is otherwise silent about whether the editor surfaced
-    // nothing or every thesis failed deterministic validation.
     expect(logged).toContainEqual({
       event: 'DailyResearchIdeasBound', bound: 1, candidates: 1, runId: expect.any(String),
     })
@@ -409,8 +396,6 @@ describe('daily intelligence pipeline', () => {
       '. A catalyst may be emitted',
     )
 
-    // The binders still resolve citations positionally, so an emitted index that
-    // is not the array position would silently rebind a citation to another item.
     expect(evidence.length).toBeGreaterThan(1)
     expect(evidence).toEqual(positions(evidence))
     expect(coverage.length).toBeGreaterThan(1)
@@ -418,8 +403,6 @@ describe('daily intelligence pipeline', () => {
     expect(redditEvidence.length).toBeGreaterThan(1)
     expect(redditEvidence).toEqual(positions(redditEvidence))
 
-    // The mover section addresses the same evidence array, so a row's listed
-    // indices must be the positions the binder resolves for that symbol.
     const detectedMovers = z.array(z.object({ evidenceIndices: z.array(z.number()), symbol: z.string() }))
       .parse(JSON.parse(promptSection(briefPrompt, 'you may cite for that move: ', '. Return title')))
     expect(detectedMovers).toEqual([{ evidenceIndices: [2], symbol: 'PLTR' }])
@@ -472,8 +455,6 @@ describe('daily intelligence pipeline', () => {
     info.mockRestore()
 
     expect(brief.ideas).toEqual([])
-    // An editor thesis that failed binding must not read like an editor that
-    // surfaced nothing; the brief itself retains no model output.
     expect(logged).toContainEqual({
       event: 'DailyResearchIdeasBound', bound: 0, candidates: 1, runId: expect.any(String),
     })
@@ -492,7 +473,6 @@ describe('daily intelligence pipeline', () => {
   })
 
   it('drops an idea whose strike or expiration the current chain does not list', async () => {
-    // A date-plausible play is still a fabrication when the chain has no such contract.
     nvdaEvidence()
     broker.tastyRequest.mockResolvedValueOnce(optionChain(chainRow({ 'strike-price': '230' })))
 
@@ -512,7 +492,6 @@ describe('daily intelligence pipeline', () => {
     const missingExpiration = await runDailyBrief()
 
     expect(missingExpiration.brief.ideas).toEqual([])
-    // A put at the same strike is a different contract than the call the play names.
     nvdaEvidence()
     broker.tastyRequest.mockResolvedValueOnce(optionChain(chainRow({ 'option-type': 'P' })))
 
@@ -520,8 +499,6 @@ describe('daily intelligence pipeline', () => {
   })
 
   it('drops the idea when the option chain cannot be read', async () => {
-    // tastytrade is a required input to this job, so an unverifiable play fails closed
-    // instead of publishing a date-validated guess.
     nvdaEvidence()
     broker.tastyRequest.mockRejectedValueOnce(new Error('TastytradeUnavailable'))
 
@@ -597,7 +574,6 @@ describe('daily intelligence pipeline', () => {
     expect(result).toContainEqual(expect.objectContaining({
       symbol: 'INTC', headline: UNCONFIRMED_MOVER_HEADLINE,
     }))
-    // The published fallback wording is a product string; changing it changes the brief.
     expect(UNCONFIRMED_MOVER_HEADLINE).toBe('Move detected; driver not established')
   })
 
@@ -623,7 +599,6 @@ describe('daily intelligence pipeline', () => {
 
     const packet = marketMoverPacket(evidence)
 
-    // One addressable row per detected move, carrying the exact citable indices.
     expect(packet.map((row) => [row.symbol, row.evidenceIndices])).toEqual([
       ['OKTA', [1, 2]], ['CRWD', [3]], ['HQY', [4]],
     ])
@@ -645,8 +620,6 @@ describe('daily intelligence pipeline', () => {
       { label: 'Reuters · Okta guidance lifts peers', url: evidence[2]!.outbound!.url },
     ])
 
-    // Addressable rows never loosen the symbol match: answering one row with
-    // another row's indices still falls back to the unconfirmed driver.
     const crossed = marketMoverInsightsFromCandidates(
       [{ ...answer[0]!, sourceIndices: packet[1]!.evidenceIndices }],
       evidence,
@@ -691,11 +664,9 @@ describe('daily intelligence pipeline', () => {
       plays.map((play) => ({ ...idea, play })), today, evidence, ['NVDA'],
     ).map((accepted) => accepted.play)
 
-    // A production brief shipped two plays expiring Sunday 2026-09-20.
     expect(acceptedPlays('2026-08-14', 'NVDA 225c 9/20', 'NVDA 225c 9/19', 'NVDA 225c 9/17')).toEqual([])
     expect(acceptedPlays('2026-08-14', 'NVDA 225c 9/18', 'NVDA 225c 10/16'))
       .toEqual(['NVDA 225c 9/18', 'NVDA 225c 10/16'])
-    // Christmas Day 2026 is a Friday, so that week's options expire Thursday 12/24.
     expect(acceptedPlays('2026-10-20', 'NVDA 225c 12/25', 'NVDA 225c 12/24')).toEqual(['NVDA 225c 12/24'])
   })
 
@@ -791,7 +762,6 @@ describe('daily intelligence pipeline', () => {
 
     expect(() => parseGeneratedResearch({ output_text: truncated }))
       .toThrow(/^DailyResearchEditorResponse:invalid-json:/)
-    // An editor that answered with nothing at all must still name the editor.
     expect(() => parseGeneratedResearch({}))
       .toThrow('DailyResearchEditorResponse:invalid-json:0-chars')
     expect(() => parseGeneratedRedditCatalysts({ output_text: '{"catalysts":[' }))

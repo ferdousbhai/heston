@@ -19,10 +19,6 @@ import {
 import { ExactOptionGreeksReadParameters } from '../src/server/option-greeks-tool'
 import { WatchlistReadParameters } from '../src/server/watchlist-tool'
 
-/**
- * A tool contract is JSON Schema, so it is parsed into this shape before being read.
- * Only the three nodes that can carry a `pattern` matter here.
- */
 type SchemaNode = {
   items?: SchemaNode
   pattern?: string
@@ -35,7 +31,6 @@ const SchemaNodeSchema: z.ZodType<SchemaNode> = z.lazy(() => z.looseObject({
   properties: z.record(z.string(), SchemaNodeSchema).optional(),
 }))
 
-/** Every `pattern` a tool contract advertises to the model, at any depth. */
 function advertisedPatterns(node: SchemaNode): string[] {
   return [
     ...node.pattern === undefined ? [] : [node.pattern],
@@ -57,9 +52,6 @@ describe('equity symbol rule', () => {
       WatchlistReadParameters,
     ].flatMap((contract) => advertisedPatterns(SchemaNodeSchema.parse(contract)))
 
-    // An equity field takes a ticker and refuses a futures symbol. The two contracts that
-    // accept `/ES` are the documented wider ones: a futures-or-equity history filter and a
-    // free-text search query. Everything else must be the shared rule, spelled once.
     const equityPatterns = patterns.filter((pattern) => {
       const rule = new RegExp(pattern)
       return rule.test('AAPL') && !rule.test('/ES')

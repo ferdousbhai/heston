@@ -51,7 +51,6 @@ describe('BrokerGate durable mutation lease', () => {
     await firstInstance.initialize()
     const firstToken = await firstInstance.acquireMutation()
 
-    // A fresh core over the same Durable Object storage simulates eviction.
     const coldInstance = new BrokerGateCore(context(storage), scheduler)
     await coldInstance.initialize()
     let secondToken: string | undefined

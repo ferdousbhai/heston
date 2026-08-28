@@ -117,7 +117,6 @@ export async function readExactOptionGreeks(
   }
 }
 
-/** Wiring export for Dan's read-only tool registry. */
 export function createExactOptionGreeksReadTool(
   env: AppEnv,
 ): AgentTool<typeof ExactOptionGreeksReadParameters, ExactOptionGreeksReadResult> {

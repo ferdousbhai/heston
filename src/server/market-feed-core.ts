@@ -181,7 +181,6 @@ export class MarketFeedCore {
     return new Response(null, { status: 101, webSocket: client })
   }
 
-  /** Read a bounded exact set of option Greeks over the account's shared upstream socket. */
   async readOptionGreeks(streamerSymbols: readonly string[]): Promise<OptionGreeksReadResult> {
     const symbols = parseOptionStreamerSymbols(streamerSymbols)
     const lease = this.greekRequests.register(symbols, OPTION_GREEKS_TIMEOUT_MS)
@@ -437,7 +436,6 @@ export class MarketFeedCore {
     }
   }
 
-  /** Close the current upstream socket and run the shared teardown, whatever ended it. */
   private async closeUpstream(socket: WebSocket, code: number, reason: string): Promise<void> {
     if (socket !== this.upstream) return
     try { socket.close(code, reason) } catch { /* Already closed. */ }

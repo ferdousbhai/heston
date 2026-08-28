@@ -744,9 +744,8 @@ async function loadMarketSnapshot(
     name: 'Watchlist',
     symbols: focusSymbols,
   }
-  // The owner sees exactly one list: the D1 internal watchlist. Position symbols are
-  // never surfaced as their own list — they stay a `position-sync` origin, a focus
-  // priority, and the per-ticker `position` flag, so account membership is not a list.
+  // Current positions are carried as ticker rows with a private `position` flag,
+  // never as a second list, so account membership is not itself a watchlist.
   const watchlists = [privateWatchlist]
   const requestedSymbols = (options.symbols ?? [])
     .map((symbol) => EquitySymbolSchema.safeParse(symbol).data)

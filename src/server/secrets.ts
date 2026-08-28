@@ -9,13 +9,11 @@ function requireValue(value: string, name: string): string {
   return trimmed
 }
 
-/** Read a secret bound directly to the Worker as a plain string. */
 export function readBoundSecret(binding: string | undefined, name: string): string {
   if (!binding) throw new Error(`SecretBindingMissing:${name}`)
   return requireValue(binding, name)
 }
 
-/** Read a secret held in a Secrets Store binding. */
 export async function readStoredSecret(binding: SecretsStoreSecret | undefined, name: string): Promise<string> {
   if (!binding) throw new Error(`SecretBindingMissing:${name}`)
   let value: string

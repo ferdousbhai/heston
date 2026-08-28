@@ -45,7 +45,6 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
   await expect(page.locator('.premium-data-table [data-slot="badge"]')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /NVDA, NVIDIA, Expensive option premium/ })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Manage Options Watch' })).toHaveCount(0)
-  // A visitor sees one watchlist, so it is named in place rather than behind a chooser.
   await expect(page.getByRole('combobox', { name: 'Watchlist' })).toHaveCount(0)
   await expect(page.locator('.watchlist-title')).toHaveText('Options Watch')
   await expect(page.getByRole('region', { name: 'Upcoming catalysts' })).toBeVisible()
@@ -175,10 +174,8 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   await expect(page.locator('.focus-runway')).toContainText('earnings \u00b7 After hours \u00b7 estimated')
   await expect(page.locator('.focus-thesis')).toContainText('Demand checks keep the AI capex thesis alive')
   await expect(page.locator('.focus-thesis')).toContainText('A guide-down or capex pause would break the demand thesis.')
-  // The owner reads the one D1-backed list, so there is nothing to choose between.
   await expect(page.locator('.watchlist-title')).toHaveText('Watchlist')
   await expect(page.getByRole('combobox', { name: 'Watchlist' })).toHaveCount(0)
-  // Held positions are marked in place of the retired Active Positions list.
   await expect(page.getByRole('button', { name: /NVDA, NVIDIA, held, Expensive/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /SPCX, SpaceX Corporation, held, Cheap/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /BE, Bloom Energy, Fair/ })).toBeVisible()
@@ -206,7 +203,6 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   await expect(page.getByRole('button', { name: 'Manage Watchlist' })).toBeFocused()
 
   const selectedSymbol = page.locator('.selected-symbol')
-  // Searching reaches every loaded instrument, not only the active watchlist.
   const search = page.getByLabel('Search all symbols')
   await search.fill('intel')
   await expect(page.locator('.premium-data-table tbody tr')).toHaveCount(1)
@@ -216,9 +212,6 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   await expect(page.getByText('No loaded symbol matches your search.')).toBeVisible()
   await search.fill('')
 
-  // Column headers sort the table and the same header toggles the direction.
-  // Pinned NVDA and TSLA hold the top rows, ordered among themselves by the
-  // active column, so the unpinned order is read from the third row down.
   const rows = page.locator('.premium-data-table tbody tr')
   const rankHeader = page.getByRole('button', { exact: true, name: 'IV rank' })
   await rankHeader.click()
@@ -229,7 +222,6 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   await expect(rows.nth(0)).toContainText('NVDA')
   await expect(rows.nth(2)).toContainText('SPY')
 
-  // Price combines the quote, session move, genuine candle series, and range.
   await page.getByRole('button', { exact: true, name: 'Price' }).click()
   await expect(rows.nth(0)).toContainText('TSLA')
   const beRow = page.locator('.premium-data-table tbody tr', { hasText: 'BE' })
@@ -506,8 +498,6 @@ test('two signed-out devices converge on the account union without granting owne
   await expect(mobile.getByRole('button', { name: 'Unpin INTC' })).toBeVisible()
   expect(anonymousMerges.some((symbols) => symbols.includes('INTC') && symbols.includes('SPCX'))).toBe(true)
 
-  // The laptop gets no lifecycle event or reload after the mobile merge. Query
-  // Collection's bounded foreground refetch must materialize the additions there.
   await expect(page.getByRole('button', { name: 'Unpin SPCX' })).toBeVisible({ timeout: 20_000 })
   await expect(page.getByRole('button', { name: 'Unpin INTC' })).toBeVisible()
 

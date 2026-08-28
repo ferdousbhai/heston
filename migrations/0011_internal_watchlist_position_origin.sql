@@ -1,4 +1,4 @@
--- Active positions join the same maintained list as owner and agent discoveries.
+-- `position-sync` records the one-time bootstrap's active-position priority.
 -- Rebuild forward-only because SQLite cannot extend the original origin CHECK.
 ALTER TABLE internal_watchlist_seed ADD COLUMN finalized_at TEXT;
 

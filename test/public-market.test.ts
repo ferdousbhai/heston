@@ -147,9 +147,6 @@ describe('public market boundary', () => {
     expect(snapshot.watchlists).toEqual([
       { id: 'watchlist', kind: 'private', name: 'Watchlist', symbols: ['NVDA'] },
     ])
-    // A held symbol keeps its market data and its per-ticker flag without being
-    // synced into the watchlist: Dan records what it researches and trades, so
-    // membership arrives that way rather than from a recurring position mapping.
     expect(snapshot.tickers.find((ticker) => ticker.symbol === 'META')?.position).toBe(true)
     expect(store.sqlite.prepare(
       `SELECT origin FROM internal_watchlist_items WHERE symbol = 'META'`,

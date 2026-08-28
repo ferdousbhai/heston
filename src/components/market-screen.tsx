@@ -95,10 +95,6 @@ const SORT_COLUMNS: { defaultDirection: SortDirection; key: SortKey; label: stri
   { defaultDirection: 'desc', key: 'volume', label: 'Volume' },
 ]
 
-/**
- * The stroke stays neutral: green and red are already spoken for by the
- * premium verdict, and the shape plus the signed percentage carry direction.
- */
 function Sparkline({ points }: { points: readonly CandlePoint[] }) {
   const closes = points.map((point) => point.close)
   const low = Math.min(...closes)
@@ -129,7 +125,6 @@ function compareBySort(left: Ticker, right: Ticker, sort: { direction: SortDirec
   }
   const leftValue = SORT_METRICS[sort.key](left)
   const rightValue = SORT_METRICS[sort.key](right)
-  // An unreported metric sinks below every ranked row, in either direction.
   if (leftValue === undefined || rightValue === undefined) {
     return Number(leftValue === undefined) - Number(rightValue === undefined)
   }
@@ -151,12 +146,10 @@ function yearRangeLabel(ticker: Pick<Ticker, 'price' | 'yearHigh' | 'yearLow'>):
   return `${formatMarketPrice(ticker.yearLow)}–${formatMarketPrice(ticker.yearHigh)} · ${Math.round(position)}%`
 }
 
-/** Unlike the table's em dash, an unreported tape figure has no cell at all, so it is never formatted. */
 function formatIfReported<T>(reading: T | undefined, format: (reading: T) => string): string | undefined {
   return reading === undefined ? undefined : format(reading)
 }
 
-/** The tape states each reported figure once, in a fixed order, however few of them arrived. */
 function focusTape(ticker: Ticker): Array<[label: string, value: string]> {
   const reported: Array<[label: string, value: string | undefined]> = [
     ['Price', formatMarketPrice(ticker.price)],
@@ -181,19 +174,10 @@ function focusTape(ticker: Ticker): Array<[label: string, value: string]> {
   return tape
 }
 
-/** Runway rows stay scannable; anything past this is summarized as a count. */
 const RUNWAY_LIMIT = 6
 
-/**
- * Derived from the catalyst contract so the "nothing scheduled" state states the
- * real coverage rather than a hand-written list that can drift from the schema.
- */
 const CATALYST_SCOPE = `${CATALYST_KIND_NAMES.slice(0, -1).join(', ')} and ${CATALYST_KIND_NAMES.at(-1)}`
 
-/**
- * The stored Daily Read idea is the only per-symbol thesis Spice keeps, so it
- * leads the panel when one exists and the section is simply absent when it does not.
- */
 function ThesisPanel({ idea }: { idea: ResearchBrief['ideas'][number] }) {
   return (
     <section className="focus-thesis" aria-labelledby="focus-thesis-title">
@@ -218,11 +202,6 @@ function ThesisPanel({ idea }: { idea: ResearchBrief['ideas'][number] }) {
   )
 }
 
-/**
- * Every dated event ahead of the symbol, nearest first. The rail encodes two facts
- * the reader needs before the title: how far out the event sits, and whether the
- * date is confirmed (filled marker) or only estimated (hollow marker).
- */
 function CatalystRunway({
   catalysts,
   now,
@@ -309,16 +288,12 @@ export function MarketScreen({
   const [query, setQuery] = useState('')
   const pinned = new Set(pinnedSymbols)
   const trimmedQuery = query.trim()
-  // A search reaches every loaded instrument; an empty query shows the active
-  // watchlist. match-sorter supplies the fuzzy matching; the active column, not
-  // its relevance ranking, still orders the rows so the sort indicator holds.
   const universe = trimmedQuery
     ? matchSorter(tickers, trimmedQuery, { keys: ['symbol', 'name'] })
     : activeWatchlist.symbols.flatMap((symbol) => {
         const ticker = tickers.find((candidate) => candidate.symbol === symbol)
         return ticker ? [ticker] : []
       })
-  // Pinned rows hold the top of the table whichever column is sorted.
   const watchTickers = [...universe].sort((left, right) =>
     Number(pinned.has(right.symbol)) - Number(pinned.has(left.symbol))
     || compareBySort(left, right, sort)
