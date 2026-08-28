@@ -80,6 +80,12 @@ export function optionalRatioPercent(row: JsonObject, keys: readonly string[], l
   return value === undefined ? undefined : Math.round(value * 10_000) / 100
 }
 
+/** Fields tastytrade already reports in percent or points (see the unit note in `tastytrade.ts`). */
+export function optionalPercentPoints(row: JsonObject, keys: readonly string[], label: string): number | undefined {
+  const value = optionalNumber(row, keys, label)
+  return value === undefined ? undefined : Math.round(value * 100) / 100
+}
+
 export function optionalBoolean(row: JsonObject, keys: readonly string[], label: string): boolean | undefined {
   for (const key of keys) {
     const value = row[key]

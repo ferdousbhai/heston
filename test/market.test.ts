@@ -14,7 +14,9 @@ import {
   liveTickerFromRecords,
   percentMetric,
   plausiblePercentMetric,
+  plausiblePercentPoints,
   plausibleSignedPercentMetric,
+  plausibleSignedPoints,
   selectSnapshotSymbols,
 } from '../src/server/tastytrade'
 
@@ -193,15 +195,25 @@ describe('tastytrade normalization', () => {
     expect(plausibleSignedPercentMetric('-99', 1_000)).toBeUndefined()
   })
 
+  it('keeps point-denominated metrics as reported and treats a zero realized volatility as absent', () => {
+    expect(plausiblePercentPoints('30.8', 2_000)).toBe(30.8)
+    expect(plausiblePercentPoints('0', 2_000)).toBeUndefined()
+    expect(plausiblePercentPoints('0', 2_000, true)).toBe(0)
+    expect(plausiblePercentPoints('2001', 2_000)).toBeUndefined()
+    expect(plausiblePercentPoints(undefined, 2_000)).toBeUndefined()
+    expect(plausibleSignedPoints('-4.7', 2_000)).toBe(-4.7)
+    expect(plausibleSignedPoints('-2001', 2_000)).toBeUndefined()
+  })
+
   it('blanks implausible optional volatility fields without dropping the ticker', () => {
     const ticker = liveTickerFromRecords('BE', {
       symbol: 'BE',
-      'historical-volatility-30-day': '99',
+      'historical-volatility-30-day': '0',
       'implied-volatility-index': '0.18',
       'implied-volatility-index-5-day-change': '-99',
       'implied-volatility-index-rank': '0.25',
       'implied-volatility-percentile': '0.3',
-      'iv-hv-30-day-difference': '99',
+      'iv-hv-30-day-difference': '2001',
       'liquidity-rating': '5',
     }, {
       symbol: 'BE', mark: '700', 'previous-close': '695',
@@ -260,12 +272,12 @@ describe('tastytrade normalization', () => {
   it('normalizes optional volatility, instrument, borrow, and 52-week enrichment', () => {
     const ticker = liveTickerFromRecords('SPY', {
       symbol: 'SPY',
-      'historical-volatility-30-day': '0.14',
+      'historical-volatility-30-day': '14',
       'implied-volatility-index': '0.18',
       'implied-volatility-index-5-day-change': '-0.02',
       'implied-volatility-index-rank': '0.25',
       'implied-volatility-percentile': '0.3',
-      'iv-hv-30-day-difference': '0.04',
+      'iv-hv-30-day-difference': '4',
       'liquidity-rating': '5',
       'option-expiration-implied-volatilities': [
         { 'expiration-date': '2026-09-11T20:00:00Z', 'implied-volatility': '0.19', 'option-chain-type': 'Standard' },
@@ -283,6 +295,7 @@ describe('tastytrade normalization', () => {
     expect(ticker).toMatchObject({
       assetType: 'etf',
       borrowRate: 0.4,
+      historicalVolatility30Day: 14,
       ivHistoricalVolatility30DayDifference: 4,
       ivIndex5DayChange: -2,
       ivTermStructure: {
@@ -294,7 +307,6 @@ describe('tastytrade normalization', () => {
       yearHigh: 710,
       yearLow: 480,
     })
-    expect(ticker?.historicalVolatility30Day).toBeCloseTo(14)
   })
 
   it('starts candle history at the current or most recent equity session open', () => {

@@ -70,14 +70,23 @@ function previousCloseValue(quote: JsonObject | undefined): number | undefined {
   )
 }
 
-/** tastytrade volatility metrics are decimal ratios; the UI contract uses percentage points. */
+/*
+ * tastytrade market metrics mix two units, established from production D1 rows
+ * rather than documentation: `implied-volatility-index`, its rank, percentile,
+ * 5-day change, and per-expiration IVs are decimal ratios (0.261 = 26.1%), while
+ * `historical-volatility-30-day` (30.8) and `iv-hv-30-day-difference` (-4.7) are
+ * already percentage points. Multiplying those two by 100 rejected or distorted
+ * real observations, so the `*Points` helpers below keep them as reported.
+ */
+
+/** Decimal-ratio metrics; the UI contract uses percentage points. */
 export function percentMetric(value: JsonValue, max = 100): number | undefined {
   const parsed = jsonNumber(value)
   return parsed === undefined ? undefined : bounded(parsed * 100, 0, max)
 }
 
 /**
- * Optional metrics reject an implausible ratio instead of clamping it. Clamping an
+ * Optional metrics reject an implausible value instead of clamping it. Clamping an
  * optional field publishes the bound itself as if it were an observation — the UI
  * then renders a confident "30-day HV 1,000%" that tastytrade never reported, while
  * an absent value renders honestly as an em dash. Required Ticker fields (`ivIndex`,
@@ -98,6 +107,25 @@ export function plausibleSignedPercentMetric(value: JsonValue, maxAbsolute = 10_
   if (parsed === undefined) return undefined
   const points = parsed * 100
   return Math.abs(points) <= maxAbsolute ? points : undefined
+}
+
+/**
+ * Point-denominated metrics such as 30-day realized volatility, which are never negative.
+ * A zero realized volatility means the stock did not trade, not an observation worth
+ * publishing; `allowZero` keeps this helper reusable for metrics where zero is a real reading.
+ */
+export function plausiblePercentPoints(value: JsonValue, max: number, allowZero = false): number | undefined {
+  const parsed = jsonNumber(value)
+  if (parsed === undefined) return undefined
+  const aboveFloor = allowZero ? parsed >= 0 : parsed > 0
+  return aboveFloor && parsed <= max ? parsed : undefined
+}
+
+/** Point-denominated metrics such as the IV-HV gap, which may be negative. */
+export function plausibleSignedPoints(value: JsonValue, maxAbsolute: number): number | undefined {
+  const parsed = jsonNumber(value)
+  if (parsed === undefined) return undefined
+  return Math.abs(parsed) <= maxAbsolute ? parsed : undefined
 }
 
 function optionTermStructure(metrics: JsonObject): Ticker['ivTermStructure'] {
@@ -365,13 +393,13 @@ export function liveTickerFromRecords(
       metrics['implied-volatility-index-5-day-change'] ?? metrics.impliedVolatilityIndex5DayChange,
       1_000,
     ),
-    historicalVolatility30Day: plausiblePercentMetric(
+    historicalVolatility30Day: plausiblePercentPoints(
       metrics['historical-volatility-30-day'] ?? metrics.historicalVolatility30Day,
-      1_000,
+      2_000,
     ),
-    ivHistoricalVolatility30DayDifference: plausibleSignedPercentMetric(
+    ivHistoricalVolatility30DayDifference: plausibleSignedPoints(
       metrics['iv-hv-30-day-difference'] ?? metrics.ivHv30DayDifference,
-      1_000,
+      2_000,
     ),
     ivTermStructure: optionTermStructure(metrics),
     liquidity: bounded(liquidityValue, 0, 5),
@@ -564,7 +592,6 @@ async function loadTastytradeInstrumentCatalog(
   }
 }
 
-/** Refresh the typed catalog from tastytrade without retaining its raw response. */
 export async function refreshTastytradeInstrumentCatalog(
   env: AppEnv,
   symbols: readonly string[],
@@ -582,7 +609,6 @@ export async function refreshTastytradeInstrumentCatalog(
   }
 }
 
-/** Daily catalog job covers the full maintained list. */
 export async function refreshInternalInstrumentCatalogFromTastytrade(
   env: AppEnv,
   now = new Date(),
@@ -625,7 +651,6 @@ async function internalInstrumentCatalogChunk(
   }
 }
 
-/** Preview one bounded provider chunk without writing its typed projection. */
 export async function previewInternalInstrumentCatalogChunkFromTastytrade(
   env: AppEnv,
   offset: number,
@@ -789,11 +814,8 @@ const brokerApiSeam = defineSeam(() => ({
 
 export type BrokerApi = SeamValue<typeof brokerApiSeam>
 
-/** The broker calls currently in force. */
 export const brokerApi = brokerApiSeam.current
 
-/** Install a stand-in broker for a test; pair every call with `resetBrokerApi()`. */
 export const setBrokerApi = brokerApiSeam.set
 
-/** Restore the live Tastytrade calls. */
 export const resetBrokerApi = brokerApiSeam.reset
