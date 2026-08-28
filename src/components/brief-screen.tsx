@@ -5,12 +5,12 @@ import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '#/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '#/components/ui/collapsible'
-import { Empty, EmptyDescription, EmptyHeader } from '#/components/ui/empty'
 import { Separator } from '#/components/ui/separator'
 import { type ResearchBrief } from '../domain/market'
 
 const compactNumber = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1, notation: 'compact' })
 const priceNumber = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 })
+const issueDate = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 
 function moverCategory(category: ResearchBrief['marketMovers'][number]['category']): string {
   if (category === 'most-active') return 'most active'
@@ -26,18 +26,13 @@ export function BriefScreen({
   brief: ResearchBrief
   onSymbol: (symbol: string) => void
 }) {
-  const issueDate = new Date(brief.publishedAt).toLocaleDateString('en-US', {
-    month: 'short', day: 'numeric', year: 'numeric',
-  })
   return (
     <div className="brief-screen">
       <header className="brief-cover">
-        <div className="brief-issue"><span>Daily read</span><time dateTime={brief.publishedAt}>{issueDate}</time></div>
-        <h1>{brief.title}</h1>
+        <time dateTime={brief.publishedAt}>{issueDate.format(new Date(brief.publishedAt))}</time>
+        <h1>{brief.regime}</h1>
+        <p>{brief.regimeDetail}</p>
         <p>{brief.summary}</p>
-        <div className="regime-summary">
-          <span>Options backdrop</span><strong>{brief.regime}</strong><small>{brief.regimeDetail}</small>
-        </div>
       </header>
       <section className="ideas-section" aria-labelledby="ideas-title">
         {brief.marketMovers.length > 0 && (
@@ -81,8 +76,8 @@ export function BriefScreen({
           </section>
         )}
         <header className="ideas-heading">
-          <h2 id="ideas-title">Worth your attention</h2>
-          <span>{brief.ideas.length || 'No'} signal{brief.ideas.length === 1 ? '' : 's'}</span>
+          <h2 id="ideas-title">Ideas</h2>
+          <span>{brief.ideas.length ? `${brief.ideas.length} today` : 'None today'}</span>
         </header>
         <div className="idea-stack">
           {brief.ideas.map((idea) => (
@@ -121,11 +116,6 @@ export function BriefScreen({
               )}
             </Card>
           ))}
-          {!brief.ideas.length && (
-            <Empty className="ideas-empty">
-              <EmptyHeader><EmptyDescription>The filter found no thesis strong enough to surface today.</EmptyDescription></EmptyHeader>
-            </Empty>
-          )}
         </div>
         {brief.sources.length > 0 && (
           <Collapsible className="source-list">

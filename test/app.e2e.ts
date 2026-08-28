@@ -81,13 +81,12 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
   await expect(page.locator('.story').first()).toContainText('NVDA')
   await expect(page.getByText('Long vol')).toHaveCount(0)
 
-  await page.getByRole('tab', { name: 'Daily read' }).click()
-  await expect(page.getByText('Worth your attention')).toBeVisible()
+  await page.getByRole('tab', { name: 'Brief' }).click()
+  await expect(page.getByRole('heading', { name: 'Ideas' })).toBeVisible()
 
   await page.getByRole('tab', { name: 'Dan' }).click()
   await expect(page.getByRole('heading', { name: 'Dan can trade. Only for you.' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeVisible()
-  await expect(page.getByText('Watch and Daily read remain public.')).toHaveCount(0)
 
   await page.goto('/support')
   await expect(page.getByRole('heading', { name: 'Support' })).toBeVisible()
@@ -235,9 +234,9 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   await expect(beRow.locator('.price-cell')).toContainText('52w range unavailable')
   await expect(page.locator('.premium-data-table tbody .sparkline')).toHaveCount(11)
 
-  await page.getByRole('tab', { name: 'Daily read' }).click()
-  await expect(page.getByRole('tab', { name: 'Daily read' })).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByText('Worth your attention')).toBeVisible()
+  await page.getByRole('tab', { name: 'Brief' }).click()
+  await expect(page.getByRole('tab', { name: 'Brief' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('heading', { name: 'Ideas' })).toBeVisible()
   await expect(page.getByText('NVDA 205c 10/16')).toBeVisible()
   await expect(page.getByText('Selective long vol')).toBeVisible()
   await expect(page.getByText('PLTR', { exact: true })).toBeVisible()

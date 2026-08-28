@@ -249,7 +249,7 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
         </TabsContent>
         <TabsList aria-label="Primary navigation" className="bottom-nav">
           <TabsTrigger value="market"><Gauge /><span>Watch</span></TabsTrigger>
-          <TabsTrigger value="brief"><Newspaper /><span>Daily read</span></TabsTrigger>
+          <TabsTrigger value="brief"><Newspaper /><span>Brief</span></TabsTrigger>
           <TabsTrigger value="agent"><Bot /><span>Dan</span></TabsTrigger>
         </TabsList>
       </Tabs>
