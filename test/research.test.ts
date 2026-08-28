@@ -15,6 +15,7 @@ import {
   mentionsDiscoverySource,
   parseGeneratedRedditCatalysts,
   parseGeneratedResearch,
+  readingListFromCandidates,
   redditCatalystsFromCandidates,
   researchIdeasForDate,
   researchPlayTuple,
@@ -163,11 +164,16 @@ afterEach(() => {
 describe('daily research schedule', () => {
   it('runs at 09:30 New York time during daylight saving time', () => {
     expect(shouldRunDailyResearch(new Date('2026-08-13T13:30:00.000Z'))).toBe(true)
+    expect(shouldRunDailyResearch(new Date('2026-08-13T13:40:00.000Z'))).toBe(true)
+    expect(shouldRunDailyResearch(new Date('2026-08-13T13:50:00.000Z'))).toBe(true)
+    expect(shouldRunDailyResearch(new Date('2026-08-13T13:20:00.000Z'))).toBe(false)
     expect(shouldRunDailyResearch(new Date('2026-08-13T14:30:00.000Z'))).toBe(false)
   })
 
   it('runs at 09:30 New York time during standard time', () => {
     expect(shouldRunDailyResearch(new Date('2026-12-14T14:30:00.000Z'))).toBe(true)
+    expect(shouldRunDailyResearch(new Date('2026-12-14T14:40:00.000Z'))).toBe(true)
+    expect(shouldRunDailyResearch(new Date('2026-12-14T14:50:00.000Z'))).toBe(true)
     expect(shouldRunDailyResearch(new Date('2026-12-14T13:30:00.000Z'))).toBe(false)
   })
 
@@ -177,6 +183,19 @@ describe('daily research schedule', () => {
 })
 
 describe('daily intelligence pipeline', () => {
+  it('fails a scheduled run before discovery when the market is not open', async () => {
+    const snapshot = marketSnapshotFixture()
+    snapshot.marketState = 'pre'
+    broker.loadMarketSnapshot.mockResolvedValueOnce(snapshot)
+
+    await expect(generateDailyResearch({
+      AI: unsupportedAi(), REDDIT_CLIENT_ID: secret, REDDIT_CLIENT_SECRET: secret,
+    }, new Date('2026-08-14T13:30:00.000Z'), { requireMarketOpen: true }))
+      .rejects.toThrow('DailyResearchMarketNotOpen:pre')
+    expect(sources.collectRedditSources).not.toHaveBeenCalled()
+    expect(runXResearch).not.toHaveBeenCalled()
+  })
+
   it('starts X, Reddit, and market-mover research together before editing the brief', async () => {
     let releaseReddit!: (items: []) => void
     let releaseX!: (result: { catalysts: []; rejected: number }) => void
@@ -468,22 +487,24 @@ describe('daily intelligence pipeline', () => {
     expect(broker.tastyRequest).toHaveBeenCalledWith(expect.anything(), '/option-chains/NVDA')
     expect(brief.ideas[0]?.play).toBe('NVDA 225c 10/16')
     expect(logged).toContainEqual({
-      event: 'DailyResearchPlaysChecked', chainUnavailable: 0, checked: 1, dropped: 0, runId: expect.any(String),
+      event: 'DailyResearchPlaysChecked', chainUnavailable: 0, checked: 1, dropped: 0,
+      runId: expect.any(String), structureCleared: 0,
     })
   })
 
-  it('drops an idea whose strike or expiration the current chain does not list', async () => {
+  it('keeps the thesis but clears a play the current chain does not list', async () => {
     nvdaEvidence()
     broker.tastyRequest.mockResolvedValueOnce(optionChain(chainRow({ 'strike-price': '230' })))
 
     const missingStrike = await runDailyBrief()
 
-    expect(missingStrike.brief.ideas).toEqual([])
+    expect(missingStrike.brief.ideas).toEqual([expect.objectContaining({ symbol: 'NVDA', play: null })])
     expect(missingStrike.logged).toContainEqual({
-      event: 'DailyResearchPlaysChecked', chainUnavailable: 0, checked: 1, dropped: 1, runId: expect.any(String),
+      event: 'DailyResearchPlaysChecked', chainUnavailable: 0, checked: 1, dropped: 0,
+      runId: expect.any(String), structureCleared: 1,
     })
     expect(missingStrike.logged).toContainEqual({
-      event: 'DailyResearchIdeasBound', bound: 0, candidates: 1, runId: expect.any(String),
+      event: 'DailyResearchIdeasBound', bound: 1, candidates: 1, runId: expect.any(String),
     })
 
     nvdaEvidence()
@@ -491,23 +512,24 @@ describe('daily intelligence pipeline', () => {
 
     const missingExpiration = await runDailyBrief()
 
-    expect(missingExpiration.brief.ideas).toEqual([])
+    expect(missingExpiration.brief.ideas[0]?.play).toBeNull()
     nvdaEvidence()
     broker.tastyRequest.mockResolvedValueOnce(optionChain(chainRow({ 'option-type': 'P' })))
 
-    await expect(runDailyBrief().then((result) => result.brief.ideas)).resolves.toEqual([])
+    await expect(runDailyBrief().then((result) => result.brief.ideas[0]?.play)).resolves.toBeNull()
   })
 
-  it('drops the idea when the option chain cannot be read', async () => {
+  it('keeps the thesis without a play when the option chain cannot be read', async () => {
     nvdaEvidence()
     broker.tastyRequest.mockRejectedValueOnce(new Error('TastytradeUnavailable'))
 
     const { brief, logged } = await runDailyBrief()
 
-    expect(brief.ideas).toEqual([])
-    expect(brief.summary).toBe('No evidence-linked options thesis was strong enough to surface today.')
+    expect(brief.ideas).toEqual([expect.objectContaining({ symbol: 'NVDA', play: null })])
+    expect(brief.summary).toBe('Summary')
     expect(logged).toContainEqual({
-      event: 'DailyResearchPlaysChecked', chainUnavailable: 1, checked: 1, dropped: 1, runId: expect.any(String),
+      event: 'DailyResearchPlaysChecked', chainUnavailable: 1, checked: 1, dropped: 0,
+      runId: expect.any(String), structureCleared: 1,
     })
   })
 
@@ -664,10 +686,13 @@ describe('daily intelligence pipeline', () => {
       plays.map((play) => ({ ...idea, play })), today, evidence, ['NVDA'],
     ).map((accepted) => accepted.play)
 
-    expect(acceptedPlays('2026-08-14', 'NVDA 225c 9/20', 'NVDA 225c 9/19', 'NVDA 225c 9/17')).toEqual([])
-    expect(acceptedPlays('2026-08-14', 'NVDA 225c 9/18', 'NVDA 225c 10/16'))
-      .toEqual(['NVDA 225c 9/18', 'NVDA 225c 10/16'])
-    expect(acceptedPlays('2026-10-20', 'NVDA 225c 12/25', 'NVDA 225c 12/24')).toEqual(['NVDA 225c 12/24'])
+    expect(acceptedPlays('2026-08-14', 'NVDA 225c 9/20')).toEqual([null])
+    expect(acceptedPlays('2026-08-14', 'NVDA 225c 9/19')).toEqual([null])
+    expect(acceptedPlays('2026-08-14', 'NVDA 225c 9/17')).toEqual([null])
+    expect(acceptedPlays('2026-08-14', 'NVDA 225c 9/18')).toEqual(['NVDA 225c 9/18'])
+    expect(acceptedPlays('2026-08-14', 'NVDA 225c 10/16')).toEqual(['NVDA 225c 10/16'])
+    expect(acceptedPlays('2026-10-20', 'NVDA 225c 12/25')).toEqual([null])
+    expect(acceptedPlays('2026-10-20', 'NVDA 225c 12/24')).toEqual(['NVDA 225c 12/24'])
   })
 
   it('requires every recent same-symbol coverage row and newer evidence for a changed thesis', () => {
@@ -779,5 +804,26 @@ describe('daily intelligence pipeline', () => {
     expect(researchIdeasForDate([idea], '2026-08-14', evidence, ['NVDA'])[0]?.sources).toEqual([
       evidence[0]!.outbound,
     ])
+  })
+
+  it('binds ranked reading picks to trusted evidence URLs and ignores invented indices', () => {
+    const evidence: ResearchSourceItem[] = [{
+      outbound: { label: 'Reuters · NVIDIA supply update', url: 'https://www.reuters.com/nvidia-supply' },
+      source: 'Ticker research', symbols: ['NVDA'], title: 'NVDA update', url: 'https://example.com/aggregate',
+    }, {
+      source: 'Yahoo Finance market movers', symbols: ['NVDA'], title: 'NVDA quote',
+      url: 'https://finance.yahoo.com/quote/NVDA',
+    }]
+
+    expect(readingListFromCandidates([
+      { sourceIndex: 0, reason: 'Reddit attention made this worth reading.' },
+      { sourceIndex: 0, reason: 'Primary reporting with the concrete agreement terms.' },
+      { sourceIndex: 1, reason: 'A generic quote page should not make the reading list.' },
+      { sourceIndex: 99, reason: 'An invented source must not bind.' },
+    ], evidence)).toEqual([{
+      reason: 'Primary reporting with the concrete agreement terms.',
+      title: 'Reuters · NVIDIA supply update',
+      url: 'https://www.reuters.com/nvidia-supply',
+    }])
   })
 })

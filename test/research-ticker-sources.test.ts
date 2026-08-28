@@ -57,10 +57,10 @@ describe('independent ticker research', () => {
     expect(evidence[0]?.context).toContain('evidence, not a ready-made thesis')
   })
 
-  it('bounds discovery scope to six exact equity symbols', async () => {
+  it('bounds discovery scope to ten exact equity symbols', async () => {
     const provider: TickerResearchProvider = { searchNews: async () => ({ news: [] }) }
     await expect(collectTickerResearchSources(
-      ['AAPL', 'META', 'NVDA', 'TSLA', 'SPY', 'AMD', 'INTC'],
+      ['AAPL', 'META', 'NVDA', 'TSLA', 'SPY', 'AMD', 'INTC', 'QQQ', 'IWM', 'BE', 'PLTR'],
       provider,
     )).rejects.toThrow()
   })

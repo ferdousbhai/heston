@@ -19,12 +19,17 @@ type RedditPost = {
 
 const USER_AGENT = 'SpiceMustFlow/0.2 personal-options-research'
 export const REDDIT_RESEARCH_SOURCE = 'Reddit · r/wallstreetbets'
-const MAX_POSTS_REVIEWED = 6
-const MAX_COMMENTS_PER_POST = 4
+const MAX_POSTS_REVIEWED = 20
+const MAX_COMMENTS_PER_POST = 10
+const MIN_POST_SCORE = 100
+const MIN_POST_COMMENTS = 10
+const EXCLUDED_FLAIRS = new Set(['gain', 'loss', 'meme', 'shitpost'])
 const MAX_POST_TEXT = 4_000
 const MAX_COMMENT_TEXT = 1_600
 const MAX_LINK_BYTES = 180_000
 const MAX_LINK_TEXT = 4_000
+const MAX_LINKS_PER_POST = 3
+const POST_FETCH_CONCURRENCY = 5
 
 function redditUrl(value: string): string | undefined {
   try {
@@ -52,6 +57,13 @@ function outboundUrl(value: string | undefined): string | undefined {
   } catch {
     return undefined
   }
+}
+
+function textUrls(value: string | undefined): string[] {
+  return (value?.match(/https:\/\/[^\s<>"']+/gi) ?? []).flatMap((raw) => {
+    const url = outboundUrl(raw.replace(/[),.;!?\]}]+$/, ''))
+    return url ? [url] : []
+  })
 }
 
 function compactText(value: string | undefined, maxLength: number): string | undefined {
@@ -114,7 +126,7 @@ async function readTextPrefix(response: Response, maxBytes: number): Promise<str
 async function linkedPage(
   url: string | undefined,
   fetcher: typeof fetch,
-): Promise<{ excerpt: string; label: string; url: string } | undefined> {
+): Promise<{ excerpt: string; label: string; title: string; url: string } | undefined> {
   if (!url) return undefined
   const response = await fetcher(url, {
     headers: { Accept: 'text/html, text/plain;q=0.9', 'User-Agent': USER_AGENT },
@@ -130,7 +142,11 @@ async function linkedPage(
   const raw = await readTextPrefix(response, MAX_LINK_BYTES)
   const excerpt = contentType.includes('text/html') ? readableHtml(raw) : compactText(raw, MAX_LINK_TEXT)
   if (!excerpt) return undefined
-  return { excerpt, label: new URL(finalUrl).hostname.replace(/^www\./, ''), url: finalUrl }
+  const label = new URL(finalUrl).hostname.replace(/^www\./, '')
+  const htmlTitle = contentType.includes('text/html')
+    ? compactText(decodeHtml(raw.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '').replace(/<[^>]+>/g, ' '), 180)
+    : undefined
+  return { excerpt, label, title: htmlTitle ?? label, url: finalUrl }
 }
 
 function commentBodies(payload: JsonValue): string[] {
@@ -149,7 +165,7 @@ function commentBodies(payload: JsonValue): string[] {
 
 async function topComments(postUrl: string, token: string, fetcher: typeof fetch): Promise<string[]> {
   const path = new URL(postUrl).pathname.replace(/\/$/, '')
-  const response = await fetcher(`https://oauth.reddit.com${path}.json?sort=top&limit=12&depth=1&raw_json=1`, {
+  const response = await fetcher(`https://oauth.reddit.com${path}.json?sort=top&limit=25&depth=1&raw_json=1`, {
     headers: { Authorization: `Bearer ${token}`, 'User-Agent': USER_AGENT },
     signal: AbortSignal.timeout(8_000),
   })
@@ -172,7 +188,13 @@ function listingPosts(payload: JsonValue): RedditPost[] {
     .flatMap((post) => {
       const title = compactText(jsonText(post.title), 240)
       const permalink = jsonText(post.permalink)
-      if (!title || !permalink || post.stickied === true || jsonText(post.subreddit)?.toLowerCase() !== 'wallstreetbets') return []
+      const score = jsonNumber(post.score) ?? 0
+      const numComments = jsonNumber(post.num_comments) ?? 0
+      const flair = compactText(jsonText(post.link_flair_text), 80)?.toLowerCase()
+      if (!title || !permalink || post.stickied === true
+        || jsonText(post.subreddit)?.toLowerCase() !== 'wallstreetbets'
+        || score < MIN_POST_SCORE || numComments < MIN_POST_COMMENTS
+        || (flair !== undefined && EXCLUDED_FLAIRS.has(flair))) return []
       const url = redditUrl(permalink)
       if (!url) return []
       const published = new Date((jsonNumber(post.created_utc) ?? Number.NaN) * 1_000)
@@ -180,10 +202,10 @@ function listingPosts(payload: JsonValue): RedditPost[] {
         ? undefined
         : outboundUrl(jsonText(post.url_overridden_by_dest) ?? jsonText(post.url))
       return [{
-        numComments: jsonNumber(post.num_comments) ?? 0,
+        numComments,
         outboundUrl: linked,
         publishedAt: Number.isNaN(published.valueOf()) ? undefined : published.toISOString(),
-        score: jsonNumber(post.score) ?? 0,
+        score,
         selfText: compactText(jsonText(post.selftext), MAX_POST_TEXT),
         title,
         url,
@@ -198,20 +220,28 @@ async function enrichPost(
   token: string,
   fetcher: typeof fetch,
 ): Promise<ResearchSourceItem> {
-  const [commentsResult, linkResult] = await Promise.allSettled([
-    topComments(post.url, token, fetcher),
-    linkedPage(post.outboundUrl, fetcher),
-  ])
-  const comments = commentsResult.status === 'fulfilled' ? commentsResult.value : []
-  const link = linkResult.status === 'fulfilled' ? linkResult.value : undefined
+  const comments = await topComments(post.url, token, fetcher).catch(() => [])
+  const linkUrls = [...new Set([
+    ...(post.outboundUrl ? [post.outboundUrl] : []),
+    ...textUrls(post.selfText),
+    ...comments.flatMap(textUrls),
+  ])].slice(0, MAX_LINKS_PER_POST)
+  const linkResults = await Promise.allSettled(linkUrls.map((url) => linkedPage(url, fetcher)))
+  const links = linkResults.flatMap((result) => (
+    result.status === 'fulfilled' && result.value ? [result.value] : []
+  ))
+  const primaryLink = links[0]
   const evidence = [
     post.selfText ? `Post: ${post.selfText}` : undefined,
     comments.length ? `Top comments: ${comments.map((comment) => `• ${comment}`).join(' ')}` : undefined,
-    link ? `Linked page (${link.label}): ${link.excerpt}` : undefined,
+    ...links.map((link) => `Linked page (${link.label}): ${link.excerpt}`),
   ].filter((item): item is string => Boolean(item))
   return {
     context: evidence.join('\n'),
-    outbound: link ? { label: link.label, url: link.url } : undefined,
+    linkedPages: links.length ? links : undefined,
+    outbound: primaryLink
+      ? { excerpt: primaryLink.excerpt, label: primaryLink.label, title: primaryLink.title, url: primaryLink.url }
+      : undefined,
     publishedAt: post.publishedAt,
     source: REDDIT_RESEARCH_SOURCE,
     title: post.title,
@@ -240,7 +270,7 @@ export async function collectRedditSources(
   const token = jsonText(jsonObjectOrEmpty(await readBoundedJson(tokenResponse, 256_000, 'RedditOAuth')).access_token)
   if (!token) throw new Error('Reddit OAuth returned no access token')
 
-  const listingResponse = await fetcher('https://oauth.reddit.com/r/wallstreetbets/top?t=day&limit=25&raw_json=1', {
+  const listingResponse = await fetcher('https://oauth.reddit.com/r/wallstreetbets/hot?limit=100&raw_json=1', {
     headers: { Authorization: `Bearer ${token}`, 'User-Agent': USER_AGENT },
     signal: AbortSignal.timeout(8_000),
   })
@@ -249,5 +279,11 @@ export async function collectRedditSources(
     throw new Error(`Reddit listing returned ${listingResponse.status}`)
   }
   const posts = listingPosts(await readBoundedJson(listingResponse, 2_000_000, 'RedditListing'))
-  return Promise.all(posts.map((post) => enrichPost(post, token, fetcher)))
+  const evidence: ResearchSourceItem[] = []
+  for (let index = 0; index < posts.length; index += POST_FETCH_CONCURRENCY) {
+    evidence.push(...await Promise.all(
+      posts.slice(index, index + POST_FETCH_CONCURRENCY).map((post) => enrichPost(post, token, fetcher)),
+    ))
+  }
+  return evidence
 }

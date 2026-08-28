@@ -58,6 +58,7 @@ const research: ResearchBrief = {
   ideas: [
     { symbol: 'NVDA', direction: 'bullish', headline: 'Demand checks keep the AI capex thesis alive', description: 'Channel discussion points to durable accelerator demand. Expensive premium argues for patience and strict sizing.', play: 'NVDA 205c 10/16', risk: 'A guide-down or capex pause would break the demand thesis.', sources: [] },
   ],
+  readingList: [],
   sources: [{ label: 'tastytrade market metrics', url: 'https://developer.tastytrade.com/open-api-spec/market-metrics/' }],
 }
 

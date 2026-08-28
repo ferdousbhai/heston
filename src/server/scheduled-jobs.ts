@@ -73,6 +73,6 @@ export function runScheduledJobKind(
   scheduledAt = new Date(),
 ): Promise<'completed' | 'skipped'> {
   return runScheduledJob(env, kind, scheduledAt, async () => {
-    await generateDailyResearch(env, scheduledAt)
+    await generateDailyResearch(env, scheduledAt, { requireMarketOpen: true })
   })
 }

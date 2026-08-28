@@ -360,16 +360,19 @@ async function runXCatalystResearchForSymbols(
   symbols: readonly string[],
   now = new Date(),
   parentRunId?: string,
+  persist = true,
 ): Promise<XCatalystResult> {
   const run = { id: crypto.randomUUID(), startedAt: now.toISOString(), symbols: symbols.length }
-  await recordRun(env, { ...run, status: 'running' })
+  if (persist) await recordRun(env, { ...run, status: 'running' })
   try {
     const result = await discoverXCatalysts(env, symbols, now, fetch, run.id, parentRunId)
-    await persistResearchedCatalysts(env, 'x', result.catalysts, now)
-    await recordRun(env, { ...run, status: 'completed', accepted: result.catalysts.length, rejected: result.rejected, completedAt: new Date().toISOString() })
+    if (persist) {
+      await persistResearchedCatalysts(env, 'x', result.catalysts, now)
+      await recordRun(env, { ...run, status: 'completed', accepted: result.catalysts.length, rejected: result.rejected, completedAt: new Date().toISOString() })
+    }
     return result
   } catch (error) {
-    await recordRun(env, { ...run, status: 'failed', error: error instanceof Error ? error.message.slice(0, 160) : 'UnknownError', completedAt: new Date().toISOString() })
+    if (persist) await recordRun(env, { ...run, status: 'failed', error: error instanceof Error ? error.message.slice(0, 160) : 'UnknownError', completedAt: new Date().toISOString() })
     throw error
   }
 }

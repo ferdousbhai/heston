@@ -1,5 +1,7 @@
 export const MAX_DAILY_RESEARCH_IDEAS = 3
-export const MAX_DAILY_RESEARCH_LEADS = 6
+// ask-dan researched a broad twenty-post discovery set before ranking. Ten exact,
+// watchlist-bound symbols preserves that breadth while bounding provider fan-out.
+export const MAX_DAILY_RESEARCH_LEADS = 10
 
 /**
  * A stored brief is keyed by its market date, so a rerun replaces that day's row
@@ -21,8 +23,18 @@ export interface ResearchSourceItem {
     symbol: string
     volume: number
   }
-  outbound?: {
+  /** Fetched pages found in one private discovery item; never raw model URLs. */
+  linkedPages?: Array<{
+    excerpt: string
     label: string
+    title: string
+    url: string
+  }>
+  outbound?: {
+    /** Bounded fetched page text, retained only for private research editing. */
+    excerpt?: string
+    label: string
+    title?: string
     url: string
   }
   source: string

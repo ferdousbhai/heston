@@ -35,6 +35,24 @@ export function BriefScreen({
         <p>{brief.summary}</p>
       </header>
       <section className="ideas-section" aria-labelledby="ideas-title">
+        {brief.readingList.length > 0 && (
+          <section className="reading-section" aria-labelledby="reading-title">
+            <header className="ideas-heading">
+              <h2 id="reading-title">Links worth reading</h2>
+              <span>{brief.readingList.length} selected</span>
+            </header>
+            <ol className="reading-list">
+              {brief.readingList.map((item) => (
+                <li key={item.url}>
+                  <a href={item.url} rel="noreferrer" target="_blank">
+                    <strong>{item.title}</strong><ArrowUpRight aria-hidden="true" />
+                    <span>{item.reason}</span>
+                  </a>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
         {brief.marketMovers.length > 0 && (
           <section className="movers-section" aria-labelledby="movers-title">
             <header className="ideas-heading">

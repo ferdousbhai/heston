@@ -75,15 +75,8 @@ const ResearchSourceLinkSchema = z.object({
 
 export const ResearchIdeaSchema = z.object({
   ...ResearchIdeaFields,
-  play: PotentialPlaySchema,
-  sources: z.array(ResearchSourceLinkSchema).max(3),
-}).refine((idea) => idea.play.startsWith(`${idea.symbol} `), {
-  message: 'Potential play must use the idea symbol',
-  path: ['play'],
-})
-
-const StoredResearchIdeaSchema = z.object({
-  ...ResearchIdeaFields,
+  // The thesis is the durable research product. An exact contract is an optional,
+  // separately verified expression of it and may be cleared without hiding the idea.
   play: PotentialPlaySchema.nullable(),
   sources: z.array(ResearchSourceLinkSchema).max(3),
 }).refine((idea) => idea.play === null || idea.play.startsWith(`${idea.symbol} `), {
@@ -104,6 +97,12 @@ export const MarketMoverInsightSchema = z.object({
   volume: z.number().nonnegative(),
 })
 
+export const ResearchReadingLinkSchema = z.object({
+  reason: z.string().trim().min(1).max(180),
+  title: z.string().trim().min(1).max(180),
+  url: z.string().url().refine((url) => new URL(url).protocol === 'https:', 'Use an HTTPS source URL'),
+})
+
 export const ResearchBriefSchema = z.object({
   id: z.string(),
   publishedAt: z.string(),
@@ -111,8 +110,9 @@ export const ResearchBriefSchema = z.object({
   summary: z.string(),
   regime: z.string(),
   regimeDetail: z.string(),
-  ideas: z.array(StoredResearchIdeaSchema).max(5),
+  ideas: z.array(ResearchIdeaSchema).max(5),
   marketMovers: z.array(MarketMoverInsightSchema).max(6),
+  readingList: z.array(ResearchReadingLinkSchema).max(10),
   sources: z.array(ResearchSourceLinkSchema),
 })
 
@@ -128,6 +128,7 @@ const BackwardCompatibleResearchIdeaSchema = z.object({
 const CurrentStoredResearchBriefSchema = ResearchBriefSchema.extend({
   ideas: z.array(BackwardCompatibleResearchIdeaSchema).max(5),
   marketMovers: z.array(MarketMoverInsightSchema).max(6).default([]),
+  readingList: z.array(ResearchReadingLinkSchema).max(10).default([]),
 })
 
 const PreEvidenceResearchIdeaSchema = z.object({
@@ -148,9 +149,9 @@ const PreEvidenceResearchIdeaSchema = z.object({
 }))
 
 const PreEvidenceStoredResearchBriefSchema = ResearchBriefSchema
-  .omit({ ideas: true, marketMovers: true })
+  .omit({ ideas: true, marketMovers: true, readingList: true })
   .extend({ ideas: z.array(PreEvidenceResearchIdeaSchema).max(5) })
-  .transform((brief) => ({ ...brief, marketMovers: [] }))
+  .transform((brief) => ({ ...brief, marketMovers: [], readingList: [] }))
 
 const StoredResearchBriefSchema = z.union([
   CurrentStoredResearchBriefSchema,

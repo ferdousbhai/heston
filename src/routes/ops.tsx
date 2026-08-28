@@ -15,9 +15,9 @@ function OperationsPage() {
       {() => (
         <main className="ops-page">
           <h1>Operations</h1>
-          <p>Run the same daily intelligence job used by Cloudflare Cron. X and Reddit collect concurrently, then both feed catalysts and the Daily Brief. A completed job is not run twice for the same New York market date.</p>
+          <p>Run a private, non-publishing preview of the same discovery and research workflow used by Cloudflare Cron. It does not consume the market-day receipt or replace the public Daily Read.</p>
           <FieldGroup className="ops-actions">
-            <Field><form action="/api/jobs/daily-research" method="post"><Button size="lg" type="submit" variant="outline">Run daily intelligence</Button></form></Field>
+            <Field><form action="/api/jobs/daily-research" method="post"><Button size="lg" type="submit" variant="outline">Run private preview</Button></form></Field>
           </FieldGroup>
         </main>
       )}

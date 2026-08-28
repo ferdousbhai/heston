@@ -444,6 +444,7 @@ function emptyResearch(now: string): MarketSnapshot['research'] {
     regimeDetail: 'No stored live brief',
     ideas: [],
     marketMovers: [],
+    readingList: [],
     sources: [],
   }
 }

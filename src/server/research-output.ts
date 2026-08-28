@@ -8,7 +8,12 @@ import {
   POTENTIAL_PLAY_REGEX,
 } from '../domain/instrument'
 import { JsonArraySchema, jsonObject, jsonObjectOrEmpty, type JsonValue } from '../domain/json-payload'
-import { MarketMoverInsightSchema, ResearchIdeaSchema, type ResearchBrief } from '../domain/market'
+import {
+  MarketMoverInsightSchema,
+  ResearchIdeaSchema,
+  ResearchReadingLinkSchema,
+  type ResearchBrief,
+} from '../domain/market'
 import { parseLabeledJson } from './bounded-response'
 import { type RecentTickerCoverage } from './research-coverage'
 import { MAX_DAILY_RESEARCH_IDEAS, type ResearchSourceItem } from './research-contracts'
@@ -35,15 +40,20 @@ const GeneratedResearchIdeaSchema = z.object({
   description: z.string().trim().min(1).max(360),
   direction: z.enum(['bullish', 'bearish', 'neutral']),
   headline: z.string().trim().min(1).max(100),
-  play: z.string().trim().max(40).regex(POTENTIAL_PLAY_REGEX),
+  play: z.string().trim().max(40).regex(POTENTIAL_PLAY_REGEX).nullable(),
   recentCoverageIndices: z.array(z.number().int().nonnegative()).max(3),
   risk: z.string().trim().min(1).max(240),
   sourceIndices: z.array(z.number().int().nonnegative()).min(1).max(3),
   symbol: EquitySymbolSchema,
   thesisChange: z.string().trim().max(240),
-}).refine((idea) => idea.play.startsWith(`${idea.symbol} `), {
+}).refine((idea) => idea.play === null || idea.play.startsWith(`${idea.symbol} `), {
   message: 'Potential play must use the idea symbol',
   path: ['play'],
+})
+
+const GeneratedReadingLinkSchema = z.object({
+  reason: z.string().trim().min(1).max(180),
+  sourceIndex: z.number().int().nonnegative(),
 })
 
 const GeneratedResearchSchema = z.object({
@@ -55,6 +65,7 @@ const GeneratedResearchSchema = z.object({
   // narrow the editor to the highest-quality zero-to-three theses.
   ideas: z.array(GeneratedResearchIdeaSchema).max(MAX_DAILY_RESEARCH_IDEAS),
   marketMovers: z.array(GeneratedMarketMoverInsightSchema).max(6),
+  readingList: z.array(GeneratedReadingLinkSchema).max(10).default([]),
 })
 
 const GeneratedRedditCatalystResponseSchema = z.object({
@@ -161,7 +172,7 @@ function coverageReviewIsValid(
   ))
   const reviewedIndices = [...new Set(idea.recentCoverageIndices)]
   if (!expectedIndices.length) return !reviewedIndices.length && !idea.thesisChange
-  if (!idea.thesisChange || reviewedIndices.length !== expectedIndices.length
+  if (reviewedIndices.length !== expectedIndices.length
     || reviewedIndices.some((index) => !expectedIndices.includes(index))) return false
 
   const latestPriorCoverage = Math.max(...expectedIndices.map((index) => (
@@ -171,11 +182,18 @@ function coverageReviewIsValid(
     source?.publishedAt !== undefined && Date.parse(source.publishedAt) > latestPriorCoverage
   ))) return false
 
+  // A still-valid thesis may be repeated when genuinely newer same-symbol evidence
+  // supports it. This restores the old daily recommendation cadence without allowing
+  // stale copy to recycle: all prior rows must be reviewed and newer evidence is still
+  // mandatory. A claimed update additionally has to differ from prior thesis text.
+  if (!idea.thesisChange) {
+    return expectedIndices.every((index) => recentCoverage[index]!.direction === idea.direction)
+  }
   const currentThesis = normalizedThesis(idea.headline, idea.description)
-  return expectedIndices.every((index) => {
-    const prior = recentCoverage[index]!
-    return normalizedThesis(prior.headline, prior.description) !== currentThesis
-  })
+  return expectedIndices.every((index) => normalizedThesis(
+    recentCoverage[index]!.headline,
+    recentCoverage[index]!.description,
+  ) !== currentThesis)
 }
 
 /**
@@ -192,10 +210,8 @@ export function researchIdeasForDate(
   const minimum = addDays(today, 21)
   const maximum = addDays(today, 90)
   const symbols = new Set(allowedSymbols)
-  return ideas.flatMap((idea) => {
-    const expiry = playExpiryDate(idea.play, today)
-    if (!symbols.has(idea.symbol) || expiry === undefined || expiry < minimum || expiry > maximum
-      || !isOptionExpirationDate(expiry)) return []
+  const bound = ideas.flatMap((idea) => {
+    if (!symbols.has(idea.symbol)) return []
     const selected = [...new Set(idea.sourceIndices)].map((index) => evidence[index])
     if (!selected.length || selected.some((source) => !source?.symbols?.includes(idea.symbol))) return []
     if ([idea.headline, idea.description, idea.risk].some(mentionsDiscoverySource)) return []
@@ -210,8 +226,44 @@ export function researchIdeasForDate(
       thesisChange: _thesisChange,
       ...publicIdea
     } = idea
-    return [ResearchIdeaSchema.parse({ ...publicIdea, sources })]
+    const expiry = idea.play === null ? undefined : playExpiryDate(idea.play, today)
+    const play = idea.play !== null && expiry !== undefined && expiry >= minimum && expiry <= maximum
+      && isOptionExpirationDate(expiry) ? idea.play : null
+    return [ResearchIdeaSchema.parse({ ...publicIdea, play, sources })]
   })
+  const bySymbol = new Map<string, ResearchBrief['ideas'][number]>()
+  for (const idea of bound) {
+    const current = bySymbol.get(idea.symbol)
+    if (!current || (current.play === null && idea.play !== null)) bySymbol.set(idea.symbol, idea)
+  }
+  return [...bySymbol.values()]
+}
+
+/** Bind the editor's ranked reading picks to application-owned evidence URLs. */
+export function readingListFromCandidates(
+  value: readonly GeneratedResearch['readingList'][number][],
+  evidence: readonly ResearchSourceItem[],
+): ResearchBrief['readingList'] {
+  const accepted = new Map<string, ResearchBrief['readingList'][number]>()
+  for (const candidate of value) {
+    if (mentionsDiscoverySource(candidate.reason)) continue
+    const source = evidence[candidate.sourceIndex]
+    if (!source) continue
+    const link = evidenceSourceLink(source)
+    try {
+      const url = new URL(link.url)
+      if (url.hostname.toLowerCase().replace(/^www\./, '') === 'finance.yahoo.com'
+        && url.pathname.startsWith('/quote/')) continue
+    } catch {
+      continue
+    }
+    if (accepted.has(link.url)) continue
+    const title = (source.outbound?.label ?? source.title).slice(0, 180)
+    const parsed = ResearchReadingLinkSchema.safeParse({ reason: candidate.reason, title, url: link.url })
+    if (parsed.success) accepted.set(link.url, parsed.data)
+    if (accepted.size === 10) break
+  }
+  return [...accepted.values()]
 }
 
 /**
@@ -306,7 +358,7 @@ export function parseGeneratedRedditCatalysts(payload: JsonValue): JsonValue {
 export function dailyResearchResponseSchema() {
   return {
     type: 'object', additionalProperties: false,
-    required: ['title', 'summary', 'regime', 'regimeDetail', 'ideas', 'marketMovers'],
+    required: ['title', 'summary', 'regime', 'regimeDetail', 'ideas', 'marketMovers', 'readingList'],
     properties: {
       title: { type: 'string', minLength: 1, maxLength: 100 },
       summary: { type: 'string', minLength: 1, maxLength: 360 },
@@ -322,7 +374,7 @@ export function dailyResearchResponseSchema() {
             direction: { type: 'string', enum: ['bullish', 'bearish', 'neutral'] },
             headline: { type: 'string', minLength: 1, maxLength: 100 },
             description: { type: 'string', minLength: 1, maxLength: 360 },
-            play: { type: 'string', pattern: POTENTIAL_PLAY_PATTERN },
+            play: { anyOf: [{ type: 'string', pattern: POTENTIAL_PLAY_PATTERN }, { type: 'null' }] },
             recentCoverageIndices: {
               type: 'array', maxItems: 3,
               items: { type: 'integer', minimum: 0 },
@@ -351,6 +403,17 @@ export function dailyResearchResponseSchema() {
             },
             headline: { type: 'string', minLength: 1, maxLength: 100 },
             description: { type: 'string', minLength: 1, maxLength: 360 },
+          },
+        },
+      },
+      readingList: {
+        type: 'array', maxItems: 10,
+        items: {
+          type: 'object', additionalProperties: false,
+          required: ['sourceIndex', 'reason'],
+          properties: {
+            sourceIndex: { type: 'integer', minimum: 0 },
+            reason: { type: 'string', minLength: 1, maxLength: 180 },
           },
         },
       },

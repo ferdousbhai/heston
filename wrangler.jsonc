@@ -70,7 +70,7 @@
     }
   ],
   "triggers": {
-    "crons": ["0 12 * * *", "30 13,14 * * 1-5"]
+    "crons": ["0 12 * * *", "30,40,50 13,14 * * 1-5"]
   },
   "vars": {
     "AUTH_BASE_URL": "https://tryspice.xyz",
