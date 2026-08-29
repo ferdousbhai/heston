@@ -285,6 +285,7 @@ describe('tastytrade normalization', () => {
       'iv-hv-30-day-difference': '4',
       'liquidity-rating': '5',
       'option-expiration-implied-volatilities': [
+        { 'expiration-date': null, 'implied-volatility': null },
         { 'expiration-date': '2026-09-11T20:00:00Z', 'implied-volatility': '0.19', 'option-chain-type': 'Standard' },
         { 'expiration-date': '2026-09-04T20:00:00Z', 'implied-volatility': '0.21', 'option-chain-type': 'Standard' },
       ],

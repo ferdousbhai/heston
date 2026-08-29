@@ -140,26 +140,36 @@ function reportedEarningsDate(metrics: JsonObject): string | null {
   return date
 }
 
-function optionTermStructure(metrics: JsonObject): Ticker['ivTermStructure'] {
+function optionTermStructure(metrics: JsonObject, symbol: string): Ticker['ivTermStructure'] {
   const value = metrics['option-expiration-implied-volatilities'] ?? metrics.optionExpirationImpliedVolatilities
   if (unreported(value)) return undefined
-  if (!Array.isArray(value)) throw new Error('TastytradeSnapshot:invalid-option-term-structure')
-  const candidates = value.map((candidate) => {
+  if (!Array.isArray(value)) throw new Error(`TastytradeSnapshot:invalid-option-term-structure:${symbol}`)
+  const candidates = value.flatMap((candidate) => {
     const row = jsonObject(candidate)
-    if (!row) throw new Error('TastytradeSnapshot:invalid-option-term-row')
-    const rawExpiration = optionalText(row['expiration-date'] ?? row.expirationDate, 'option-expiration')
-    const expiration = rawExpiration?.slice(0, 10)
-    if (!expiration || !isValidIsoDate(expiration)) throw new Error('TastytradeSnapshot:invalid-option-expiration')
-    const impliedVolatility = percentagePoints(
-      row['implied-volatility'] ?? row.impliedVolatility,
-      'option-implied-volatility',
+    if (!row) throw new Error(`TastytradeSnapshot:invalid-option-term-row:${symbol}`)
+    const rawExpiration = optionalText(
+      row['expiration-date'] ?? row.expirationDate,
+      `option-expiration:${symbol}`,
     )
-    if (impliedVolatility < 0) throw new Error('TastytradeSnapshot:invalid-option-implied-volatility')
-    return {
-      chainType: optionalText(row['option-chain-type'] ?? row.optionChainType, 'option-chain-type') ?? '',
+    const impliedVolatility = optionalPercentagePoints(
+      row['implied-volatility'] ?? row.impliedVolatility,
+      `option-implied-volatility:${symbol}`,
+    )
+    const chainType = optionalText(
+      row['option-chain-type'] ?? row.optionChainType,
+      `option-chain-type:${symbol}`,
+    ) ?? ''
+    // Incomplete optional rows assert no term observation; malformed reported
+    // fields still fail in the parsers above.
+    if (rawExpiration === undefined || impliedVolatility === undefined) return []
+    const expiration = rawExpiration.slice(0, 10)
+    if (!isValidIsoDate(expiration)) throw new Error(`TastytradeSnapshot:invalid-option-expiration:${symbol}`)
+    if (impliedVolatility < 0) throw new Error(`TastytradeSnapshot:invalid-option-implied-volatility:${symbol}`)
+    return [{
+      chainType,
       expiration,
       impliedVolatility,
-    }
+    }]
   }).sort((left, right) => left.expiration.localeCompare(right.expiration)
     || Number(right.chainType === 'Standard') - Number(left.chainType === 'Standard')
     || left.chainType.localeCompare(right.chainType))
@@ -468,7 +478,7 @@ function normalizeLiveTicker(
     metrics['iv-hv-30-day-difference'] ?? metrics.ivHv30DayDifference,
     'iv-hv-30-day-difference',
   )
-  const ivTermStructure = optionTermStructure(metrics)
+  const ivTermStructure = optionTermStructure(metrics, symbol)
   const earningsDate = earningsDateFromMetric(metrics)
   const metricRecord: TastytradeMarketMetricRecord = {
     earningsDate: reportedEarningsDate(metrics),
