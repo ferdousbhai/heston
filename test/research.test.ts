@@ -151,6 +151,30 @@ describe('daily research final boundary', () => {
     ], evidence, ['NVDA'])[0]?.contract).toMatchObject({ expiry: '2027-01-15' })
   })
 
+  it('keeps an idea while dropping a cross-symbol citation', () => {
+    const idea = submission().ideas[0]!
+    const evidence = [
+      {
+        context: 'NVDA signed a new supply agreement.',
+        source: 'Independent wire',
+        symbols: ['NVDA'],
+        title: 'NVIDIA supply agreement',
+        url: EVIDENCE_URL,
+      },
+      {
+        context: 'A peer reported strong demand.',
+        source: 'Peer filing',
+        symbols: ['AMD'],
+        title: 'Peer demand',
+        url: 'https://example.com/peer-demand',
+      },
+    ]
+
+    const result = researchIdeas([{ ...idea, sourceIndices: [0, 1] }], evidence, ['NVDA'])
+
+    expect(result[0]?.idea.sources).toEqual([expect.objectContaining({ url: EVIDENCE_URL })])
+  })
+
   it('binds an agent-selected symbol to fetched evidence and verifies its exact option', async () => {
     const brief = await generateDailyResearch({}, NOW, { persist: false })
 

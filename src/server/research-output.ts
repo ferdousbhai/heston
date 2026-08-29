@@ -59,11 +59,14 @@ export function researchIdeas(
   const symbols = new Set(allowedSymbols)
   const bound = ideas.flatMap((idea) => {
     if (!symbols.has(idea.symbol)) return []
-    const selected = [...new Set(idea.sourceIndices)].map((index) => evidence[index])
-    if (!selected.length || selected.some((source) => !source?.symbols?.includes(idea.symbol))) return []
+    const selected = [...new Set(idea.sourceIndices)].flatMap((index) => {
+      const source = evidence[index]
+      return source?.symbols?.includes(idea.symbol) ? [source] : []
+    })
+    if (!selected.length) return []
     if ([idea.headline, idea.description, idea.risk].some(mentionsDiscoverySource)) return []
     const sources = [...new Map(selected.map((source) => {
-      const link = evidenceSourceLink(source!)
+      const link = evidenceSourceLink(source)
       return [link.url, link]
     })).values()].slice(0, 3)
     const {
