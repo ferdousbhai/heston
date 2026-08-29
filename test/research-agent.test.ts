@@ -148,6 +148,7 @@ describe('daily research Pi agent boundary', () => {
     ]))
     expect(JSON.stringify(bodies[1]?.input)).toContain('function_call_output')
     expect(JSON.stringify(bodies[0]?.input)).toContain('Not Found page is not evidence')
+    expect(JSON.stringify(bodies[0]?.input)).toContain('Every material factual claim')
     expect(JSON.stringify(bodies[0]?.input)).toContain('reddit_discovery_packet')
     expect(steps).toEqual([
       'reddit-context',
