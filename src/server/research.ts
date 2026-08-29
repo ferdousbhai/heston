@@ -29,22 +29,19 @@ export function shouldRunDailyResearch(date: Date): boolean {
     && parts.minute === '30'
 }
 
-/**
- * A model citing an item by index must otherwise count array positions in a long
- * serialized packet, and a miscount is indistinguishable from a fabricated index
- * once the deterministic binder rejects it. Every packet item therefore carries
- * its own index field. The emitted index is always the array position, so the
- * binders keep resolving citations positionally against the same array.
- */
-function researchSourceLinks(evidence: readonly ResearchSourceItem[]): ResearchBrief['sources'] {
+/** Publish only sources the editor selected for an idea or the reading list. */
+function researchSourceLinks(
+  ideas: ResearchBrief['ideas'],
+  readingList: ResearchBrief['readingList'],
+): ResearchBrief['sources'] {
   const links: ResearchBrief['sources'] = [
     { label: 'tastytrade market metrics', url: 'https://developer.tastytrade.com/open-api-spec/market-metrics/' },
+    ...ideas.flatMap((idea) => idea.sources),
+    ...readingList.map((item) => ({ label: item.title, url: item.url })),
   ]
-  for (const item of evidence) {
-    links.push({ label: `${item.source} · ${item.title}`, url: item.url })
-    if (item.outbound) links.push({ label: `Linked · ${item.outbound.label}`, url: item.outbound.url })
-  }
-  return [...new Map(links.map((link) => [link.url, link])).values()]
+  const unique = new Map<string, ResearchBrief['sources'][number]>()
+  for (const link of links) if (!unique.has(link.url)) unique.set(link.url, link)
+  return [...unique.values()]
 }
 
 export interface GenerateDailyResearchOptions {
@@ -300,7 +297,7 @@ export async function generateDailyResearch(
     id: researchBriefId(today),
     // Dated when the brief exists, not when the single agent run started.
     publishedAt,
-    sources: researchSourceLinks(evidence),
+    sources: researchSourceLinks(ideas, readingList),
   })
   if (persist) {
     await runTask('persist-report', async () => {

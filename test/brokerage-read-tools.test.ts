@@ -29,8 +29,6 @@ describe('brokerage read tools', () => {
     expect(createBrokerageReadTools({}).map((tool) => tool.name)).toEqual([
       'read_account_history',
       'search_symbols',
-      'find_option_contracts',
-      'read_instrument_quotes',
     ])
   })
 
@@ -276,6 +274,28 @@ describe('brokerage read tools', () => {
       strikePrice: 200,
       symbol: 'AAPL  260918C00200000',
     }])
+  })
+
+  it('returns listed contracts nearest a target strike', async () => {
+    tastytrade.tastyRequest.mockResolvedValue({ data: { items: [180, 200, 220].map((strike) => ({
+      active: true,
+      'expiration-date': '2026-09-18',
+      'instrument-type': 'Equity Option',
+      'is-closing-only': false,
+      'option-chain-type': 'Standard',
+      'option-type': 'C',
+      'shares-per-contract': 100,
+      'strike-price': String(strike),
+      symbol: `AAPL ${strike}`,
+      'underlying-symbol': 'AAPL',
+    })) } })
+
+    const result = await findOptionContracts({}, {
+      expiry: '2026-09-18', nearStrike: 205, optionType: 'C', underlying: 'AAPL',
+    }, now)
+
+    expect(result.contracts.map((contract) => contract.strikePrice)).toEqual([200, 220, 180])
+    expect(result.filters).toEqual({ expiry: '2026-09-18', nearStrike: 205, optionType: 'C' })
   })
 
   it('rejects malformed option rows instead of silently returning an empty chain', async () => {

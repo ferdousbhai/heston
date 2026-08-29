@@ -11,7 +11,12 @@ import { searchRecentTickerCoverage, type RecentTickerCoverage } from './researc
 import { type ResearchSourceItem } from './research-contracts'
 import { collectRedditSources } from './research-reddit'
 import { readStoredSecret } from './secrets'
-import { createMarketMetricsReadTool, type MarketMetricsReadResult } from './brokerage-read-tools'
+import {
+  createInstrumentQuoteReadTool,
+  createMarketMetricsReadTool,
+  createOptionContractFindTool,
+  type MarketMetricsReadResult,
+} from './brokerage-read-tools'
 
 const RedditSearchParameters = Type.Object({}, { additionalProperties: false })
 const RecentCoverageParameters = Type.Object({
@@ -196,5 +201,11 @@ export function createResearchAgentTools(
     if (options.capture) options.capture.marketMetrics.push(...result.details.metrics)
     return result
   }
-  return [reddit, coverage, metrics]
+  const optionContracts = createOptionContractFindTool(env)
+  const findOptionContracts = optionContracts.execute
+  optionContracts.execute = (...args) => runRead(optionContracts.name, () => findOptionContracts(...args))
+  const quotes = createInstrumentQuoteReadTool(env)
+  const readQuotes = quotes.execute
+  quotes.execute = (...args) => runRead(quotes.name, () => readQuotes(...args))
+  return [reddit, coverage, metrics, optionContracts, quotes]
 }

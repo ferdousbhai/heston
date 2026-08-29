@@ -128,6 +128,10 @@ describe('daily research final boundary', () => {
       symbol: 'NVDA',
     })])
     expect(brief.readingList).toEqual([expect.objectContaining({ url: EVIDENCE_URL })])
+    expect(brief.sources).toEqual([
+      { label: 'tastytrade market metrics', url: 'https://developer.tastytrade.com/open-api-spec/market-metrics/' },
+      { label: 'Linked-page discovery · reuters.com · NVIDIA supply agreement', url: EVIDENCE_URL },
+    ])
     expect(broker.tastyRequest).toHaveBeenCalledWith(expect.anything(), '/option-chains/NVDA')
     expect(broker.loadMarketSnapshot).not.toHaveBeenCalled()
   })

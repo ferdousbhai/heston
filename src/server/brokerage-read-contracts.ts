@@ -76,6 +76,11 @@ export const OptionContractFindParameters = Type.Object({
     description: 'Exact expiration date in YYYY-MM-DD form.',
     pattern: '^\\d{4}-\\d{2}-\\d{2}$',
   })),
+  nearStrike: Type.Optional(Type.Number({
+    description: 'Return listed contracts nearest this target strike without requiring an exact match.',
+    exclusiveMinimum: 0,
+    maximum: 1_000_000,
+  })),
   optionType: Type.Optional(Type.Union([Type.Literal('C'), Type.Literal('P')])),
   strike: Type.Optional(Type.Number({ exclusiveMinimum: 0, maximum: 1_000_000 })),
   underlying: Type.String({ description: 'Exact equity ticker.', pattern: EQUITY_SYMBOL_PATTERN }),
@@ -224,7 +229,7 @@ export type OptionContractFindResult = {
   asOf: string
   contracts: CompactOptionContract[]
   expirationDates: string[]
-  filters: { expiry?: string; optionType?: 'C' | 'P'; strike?: number }
+  filters: { expiry?: string; nearStrike?: number; optionType?: 'C' | 'P'; strike?: number }
   returnedContractCount: number
   returnedExpirationCount: number
   totalContractCount: number

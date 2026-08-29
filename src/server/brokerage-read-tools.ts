@@ -459,6 +459,7 @@ function parseActiveStandardOption(row: JsonObject, underlying: string): ParsedO
 
 export type OptionContractFindInput = {
   expiry?: string
+  nearStrike?: number
   optionType?: 'C' | 'P'
   strike?: number
   underlying: string
@@ -475,7 +476,9 @@ export async function findOptionContracts(
   if (input.optionType !== undefined && input.optionType !== 'C' && input.optionType !== 'P') {
     throw new Error('Option type is invalid.')
   }
-  if (input.strike !== undefined && (!Number.isFinite(input.strike) || input.strike <= 0 || input.strike > 1_000_000)) {
+  if ([input.nearStrike, input.strike].some((strike) => (
+    strike !== undefined && (!Number.isFinite(strike) || strike <= 0 || strike > 1_000_000)
+  ))) {
     throw new Error('Option strike is invalid.')
   }
   const envelope = itemEnvelope(
@@ -495,14 +498,20 @@ export async function findOptionContracts(
   const matching = discoverable
     .filter((contract) => input.expiry === undefined || contract.expirationDate === input.expiry)
     .sort((left, right) => left.expirationDate.localeCompare(right.expirationDate)
+      || (input.nearStrike === undefined
+        ? 0
+        : Math.abs(left.strikePrice - input.nearStrike) - Math.abs(right.strikePrice - input.nearStrike))
       || left.strikePrice - right.strikePrice
       || left.optionType.localeCompare(right.optionType)
       || left.symbol.localeCompare(right.symbol))
   const expirationDates = allExpirationDates.slice(0, MAX_OPTION_EXPIRATIONS)
-  const mode = input.expiry === undefined && input.strike === undefined ? 'expirations' : 'contracts'
+  const mode = input.expiry === undefined && input.nearStrike === undefined && input.strike === undefined
+    ? 'expirations'
+    : 'contracts'
   const contracts = mode === 'contracts' ? matching.slice(0, MAX_OPTION_CONTRACTS) : []
   const filters: OptionContractFindResult['filters'] = {}
   if (input.expiry !== undefined) filters.expiry = input.expiry
+  if (input.nearStrike !== undefined) filters.nearStrike = input.nearStrike
   if (input.optionType !== undefined) filters.optionType = input.optionType
   if (input.strike !== undefined) filters.strike = input.strike
   return {
@@ -560,11 +569,11 @@ function createSymbolSearchTool(
   }
 }
 
-function createOptionContractFindTool(
+export function createOptionContractFindTool(
   env: AppEnv,
 ): AgentTool<typeof OptionContractFindParameters, OptionContractFindResult> {
   return {
-    description: 'Find active, standard tastytrade equity option contracts. Call with the underlying first to list expirations, then call again with an expiry and optional C/P or strike for bounded exact broker symbols and multipliers. This tool never places an order.',
+    description: 'Find active, standard tastytrade equity option contracts. Call with the underlying first to list expirations, then call again with an expiry and optional C/P plus nearStrike to inspect real contracts. Use strike only for an exact match. This tool never places an order.',
     execute: async (_toolCallId, params) => textResult(await findOptionContracts(env, params)),
     executionMode: 'sequential',
     label: 'Finding option contracts',
@@ -573,7 +582,7 @@ function createOptionContractFindTool(
   }
 }
 
-function createInstrumentQuoteReadTool(
+export function createInstrumentQuoteReadTool(
   env: AppEnv,
 ): AgentTool<typeof InstrumentQuoteReadParameters, InstrumentQuoteReadResult> {
   return {
@@ -590,7 +599,5 @@ export function createBrokerageReadTools(env: AppEnv) {
   return [
     createAccountHistoryReadTool(env),
     createSymbolSearchTool(env),
-    createOptionContractFindTool(env),
-    createInstrumentQuoteReadTool(env),
   ]
 }

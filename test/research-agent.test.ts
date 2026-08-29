@@ -137,6 +137,8 @@ describe('daily research Pi agent boundary', () => {
       expect.objectContaining({ name: 'search_reddit', type: 'function' }),
       expect.objectContaining({ name: 'read_market_metrics', type: 'function' }),
       expect.objectContaining({ name: 'get_recent_coverage', type: 'function' }),
+      expect.objectContaining({ name: 'find_option_contracts', type: 'function' }),
+      expect.objectContaining({ name: 'read_instrument_quotes', type: 'function' }),
       expect.objectContaining({ name: 'submit_daily_report', type: 'function' }),
     ]))
     expect(JSON.stringify(bodies[1]?.input)).toContain('function_call_output')
