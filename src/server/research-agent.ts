@@ -46,8 +46,8 @@ const MAX_RESPONSE_BYTES = 900_000
 // The daily surface is intentionally selective: a short ranked editor's brief, not a screener dump.
 const MAX_DAILY_IDEAS = 3
 const MAX_READING_LINKS = 6
-// xAI structured outputs enforce string maxLength only through 2,048 characters;
-// that provider limit also keeps this private packet compact beside the other contexts.
+// Keep this private packet compact beside the other contexts and within one
+// durable Workflow step; overlong provider prose fails locally instead of truncating.
 const MAX_X_DISCOVERY_SUMMARY_CHARS = 2_048
 const MAX_X_DISCOVERY_OUTPUT_TOKENS = 3_000
 
@@ -66,14 +66,11 @@ const NativeSearchSource = Type.Object({
   sourceUrl: Type.String({ minLength: 1, maxLength: 2_000 }),
   title: Type.String({ minLength: 1, maxLength: 180 }),
 }, { additionalProperties: false })
-const XDiscoverySummarySchema = Type.Object({
-  summary: Type.String({ minLength: 1, maxLength: MAX_X_DISCOVERY_SUMMARY_CHARS }),
-}, { additionalProperties: false })
-
-type XDiscoveryContext = Static<typeof XDiscoverySummarySchema> & {
+type XDiscoveryContext = {
   fetchedAt: string
   fromDate: string
   source: 'x'
+  summary: string
   toDate: string
 }
 
@@ -261,17 +258,10 @@ async function collectXDiscovery(
       }],
       max_output_tokens: MAX_X_DISCOVERY_OUTPUT_TOKENS,
       tools: [grokNativeXSearchTool({ fromDate, toDate })],
-      text: {
-        format: {
-          type: 'json_schema',
-          name: 'daily_research_x_discovery',
-          schema: XDiscoverySummarySchema,
-          strict: true,
-        },
-      },
-      // Select the built-in explicitly: xAI's generic `required` mode did not
-      // force a server-side search even when X was the only configured tool.
-      tool_choice: { type: 'x_search' },
+      // xAI rejects a forced built-in selector and skipped generic `required`
+      // when combined with structured output. This private packet stays plain
+      // text and is validated locally; the public report remains structured.
+      tool_choice: 'required',
     }),
   })
   if (!response.ok) {
@@ -283,17 +273,12 @@ async function collectXDiscovery(
   inspectDedicatedXDiscovery(payload)
   const text = providerOutputText(payload)
   if (!text) throw new Error('DailyResearchAgentResponse:missing-x-discovery')
-  let value: JsonValue
-  try {
-    value = JSON.parse(text)
-  } catch (cause) {
-    throw new Error('DailyResearchAgentResponse:invalid-x-discovery-json', { cause })
-  }
+  const summary = z.string().min(1).max(MAX_X_DISCOVERY_SUMMARY_CHARS).parse(text)
   return {
-    ...Value.Parse(XDiscoverySummarySchema, value),
     fetchedAt: request.now.toISOString(),
     fromDate,
     source: 'x',
+    summary,
     toDate,
   }
 }
