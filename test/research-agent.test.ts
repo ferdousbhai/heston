@@ -46,11 +46,9 @@ function providerToolCall(
   name: string,
   args: JsonObject,
   status: string | null = 'completed',
-  xSearchStatus?: string | null,
 ) {
   const response = {
     output: [
-      ...(xSearchStatus ? [{ type: 'x_search_call', status: xSearchStatus }] : []),
       { type: 'function_call', call_id: `${name}-1`, name, arguments: JSON.stringify(args) },
     ],
   }
@@ -67,6 +65,25 @@ function providerReport(
         content: [{
           type: 'output_text',
           text: JSON.stringify(submission()),
+        }],
+      },
+    ],
+  }
+  return status === null ? response : { ...response, status }
+}
+
+function providerXContext(
+  status: string | null = 'completed',
+  xSearchStatus: string | null = 'completed',
+) {
+  const response = {
+    output: [
+      ...(xSearchStatus ? [{ type: 'x_search_call', status: xSearchStatus }] : []),
+      {
+        type: 'message',
+        content: [{
+          type: 'output_text',
+          text: JSON.stringify({ summary: 'NVDA has a scheduled product event worth verifying.' }),
         }],
       },
     ],
@@ -97,7 +114,8 @@ function agentFetcher(
   xSearchStatus: string | null = 'completed',
 ) {
   const providerResponses = [
-    providerToolCall('read_market_metrics', { symbols: ['NVDA'] }, status, xSearchStatus),
+    providerXContext(status, xSearchStatus),
+    providerToolCall('read_market_metrics', { symbols: ['NVDA'] }, status),
     providerToolCall('get_recent_coverage', { daysAgo: 14, tickers: ['NVDA'] }, status),
     providerReport(status),
   ]
@@ -158,8 +176,10 @@ describe('daily research Pi agent boundary', () => {
     }, fetcher)
 
     expect(result.submission.ideas[0]?.symbol).toBe('NVDA')
-    expect(bodies).toHaveLength(3)
-    expect(bodies[0]?.tools).toEqual(expect.arrayContaining([
+    expect(bodies).toHaveLength(4)
+    expect(bodies[0]?.tools).toEqual([{ from_date: '2026-03-01', to_date: '2026-08-29', type: 'x_search' }])
+    expect(bodies[0]?.tool_choice).toBe('required')
+    expect(bodies[1]?.tools).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'web_search' }),
       expect.objectContaining({ type: 'x_search' }),
       expect.objectContaining({ name: 'read_market_metrics', type: 'function' }),
@@ -167,25 +187,26 @@ describe('daily research Pi agent boundary', () => {
       expect.objectContaining({ name: 'find_option_contracts', type: 'function' }),
       expect.objectContaining({ name: 'read_instrument_quotes', type: 'function' }),
     ]))
-    expect(bodies[0]?.tools).not.toEqual(expect.arrayContaining([
+    expect(bodies[1]?.tools).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ name: 'submit_daily_report', type: 'function' }),
     ]))
-    expect(bodies[0]?.text).toEqual(expect.objectContaining({
+    expect(bodies[1]?.text).toEqual(expect.objectContaining({
       format: expect.objectContaining({ name: 'daily_research_report', type: 'json_schema' }),
     }))
-    expect(bodies[0]?.tool_choice).toBe('auto')
-    expect(bodies[0]?.tools).not.toEqual(expect.arrayContaining([
+    expect(bodies[1]?.tool_choice).toBe('auto')
+    expect(bodies[1]?.tools).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ name: 'search_reddit', type: 'function' }),
     ]))
-    expect(JSON.stringify(bodies[1]?.input)).toContain('function_call_output')
-    expect(JSON.stringify(bodies[0]?.input)).toContain('Not Found page is not evidence')
-    expect(JSON.stringify(bodies[0]?.input)).toContain('Every material factual claim')
-    expect(JSON.stringify(bodies[0]?.input)).toContain('reopen every selected source page')
-    expect(JSON.stringify(bodies[0]?.input)).toContain('reddit_discovery_packet')
-    expect(JSON.stringify(bodies[0]?.input)).toContain('yahoo_mover_packet')
-    expect(JSON.stringify(bodies[0]?.input)).toContain('codex_catalyst_packet')
+    expect(JSON.stringify(bodies[2]?.input)).toContain('function_call_output')
+    expect(JSON.stringify(bodies[1]?.input)).toContain('Not Found page is not evidence')
+    expect(JSON.stringify(bodies[1]?.input)).toContain('Every material factual claim')
+    expect(JSON.stringify(bodies[1]?.input)).toContain('reopen every selected source page')
+    expect(JSON.stringify(bodies[1]?.input)).toContain('reddit_discovery_packet')
+    expect(JSON.stringify(bodies[1]?.input)).toContain('yahoo_mover_packet')
+    expect(JSON.stringify(bodies[1]?.input)).toContain('codex_catalyst_packet')
+    expect(JSON.stringify(bodies[1]?.input)).toContain('x_discovery_packet')
     expect(steps).toEqual([
-      'reddit-context', 'yahoo-movers', 'codex-context',
+      'reddit-context', 'yahoo-movers', 'codex-context', 'x-context',
       'model-1', 'tool-1-read_market_metrics',
       'model-2', 'tool-2-get_recent_coverage',
       'model-3',
@@ -262,7 +283,7 @@ describe('daily research Pi agent boundary', () => {
       ...environment(),
       REDDIT_CLIENT_ID: undefined,
     }, { now: NOW, runId: 'daily-run' }, fetcher)).rejects.toThrow('RedditResearchUnavailable')
-    expect(bodies).toHaveLength(0)
+    expect(bodies).toHaveLength(1)
   })
 
   it('fails immediately when a research tool fails', async () => {
@@ -273,7 +294,7 @@ describe('daily research Pi agent boundary', () => {
 
     await expect(runDailyResearchAgent(environment(), { now: NOW, runId: 'daily-run' }, fetcher))
       .rejects.toThrow('DailyResearchAgentTool:read_market_metrics')
-    expect(bodies).toHaveLength(1)
+    expect(bodies).toHaveLength(2)
   })
 
   it('rejects a provider response without a completed status', async () => {
