@@ -1,7 +1,13 @@
 export const MAX_DAILY_RESEARCH_IDEAS = 3
+export const MAX_DAILY_RESEARCH_SYMBOLS = 40
 // ask-dan researched a broad twenty-post discovery set before ranking. Ten exact,
 // watchlist-bound symbols preserves that breadth while bounding provider fan-out.
 export const MAX_DAILY_RESEARCH_LEADS = 10
+
+export function addDays(date: string, days: number): string {
+  const [year, month, day] = date.split('-').map(Number)
+  return new Date(Date.UTC(year!, month! - 1, day! + days)).toISOString().slice(0, 10)
+}
 
 /**
  * A stored brief is keyed by its market date, so a rerun replaces that day's row

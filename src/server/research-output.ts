@@ -1,85 +1,20 @@
-import { z } from 'zod'
-
-import { CatalystKindSchema, CatalystSchema, isValidIsoDate, marketDate, type Catalyst } from '../domain/catalyst'
-import {
-  EQUITY_SYMBOL_PATTERN,
-  EquitySymbolSchema,
-  POTENTIAL_PLAY_PATTERN,
-  POTENTIAL_PLAY_REGEX,
-} from '../domain/instrument'
-import { JsonArraySchema, jsonObject, jsonObjectOrEmpty, type JsonValue } from '../domain/json-payload'
+import { CatalystSchema, isValidIsoDate, marketDate, type Catalyst } from '../domain/catalyst'
 import {
   MarketMoverInsightSchema,
   ResearchIdeaSchema,
   ResearchReadingLinkSchema,
   type ResearchBrief,
 } from '../domain/market'
-import { parseLabeledJson } from './bounded-response'
+import { type DailyResearchSubmission } from './research-agent'
 import { type RecentTickerCoverage } from './research-coverage'
-import { MAX_DAILY_RESEARCH_IDEAS, type ResearchSourceItem } from './research-contracts'
+import { addDays, type ResearchSourceItem } from './research-contracts'
 import { REDDIT_RESEARCH_SOURCE } from './research-reddit'
-import { lastResponsesOutputText } from './model-output'
 
-const GeneratedRedditCatalystSchema = z.object({
-  sourceIndex: z.number().int().nonnegative(),
-  symbol: EquitySymbolSchema,
-  kind: CatalystKindSchema.exclude(['earnings']),
-  title: z.string().trim().min(1).max(160),
-  description: z.string().trim().min(1).max(500),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  timing: z.enum(['pre-market', 'intraday', 'after-hours', 'unknown']),
-})
-
-const GeneratedMarketMoverInsightSchema = z.object({
-  description: z.string().trim().min(1).max(360),
-  headline: z.string().trim().min(1).max(100),
-  sourceIndices: z.array(z.number().int().nonnegative()).min(1).max(3),
-  symbol: EquitySymbolSchema,
-})
-
-const GeneratedResearchIdeaSchema = z.object({
-  description: z.string().trim().min(1).max(360),
-  direction: z.enum(['bullish', 'bearish', 'neutral']),
-  headline: z.string().trim().min(1).max(100),
-  play: z.string().trim().max(40).regex(POTENTIAL_PLAY_REGEX).nullable(),
-  recentCoverageIndices: z.array(z.number().int().nonnegative()).max(3),
-  risk: z.string().trim().min(1).max(240),
-  sourceIndices: z.array(z.number().int().nonnegative()).min(1).max(3),
-  symbol: EquitySymbolSchema,
-  thesisChange: z.string().trim().max(240),
-}).refine((idea) => idea.play === null || idea.play.startsWith(`${idea.symbol} `), {
-  message: 'Potential play must use the idea symbol',
-  path: ['play'],
-})
-
-const GeneratedReadingLinkSchema = z.object({
-  reason: z.string().trim().min(1).max(180),
-  sourceIndex: z.number().int().nonnegative(),
-})
-
-const GeneratedResearchSchema = z.object({
-  title: z.string().trim().min(1).max(100),
-  summary: z.string().trim().min(1).max(360),
-  regime: z.string().trim().min(1).max(80),
-  regimeDetail: z.string().trim().min(1).max(180),
-  // Stored briefs retain the historical max of five; new issues deliberately
-  // narrow the editor to the highest-quality zero-to-three theses.
-  ideas: z.array(GeneratedResearchIdeaSchema).max(MAX_DAILY_RESEARCH_IDEAS),
-  marketMovers: z.array(GeneratedMarketMoverInsightSchema).max(6),
-  readingList: z.array(GeneratedReadingLinkSchema).max(10).default([]),
-})
-
-const GeneratedRedditCatalystResponseSchema = z.object({
-  catalysts: z.array(GeneratedRedditCatalystSchema).max(20),
-})
-
-export type GeneratedResearch = z.infer<typeof GeneratedResearchSchema>
-
-const VerbatimModelTextSchema = z.string()
-
-export function addDays(date: string, days: number): string {
-  const [year, month, day] = date.split('-').map(Number)
-  return new Date(Date.UTC(year!, month! - 1, day! + days)).toISOString().slice(0, 10)
+type ResearchIdeaCandidate = DailyResearchSubmission['ideas'][number]
+type ReadingLinkCandidate = DailyResearchSubmission['readingList'][number]
+type MarketMoverCandidate = DailyResearchSubmission['marketMovers'][number]
+type RedditCatalystCandidate = Omit<DailyResearchSubmission['redditCatalysts'][number], 'redditEvidenceIndex'> & {
+  sourceIndex: number
 }
 
 /**
@@ -164,7 +99,7 @@ function normalizedThesis(headline: string, description: string): string {
 }
 
 function coverageReviewIsValid(
-  idea: GeneratedResearch['ideas'][number],
+  idea: ResearchIdeaCandidate,
   selectedEvidence: readonly (ResearchSourceItem | undefined)[],
   recentCoverage: readonly RecentTickerCoverage[],
 ): boolean {
@@ -202,7 +137,7 @@ function coverageReviewIsValid(
  * impossible, stale, or a calendar day on which no option expires.
  */
 export function researchIdeasForDate(
-  ideas: readonly GeneratedResearch['ideas'][number][],
+  ideas: readonly ResearchIdeaCandidate[],
   today: string,
   evidence: readonly ResearchSourceItem[],
   allowedSymbols: readonly string[],
@@ -242,7 +177,7 @@ export function researchIdeasForDate(
 
 /** Bind the editor's ranked reading picks to application-owned evidence URLs. */
 export function readingListFromCandidates(
-  value: readonly GeneratedResearch['readingList'][number][],
+  value: readonly ReadingLinkCandidate[],
   evidence: readonly ResearchSourceItem[],
 ): ResearchBrief['readingList'] {
   const accepted = new Map<string, ResearchBrief['readingList'][number]>()
@@ -292,155 +227,6 @@ export function mentionsDiscoverySource(value: string): boolean {
   return DISCOVERY_SOURCE_PATTERNS.some((pattern) => pattern.test(value))
 }
 
-/**
- * The editor and catalyst models answer with JSON, sometimes fenced. A truncated or
- * malformed answer must name which model response it came from: without the label the
- * run dies on a bare SyntaxError indistinguishable from a provider body failing to parse.
- */
-function extractJson(response: string, label: string): JsonValue {
-  const fenced = response.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]
-  return parseLabeledJson(fenced ?? response, label)
-}
-
-function modelOutputText(payload: JsonValue): string | undefined {
-  const body = jsonObjectOrEmpty(payload)
-  const direct = VerbatimModelTextSchema.safeParse(body.output_text ?? body.response).data
-  if (direct !== undefined) return direct
-  if (jsonObject(body.response)) return JSON.stringify(body.response)
-
-  for (const choice of (JsonArraySchema.safeParse(body.choices).data ?? []).map(jsonObjectOrEmpty)) {
-    const content = VerbatimModelTextSchema.safeParse(jsonObjectOrEmpty(choice.message).content).data
-    if (content !== undefined) return content
-  }
-  return lastResponsesOutputText(payload)
-}
-
-function normalizeDirection(value: JsonValue): JsonValue {
-  const raw = VerbatimModelTextSchema.safeParse(value).data
-  if (raw === undefined) return value
-  const direction = raw.toLowerCase()
-  if (direction.includes('bull') || direction.includes('upside') || direction === 'positive') return 'bullish'
-  if (direction.includes('bear') || direction.includes('downside') || direction === 'negative') return 'bearish'
-  if (direction.includes('neutral') || direction.includes('range') || direction.includes('mixed') || direction.includes('wait')) return 'neutral'
-  return direction
-}
-
-function normalizeModelResearch(value: JsonValue): JsonValue {
-  const research = jsonObject(value)
-  const ideas = research && JsonArraySchema.safeParse(research.ideas).data
-  if (!research || !ideas) return value
-  return {
-    ...research,
-    ideas: ideas.map((idea) => {
-      const fields = jsonObject(idea)
-      return fields ? { ...fields, direction: normalizeDirection(fields.direction) } : idea
-    }),
-  }
-}
-
-export function parseGeneratedResearch(payload: JsonValue): GeneratedResearch {
-  return GeneratedResearchSchema.parse(
-    normalizeModelResearch(extractJson(modelOutputText(payload) ?? '', 'DailyResearchEditorResponse')),
-  )
-}
-
-export function parseGeneratedRedditCatalysts(payload: JsonValue): JsonValue {
-  return GeneratedRedditCatalystResponseSchema.parse(
-    extractJson(modelOutputText(payload) ?? '', 'DailyResearchCatalystModelResponse'),
-  ).catalysts
-}
-
-export function dailyResearchResponseSchema() {
-  return {
-    type: 'object', additionalProperties: false,
-    required: ['title', 'summary', 'regime', 'regimeDetail', 'ideas', 'marketMovers', 'readingList'],
-    properties: {
-      title: { type: 'string', minLength: 1, maxLength: 100 },
-      summary: { type: 'string', minLength: 1, maxLength: 360 },
-      regime: { type: 'string', minLength: 1, maxLength: 80 },
-      regimeDetail: { type: 'string', minLength: 1, maxLength: 180 },
-      ideas: {
-        type: 'array', maxItems: MAX_DAILY_RESEARCH_IDEAS,
-        items: {
-          type: 'object', additionalProperties: false,
-          required: ['symbol', 'direction', 'headline', 'description', 'play', 'risk', 'sourceIndices', 'recentCoverageIndices', 'thesisChange'],
-          properties: {
-            symbol: { type: 'string', pattern: EQUITY_SYMBOL_PATTERN },
-            direction: { type: 'string', enum: ['bullish', 'bearish', 'neutral'] },
-            headline: { type: 'string', minLength: 1, maxLength: 100 },
-            description: { type: 'string', minLength: 1, maxLength: 360 },
-            play: { anyOf: [{ type: 'string', pattern: POTENTIAL_PLAY_PATTERN }, { type: 'null' }] },
-            recentCoverageIndices: {
-              type: 'array', maxItems: 3,
-              items: { type: 'integer', minimum: 0 },
-            },
-            risk: { type: 'string', minLength: 1, maxLength: 240 },
-            sourceIndices: {
-              type: 'array', minItems: 1, maxItems: 3,
-              items: { type: 'integer', minimum: 0 },
-            },
-            thesisChange: { type: 'string', maxLength: 240 },
-          },
-        },
-      },
-      marketMovers: {
-        type: 'array', maxItems: 6,
-        items: {
-          type: 'object', additionalProperties: false,
-          required: ['symbol', 'sourceIndices', 'headline', 'description'],
-          properties: {
-            symbol: { type: 'string', pattern: EQUITY_SYMBOL_PATTERN },
-            sourceIndices: {
-              // Workers AI's structured-output grammar does not implement uniqueItems.
-              // The deterministic binder below removes duplicate indices before use.
-              type: 'array', minItems: 1, maxItems: 3,
-              items: { type: 'integer', minimum: 0 },
-            },
-            headline: { type: 'string', minLength: 1, maxLength: 100 },
-            description: { type: 'string', minLength: 1, maxLength: 360 },
-          },
-        },
-      },
-      readingList: {
-        type: 'array', maxItems: 10,
-        items: {
-          type: 'object', additionalProperties: false,
-          required: ['sourceIndex', 'reason'],
-          properties: {
-            sourceIndex: { type: 'integer', minimum: 0 },
-            reason: { type: 'string', minLength: 1, maxLength: 180 },
-          },
-        },
-      },
-    },
-  }
-}
-
-export function redditCatalystResponseSchema() {
-  return {
-    type: 'object', additionalProperties: false,
-    required: ['catalysts'],
-    properties: {
-      catalysts: {
-        type: 'array', maxItems: 20,
-        items: {
-          type: 'object', additionalProperties: false,
-          required: ['sourceIndex', 'symbol', 'kind', 'title', 'description', 'date', 'timing'],
-          properties: {
-            sourceIndex: { type: 'integer', minimum: 0 },
-            symbol: { type: 'string', pattern: EQUITY_SYMBOL_PATTERN },
-            kind: { type: 'string', enum: ['investor-event', 'product-event', 'regulatory', 'clinical', 'conference', 'shareholder'] },
-            title: { type: 'string', minLength: 1, maxLength: 160 },
-            description: { type: 'string', minLength: 1, maxLength: 500 },
-            date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
-            timing: { type: 'string', enum: ['pre-market', 'intraday', 'after-hours', 'unknown'] },
-          },
-        },
-      },
-    },
-  }
-}
-
 function redditPostId(url: string): string | undefined {
   try {
     return new URL(url).pathname.match(/\/comments\/([a-z0-9]+)(?:\/|$)/i)?.[1]?.toLowerCase()
@@ -450,12 +236,11 @@ function redditPostId(url: string): string | undefined {
 }
 
 export function redditCatalystsFromCandidates(
-  value: JsonValue,
+  candidates: readonly RedditCatalystCandidate[],
   evidence: readonly ResearchSourceItem[],
   allowedSymbols: readonly string[],
   now = new Date(),
 ): Catalyst[] {
-  const candidates = z.array(GeneratedRedditCatalystSchema).max(20).parse(value)
   const symbols = new Set(allowedSymbols.map((symbol) => symbol.toUpperCase()))
   const today = marketDate(now)
   const horizon = addDays(today, 180)
@@ -542,10 +327,9 @@ export function marketMoverPacket(evidence: readonly ResearchSourceItem[]): Mark
  * output becomes an explicit unconfirmed driver so detected moves still surface.
  */
 export function marketMoverInsightsFromCandidates(
-  value: JsonValue,
+  candidates: readonly MarketMoverCandidate[],
   evidence: readonly ResearchSourceItem[],
 ): ResearchBrief['marketMovers'] {
-  const candidates = z.array(GeneratedMarketMoverInsightSchema).max(6).parse(value)
   const moverEvidence = new Map<string, ResearchSourceItem[]>()
   for (const source of evidence) {
     const symbol = source.marketMover?.symbol

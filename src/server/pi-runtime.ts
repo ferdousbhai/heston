@@ -5,7 +5,7 @@ import { XAI_MODELS } from '@earendil-works/pi-ai/providers/xai.models'
 import { aiGatewayHeaders } from './ai-gateway'
 import { defineSeam, type SeamValue } from './seam'
 
-const XAI_MODEL: Model<'openai-responses'> = {
+export const GROK_MODEL: Model<'openai-responses'> = {
   ...XAI_MODELS['grok-4.5'],
   id: 'grok-4.6',
   name: 'Grok 4.6',
@@ -32,12 +32,12 @@ export function createPiRuntime(
   gatewayBaseUrl: string,
   runId: string,
 ): PiRuntime {
-  const model = { ...XAI_MODEL, baseUrl: gatewayBaseUrl }
+  const model = { ...GROK_MODEL, baseUrl: gatewayBaseUrl }
   return {
     model,
     stream: (model, context, options) => responsesApi().stream(
-      // SAFETY: the runtime only ever streams XAI_MODEL, the single model this factory returns.
-      model as typeof XAI_MODEL,
+      // SAFETY: the runtime only ever streams GROK_MODEL, the single model this factory returns.
+      model as typeof GROK_MODEL,
       context,
       {
         ...options,

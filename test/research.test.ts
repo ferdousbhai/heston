@@ -1,8 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
-import { z } from 'zod'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { type Catalyst } from '../src/domain/catalyst'
+import { JsonObjectSchema } from '../src/domain/json-payload'
 import { generateDailyResearch, shouldRunDailyResearch } from '../src/server/research'
+import {
+  resetDailyResearchAgent,
+  setDailyResearchAgent,
+  type DailyResearchAgent,
+  type DailyResearchAgentRequest,
+  type DailyResearchSubmission,
+} from '../src/server/research-agent'
 import { type ResearchSourceItem } from '../src/server/research-contracts'
 import {
   resetMarketMoverResearch,
@@ -13,8 +20,6 @@ import {
   marketMoverInsightsFromCandidates,
   marketMoverPacket,
   mentionsDiscoverySource,
-  parseGeneratedRedditCatalysts,
-  parseGeneratedResearch,
   readingListFromCandidates,
   redditCatalystsFromCandidates,
   researchIdeasForDate,
@@ -26,47 +31,83 @@ import {
   setResearchSources,
   type ResearchSources,
 } from '../src/server/research-sources'
-import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
-import { resetXCatalystResearch, setXCatalystResearch, type XCatalystResearch } from '../src/server/x-catalysts'
-import { stubBroker } from './broker-stub'
-import { unsupportedAi } from './fake-ai'
-import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
-import { marketSnapshotFixture } from './fixtures/market'
 import {
   resetInternalWatchlistWriter,
   setInternalWatchlistWriter,
   type InternalWatchlistWriter,
 } from '../src/server/internal-watchlist'
+import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
+import { stubBroker } from './broker-stub'
+import { unsupportedAi } from './fake-ai'
+import { marketSnapshotFixture } from './fixtures/market'
 
 const sources = {
   collectOfficialSources: vi.fn<ResearchSources['collectOfficialSources']>(async () => []),
   collectRedditSources: vi.fn<ResearchSources['collectRedditSources']>(async () => []),
   collectTickerSources: vi.fn<ResearchSources['collectTickerSources']>(async () => []),
 } satisfies ResearchSources
-const runXResearch = vi.fn<XCatalystResearch['runForSymbols']>(async () => ({ catalysts: [], rejected: 0 }))
-const xResearch = { runForSymbols: runXResearch } satisfies XCatalystResearch
 const collectMarketMovers = vi.fn<MarketMoverResearch['collect']>(async () => [])
 const marketMovers = { collect: collectMarketMovers } satisfies MarketMoverResearch
+const runResearchAgent = vi.fn<DailyResearchAgent['run']>()
+const researchAgent = { run: runResearchAgent } satisfies DailyResearchAgent
 const broker = stubBroker()
 const secret: SecretsStoreSecret = { get: async () => 'secret' }
 const internalWatchlist = { ensureSymbols: vi.fn() } satisfies InternalWatchlistWriter
 
-function generatedResearch() {
-  const marketMovers: Array<{
-    description: string
-    headline: string
-    sourceIndices: number[]
-    symbol: string
-  }> = []
+type GeneratedResearch = Pick<DailyResearchSubmission,
+  'ideas' | 'marketMovers' | 'readingList' | 'regime' | 'regimeDetail' | 'summary' | 'title'>
+
+function generatedResearch(): GeneratedResearch {
   return {
-    title: 'Daily brief', summary: 'Summary', regime: 'Selective', regimeDetail: 'Defined risk',
+    title: 'Daily brief',
+    summary: 'Summary',
+    regime: 'Selective',
+    regimeDetail: 'Defined risk',
     ideas: [{
-      symbol: 'NVDA', direction: 'Cautiously bullish', headline: 'Breadth keeps improving',
+      symbol: 'NVDA',
+      direction: 'bullish',
+      headline: 'Breadth keeps improving',
       description: 'Participation is broadening. Cheap index premium keeps convexity accessible.',
-      play: 'NVDA 225c 10/16', risk: 'Breadth reverses while the index stalls.',
-      recentCoverageIndices: [], sourceIndices: [0], thesisChange: '',
+      play: 'NVDA 225c 10/16',
+      risk: 'Breadth reverses while the index stalls.',
+      recentCoverageIndices: [],
+      sourceIndices: [0],
+      thesisChange: '',
     }],
-    marketMovers,
+    marketMovers: [],
+    readingList: [],
+  }
+}
+
+function submissionFor(
+  request: DailyResearchAgentRequest,
+  output = generatedResearch(),
+): DailyResearchSubmission {
+  const reportSources = request.evidence.flatMap((item, evidenceIndex) => {
+    const symbol = item.symbols?.[0]
+    if (!symbol) return []
+    return [{
+      context: item.context ?? item.title,
+      evidenceIndex,
+      sourceUrl: item.outbound?.url ?? item.url,
+      symbol,
+      title: item.title,
+    }]
+  })
+  const sourceIndex = (symbol: string) => Math.max(
+    0,
+    reportSources.findIndex((source) => source.symbol === symbol),
+  )
+  return {
+    ...output,
+    sources: reportSources,
+    ideas: output.ideas.map((idea) => ({ ...idea, sourceIndices: [sourceIndex(idea.symbol)] })),
+    marketMovers: output.marketMovers.map((mover) => ({
+      ...mover,
+      sourceIndices: [sourceIndex(mover.symbol)],
+    })),
+    redditCatalysts: [],
+    xCatalysts: [],
   }
 }
 
@@ -98,44 +139,41 @@ function optionChain(...rows: ReturnType<typeof chainRow>[]) {
 
 function nvdaEvidence() {
   sources.collectRedditSources.mockResolvedValueOnce([{
-    context: 'NVDA demand is drawing renewed attention.',
-    source: 'Reddit · r/wallstreetbets', symbols: ['NVDA'], title: 'NVDA demand discussion',
+    context: 'Post: NVDA demand is drawing renewed attention.\nTop comments: • Supply is the key debate.',
+    linkedPages: [{
+      excerpt: 'Reuters reports a new NVIDIA supply agreement.',
+      label: 'reuters.com',
+      title: 'NVIDIA supply agreement',
+      url: 'https://www.reuters.com/technology/nvidia-supply',
+    }],
+    source: 'Reddit · r/wallstreetbets',
+    symbols: ['NVDA'],
+    title: 'NVDA demand discussion',
     url: 'https://www.reddit.com/r/wallstreetbets/comments/abc123/nvda_discussion/',
   }])
   sources.collectTickerSources.mockResolvedValueOnce([{
     context: 'Reuters reports a new NVIDIA supply agreement.',
-    publishedAt: '2026-08-14T12:00:00.000Z', source: 'Yahoo Finance ticker research',
-    symbols: ['NVDA'], title: 'NVDA · NVIDIA supply agreement', url: 'https://finance.yahoo.com/quote/NVDA',
+    publishedAt: '2026-08-14T12:00:00.000Z',
+    source: 'Yahoo Finance ticker research',
+    symbols: ['NVDA'],
+    title: 'NVDA · NVIDIA supply agreement',
+    url: 'https://finance.yahoo.com/quote/NVDA',
   }])
 }
 
-function promptFor(run: Mock, name: string): string {
-  return String(run.mock.calls.find((call) => call[1].text.format.name === name)?.[1].input[1].content)
-}
-
-function promptSection(prompt: string, label: string, next: string): string {
-  return prompt.split(label)[1]!.split(next)[0]!
-}
-
-function briefEvidencePacketJson(briefPrompt: string): string {
-  return promptSection(briefPrompt, 'cite an item by copying its own index field: ', '. Recent ticker coverage')
-}
-
 async function runDailyBrief() {
-  const run = vi.fn().mockImplementation(async (_model, options) => ({
-    output_text: JSON.stringify(
-      options.text.format.name === 'spice_reddit_catalysts' ? { catalysts: [] } : generatedResearch(),
-    ),
-  }))
-  const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+  const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
   try {
     const brief = await generateDailyResearch({
-      AI: { ...unsupportedAi(), run },
+      AI: unsupportedAi(),
       REDDIT_CLIENT_ID: secret,
       REDDIT_CLIENT_SECRET: secret,
     }, new Date('2026-08-14T13:30:00.000Z'))
-    const logged: unknown[] = info.mock.calls.map((call) => JSON.parse(String(call[0])))
-    return { brief, briefPrompt: promptFor(run, 'spice_daily_intelligence'), logged }
+    return {
+      brief,
+      logged: info.mock.calls.map((call) => JsonObjectSchema.parse(JSON.parse(String(call[0])))),
+      request: runResearchAgent.mock.calls.at(-1)?.[1],
+    }
   } finally {
     info.mockRestore()
   }
@@ -147,8 +185,14 @@ beforeEach(() => {
   broker.tastyRequest.mockResolvedValue(optionChain(chainRow()))
   setBrokerApi(broker)
   setResearchSources(sources)
-  setXCatalystResearch(xResearch)
   setMarketMoverResearch(marketMovers)
+  runResearchAgent.mockImplementation(async (_env, request) => ({
+    citations: new Set(),
+    submission: submissionFor(request),
+    webSearches: 1,
+    xSearches: 1,
+  }))
+  setDailyResearchAgent(researchAgent)
   internalWatchlist.ensureSymbols.mockReset().mockImplementation(async (_env, symbols) => [...symbols])
   setInternalWatchlistWriter(internalWatchlist)
 })
@@ -156,28 +200,17 @@ beforeEach(() => {
 afterEach(() => {
   resetBrokerApi()
   resetResearchSources()
-  resetXCatalystResearch()
+  resetDailyResearchAgent()
   resetMarketMoverResearch()
   resetInternalWatchlistWriter()
 })
 
 describe('daily research schedule', () => {
-  it('runs at 09:30 New York time during daylight saving time', () => {
+  it('runs in the three weekday New York claim windows', () => {
     expect(shouldRunDailyResearch(new Date('2026-08-13T13:30:00.000Z'))).toBe(true)
     expect(shouldRunDailyResearch(new Date('2026-08-13T13:40:00.000Z'))).toBe(true)
     expect(shouldRunDailyResearch(new Date('2026-08-13T13:50:00.000Z'))).toBe(true)
-    expect(shouldRunDailyResearch(new Date('2026-08-13T13:20:00.000Z'))).toBe(false)
-    expect(shouldRunDailyResearch(new Date('2026-08-13T14:30:00.000Z'))).toBe(false)
-  })
-
-  it('runs at 09:30 New York time during standard time', () => {
     expect(shouldRunDailyResearch(new Date('2026-12-14T14:30:00.000Z'))).toBe(true)
-    expect(shouldRunDailyResearch(new Date('2026-12-14T14:40:00.000Z'))).toBe(true)
-    expect(shouldRunDailyResearch(new Date('2026-12-14T14:50:00.000Z'))).toBe(true)
-    expect(shouldRunDailyResearch(new Date('2026-12-14T13:30:00.000Z'))).toBe(false)
-  })
-
-  it('does not generate weekend issues', () => {
     expect(shouldRunDailyResearch(new Date('2026-08-15T13:30:00.000Z'))).toBe(false)
   })
 })
@@ -193,283 +226,118 @@ describe('daily intelligence pipeline', () => {
     }, new Date('2026-08-14T13:30:00.000Z'), { requireMarketOpen: true }))
       .rejects.toThrow('DailyResearchMarketNotOpen:pre')
     expect(sources.collectRedditSources).not.toHaveBeenCalled()
-    expect(runXResearch).not.toHaveBeenCalled()
+    expect(runResearchAgent).not.toHaveBeenCalled()
   })
 
-  it('starts X, Reddit, and market-mover research together before editing the brief', async () => {
-    let releaseReddit!: (items: []) => void
-    let releaseX!: (result: { catalysts: []; rejected: number }) => void
-    let releaseMovers!: (items: []) => void
-    sources.collectRedditSources.mockImplementationOnce(() => new Promise((resolve) => { releaseReddit = resolve }))
-    runXResearch.mockImplementationOnce(() => new Promise((resolve) => { releaseX = resolve }))
-    collectMarketMovers.mockImplementationOnce(() => new Promise((resolve) => { releaseMovers = resolve }))
-    const run = vi.fn().mockResolvedValue({ output_text: JSON.stringify(generatedResearch()) })
+  it('prepares official, Reddit, and mover evidence before one agent run', async () => {
+    let releaseReddit!: (items: ResearchSourceItem[]) => void
+    let releaseMovers!: (items: ResearchSourceItem[]) => void
+    sources.collectRedditSources.mockImplementationOnce(() => new Promise((resolve) => {
+      releaseReddit = resolve
+    }))
+    collectMarketMovers.mockImplementationOnce(() => new Promise((resolve) => {
+      releaseMovers = resolve
+    }))
 
     const pending = generateDailyResearch({
-      AI: { ...unsupportedAi(), run },
-      REDDIT_CLIENT_ID: secret,
-      REDDIT_CLIENT_SECRET: secret,
+      AI: unsupportedAi(), REDDIT_CLIENT_ID: secret, REDDIT_CLIENT_SECRET: secret,
     }, new Date('2026-08-14T13:30:00.000Z'))
 
     await vi.waitFor(() => {
+      expect(sources.collectOfficialSources).toHaveBeenCalledOnce()
       expect(sources.collectRedditSources).toHaveBeenCalledOnce()
-      expect(runXResearch).toHaveBeenCalledOnce()
       expect(collectMarketMovers).toHaveBeenCalledOnce()
     })
-    expect(run).not.toHaveBeenCalled()
+    expect(runResearchAgent).not.toHaveBeenCalled()
     releaseReddit([])
-    releaseX({ catalysts: [], rejected: 0 })
     releaseMovers([])
     await expect(pending).resolves.toMatchObject({ id: 'brief-2026-08-14' })
+    expect(runResearchAgent).toHaveBeenCalledOnce()
   })
 
-  it('extracts baseline catalysts while the independent X sweep is still running', async () => {
-    let releaseX!: (result: { catalysts: []; rejected: number }) => void
-    runXResearch.mockImplementationOnce(() => new Promise((resolve) => { releaseX = resolve }))
-    sources.collectRedditSources.mockResolvedValueOnce([{
-      context: 'NVDA demand is drawing renewed attention.',
-      source: 'Reddit · r/wallstreetbets', symbols: ['NVDA'], title: 'NVDA demand discussion',
-      url: 'https://www.reddit.com/r/wallstreetbets/comments/abc123/nvda_discussion/',
-    }])
-    const run = vi.fn().mockImplementation(async (_model, options) => ({
-      output_text: JSON.stringify(
-        options.text.format.name === 'spice_reddit_catalysts' ? { catalysts: [] } : generatedResearch(),
-      ),
-    }))
+  it('passes old ask-dan Reddit text, comments, and fetched links into the single agent packet', async () => {
+    nvdaEvidence()
+    const { brief, request } = await runDailyBrief()
 
-    const pending = generateDailyResearch({
-      AI: { ...unsupportedAi(), run },
-      REDDIT_CLIENT_ID: secret,
-      REDDIT_CLIENT_SECRET: secret,
-    }, new Date('2026-08-14T13:30:00.000Z'))
-
-    await vi.waitFor(() => expect(run.mock.calls.some(
-      (call) => call[1].text.format.name === 'spice_reddit_catalysts',
-    )).toBe(true))
-    expect(sources.collectTickerSources).not.toHaveBeenCalled()
-    releaseX({ catalysts: [], rejected: 0 })
-    await expect(pending).resolves.toMatchObject({ id: 'brief-2026-08-14' })
+    const redditPacket = JSON.stringify(request?.redditEvidence)
+    expect(redditPacket).toContain('Top comments')
+    expect(redditPacket).toContain('Supply is the key debate')
+    expect(redditPacket).toContain('https://www.reuters.com/technology/nvidia-supply')
+    expect(runResearchAgent).toHaveBeenCalledOnce()
+    expect(brief.sources.some((source) => source.url.includes('reddit.com'))).toBe(false)
   })
 
-  it('skips catalyst extraction when discussion has no bound focus symbol', async () => {
-    sources.collectRedditSources.mockResolvedValueOnce([{
-      context: 'A broad market conversation without a watched company.',
-      source: 'Reddit · r/wallstreetbets',
-      title: 'General market discussion',
-      url: 'https://www.reddit.com/r/wallstreetbets/comments/abc123/general_discussion/',
-    }])
-    const output = generatedResearch()
-    output.ideas = []
-    const run = vi.fn().mockResolvedValue({ output_text: JSON.stringify(output) })
+  it('binds a typed recommendation and verifies its exact option contract', async () => {
+    nvdaEvidence()
+    const { brief, logged } = await runDailyBrief()
 
-    await generateDailyResearch({
-      AI: { ...unsupportedAi(), run },
-      REDDIT_CLIENT_ID: secret,
-      REDDIT_CLIENT_SECRET: secret,
-    }, new Date('2026-08-14T13:30:00.000Z'))
-
-    expect(run).toHaveBeenCalledOnce()
-    expect(sources.collectTickerSources).toHaveBeenCalledWith([], new Date('2026-08-14T13:30:00.000Z'))
-  })
-
-  it('uses a strict Responses API schema and never exposes position provenance', async () => {
-    const xUrl = 'https://x.com/nvidia/status/1234567890'
-    runXResearch.mockResolvedValueOnce({
-      rejected: 0,
-      catalysts: [{
-        id: 'xai-x-search:NVDA:product-event:2026-09-01',
-        symbol: 'NVDA', kind: 'product-event', title: 'NVIDIA product event',
-        description: 'NVIDIA scheduled an accelerator launch event.', date: '2026-09-01',
-        timing: 'intraday', confidence: 'confirmed', source: 'Grok 4.6 X research',
-        sourceUrl: xUrl, updatedAt: '2026-08-14T13:30:00.000Z',
-      }],
-    })
-    collectMarketMovers.mockResolvedValueOnce([{
-      context: 'PLTR is up 8.41%. A contract headline is a possible driver.',
-      marketMover: {
-        averageVolume3Month: 42_100_000, category: 'gainer', changePercent: 8.41,
-        name: 'Palantir Technologies', price: 184.27, symbol: 'PLTR', volume: 79_200_000,
-      },
-      outbound: { label: 'Reuters · Palantir wins new contract', url: 'https://www.reuters.com/technology/palantir-contract' },
-      source: 'Yahoo Finance market movers', title: 'PLTR +8.41% · Palantir wins new contract',
-      url: 'https://finance.yahoo.com/quote/PLTR',
-    }])
-    const discoveryUrl = 'https://www.reddit.com/r/wallstreetbets/comments/abc123/nvda_discussion/'
-    sources.collectRedditSources.mockResolvedValueOnce([{
-      context: 'NVDA demand is drawing renewed attention.',
-      source: 'Reddit · r/wallstreetbets', symbols: ['NVDA'], title: 'NVDA demand discussion',
-      url: discoveryUrl,
-    }])
-    sources.collectTickerSources.mockResolvedValueOnce([{
-      context: 'Reuters reports a new NVIDIA supply agreement.',
-      outbound: { label: 'Reuters · NVIDIA supply agreement', url: 'https://www.reuters.com/technology/nvidia-supply' },
-      publishedAt: '2026-08-14T12:00:00.000Z', source: 'Yahoo Finance ticker research',
-      symbols: ['NVDA'], title: 'NVDA · NVIDIA supply agreement', url: 'https://finance.yahoo.com/quote/NVDA',
-    }])
-    const output = generatedResearch()
-    output.marketMovers = [{
-      symbol: 'PLTR', sourceIndices: [2], headline: 'Contract news may explain the spike',
-      description: 'Palantir rose on heavy volume. The reported contract is a possible driver.',
-    }]
-    const run = vi.fn().mockImplementation(async (_model, options) => ({
-      output: [{
-        type: 'message',
-        content: [{
-          type: 'output_text',
-          text: JSON.stringify(options.text.format.name === 'spice_reddit_catalysts' ? { catalysts: [] } : output),
-        }],
-      }],
-    }))
-    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
-    const brief = await generateDailyResearch({
-      AI: { ...unsupportedAi(), run },
-      REDDIT_CLIENT_ID: secret,
-      REDDIT_CLIENT_SECRET: secret,
-    }, new Date('2026-08-14T13:30:00.000Z'))
-    const logged: unknown[] = info.mock.calls.map((call) => JSON.parse(String(call[0])))
-    info.mockRestore()
-
-    expect(logged).toContainEqual({
-      event: 'DailyResearchMoversBound', bound: 1, candidates: 1, detected: 1, runId: expect.any(String),
-    })
-    expect(logged).toContainEqual({
-      event: 'DailyResearchIdeasBound', bound: 1, candidates: 1, runId: expect.any(String),
-    })
-    const briefCall = run.mock.calls.find((call) => call[1].text.format.name === 'spice_daily_intelligence')
-    const catalystCall = run.mock.calls.find((call) => call[1].text.format.name === 'spice_reddit_catalysts')
-    expect(catalystCall?.[1]).toMatchObject({
-      max_output_tokens: 4_000,
-      reasoning: { effort: 'low' },
-      text: { format: { type: 'json_schema', name: 'spice_reddit_catalysts', strict: true } },
-    })
-    expect(catalystCall?.[1].input[0].content).toContain('credible fetched linked-page excerpt')
-    expect(catalystCall?.[1].input[0].content).toContain('does not establish a catalyst')
-    expect(briefCall?.[0]).toBe('@cf/openai/gpt-oss-120b')
-    expect(briefCall?.[1]).toMatchObject({
-      text: { format: { type: 'json_schema', name: 'spice_daily_intelligence', strict: true } },
-    })
-    expect(briefCall?.[2]).toMatchObject({
-      gateway: {
-        collectLog: true,
-        id: 'spice',
-        metadata: { app: 'spice', feature: 'daily-research', market_date: '2026-08-14' },
-        skipCache: true,
-      },
-      tags: ['spice', 'daily-research'],
-    })
-    expect(JSON.stringify(briefCall?.[1]?.text?.format.schema)).not.toContain('uniqueItems')
-    const modelRequest = JSON.stringify(briefCall?.[1])
-    expect(modelRequest).toContain(xUrl)
-    expect(modelRequest).toContain('NVIDIA')
-    expect(modelRequest).not.toContain(discoveryUrl)
-    expect(modelRequest.toLowerCase()).not.toContain('reddit')
-    expect(modelRequest).not.toContain('"position"')
-    expect(modelRequest).not.toContain('Active Positions')
-    expect(brief.ideas[0]?.direction).toBe('bullish')
-    expect(brief.ideas[0]?.play).toBe('NVDA 225c 10/16')
-    expect(brief.marketMovers).toEqual([expect.objectContaining({
-      symbol: 'PLTR', changePercent: 8.41, headline: 'Contract news may explain the spike',
+    expect(brief.ideas).toEqual([expect.objectContaining({
+      symbol: 'NVDA', direction: 'bullish', play: 'NVDA 225c 10/16',
     })])
-    expect(internalWatchlist.ensureSymbols).toHaveBeenCalledWith(
-      expect.anything(), ['NVDA', 'PLTR'], 'scheduled-research', new Date('2026-08-14T13:30:00.000Z'),
-    )
-    expect(brief.sources).toContainEqual({ label: 'Grok 4.6 X research · NVIDIA product event', url: xUrl })
-    expect(brief.sources.some((source) => source.url === discoveryUrl)).toBe(false)
-  })
-
-  it('numbers every packet item so the editor copies an index instead of counting positions', async () => {
-    sources.collectRedditSources.mockResolvedValueOnce([{
-      context: 'NVDA demand is drawing renewed attention.',
-      source: 'Reddit · r/wallstreetbets', symbols: ['NVDA'], title: 'NVDA demand discussion',
-      url: 'https://www.reddit.com/r/wallstreetbets/comments/abc123/nvda_discussion/',
-    }, {
-      context: 'A second NVDA thread repeats the same demand chatter.',
-      source: 'Reddit · r/options', symbols: ['NVDA'], title: 'NVDA options flow',
-      url: 'https://www.reddit.com/r/options/comments/def456/nvda_flow/',
-    }])
-    sources.collectOfficialSources.mockResolvedValueOnce([{
-      context: 'NVIDIA published an update.', source: 'Official source', symbols: ['NVDA'],
-      title: 'NVIDIA update', url: 'https://example.com/nvda',
-    }, {
-      context: 'A regulator published a second notice.', source: 'Official source',
-      title: 'Regulatory notice', url: 'https://example.com/notice',
-    }])
-    collectMarketMovers.mockResolvedValueOnce([{
-      context: 'PLTR is up 8.41%.',
-      marketMover: {
-        category: 'gainer', changePercent: 8.41, name: 'Palantir Technologies',
-        price: 184.27, symbol: 'PLTR', volume: 79_200_000,
-      },
-      source: 'Yahoo Finance market movers', title: 'PLTR +8.41%',
-      url: 'https://finance.yahoo.com/quote/PLTR',
-    }])
-    const coverageRow = (day: string, headline: string) => ({
-      description: 'A prior brief covered this ticker.', direction: 'bullish', headline,
-      horizon: null, published_at: `2026-08-${day}T13:30:00.000Z`, risk: 'The setup invalidates.',
-      setup: null, symbol: 'NVDA', thesis: null,
-    })
-    const all = vi.fn().mockResolvedValue(
-      d1Result([coverageRow('12', 'Earlier read'), coverageRow('13', 'Later read')]),
-    )
-    const coverageStatement = {
-      ...unsupportedStatement(),
-      bind: () => ({ ...unsupportedStatement(), all }),
-    }
-    const writeStatement = {
-      ...unsupportedStatement(),
-      bind: () => ({ ...unsupportedStatement(), run: vi.fn().mockResolvedValue(d1Result([], 1)) }),
-    }
-    const prepare = vi.fn((sql: string) => (sql.includes('SELECT') ? coverageStatement : writeStatement))
-    const DB: D1Database = { ...unsupportedDatabase(), prepare }
-    const run = vi.fn().mockImplementation(async (_model, options) => ({
-      output_text: JSON.stringify(
-        options.text.format.name === 'spice_reddit_catalysts' ? { catalysts: [] } : generatedResearch(),
-      ),
+    expect(broker.tastyRequest).toHaveBeenCalledWith(expect.anything(), '/option-chains/NVDA')
+    expect(logged).toContainEqual(expect.objectContaining({
+      event: 'DailyResearchPlaysChecked', checked: 1, structureCleared: 0,
     }))
-
-    await generateDailyResearch({
-      AI: { ...unsupportedAi(), run },
-      DB,
-      REDDIT_CLIENT_ID: secret,
-      REDDIT_CLIENT_SECRET: secret,
-    }, new Date('2026-08-14T13:30:00.000Z'))
-
-    const packetIndices = (prompt: string, label: string, next: string): number[] => z
-      .array(z.object({ index: z.number() }))
-      .parse(JSON.parse(promptSection(prompt, label, next)))
-      .map((item) => item.index)
-    const positions = (indices: readonly number[]) => indices.map((_index, position) => position)
-
-    const briefPrompt = promptFor(run, 'spice_daily_intelligence')
-    const packetEvidence = z.array(z.object({ index: z.number(), marketMover: z.object({ symbol: z.string() }).optional() }))
-      .parse(JSON.parse(briefEvidencePacketJson(briefPrompt)))
-    const evidence = packetEvidence.map((item) => item.index)
-    const coverage = packetIndices(briefPrompt, 'addressed by the same index field: ', '. Detected market movers')
-    const redditEvidence = packetIndices(
-      promptFor(run, 'spice_reddit_catalysts'),
-      'cite an item by copying its own index field: ',
-      '. A catalyst may be emitted',
-    )
-
-    expect(evidence.length).toBeGreaterThan(1)
-    expect(evidence).toEqual(positions(evidence))
-    expect(coverage.length).toBeGreaterThan(1)
-    expect(coverage).toEqual(positions(coverage))
-    expect(redditEvidence.length).toBeGreaterThan(1)
-    expect(redditEvidence).toEqual(positions(redditEvidence))
-
-    const detectedMovers = z.array(z.object({ evidenceIndices: z.array(z.number()), symbol: z.string() }))
-      .parse(JSON.parse(promptSection(briefPrompt, 'you may cite for that move: ', '. Return title')))
-    expect(detectedMovers).toEqual([{ evidenceIndices: [2], symbol: 'PLTR' }])
-    expect(packetEvidence[2]?.marketMover?.symbol).toBe('PLTR')
   })
 
-  it('feeds fresh local Codex catalysts to the editor and lets stale rows decay', async () => {
+  it('keeps the thesis but clears a contract absent from the current chain', async () => {
+    nvdaEvidence()
+    broker.tastyRequest.mockResolvedValueOnce(optionChain(chainRow({ 'strike-price': '230' })))
+    const { brief } = await runDailyBrief()
+    expect(brief.ideas).toEqual([expect.objectContaining({ symbol: 'NVDA', play: null })])
+  })
+
+  it('accepts native-search evidence only when the provider cited its URL', async () => {
+    const cited = 'https://example.com/nvda-primary'
+    runResearchAgent.mockImplementationOnce(async (_env, request) => {
+      const submission = submissionFor(request)
+      submission.sources = [{
+        context: 'The company signed a new supply agreement; execution remains uncertain.',
+        evidenceIndex: null,
+        sourceUrl: cited,
+        symbol: 'NVDA',
+        title: 'NVIDIA signs supply agreement',
+      }]
+      submission.ideas[0]!.sourceIndices = [0]
+      return { citations: new Set([cited]), submission, webSearches: 1, xSearches: 1 }
+    })
+    const { brief } = await runDailyBrief()
+    expect(brief.ideas[0]?.sources).toEqual([{
+      label: 'Grok research · example.com · NVIDIA signs supply agreement',
+      url: cited,
+    }])
+  })
+
+  it('drops an uncited native-search source and the idea that depends on it', async () => {
+    runResearchAgent.mockImplementationOnce(async (_env, request) => {
+      const submission = submissionFor(request)
+      submission.sources = [{
+        context: 'This source was not present in citation metadata.',
+        evidenceIndex: null,
+        sourceUrl: 'https://example.com/invented',
+        symbol: 'NVDA',
+        title: 'Invented source',
+      }]
+      submission.ideas[0]!.sourceIndices = [0]
+      return { citations: new Set(), submission, webSearches: 1, xSearches: 1 }
+    })
+    const { brief } = await runDailyBrief()
+    expect(brief.ideas).toEqual([])
+  })
+
+  it('feeds only fresh local Codex evidence to the agent', async () => {
     const codexRow = (symbol: string, date: string, updatedAt: string): Catalyst => ({
-      id: `codex-web:${symbol}:conference:${date}:abc`, symbol, kind: 'conference',
-      title: `${symbol} investor day`, description: 'Dated by the company.', date, timing: 'unknown',
-      confidence: 'estimated', source: 'Codex web · example.com',
-      sourceUrl: `https://example.com/${symbol.toLowerCase()}`, updatedAt,
+      id: `codex-web:${symbol}:conference:${date}:abc`,
+      symbol,
+      kind: 'conference',
+      title: `${symbol} investor day`,
+      description: 'Dated by the company.',
+      date,
+      timing: 'unknown',
+      confidence: 'estimated',
+      source: 'Codex web · example.com',
+      sourceUrl: `https://example.com/${symbol.toLowerCase()}`,
+      updatedAt,
     })
     const snapshot = marketSnapshotFixture()
     snapshot.catalysts.push(
@@ -478,95 +346,13 @@ describe('daily intelligence pipeline', () => {
     )
     broker.loadMarketSnapshot.mockResolvedValueOnce(snapshot)
 
-    const { briefPrompt, logged } = await runDailyBrief()
-
-    const evidence = z.array(z.object({ source: z.string(), symbols: z.array(z.string()).optional(), url: z.string() }))
-      .parse(JSON.parse(briefEvidencePacketJson(briefPrompt)))
-    expect(evidence.filter((item) => item.source.startsWith('Codex web')))
-      .toEqual([{ source: 'Codex web · example.com', symbols: ['NVDA'], url: 'https://example.com/nvda' }])
-    expect(logged).toContainEqual(expect.objectContaining({ event: 'DailyResearchModelCompleted', codexWebCatalysts: 1 }))
-  })
-
-  it('rejects ideas for watched symbols that lack complete tastytrade metrics', async () => {
-    const snapshot = marketSnapshotFixture()
-    snapshot.tickers = snapshot.tickers.filter((ticker) => ticker.symbol !== 'NVDA')
-    broker.loadMarketSnapshot.mockResolvedValueOnce(snapshot)
-    sources.collectOfficialSources.mockResolvedValueOnce([{
-      context: 'NVIDIA published an update.',
-      source: 'Official source',
-      symbols: ['NVDA'],
-      title: 'NVIDIA update',
-      url: 'https://example.com/nvda',
-    }])
-    const run = vi.fn().mockResolvedValue({ output_text: JSON.stringify(generatedResearch()) })
-
-    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
-    const brief = await generateDailyResearch({
-      AI: { ...unsupportedAi(), run },
-      REDDIT_CLIENT_ID: secret,
-      REDDIT_CLIENT_SECRET: secret,
-    }, new Date('2026-08-14T13:30:00.000Z'))
-    const logged: unknown[] = info.mock.calls.map((call) => JSON.parse(String(call[0])))
-    info.mockRestore()
-
-    expect(brief.ideas).toEqual([])
-    expect(logged).toContainEqual({
-      event: 'DailyResearchIdeasBound', bound: 0, candidates: 1, runId: expect.any(String),
-    })
-  })
-
-  it('publishes a play only after the current chain lists that exact contract', async () => {
-    nvdaEvidence()
-
-    const { brief, logged } = await runDailyBrief()
-
-    expect(broker.tastyRequest).toHaveBeenCalledWith(expect.anything(), '/option-chains/NVDA')
-    expect(brief.ideas[0]?.play).toBe('NVDA 225c 10/16')
-    expect(logged).toContainEqual({
-      event: 'DailyResearchPlaysChecked', chainUnavailable: 0, checked: 1, dropped: 0,
-      runId: expect.any(String), structureCleared: 0,
-    })
-  })
-
-  it('keeps the thesis but clears a play the current chain does not list', async () => {
-    nvdaEvidence()
-    broker.tastyRequest.mockResolvedValueOnce(optionChain(chainRow({ 'strike-price': '230' })))
-
-    const missingStrike = await runDailyBrief()
-
-    expect(missingStrike.brief.ideas).toEqual([expect.objectContaining({ symbol: 'NVDA', play: null })])
-    expect(missingStrike.logged).toContainEqual({
-      event: 'DailyResearchPlaysChecked', chainUnavailable: 0, checked: 1, dropped: 0,
-      runId: expect.any(String), structureCleared: 1,
-    })
-    expect(missingStrike.logged).toContainEqual({
-      event: 'DailyResearchIdeasBound', bound: 1, candidates: 1, runId: expect.any(String),
-    })
-
-    nvdaEvidence()
-    broker.tastyRequest.mockResolvedValueOnce(optionChain(chainRow({ 'expiration-date': '2026-10-23' })))
-
-    const missingExpiration = await runDailyBrief()
-
-    expect(missingExpiration.brief.ideas[0]?.play).toBeNull()
-    nvdaEvidence()
-    broker.tastyRequest.mockResolvedValueOnce(optionChain(chainRow({ 'option-type': 'P' })))
-
-    await expect(runDailyBrief().then((result) => result.brief.ideas[0]?.play)).resolves.toBeNull()
-  })
-
-  it('keeps the thesis without a play when the option chain cannot be read', async () => {
-    nvdaEvidence()
-    broker.tastyRequest.mockRejectedValueOnce(new Error('TastytradeUnavailable'))
-
-    const { brief, logged } = await runDailyBrief()
-
-    expect(brief.ideas).toEqual([expect.objectContaining({ symbol: 'NVDA', play: null })])
-    expect(brief.summary).toBe('Summary')
-    expect(logged).toContainEqual({
-      event: 'DailyResearchPlaysChecked', chainUnavailable: 1, checked: 1, dropped: 0,
-      runId: expect.any(String), structureCleared: 1,
-    })
+    const { request, logged } = await runDailyBrief()
+    const evidencePacket = JSON.stringify(request?.evidence)
+    expect(evidencePacket).toContain('https://example.com/nvda')
+    expect(evidencePacket).not.toContain('https://example.com/meta')
+    expect(logged).toContainEqual(expect.objectContaining({
+      event: 'DailyResearchModelCompleted', codexWebCatalysts: 1,
+    }))
   })
 
   it('reads the exact contract an editor play names', () => {
@@ -592,7 +378,7 @@ describe('daily intelligence pipeline', () => {
       sourceIndex: 0, symbol: 'NVDA', kind: 'product-event', title: 'NVIDIA product event',
       description: 'NVIDIA scheduled a product event that may reprice accelerator expectations.',
       date: '2026-09-01', timing: 'intraday',
-    }]
+    }] as const
 
     expect(redditCatalystsFromCandidates(candidates, evidence, ['NVDA'], new Date('2026-08-14T13:30:00Z')))
       .toEqual([expect.objectContaining({
@@ -810,23 +596,6 @@ describe('daily intelligence pipeline', () => {
       source: 'Independent wire', symbols: ['NVDA'], title: 'NVIDIA update', url: 'https://example.com/nvda',
     }]
     expect(researchIdeasForDate([idea], '2026-08-14', evidence, ['NVDA'])).toEqual([])
-  })
-
-  it('caps generated Daily Read output at three theses', () => {
-    const output = generatedResearch()
-    output.ideas = Array.from({ length: 4 }, () => ({ ...output.ideas[0]! }))
-    expect(() => parseGeneratedResearch({ output_text: JSON.stringify(output) })).toThrow()
-  })
-
-  it('names the editor response when its JSON is malformed or truncated', () => {
-    const truncated = JSON.stringify(generatedResearch()).slice(0, 120)
-
-    expect(() => parseGeneratedResearch({ output_text: truncated }))
-      .toThrow(/^DailyResearchEditorResponse:invalid-json:/)
-    expect(() => parseGeneratedResearch({}))
-      .toThrow('DailyResearchEditorResponse:invalid-json:0-chars')
-    expect(() => parseGeneratedRedditCatalysts({ output_text: '{"catalysts":[' }))
-      .toThrow(/^DailyResearchCatalystModelResponse:invalid-json:/)
   })
 
   it('cites the fetched article that supplied an idea instead of its aggregator page', () => {

@@ -3,11 +3,11 @@ import { z } from 'zod'
 import { marketDate } from '../domain/catalyst'
 import { EquitySymbolSchema } from '../domain/instrument'
 import { type AppEnv } from './env'
-import { MAX_DAILY_RESEARCH_LEADS, researchBriefId } from './research-contracts'
+import { MAX_DAILY_RESEARCH_SYMBOLS, researchBriefId } from './research-contracts'
 
 const RECENT_COVERAGE_DAYS = 14
 const MAX_COVERAGE_PER_SYMBOL = 3
-const MAX_COVERAGE_ROWS = RECENT_COVERAGE_DAYS * MAX_DAILY_RESEARCH_LEADS
+const MAX_COVERAGE_ROWS = MAX_COVERAGE_PER_SYMBOL * MAX_DAILY_RESEARCH_SYMBOLS
 
 const RecentCoverageRowSchema = z.object({
   description: z.string().trim().min(1).max(360).nullable(),
@@ -49,7 +49,7 @@ export async function searchRecentTickerCoverage(
   now = new Date(),
 ): Promise<RecentTickerCoverage[]> {
   if (!env.DB || symbols.length === 0) return []
-  const requested = z.array(EquitySymbolSchema).max(MAX_DAILY_RESEARCH_LEADS)
+  const requested = z.array(EquitySymbolSchema).max(MAX_DAILY_RESEARCH_SYMBOLS)
     .parse([...new Set(symbols)])
   const placeholders = requested.map(() => '?').join(', ')
   const rows = await env.DB.prepare(
