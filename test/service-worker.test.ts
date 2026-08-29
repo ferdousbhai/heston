@@ -130,6 +130,29 @@ describe('service-worker audience boundary', () => {
     expect(worker.worker.clients.claim).toHaveBeenCalledOnce()
   })
 
+  it('uses the network for static assets and reserves its credentialless cache for offline fallback', async () => {
+    const onlineResponse = new Response('current asset')
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(onlineResponse)
+    const worker = loadWorker(fetcher)
+    const request = new Request('https://tryspice.xyz/assets/current.js')
+    const { response } = dispatchFetch(worker.fetch, request)
+
+    await expect(response).resolves.toBe(onlineResponse)
+    expect(fetcher).toHaveBeenCalledWith(request)
+    expect(worker.cacheStorage.open).not.toHaveBeenCalled()
+
+    const offlineResponse = new Response('offline asset')
+    fetcher.mockRejectedValueOnce(new Error('offline'))
+    worker.cache.match.mockResolvedValueOnce(offlineResponse)
+    const offline = dispatchFetch(worker.fetch, request)
+
+    await expect(offline.response).resolves.toBe(offlineResponse)
+    expect(worker.cache.match).toHaveBeenCalledWith(expect.objectContaining({
+      credentials: 'omit',
+      url: request.url,
+    }))
+  })
+
   it('does not persist an authenticated navigation response', async () => {
     const ownerPage = new Response('<html>owner context</html>', {
       headers: { 'content-type': 'text/html' },
@@ -143,8 +166,9 @@ describe('service-worker audience boundary', () => {
       return ownerPage
     })
     const worker = loadWorker(fetcher)
-    const staleAsset = new Request('https://tryspice.xyz/assets/old-build.js')
-    worker.cache.keys.mockResolvedValueOnce([staleAsset])
+    const staleAssets = Array.from({ length: 41 }, (_, index) =>
+      new Request(`https://tryspice.xyz/assets/old-build-${index}.js`))
+    worker.cache.keys.mockResolvedValueOnce(staleAssets)
     const { background, response } = dispatchFetch(worker.fetch, {
       method: 'GET',
       mode: 'navigate',
@@ -159,6 +183,7 @@ describe('service-worker audience boundary', () => {
     }))
     expect(cachedBodies).toContain('<html>public shell</html>')
     expect(cachedBodies).not.toContain('<html>owner context</html>')
-    expect(worker.cache.delete).toHaveBeenCalledWith(staleAsset)
+    expect(worker.cache.delete).toHaveBeenCalledOnce()
+    expect(staleAssets).toContain(worker.cache.delete.mock.calls[0]?.[0])
   })
 })

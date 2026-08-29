@@ -4,6 +4,7 @@ const CACHE_PREFIX = 'spice-public-shell-'
 const CACHE_NAME = `${CACHE_PREFIX}v2`
 const PUBLIC_SHELL_KEY = '/__spice-public-offline-shell__'
 const MAX_INSTALL_ASSETS = 200
+const MAX_STALE_ASSETS = 40
 const PUBLIC_ASSETS = [
   { url: '/manifest.webmanifest' },
   { url: '/spice-mark.svg' },
@@ -88,9 +89,12 @@ async function cacheStaticAssets(cache, initialAssets) {
 
 async function pruneStaticAssets(cache, retainedUrls) {
   const requests = await cache.keys()
-  await Promise.all(requests
-    .filter((request) => new URL(request.url).pathname.startsWith('/assets/')
+  const staleRequests = requests.filter((request) =>
+    new URL(request.url).pathname.startsWith('/assets/')
       && !retainedUrls.has(request.url))
+  const excessCount = Math.max(0, staleRequests.length - MAX_STALE_ASSETS)
+  await Promise.all(staleRequests
+    .slice(0, excessCount)
     .map((request) => cache.delete(request)))
 }
 
@@ -128,14 +132,17 @@ async function refreshPublicShell() {
   }
 }
 
-async function cachedStaticAsset(request) {
-  const cache = await caches.open(CACHE_NAME)
-  const publicRequest = new Request(request.url, { credentials: 'omit' })
-  const cached = await cache.match(publicRequest)
-  if (cached) return cached
-  const response = await fetch(publicRequest)
-  if (response.ok && response.type !== 'opaque') await cache.put(publicRequest, response.clone())
-  return response
+async function networkStaticAsset(request) {
+  try {
+    // Online assets use the browser's original request and HTTP cache. The
+    // credentialless service-worker copy is strictly an offline fallback.
+    return await fetch(request)
+  } catch (error) {
+    const cache = await caches.open(CACHE_NAME)
+    const cached = await cache.match(new Request(request.url, { credentials: 'omit' }))
+    if (cached) return cached
+    throw error
+  }
 }
 
 async function networkNavigation(request) {
@@ -180,5 +187,5 @@ self.addEventListener('fetch', (event) => {
     event.waitUntil(refreshPublicShell().catch(() => undefined))
     return
   }
-  if (staticAssetUrl({ url: url.href })) event.respondWith(cachedStaticAsset(request))
+  if (staticAssetUrl({ url: url.href })) event.respondWith(networkStaticAsset(request))
 })
