@@ -10,17 +10,17 @@ export type TastytradeMarketMetricRecord = {
   earningsDate: string | null
   historicalVolatility30Day?: number
   ivHistoricalVolatility30DayDifference?: number
-  ivIndex: number
+  ivIndex?: number
   ivIndex5DayChange?: number
-  ivPercentile: number
-  ivRank: number
+  ivPercentile?: number
+  ivRank?: number
   ivTermStructure?: {
     backExpiration: string
     backIv: number
     frontExpiration: string
     frontIv: number
   }
-  liquidity: number
+  liquidity?: number
   marketCap?: number
   symbol: string
 }
@@ -80,12 +80,12 @@ export async function persistTastytradeMarketSnapshot(
           observed_at = excluded.observed_at`,
       ).bind(...chunk.flatMap((metric) => {
         const term = metric.ivTermStructure
-        return [metric.symbol, metric.ivIndex, metric.ivRank, metric.ivPercentile,
+        return [metric.symbol, metric.ivIndex ?? null, metric.ivRank ?? null, metric.ivPercentile ?? null,
         metric.ivIndex5DayChange ?? null, metric.historicalVolatility30Day ?? null,
         metric.ivHistoricalVolatility30DayDifference ?? null,
         term?.frontExpiration ?? null, term?.frontIv ?? null,
         term?.backExpiration ?? null, term?.backIv ?? null,
-        metric.liquidity, metric.marketCap ?? null, metric.earningsDate, timestamp]
+        metric.liquidity ?? null, metric.marketCap ?? null, metric.earningsDate, timestamp]
       })))
   }
   for (let start = 0; start < records.quotes.length; start += QUOTE_ROWS_PER_STATEMENT) {

@@ -39,14 +39,14 @@ export const TickerSchema = z.object({
   // REST quotes do not contain candle history. Keep this empty until real DXLink
   // candles arrive instead of drawing a synthetic move from previous close.
   sparkline: z.array(CandlePointSchema),
-  ivRank: z.number().min(0).max(100),
-  ivPercentile: z.number().min(0).max(100),
-  ivIndex: z.number().min(0),
+  ivRank: z.number().optional(),
+  ivPercentile: z.number().optional(),
+  ivIndex: z.number().optional(),
   ivIndex5DayChange: z.number().optional(),
   historicalVolatility30Day: z.number().min(0).optional(),
   ivHistoricalVolatility30DayDifference: z.number().optional(),
   ivTermStructure: IvTermStructureSchema.optional(),
-  liquidity: z.number().min(0).max(5),
+  liquidity: z.number().optional(),
   volume: z.number().nonnegative().optional(),
   yearHigh: z.number().positive().optional(),
   yearLow: z.number().positive().optional(),
@@ -140,7 +140,7 @@ export function mostActiveSymbol(
   })[0]?.symbol
 }
 
-export type VolatilityVerdict = 'cheap' | 'fair' | 'rich'
+export type VolatilityVerdict = 'cheap' | 'fair' | 'rich' | 'unavailable'
 
 const marketMetricFormatter = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 })
 
@@ -169,6 +169,7 @@ export function fiftyTwoWeekPosition(
 }
 
 export function volatilityVerdict(ticker: Pick<Ticker, 'ivRank' | 'ivPercentile'>): VolatilityVerdict {
+  if (ticker.ivRank === undefined || ticker.ivPercentile === undefined) return 'unavailable'
   if (ticker.ivRank <= 30 && ticker.ivPercentile <= 35) return 'cheap'
   if (ticker.ivRank >= 70 || ticker.ivPercentile >= 80) return 'rich'
   return 'fair'
@@ -235,7 +236,8 @@ export function instrumentSignals(ticker: Ticker): InstrumentSignal[] {
   }
 
   const ivOverHv = ticker.ivHistoricalVolatility30DayDifference
-  if (ivOverHv !== undefined && ticker.historicalVolatility30Day !== undefined
+  if (ivOverHv !== undefined && ticker.ivIndex !== undefined
+    && ticker.historicalVolatility30Day !== undefined
     && Math.abs(ivOverHv) >= SIGNAL_BANDS.ivOverHvPoints) {
     signals.push({
       detail: `IV ${formatMarketMetric(ticker.ivIndex)}% · 30-day HV ${formatMarketMetric(ticker.historicalVolatility30Day)}%`,
@@ -246,7 +248,8 @@ export function instrumentSignals(ticker: Ticker): InstrumentSignal[] {
   }
 
   const ivFiveDay = ticker.ivIndex5DayChange
-  if (ivFiveDay !== undefined && Math.abs(ivFiveDay) >= SIGNAL_BANDS.ivFiveDayPoints) {
+  if (ivFiveDay !== undefined && ticker.ivIndex !== undefined
+    && Math.abs(ivFiveDay) >= SIGNAL_BANDS.ivFiveDayPoints) {
     signals.push({
       detail: `IV now ${formatMarketMetric(ticker.ivIndex)}%`,
       key: 'iv-5-day',
@@ -270,7 +273,7 @@ export function instrumentSignals(ticker: Ticker): InstrumentSignal[] {
     }
   }
 
-  if (ticker.liquidity <= SIGNAL_BANDS.thinLiquidityScore) {
+  if (ticker.liquidity !== undefined && ticker.liquidity <= SIGNAL_BANDS.thinLiquidityScore) {
     signals.push({
       detail: `${formatMarketMetric(ticker.liquidity)}/5 tastytrade liquidity`,
       key: 'liquidity',

@@ -48,9 +48,11 @@ const verdictCopy = {
   cheap: { label: 'Cheap' },
   fair: { label: 'Fair' },
   rich: { label: 'Expensive' },
+  unavailable: { label: 'Unavailable' },
 } satisfies Record<VolatilityVerdict, { label: string }>
 
-function premiumScore(ticker: Pick<Ticker, 'ivRank' | 'ivPercentile'>): number {
+function premiumScore(ticker: Pick<Ticker, 'ivRank' | 'ivPercentile'>): number | undefined {
+  if (ticker.ivRank === undefined || ticker.ivPercentile === undefined) return undefined
   return Math.round((ticker.ivRank + ticker.ivPercentile) / 2)
 }
 
@@ -158,14 +160,14 @@ function formatIfReported<T>(reading: T | undefined, format: (reading: T) => str
 
 function focusTape(ticker: Ticker): Array<[label: string, value: string]> {
   const reported: Array<[label: string, value: string | undefined]> = [
-    ['IV', `${formatMarketMetric(ticker.ivIndex)}%`],
+    ['IV', formatIfReported(ticker.ivIndex, (iv) => `${formatMarketMetric(iv)}%`)],
     ['HV30', formatIfReported(ticker.historicalVolatility30Day, (hv) => `${formatMarketMetric(hv)}%`)],
     ['IV−HV', formatIfReported(ticker.ivHistoricalVolatility30DayDifference, (gap) => formatSignedMetric(gap, ' pts'))],
     ['5d', formatIfReported(ticker.ivIndex5DayChange, (change) => formatSignedMetric(change, ' pts'))],
-    ['Rank', formatMarketMetric(ticker.ivRank)],
-    ['Pct', formatMarketMetric(ticker.ivPercentile)],
+    ['Rank', formatIfReported(ticker.ivRank, formatMarketMetric)],
+    ['Pct', formatIfReported(ticker.ivPercentile, formatMarketMetric)],
     ['Term', formatIfReported(ticker.ivTermStructure, termStructureLabel)],
-    ['Liq', `${formatMarketMetric(ticker.liquidity)}/5`],
+    ['Liq', formatIfReported(ticker.liquidity, (liquidity) => `${formatMarketMetric(liquidity)}/5`)],
     ['Lend', ticker.lendability],
     ['Borrow', formatIfReported(ticker.borrowRate, formatBorrowRate)],
     ['Vol', formatIfReported(ticker.volume, (volume) => compactMetric(volume))],
@@ -284,6 +286,7 @@ const MarketTickerRow = memo(function MarketTickerRow({
   const copy = verdictCopy[verdict]
   const rangePosition = fiftyTwoWeekPosition(ticker)
   const type = assetLabel(ticker)
+  const ivRank = ticker.ivRank === undefined ? '—' : formatMarketMetric(ticker.ivRank)
 
   return (
     <TableRow data-state={isSelected ? 'selected' : undefined}>
@@ -302,7 +305,7 @@ const MarketTickerRow = memo(function MarketTickerRow({
       </TableCell>
       <TableCell className="instrument-cell">
         <Button
-          aria-label={`${ticker.symbol}, ${ticker.name}, ${ticker.position ? 'held, ' : ''}${copy.label} option premium, IV rank ${formatMarketMetric(ticker.ivRank)}`}
+          aria-label={`${ticker.symbol}, ${ticker.name}, ${ticker.position ? 'held, ' : ''}${copy.label} option premium, IV rank ${ivRank}`}
           aria-pressed={isSelected}
           className="ticker-table-button"
           onClick={() => onSelectTicker(ticker.symbol)}
@@ -341,15 +344,15 @@ const MarketTickerRow = memo(function MarketTickerRow({
       </TableCell>
       <TableCell className={`premium-cell ${verdict}`}>
         <strong>{copy.label}</strong>
-        <small>{formatMarketMetric(ticker.ivIndex)}% IV</small>
+        <small>{formatIfReported(ticker.ivIndex, (iv) => `${formatMarketMetric(iv)}% IV`) ?? '—'}</small>
         <small>{formatSignedMetric(ticker.ivIndex5DayChange, ' pts 5d')}</small>
       </TableCell>
       <TableCell className="rank-cell">
-        <strong>{formatMarketMetric(ticker.ivRank)}</strong>
-        <small>{formatMarketMetric(ticker.ivPercentile)} pct</small>
+        <strong>{ivRank}</strong>
+        <small>{formatIfReported(ticker.ivPercentile, (percentile) => `${formatMarketMetric(percentile)} pct`) ?? '—'}</small>
       </TableCell>
       <TableCell className="liquidity-cell">
-        <strong>{formatMarketMetric(ticker.liquidity)}/5</strong>
+        <strong>{formatIfReported(ticker.liquidity, (liquidity) => `${formatMarketMetric(liquidity)}/5`) ?? '—'}</strong>
         <small>{ticker.lendability ?? 'Lendability unavailable'}</small>
         <small>{ticker.borrowRate === undefined ? 'Rate unavailable' : `${formatBorrowRate(ticker.borrowRate)} borrow`}</small>
       </TableCell>
@@ -407,6 +410,7 @@ export function MarketScreen({
   const pinnedTickers = tickers.filter((ticker) => pinned.has(ticker.symbol))
   const selectedVerdict = volatilityVerdict(selected)
   const selectedCopy = verdictCopy[selectedVerdict]
+  const selectedPremiumScore = premiumScore(selected)
   const selectedAsset = assetLabel(selected)
   const selectedIdea = research?.ideas.find((idea) => idea.symbol === selected.symbol)
   const selectedSignals = instrumentSignals(selected)
@@ -433,7 +437,9 @@ export function MarketScreen({
           <div className="premium-gauge">
             <span>Option premium</span>
             <strong className="premium-verdict">{selectedCopy.label}</strong>
-            <Progress className="premium-axis" aria-label={`Relative premium score ${premiumScore(selected)} out of 100, from cheap to expensive`} value={premiumScore(selected)} />
+            {selectedPremiumScore === undefined ? null : (
+              <Progress className="premium-axis" aria-label={`Relative premium score ${selectedPremiumScore} out of 100, from cheap to expensive`} value={selectedPremiumScore} />
+            )}
           </div>
         </CardHeader>
         <CardContent className={cn('focus-narrative', selectedIdea && 'with-thesis', !selectedIdea && selectedSignals.length === 0 && 'runway-only')}>

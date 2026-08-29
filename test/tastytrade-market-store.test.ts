@@ -86,19 +86,7 @@ describe('source-specific tastytrade market storage', () => {
     expect(Math.max(...boundParameterCounts)).toBeLessThanOrEqual(D1_MAX_BOUND_PARAMETERS)
   })
 
-  it('keeps metrics and quotes separate while exposing a typed public view', async () => {
-    store.sqlite.exec(`
-      INSERT INTO instrument_catalog (
-        symbol, description, instrument_type, active, is_etf, is_index,
-        identity_refreshed_at, status_refreshed_at, created_at, updated_at
-      ) VALUES (
-        'NVDA', 'NVIDIA Corporation', 'Equity', 1, 0, 0,
-        '2026-08-26T12:00:00.000Z', '2026-08-26T12:00:00.000Z',
-        '2026-08-26T12:00:00.000Z', '2026-08-26T12:00:00.000Z'
-      );
-      INSERT INTO public_market_universe (id, payload_json, updated_at)
-      VALUES ('primary', '{"symbols":["NVDA"]}', '2026-08-26T12:00:00.000Z');
-    `)
+  it('keeps metrics and quotes in their source-specific tables', async () => {
     const ticker = marketTickersFixture.find((candidate) => candidate.symbol === 'NVDA')!
 
     await persistTastytradeMarketSnapshot(
@@ -124,20 +112,9 @@ describe('source-specific tastytrade market storage', () => {
       symbol: 'NVDA',
       volume: 128_400_000,
     })
-    const overview = store.sqlite.prepare(
-      `SELECT symbol, instrument_name, iv_rank_percent, market_cap, price,
-        change_amount, change_percent, volume FROM public_market_overview`,
-    ).get()
-    expect(overview).toMatchObject({
-      instrument_name: 'NVIDIA Corporation',
-      iv_rank_percent: 72,
-      market_cap: 4_730_000_000_000,
-      price: 191.68,
-      symbol: 'NVDA',
-      volume: 128_400_000,
-    })
-    expect(overview?.change_amount).toBeCloseTo(11.68)
-    expect(overview?.change_percent).toBeCloseTo(6.4888888889)
+    expect(store.sqlite.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'view' AND name = 'public_market_overview'",
+    ).get()).toBeUndefined()
     expect(store.sqlite.prepare('PRAGMA table_info(tastytrade_market_metrics)').all().map((row) => row.name))
       .not.toContain('price')
     const quoteColumns = store.sqlite.prepare('PRAGMA table_info(tastytrade_market_quotes)').all()
@@ -145,5 +122,14 @@ describe('source-specific tastytrade market storage', () => {
     expect(quoteColumns).not.toContain('iv_rank_percent')
     expect(quoteColumns).not.toContain('change_amount')
     expect(quoteColumns).not.toContain('change_percent')
+    const nullableMetricColumns = store.sqlite.prepare('PRAGMA table_info(tastytrade_market_metrics)').all()
+      .filter((row) => row.notnull === 0)
+      .map((row) => row.name)
+    expect(nullableMetricColumns).toEqual(expect.arrayContaining([
+      'iv_index_percent',
+      'iv_rank_percent',
+      'iv_percentile_percent',
+      'liquidity_rating',
+    ]))
   })
 })

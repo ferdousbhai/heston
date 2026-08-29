@@ -62,8 +62,14 @@ function numeric(value: JsonValue, field: string): number {
   return parsed
 }
 
+// tastytrade uses both omission and JSON null for an optional observation that
+// it did not report. Neither form asserts a value; every other value is parsed.
+function unreported(value: JsonValue): value is null | undefined {
+  return value === undefined || value === null
+}
+
 function optionalNumeric(value: JsonValue, field: string): number | undefined {
-  if (value === undefined || value === null) return undefined
+  if (unreported(value)) return undefined
   return numeric(value, field)
 }
 
@@ -74,7 +80,7 @@ function nonnegative(value: JsonValue, field: string): number {
 }
 
 function optionalNonnegative(value: JsonValue, field: string): number | undefined {
-  if (value === undefined || value === null) return undefined
+  if (unreported(value)) return undefined
   return nonnegative(value, field)
 }
 
@@ -85,19 +91,19 @@ function positive(value: JsonValue, field: string): number {
 }
 
 function optionalPositive(value: JsonValue, field: string): number | undefined {
-  if (value === undefined || value === null) return undefined
+  if (unreported(value)) return undefined
   return positive(value, field)
 }
 
 function optionalText(value: JsonValue, field: string): string | undefined {
-  if (value === undefined || value === null) return undefined
+  if (unreported(value)) return undefined
   const parsed = jsonText(value)
   if (!parsed) throw new Error(`TastytradeSnapshot:invalid-${field}`)
   return parsed
 }
 
 function optionalBoolean(value: JsonValue, field: string): boolean | undefined {
-  if (value === undefined || value === null) return undefined
+  if (unreported(value)) return undefined
   const parsed = z.boolean().safeParse(value)
   if (!parsed.success) throw new Error(`TastytradeSnapshot:invalid-${field}`)
   return parsed.data
@@ -113,40 +119,22 @@ function optionalBoolean(value: JsonValue, field: string): boolean | undefined {
  * observations, so the `*Points` helpers below keep them as reported.
  */
 
-/** Convert a provider decimal ratio into the UI's percentage-point unit without changing the observation. */
-export function percentMetric(value: JsonValue): number | undefined {
-  const parsed = jsonNumber(value)
-  return parsed === undefined ? undefined : parsed * 100
-}
-
 function percentagePoints(value: JsonValue, field: string): number {
   return numeric(value, field) * 100
 }
 
 function optionalPercentagePoints(value: JsonValue, field: string): number | undefined {
-  if (value === undefined || value === null) return undefined
+  if (unreported(value)) return undefined
   return percentagePoints(value, field)
-}
-
-function requiredPercentageRank(value: JsonValue, field: string): number {
-  const points = percentagePoints(value, field)
-  if (points < 0 || points > 100) throw new Error(`TastytradeSnapshot:invalid-${field}`)
-  return points
-}
-
-function requiredLiquidity(value: JsonValue): number {
-  const parsed = numeric(value, 'liquidity-rating')
-  if (parsed < 0 || parsed > 5) throw new Error('TastytradeSnapshot:invalid-liquidity-rating')
-  return parsed
 }
 
 function reportedEarningsDate(metrics: JsonObject): string | null {
   const value = metrics.earnings
-  if (value === undefined || value === null) return null
+  if (unreported(value)) return null
   const earnings = jsonObject(value)
   if (!earnings) throw new Error('TastytradeSnapshot:invalid-earnings')
   const rawDate = earnings['expected-report-date']
-  if (rawDate === undefined || rawDate === null) return null
+  if (unreported(rawDate)) return null
   const date = optionalText(rawDate, 'earnings-date')
   if (!date || !isValidIsoDate(date)) throw new Error('TastytradeSnapshot:invalid-earnings-date')
   return date
@@ -154,7 +142,7 @@ function reportedEarningsDate(metrics: JsonObject): string | null {
 
 function optionTermStructure(metrics: JsonObject): Ticker['ivTermStructure'] {
   const value = metrics['option-expiration-implied-volatilities'] ?? metrics.optionExpirationImpliedVolatilities
-  if (value === undefined || value === null) return undefined
+  if (unreported(value)) return undefined
   if (!Array.isArray(value)) throw new Error('TastytradeSnapshot:invalid-option-term-structure')
   const candidates = value.map((candidate) => {
     const row = jsonObject(candidate)
@@ -439,17 +427,19 @@ function normalizeLiveTicker(
   // is therefore a read-model projection, never a synthesized source record.
   const change = price - previousClose
   const changePercent = (change / previousClose) * 100
-  const ivIndex = percentagePoints(metrics['implied-volatility-index'], 'implied-volatility-index')
-  if (ivIndex < 0) throw new Error('TastytradeSnapshot:invalid-implied-volatility-index')
-  const ivRank = requiredPercentageRank(
+  const ivIndex = optionalPercentagePoints(
+    metrics['implied-volatility-index'],
+    `implied-volatility-index:${symbol}`,
+  )
+  const ivRank = optionalPercentagePoints(
     metrics['implied-volatility-index-rank'] ?? metrics['implied-volatility-rank'],
-    'implied-volatility-rank',
+    `implied-volatility-rank:${symbol}`,
   )
-  const ivPercentile = requiredPercentageRank(
+  const ivPercentile = optionalPercentagePoints(
     metrics['implied-volatility-percentile'],
-    'implied-volatility-percentile',
+    `implied-volatility-percentile:${symbol}`,
   )
-  const liquidity = requiredLiquidity(metrics['liquidity-rating'])
+  const liquidity = optionalNumeric(metrics['liquidity-rating'], `liquidity-rating:${symbol}`)
   const marketCap = optionalNonnegative(metrics['market-cap'] ?? metrics.marketCap, 'market-cap')
   const volume = optionalNonnegative(quote.volume ?? quote['day-volume'], 'volume')
   const yearLow = optionalPositive(quote.yearLowPrice ?? quote['year-low-price'], 'year-low')

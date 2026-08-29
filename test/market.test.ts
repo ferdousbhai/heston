@@ -12,7 +12,6 @@ import { marketSnapshotFixture, marketTickersFixture } from './fixtures/market'
 import {
   equityCandleFromTime,
   liveTickerFromRecords,
-  percentMetric,
   selectSnapshotSymbols,
 } from '../src/server/tastytrade'
 
@@ -29,6 +28,10 @@ describe('volatility classification', () => {
   it('treats high rank or percentile as rich', () => {
     expect(volatilityVerdict({ ivRank: 75, ivPercentile: 60 })).toBe('rich')
     expect(volatilityVerdict({ ivRank: 50, ivPercentile: 82 })).toBe('rich')
+  })
+
+  it('keeps missing premium observations explicit', () => {
+    expect(volatilityVerdict({ ivRank: undefined, ivPercentile: 82 })).toBe('unavailable')
   })
 
   it('places the current price within a valid 52-week range', () => {
@@ -166,18 +169,6 @@ describe('tastytrade normalization', () => {
     expect(() => selectSnapshotSymbols([], symbols, [])).toThrow('too-many-symbols')
   })
 
-  it('normalizes tastytrade decimal ratios into percentage points', () => {
-    expect(percentMetric('0.184')).toBeCloseTo(18.4)
-    expect(percentMetric(undefined)).toBeUndefined()
-    expect(percentMetric('1.5')).toBe(150)
-    expect(percentMetric('7.5')).toBe(750)
-  })
-
-  it('does not clamp provider ratios', () => {
-    expect(percentMetric('1.0004')).toBeCloseTo(100.04)
-    expect(percentMetric('-0.0001')).toBeCloseTo(-0.01)
-  })
-
   it('preserves present optional volatility observations without plausibility caps', () => {
     const ticker = liveTickerFromRecords('BE', {
       symbol: 'BE',
@@ -267,6 +258,18 @@ describe('tastytrade normalization', () => {
     const projected = liveTickerFromRecords('SPY', metrics, quote, false)
     expect(projected.change).toBe(5)
     expect(projected.changePercent).toBeCloseTo(0.7194244604)
+    expect(liveTickerFromRecords('SPY', {
+      symbol: 'SPY',
+      'implied-volatility-index': null,
+      'implied-volatility-percentile': null,
+      'implied-volatility-rank': null,
+      'liquidity-rating': null,
+    }, quote, false)).toMatchObject({
+      ivIndex: undefined,
+      ivPercentile: undefined,
+      ivRank: undefined,
+      liquidity: undefined,
+    })
     expect(() => liveTickerFromRecords('SPY', metrics, { ...quote, volume: 'many' }, false))
       .toThrow('invalid-volume')
   })
