@@ -142,6 +142,7 @@ describe('daily research Pi agent boundary', () => {
       expect.objectContaining({ name: 'submit_daily_report', type: 'function' }),
     ]))
     expect(JSON.stringify(bodies[1]?.input)).toContain('function_call_output')
+    expect(JSON.stringify(bodies[0]?.input)).toContain('Not Found page is not evidence')
     expect(steps).toEqual([
       'model-1', 'tool-1-search_reddit',
       'model-2', 'tool-2-read_market_metrics',
