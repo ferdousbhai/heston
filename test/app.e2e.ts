@@ -242,9 +242,6 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   await expect(page.getByText('NVDA 205c 10/16')).toBeVisible()
   await expect(page.getByText('Selective long vol')).toBeVisible()
   await expect(page.getByRole('button', { name: /NVDA/ })).toBeVisible()
-  const sources = page.locator('.source-list')
-  await expect(sources.getByText('Evidence reviewed')).toBeVisible()
-  await expect(sources).not.toHaveAttribute('open', '')
 
   await page.getByRole('tab', { name: 'Dan' }).click()
   await expect(page.getByRole('heading', { name: 'Dan' })).toBeVisible()

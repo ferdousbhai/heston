@@ -4,8 +4,6 @@ import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '#/components/ui/card'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '#/components/ui/collapsible'
-import { Separator } from '#/components/ui/separator'
 import { type ResearchBrief } from '../domain/market'
 
 const issueDate = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -80,21 +78,6 @@ export function BriefScreen({
             </Card>
           ))}
         </div>
-        {brief.sources.length > 0 && (
-          <Collapsible className="source-list">
-            <CollapsibleTrigger render={<Button className="source-list-trigger" type="button" variant="ghost" />}>
-              <span>Evidence reviewed</span><Badge variant="secondary">{brief.sources.length}</Badge>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="source-links">
-              <Separator />
-              {brief.sources.map((source) => (
-                <a href={source.url} key={`${source.url}-${source.label}`} rel="noreferrer" target="_blank">
-                  <span>{source.label}</span><ArrowUpRight aria-hidden="true" />
-                </a>
-              ))}
-            </CollapsibleContent>
-          </Collapsible>
-        )}
         <Alert className="disclaimer">
           <AlertTitle>Research context only, not investment advice</AlertTitle>
           <AlertDescription>Every contract is illustrative; verify the live chain, spread, and expiry before acting.</AlertDescription>

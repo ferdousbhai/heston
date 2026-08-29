@@ -481,6 +481,7 @@ export function MarketScreen({
             <Search aria-hidden="true" />
             <input
               aria-label="Search all symbols"
+              name="symbol-search"
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search all symbols"
               type="search"
