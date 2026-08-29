@@ -19,6 +19,7 @@ import {
   ResearchBriefSchema,
   TickerSchema,
   WatchlistSchema,
+  mostActiveSymbol,
   type MarketSnapshot,
   type Ticker,
 } from '../domain/market'
@@ -46,6 +47,7 @@ const PreferenceSchema = z.object({
   favoriteUserId: z.string().min(1).max(256).optional(),
   id: z.literal('primary'),
   pinnedSymbols: z.array(EquitySymbolSchema).max(MAX_LIVE_MARKET_SYMBOLS).default([]),
+  selectedByUser: z.boolean().optional(),
   selectedSymbol: z.string(),
   selectedWatchlistId: z.string(),
 })
@@ -238,21 +240,25 @@ async function hydrateCollectionsImmediately(snapshot: MarketSnapshot, audience:
 
   // Each audience publishes exactly one watchlist, so the first row is the default.
   const defaultWatchlist = snapshot.watchlists[0]
-  const defaultSymbol = defaultWatchlist?.symbols[0] ?? snapshot.tickers[0]?.symbol ?? 'SPY'
+  const defaultSymbol = mostActiveSymbol(snapshot.tickers, defaultWatchlist?.symbols)
   const currentPreference = preferenceCollection.get('primary')
-  if (!currentPreference) {
+  if (!currentPreference && defaultSymbol) {
     const preference = preferenceCollection.insert({
       id: 'primary',
       pinnedSymbols: [],
+      selectedByUser: false,
       selectedSymbol: defaultSymbol,
       selectedWatchlistId: defaultWatchlist?.id ?? 'watchlist',
     })
     await preference.isPersisted.promise
-  } else {
+  } else if (currentPreference && defaultSymbol) {
     const watchlistIds = new Set(snapshot.watchlists.map((watchlist) => watchlist.id))
     const tickerSymbols = new Set(snapshot.tickers.map((ticker) => ticker.symbol))
-    if (!watchlistIds.has(currentPreference.selectedWatchlistId) || !tickerSymbols.has(currentPreference.selectedSymbol)) {
+    const selectionInvalid = !watchlistIds.has(currentPreference.selectedWatchlistId)
+      || !tickerSymbols.has(currentPreference.selectedSymbol)
+    if (selectionInvalid || (!currentPreference.selectedByUser && currentPreference.selectedSymbol !== defaultSymbol)) {
       const preference = preferenceCollection.update('primary', (draft) => {
+        draft.selectedByUser = false
         draft.selectedSymbol = defaultSymbol
         draft.selectedWatchlistId = defaultWatchlist?.id ?? 'watchlist'
       })
@@ -337,6 +343,7 @@ export function selectTicker(symbol: string) {
   const current = preferenceCollection.get('primary')
   if (!current) return
   preferenceCollection.update('primary', (draft) => {
+    draft.selectedByUser = true
     draft.selectedSymbol = symbol
   })
 }

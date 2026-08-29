@@ -48,13 +48,6 @@ const research: ResearchBrief = {
   summary: 'Index volatility remains subdued while event premium concentrates in semiconductors and high-beta growth.',
   regime: 'Selective long vol',
   regimeDetail: 'Cheap index protection · rich event volatility',
-  marketMovers: [{
-    symbol: 'PLTR', name: 'Palantir Technologies', category: 'gainer', price: 184.27,
-    changePercent: 8.41, volume: 79_200_000, averageVolume3Month: 42_100_000,
-    headline: 'Contract news may be driving the volume spike',
-    description: 'Palantir rose on unusually heavy volume. A newly reported contract is a possible driver, though the headline alone does not prove causation.',
-    sources: [{ label: 'Reuters · Palantir wins new contract', url: 'https://www.reuters.com/technology/palantir-contract' }],
-  }],
   ideas: [
     { symbol: 'NVDA', direction: 'bullish', headline: 'Demand checks keep the AI capex thesis alive', description: 'Channel discussion points to durable accelerator demand. Expensive premium argues for patience and strict sizing.', play: 'NVDA 205c 10/16', risk: 'A guide-down or capex pause would break the demand thesis.', sources: [] },
   ],

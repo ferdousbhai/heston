@@ -43,11 +43,6 @@ function pageFor(path: string): BrokerPage {
       { action: 'Sell to Open', quantity: '1', symbol: 'SPY call short', 'instrument-type': 'Equity Option' },
     ],
   }] } }
-  if (path.includes('/transactions?')) return { data: { items: [{
-    'transaction-type': 'Trade', 'executed-at': '2026-08-13T12:00:00Z',
-    'order-id': 101, action: 'Buy to Open', quantity: '2', price: '1.20',
-    symbol: 'SPY option', 'underlying-symbol': 'SPY', 'instrument-type': 'Equity Option',
-  }] } }
   throw new Error(`Unexpected path: ${path}`)
 }
 
@@ -79,38 +74,35 @@ describe('always-on brokerage context', () => {
     })
     expect(context.positions[0]).not.toHaveProperty('markPrice')
     expect(context.orders[0]?.legs).toHaveLength(2)
-    expect(context.recentTrades[0]).toMatchObject({ orderId: '101', symbol: 'SPY option' })
     expect(context.asOf).toMatch(/^\d{4}-\d{2}-\d{2}T/)
     expect(context.source).toBe('tastytrade')
     expect(context.completeness).toEqual({
-      ordersTruncated: false, positionsTruncated: false, tradesTruncated: false,
+      ordersTruncated: false, positionsTruncated: false,
     })
     expect(JSON.stringify(runtime)).not.toContain('A1')
     expect(runtime).toMatchObject({
       source: 'tastytrade',
-      completeness: { ordersTruncated: false, positionsTruncated: false, tradesTruncated: false },
+      completeness: { ordersTruncated: false, positionsTruncated: false },
       balances: { availableTradingFunds: 61_000, cashBalance: 70_000 },
       orders: [{ id: '101', legs: [{ symbol: 'SPY call' }, { symbol: 'SPY call short' }] }],
-      recentTrades: [{ orderId: '101' }],
     })
-    expect(tastytrade.tastyRequest).toHaveBeenCalledWith({}, expect.stringContaining('/transactions?type=Trade'))
+    expect(tastytrade.tastyRequest).toHaveBeenCalledTimes(4)
   })
 
   it('marks fulfilled malformed collections unavailable instead of treating them as empty', async () => {
     tastytrade.tastyRequest.mockImplementation((_env, path: string) => {
-      if (path.includes('/positions') || path.includes('/orders/live') || path.includes('/transactions?')) {
+      if (path.includes('/positions') || path.includes('/orders/live')) {
         return Promise.resolve({ data: { unexpected: [] } })
       }
       return Promise.resolve(payloadFor(path))
     })
 
     const context = await loadBrokerageContext({})
-    expect(context.availability).toMatchObject({ positions: false, orders: false, trades: false })
+    expect(context.availability).toMatchObject({ positions: false, orders: false })
     expect(context.positions).toEqual([])
     expect(context.orders).toEqual([])
-    expect(context.recentTrades).toEqual([])
     expect(buildAgentRuntimeContext(context, [])).toMatchObject({
-      unavailable: expect.arrayContaining(['positions', 'orders', 'trades']),
+      unavailable: expect.arrayContaining(['positions', 'orders']),
     })
   })
 
@@ -175,19 +167,5 @@ describe('always-on brokerage context', () => {
     expect(context.availability.orders).toBe(false)
     expect(context.completeness.ordersTruncated).toBe(true)
     expect(context.orders).toEqual([])
-  })
-
-  it('marks a full recent-trade page as truncated when pagination is unavailable', async () => {
-    tastytrade.tastyRequest.mockImplementation((_env, path: string) => {
-      if (path.includes('/transactions?')) {
-        const row = pageFor(path).data.items[0]
-        return Promise.resolve({ data: { items: Array.from({ length: 25 }, () => row) } })
-      }
-      return Promise.resolve(payloadFor(path))
-    })
-
-    const context = await loadBrokerageContext({})
-    expect(context.completeness.tradesTruncated).toBe(true)
-    expect(context.recentTrades).toHaveLength(25)
   })
 })

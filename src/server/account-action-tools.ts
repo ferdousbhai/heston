@@ -9,17 +9,17 @@ import { textResult } from './agent-tool-result'
 import { watchlistWriter } from './watchlist-actions'
 import { internalWatchlistWriter } from './internal-watchlist'
 
-const CancelOrderParameters = Type.Object({
-  orderId: Type.String({ description: 'Exact tastytrade working-order ID.', pattern: '^\\d{1,40}$' }),
-}, { additionalProperties: false })
-
-const WatchlistManagementParameters = Type.Union([
+const DirectAccountActionParameters = Type.Union([
   Type.Object({
-    action: Type.Literal('add'),
+    kind: Type.Literal('cancel_order'),
+    orderId: Type.String({ description: 'Exact tastytrade working-order ID.', pattern: '^\\d{1,40}$' }),
+  }, { additionalProperties: false }),
+  Type.Object({
+    kind: Type.Literal('add_watchlist_symbols'),
     symbols: Type.Array(Type.String({ pattern: EQUITY_SYMBOL_PATTERN }), { maxItems: 50, minItems: 1 }),
   }, { additionalProperties: false }),
   Type.Object({
-    action: Type.Literal('remove'),
+    kind: Type.Literal('remove_watchlist_symbols'),
     symbols: Type.Array(Type.String({ pattern: EQUITY_SYMBOL_PATTERN }), { maxItems: 50, minItems: 1 }),
   }, { additionalProperties: false }),
 ])
@@ -76,63 +76,44 @@ function authorizesWatchlistChange(
     && authorizedSymbols.every((symbol) => normalizedSymbols.includes(symbol)))
 }
 
-export function createCancelOrderTool(
+export function createDirectAccountActionTool(
   env: AppEnv,
   currentUserMessage: string,
-): AgentTool<typeof CancelOrderParameters, { orderId: string; status: 'cancelled' }> {
+): AgentTool<
+  typeof DirectAccountActionParameters,
+  { detail: string } | { orderId: string; status: 'cancelled' }
+> {
   let attempted = false
   return {
-    description: 'Cancel one exact working tastytrade order immediately. Use only when the user explicitly asks to cancel that order in the current message. This does not require a confirmation step.',
+    description: "Apply one explicitly requested direct account action: cancel an exact working tastytrade order, or add/remove exact equity symbols in Spice's private watchlist. This does not require a confirmation step, but must exactly match the current user message.",
     execute: async (_toolCallId, params) => {
-      if (!authorizesCancel(currentUserMessage, params.orderId)) throw new Error('DirectActionIntentMismatch')
-      const parsed = DirectAccountActionSchema.parse({ kind: 'cancel_order', orderId: params.orderId })
-      if (parsed.kind !== 'cancel_order') throw new Error('CancelOrder:invalid-action')
+      const parsed = DirectAccountActionSchema.parse(params)
+      const authorized = parsed.kind === 'cancel_order'
+        ? authorizesCancel(currentUserMessage, parsed.orderId)
+        : authorizesWatchlistChange(
+            currentUserMessage,
+            parsed.kind === 'add_watchlist_symbols' ? 'add' : 'remove',
+            parsed.symbols,
+          )
+      if (!authorized) throw new Error('DirectActionIntentMismatch')
       // A provider timeout after DELETE is ambiguous. One tool instance represents one
-      // user turn, so the model cannot turn an uncertain outcome into an automatic retry.
+      // user turn, so the model cannot turn any uncertain mutation into an automatic retry.
       if (attempted) throw new Error('DirectActionAlreadyAttempted')
       attempted = true
-      return brokerApi().withBrokerMutationLease(env, async (lease) => {
-        const account = await brokerApi().resolveAccountNumber(env)
-        await lease.renew()
-        await brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/orders/${parsed.orderId}`, { method: 'DELETE' })
-        return textResult({ orderId: parsed.orderId, status: 'cancelled' as const })
-      })
+      if (parsed.kind === 'cancel_order') {
+        return brokerApi().withBrokerMutationLease(env, async (lease) => {
+          const account = await brokerApi().resolveAccountNumber(env)
+          await lease.renew()
+          await brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/orders/${parsed.orderId}`, { method: 'DELETE' })
+          return textResult({ orderId: parsed.orderId, status: 'cancelled' as const })
+        })
+      }
+      return textResult(await watchlistWriter().executeWatchlistAction(env, parsed))
     },
     executionMode: 'sequential',
-    label: 'Cancelling order',
-    name: 'cancel_order',
-    parameters: CancelOrderParameters,
-  }
-}
-
-export function createWatchlistManagementTool(
-  env: AppEnv,
-  currentUserMessage: string,
-): AgentTool<typeof WatchlistManagementParameters, { detail: string }> {
-  let attempted = false
-  return {
-    description: "Add or remove equity symbols in Spice's single internal private watchlist immediately. Use only when the user explicitly requests the exact change in the current message. This does not require a confirmation step.",
-    execute: async (_toolCallId, params) => {
-      if (!authorizesWatchlistChange(
-        currentUserMessage,
-        params.action,
-        params.symbols,
-      )) throw new Error('DirectActionIntentMismatch')
-      const action = DirectAccountActionSchema.parse({
-        kind: params.action === 'add' ? 'add_watchlist_symbols' : 'remove_watchlist_symbols',
-        symbols: params.symbols,
-      })
-      if (action.kind !== 'add_watchlist_symbols' && action.kind !== 'remove_watchlist_symbols'
-      ) throw new Error('WatchlistMutation:invalid-action')
-      // One direct mutation attempt per user turn keeps model tool loops bounded.
-      if (attempted) throw new Error('DirectActionAlreadyAttempted')
-      attempted = true
-      return textResult(await watchlistWriter().executeWatchlistAction(env, action))
-    },
-    executionMode: 'sequential',
-    label: 'Updating watchlist',
-    name: 'manage_watchlist',
-    parameters: WatchlistManagementParameters,
+    label: 'Applying account action',
+    name: 'apply_direct_account_action',
+    parameters: DirectAccountActionParameters,
   }
 }
 

@@ -315,7 +315,7 @@ export function AgentScreen({
       setProvisional((current) => current ? { ...current, tools: current.tools.map((tool) => tool.id === event.toolCallId ? { ...tool, input: event.input } : tool) } : current)
     } else if (event.type === 'dan:tool_execution_end') {
       if (!event.error && (
-        event.toolName === 'manage_watchlist'
+        event.toolName === 'apply_direct_account_action'
         || event.toolName === 'remember_trade_symbols'
         || event.toolName === 'prepare_brokerage_action'
       )) {

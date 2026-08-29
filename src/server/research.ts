@@ -8,7 +8,7 @@ import { bindEvidenceSymbols } from './research-evidence'
 import {
   mentionsDiscoverySource,
   readingListFromCandidates,
-  researchIdeasForDate,
+  researchIdeas,
   type BoundResearchIdea,
 } from './research-output'
 import { equityOptionContractFromChainTuple } from './option-contract'
@@ -260,9 +260,8 @@ export async function generateDailyResearch(
     event: 'DailyResearchModelCompleted',
     runId: gatewayRunId,
   }))
-  const boundIdeas = researchIdeasForDate(
+  const boundIdeas = researchIdeas(
     generated.ideas,
-    today,
     evidence,
     [...allowedCandidates],
   )
@@ -297,7 +296,6 @@ export async function generateDailyResearch(
       ? generated.regimeDetail
       : 'Only independently supported setups survived.',
     ideas,
-    marketMovers: [],
     readingList,
     id: researchBriefId(today),
     // Dated when the brief exists, not when the single agent run started.

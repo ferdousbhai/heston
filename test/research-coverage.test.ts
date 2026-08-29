@@ -5,7 +5,7 @@ import { unsupportedDatabase, unsupportedStatement } from './fake-d1'
 import { sqliteD1 } from './sqlite-d1'
 
 describe('recent ticker coverage search', () => {
-  it('keeps only requested tickers and the latest three rows per symbol', async () => {
+  it('keeps all requested coverage in the model-selected lookback', async () => {
     const results = [
       ...Array.from({ length: 4 }, (_, index) => ({
         description: `Current description ${index}`,
@@ -47,7 +47,7 @@ describe('recent ticker coverage search', () => {
       'brief-2026-08-27',
       '["NVDA","META"]',
     )
-    expect(coverage.filter((item) => item.symbol === 'NVDA')).toHaveLength(3)
+    expect(coverage.filter((item) => item.symbol === 'NVDA')).toHaveLength(4)
     expect(coverage).toContainEqual(expect.objectContaining({
       description: 'Legacy thesis Horizon: Two months.',
       headline: 'Legacy setup',
@@ -72,7 +72,7 @@ describe('recent ticker coverage search', () => {
     )
   })
 
-  it('does not let unrelated rows consume the bounded result window', async () => {
+  it('does not return unrelated rows from a large recent window', async () => {
     const store = sqliteD1([
       'CREATE TABLE research_briefs (id TEXT PRIMARY KEY, published_at TEXT, payload_json TEXT)',
     ])

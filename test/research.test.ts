@@ -6,6 +6,7 @@ import {
   type DailyResearchSubmission,
 } from '../src/server/research-agent'
 import { generateDailyResearch, shouldRunDailyResearch } from '../src/server/research'
+import { researchIdeas } from '../src/server/research-output'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
 
@@ -103,6 +104,21 @@ describe('daily research schedule', () => {
 })
 
 describe('daily research final boundary', () => {
+  it('lets the agent choose any real expiry before exact chain verification', () => {
+    const idea = submission().ideas[0]!
+    const evidence = [{
+      context: 'NVDA signed a new supply agreement.',
+      source: 'Independent wire',
+      symbols: ['NVDA'],
+      title: 'NVIDIA supply agreement',
+      url: EVIDENCE_URL,
+    }]
+
+    expect(researchIdeas([
+      { ...idea, play: { ...idea.play!, expiration: '2027-01-15' } },
+    ], evidence, ['NVDA'])[0]?.contract).toMatchObject({ expiry: '2027-01-15' })
+  })
+
   it('binds an agent-selected symbol to fetched evidence and verifies its exact option', async () => {
     const brief = await generateDailyResearch({}, NOW, { persist: false })
 

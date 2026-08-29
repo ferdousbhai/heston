@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  fractionalKelly,
-  kellyFraction,
-  survivalBudget,
-} from '../src/domain/portfolio-risk'
+import { survivalBudget } from '../src/domain/portfolio-risk'
 import { OrderPlacementSchema, type OrderPlacement } from '../src/server/agent-contracts'
 import {
   buildAgentRuntimeContext,
@@ -20,18 +16,7 @@ const longOnlyAccount = {
   positions: [{ direction: 'Long' as const, instrumentType: 'Equity', quantity: 10, symbol: 'SPY' }],
 }
 
-describe('Kelly and survival math', () => {
-  it('uses full Kelly as a ceiling and defaults to conservative fractional Kelly', () => {
-    expect(kellyFraction(0.6, 2)).toBeCloseTo(0.4)
-    expect(fractionalKelly(0.6, 2)).toBeCloseTo(0.1)
-  })
-
-  it('returns a zero allocation when the edge is absent or cannot be estimated', () => {
-    expect(kellyFraction(undefined, 2)).toBe(0)
-    expect(kellyFraction(0.3, 1)).toBe(0)
-    expect(kellyFraction(1.2, 2)).toBe(0)
-  })
-
+describe('survival math', () => {
   it('retains 60% of the recorded high-water value rather than resetting after a loss', () => {
     expect(survivalBudget(100_000, 65_000, 5_000)).toMatchObject({
       allowed: true,
@@ -160,8 +145,8 @@ describe('Dan doctrine', () => {
       accountNumber: 'SECRET123',
       asOf: '2026-08-13T12:00:00.000Z',
       source: 'tastytrade',
-      completeness: { ordersTruncated: false, positionsTruncated: false, tradesTruncated: false },
-      availability: { balances: true, orders: true, positions: true, trades: true },
+      completeness: { ordersTruncated: false, positionsTruncated: false },
+      availability: { balances: true, orders: true, positions: true },
       balances: {
         netLiquidatingValue: 100_000,
         cashBalance: 70_000, cashAvailableToWithdraw: 65_000, availableTradingFunds: 62_000,
@@ -172,11 +157,6 @@ describe('Dan doctrine', () => {
         symbol: 'SPY option', underlying: 'SPY',
       }],
       orders: [],
-      recentTrades: [{
-        action: 'Buy to Open', executedAt: '2026-08-12T15:00:00Z',
-        instrumentType: 'Equity Option', orderId: '9001', price: 1.2,
-        quantity: 2, symbol: 'SPY option', underlying: 'SPY',
-      }],
     }
     const context = buildAgentRuntimeContext(account, [{
       symbol: 'SPY', price: 700, changePercent: 1.2, ivIndex: 18,
@@ -189,7 +169,7 @@ describe('Dan doctrine', () => {
     expect(context).toMatchObject({
       asOf: '2026-08-13T12:00:00.000Z',
       source: 'tastytrade',
-      completeness: { ordersTruncated: false, positionsTruncated: false, tradesTruncated: false },
+      completeness: { ordersTruncated: false, positionsTruncated: false },
       balances: {
         availableTradingFunds: 62_000,
         cashAvailableToWithdraw: 65_000,
@@ -204,7 +184,6 @@ describe('Dan doctrine', () => {
         NVDA: { price: 180, ivIndex: 40, ivRank: 60, ivPercentile: 65, liquidity: 4 },
       },
       orders: [],
-      recentTrades: [{ orderId: '9001', symbol: 'SPY option' }],
     })
     expect(JSON.stringify(context)).not.toContain('SECRET123')
     expect(context).toHaveProperty('balances')

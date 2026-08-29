@@ -28,6 +28,7 @@ import {
   toggleFavoriteSymbol,
 } from '../data/favorites'
 import { toError } from '../domain/failure'
+import { mostActiveSymbol } from '../domain/market'
 import { type WatchlistMutation, WatchlistMutationResultSchema } from '../domain/watchlist'
 import { useLiveMarket } from '../data/live-market'
 import { AgentScreen } from './agent-screen'
@@ -103,9 +104,9 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
   // so a stale stored id cannot outrank the list the snapshot actually carries.
   const activeWatchlist = watchlists.find((watchlist) => watchlist.id === preference?.selectedWatchlistId)
     ?? watchlists[0]
+  const fallbackSymbol = mostActiveSymbol(tickers, activeWatchlist?.symbols)
   const selected = tickers.find((ticker) => ticker.symbol === preference?.selectedSymbol)
-    ?? tickers.find((ticker) => activeWatchlist?.symbols.includes(ticker.symbol))
-    ?? tickers[0]
+    ?? tickers.find((ticker) => ticker.symbol === fallbackSymbol)
   const loadedSymbols = new Set(tickers.map((ticker) => ticker.symbol))
   const streamSymbols = selectLiveMarketSymbols(selected?.symbol, activeWatchlist?.symbols ?? [], loadedSymbols)
   useLiveMarket(streamSymbols, snapshotReady && owner)

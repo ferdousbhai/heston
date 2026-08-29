@@ -8,14 +8,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '#/component
 import { Separator } from '#/components/ui/separator'
 import { type ResearchBrief } from '../domain/market'
 
-const compactNumber = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1, notation: 'compact' })
-const priceNumber = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 })
 const issueDate = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-
-function moverCategory(category: ResearchBrief['marketMovers'][number]['category']): string {
-  if (category === 'most-active') return 'most active'
-  return category
-}
 
 export function BriefScreen({
   availableSymbols,
@@ -51,46 +44,6 @@ export function BriefScreen({
                 </li>
               ))}
             </ol>
-          </section>
-        )}
-        {brief.marketMovers.length > 0 && (
-          <section className="movers-section" aria-labelledby="movers-title">
-            <header className="ideas-heading">
-              <h2 id="movers-title">Moves investigated</h2>
-              <span>{brief.marketMovers.length} ticker{brief.marketMovers.length === 1 ? '' : 's'}</span>
-            </header>
-            <div className="mover-stack">
-              {brief.marketMovers.map((mover) => (
-                <Card className="mover-card" key={mover.symbol} variant="flat">
-                  <CardHeader className="mover-top">
-                    {availableSymbols.has(mover.symbol)
-                      ? (
-                          <Button onClick={() => onSymbol(mover.symbol)} type="button" variant="link">
-                            {mover.symbol}<ArrowUpRight data-icon="inline-end" />
-                          </Button>
-                        )
-                      : <strong className="mover-symbol">{mover.symbol}</strong>}
-                    <Badge variant={mover.changePercent >= 0 ? 'bullish' : 'bearish'}>
-                      {mover.changePercent >= 0 ? '+' : ''}{mover.changePercent.toFixed(2)}%
-                    </Badge>
-                    <CardTitle>{mover.headline}</CardTitle>
-                    <CardDescription>{mover.description}</CardDescription>
-                  </CardHeader>
-                  <CardContent className="mover-metrics">
-                    <span>${priceNumber.format(mover.price)}</span>
-                    <span>{compactNumber.format(mover.volume)} volume</span>
-                    <span>{moverCategory(mover.category)}</span>
-                  </CardContent>
-                  <CardFooter className="mover-sources">
-                    {mover.sources.map((source) => (
-                      <a href={source.url} key={source.url} rel="noreferrer" target="_blank">
-                        {source.label}<ArrowUpRight aria-hidden="true" />
-                      </a>
-                    ))}
-                  </CardFooter>
-                </Card>
-              ))}
-            </div>
           </section>
         )}
         <header className="ideas-heading">

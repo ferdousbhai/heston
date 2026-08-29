@@ -443,7 +443,6 @@ function emptyResearch(now: string): MarketSnapshot['research'] {
     regime: 'Waiting for research',
     regimeDetail: 'No stored live brief',
     ideas: [],
-    marketMovers: [],
     readingList: [],
     sources: [],
   }

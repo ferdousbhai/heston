@@ -37,11 +37,9 @@ function positiveInteger(value, fallback) {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback
 }
 
-const start = Math.max(0, Number(process.env.SPICE_CATALYST_START ?? 0) || 0)
-const limit = positiveInteger(process.env.SPICE_CATALYST_LIMIT, input.instruments.length)
 const chunkSize = positiveInteger(process.env.SPICE_CATALYST_CHUNK_SIZE, 12)
 const concurrency = positiveInteger(process.env.SPICE_CATALYST_CONCURRENCY, 2)
-const selectedInstruments = input.instruments.slice(start, start + limit)
+const selectedInstruments = input.instruments
 if (!selectedInstruments.length) throw new Error('Catalyst run selected no instruments')
 
 const now = new Date()
@@ -79,11 +77,11 @@ if (existingManifest && JSON.stringify(existingManifest) !== JSON.stringify(mani
 await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
 
 function prompt(instruments) {
-  return `You are running today's local refresh of an upcoming catalyst calendar for an options investor. A scheduled Worker job separately researches X and Reddit; your job is the official-source calendar it cannot reach.
+  return `Refresh an official-source upcoming catalyst calendar for an options investor.
 
-Use Codex's native live web search. Do not use Reddit, X, Twitter, or other social posts as evidence in this run. Search each supplied instrument carefully, preferring its investor-relations site, official newsroom, regulator records, clinical-trial records, government pages, and official event or conference organizers. Follow second-order leads until you either find a direct dated source or conclude that no qualifying event is known.
+Use Codex's native live web search. Do not use Reddit, X, Twitter, other social posts, or secondary reporting as final evidence. Search each supplied instrument carefully. Secondary pages may help locate a source, but every returned sourceUrl must be the company investor-relations site or official newsroom, a regulator, clinical-trial registry, government page, or official event organizer. Follow leads until you find a direct dated source or conclude that no qualifying event is known.
 
-Today in New York is ${today}. Return only material, scheduled, ticker-specific events from ${today} through ${horizon}. Exclude earnings, dividends, routine filings, past events, undated possibilities, analyst forecasts, rumors, and generic product roadmaps. An exact date must be stated by the source. Use reputable secondary reporting only when no direct source is available. Every finding in this local run is stored as estimated. Re-report an event that is still scheduled even if it may have been found on an earlier day; the importer keys findings by event and source, so repeats refresh rather than duplicate. Never infer that a similarly named security or company belongs to a ticker.
+Today in New York is ${today}. Return only material, scheduled, ticker-specific events from ${today} through ${horizon}. Exclude earnings, dividends, routine filings, past events, undated possibilities, analyst forecasts, rumors, and generic product roadmaps. An exact date must be stated by the source. Re-report an event that is still scheduled. Never infer that a similarly named security or company belongs to a ticker.
 
 For every finding, echo symbol and instrumentName exactly from this input. Use the direct HTTPS page that establishes the date, not a search result page or home page. Keep the description factual and under 500 characters. Use unknown timing unless the source establishes pre-market, intraday, or after-hours. Return an empty findings array when the evidence bar is not met.
 
@@ -92,6 +90,22 @@ Immediately before your final response, open every sourceUrl directly by its exa
 An instrument with resolutionStatus unresolved has only a tastytrade watchlist symbol, not a verified instrument name. Research it only when an official source clearly establishes what that exact ticker represents; otherwise return no finding for it.
 
 Instruments:\n${JSON.stringify(instruments)}`
+}
+
+function openPageTranscript(transcript) {
+  return transcript.split('\n').flatMap((line) => {
+    if (!line) return []
+    try {
+      const event = JSON.parse(line)
+      return event?.type === 'item.completed'
+        && event.item?.type === 'web_search'
+        && event.item.action?.type === 'open_page'
+        ? [line]
+        : []
+    } catch {
+      return []
+    }
+  }).join('\n')
 }
 
 async function runChunk(instruments, index) {
@@ -135,7 +149,7 @@ async function runChunk(instruments, index) {
 }
 
 const findings = []
-const transcripts = []
+const openPageTranscripts = []
 const chunkResults = Array.from({ length: chunks.length })
 let nextChunk = 0
 async function runWorker() {
@@ -149,13 +163,12 @@ async function runWorker() {
 await Promise.all(Array.from({ length: Math.min(concurrency, chunks.length) }, () => runWorker()))
 for (const chunk of chunkResults) {
   findings.push(...chunk.findings)
-  transcripts.push(chunk.transcript)
+  openPageTranscripts.push(openPageTranscript(chunk.transcript))
 }
 
 await writeFile(artifactPath, `${JSON.stringify({
   findings,
-  generatedAt: now.toISOString(),
+  openPageTranscripts,
   researchedSymbols: selectedInstruments.map((instrument) => instrument.symbol),
   runId: randomUUID(),
-  transcripts,
 }, null, 2)}\n`)

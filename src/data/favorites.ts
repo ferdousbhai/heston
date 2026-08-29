@@ -6,12 +6,12 @@ import { z } from 'zod'
 import {
   FavoriteMutationSchema,
   FavoriteSymbolsResponseSchema,
+  MAX_FAVORITE_SYMBOLS,
   type FavoriteMutation,
 } from '../domain/favorites'
 import { EquitySymbolSchema } from '../domain/instrument'
-import { MAX_LIVE_MARKET_SYMBOLS, preferenceCollection, type Preference } from './collections'
+import { preferenceCollection, type Preference } from './collections'
 
-const FAVORITE_REFRESH_INTERVAL_MS = 15_000
 const FavoriteRowSchema = z.strictObject({ symbol: EquitySymbolSchema })
 const FavoriteStageMarkerSchema = z.strictObject({
   consumedStageId: z.string().max(4_096),
@@ -95,7 +95,7 @@ async function toggleAnonymousFavorite(symbol: string): Promise<void> {
   const pinnedSymbols = stagedFavoriteSymbols(current, marker)
   const nextSymbols = pinnedSymbols.includes(symbol)
     ? pinnedSymbols.filter((candidate) => candidate !== symbol)
-    : [...pinnedSymbols, symbol].slice(-MAX_LIVE_MARKET_SYMBOLS)
+    : [...pinnedSymbols, symbol].slice(-MAX_FAVORITE_SYMBOLS)
   const mutation = preferenceCollection.update('primary', (draft) => {
     draft.favoriteStageVersion = crypto.randomUUID()
     delete draft.favoriteUserId
@@ -130,7 +130,6 @@ export function createFavoriteSync(userId: string) {
       queryClient,
       schema: FavoriteRowSchema,
       getKey: (favorite) => favorite.symbol,
-      refetchInterval: FAVORITE_REFRESH_INTERVAL_MS,
       refetchOnMount: 'always',
       refetchOnReconnect: 'always',
       refetchOnWindowFocus: 'always',

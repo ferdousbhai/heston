@@ -7,7 +7,7 @@ import { persistResearchedCatalysts } from './catalysts'
 import { canonicalCodexSourceUrl, openedPageUrlsFromCodexTranscripts } from './codex-transcript-evidence'
 import { type AppEnv } from './env'
 import { readInstrumentCatalog } from './instrument-catalog'
-import { readInternalWatchlistFocus } from './internal-watchlist'
+import { MAX_MAINTAINED_ITEMS, readInternalWatchlistFocus } from './internal-watchlist'
 
 const MODEL = 'local-codex-native-web'
 const MAX_FINDINGS = 1_000
@@ -24,23 +24,18 @@ const FindingSchema = z.object({
 
 const ArtifactEnvelopeSchema = z.object({
   findings: z.array(z.custom<JsonValue>()).max(MAX_FINDINGS),
-  generatedAt: z.string().datetime(),
-  researchedSymbols: z.array(EquitySymbolSchema).min(1).max(10_000),
+  openPageTranscripts: z.array(z.string().max(1_000_000)).min(1).max(MAX_MAINTAINED_ITEMS),
+  researchedSymbols: z.array(EquitySymbolSchema).min(1).max(MAX_MAINTAINED_ITEMS),
   runId: z.string().uuid(),
-  transcripts: z.array(z.string().max(1_000_000)).min(1).max(100),
 })
 
 export type CatalystBootstrapInstrument = {
   assetType: 'equity' | 'etf' | 'index'
   countryOfIncorporation: string | null
-  description: string | null
-  instrumentSubType: string | null
   resolutionStatus: 'resolved' | 'unresolved'
   listedMarket: string | null
   name: string
-  shortDescription: string | null
   symbol: string
-  underlyingProductType: string | null
 }
 
 export type CatalystBootstrapValidation = {
@@ -103,7 +98,7 @@ function catalystFromFinding(
 export async function readCatalystBootstrapInstruments(env: AppEnv): Promise<CatalystBootstrapInstrument[]> {
   // This packet is private ops input, but still contains no source category or
   // provenance. It uses the same bounded focus as the live product.
-  const orderedSymbols = await readInternalWatchlistFocus(env, [], 100)
+  const orderedSymbols = await readInternalWatchlistFocus(env, [], MAX_MAINTAINED_ITEMS)
   const catalog = await readInstrumentCatalog(env, orderedSymbols)
   const missing = orderedSymbols.filter((symbol) => !catalog.has(symbol))
   if (missing.length) throw new Error(`CatalystBootstrap:catalog-incomplete:${missing.length}`)
@@ -116,7 +111,7 @@ export function validateCatalystBootstrapArtifact(
   now = new Date(),
 ): CatalystBootstrapValidation {
   const artifact = ArtifactEnvelopeSchema.parse(artifactValue)
-  const accessedUrls = openedPageUrlsFromCodexTranscripts(artifact.transcripts)
+  const accessedUrls = openedPageUrlsFromCodexTranscripts(artifact.openPageTranscripts)
   if (artifact.findings.length && !accessedUrls.size) {
     throw new Error('CatalystBootstrap:codex-open-page-evidence-unavailable')
   }
@@ -229,13 +224,9 @@ export function catalogItemForCatalystBootstrap(item: InstrumentCatalogItem): Ca
   return {
     assetType: item.isIndex ? 'index' : item.isEtf ? 'etf' : 'equity',
     countryOfIncorporation: item.countryOfIncorporation,
-    description: item.description,
-    instrumentSubType: item.instrumentSubType,
     listedMarket: item.listedMarket,
     name: instrumentDisplayName(item),
     resolutionStatus: item.resolutionStatus,
-    shortDescription: item.shortDescription,
     symbol: item.symbol,
-    underlyingProductType: item.underlyingProductType,
   }
 }

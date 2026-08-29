@@ -28,8 +28,6 @@ describe('brokerage read tools', () => {
   it('exposes only the bounded read tool factories', () => {
     expect(createBrokerageReadTools({}).map((tool) => tool.name)).toEqual([
       'read_account_history',
-      'read_market_metrics',
-      'read_market_status',
       'search_symbols',
       'find_option_contracts',
       'read_instrument_quotes',

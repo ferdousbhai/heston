@@ -15,7 +15,6 @@ import {
   MAX_SEARCH_RESULTS,
   MAX_SEARCH_ROWS,
   MarketMetricsReadParameters,
-  MarketStatusReadParameters,
   OptionContractFindParameters,
   SymbolSearchParameters,
   UNDERLYING_SYMBOL,
@@ -526,7 +525,7 @@ function createAccountHistoryReadTool(
   env: AppEnv,
 ): AgentTool<typeof AccountHistoryReadParameters, AccountHistoryReadResult> {
   return {
-    description: 'Read a bounded page of tastytrade transaction or order history. This tool is read-only. Recent account activity is already in default context; call this only when a longer lookback, cash movements, or filtered history is needed.',
+    description: 'Read a bounded page of tastytrade transaction or order history. This tool is read-only; call it when recent trades, cash movements, or filtered history matter.',
     execute: async (_toolCallId, params) => textResult(await readAccountHistory(env, params)),
     executionMode: 'sequential',
     label: 'Reading account history',
@@ -545,19 +544,6 @@ export function createMarketMetricsReadTool(
     label: 'Reading market metrics',
     name: 'read_market_metrics',
     parameters: MarketMetricsReadParameters,
-  }
-}
-
-function createMarketStatusReadTool(
-  env: AppEnv,
-): AgentTool<typeof MarketStatusReadParameters, MarketStatusReadResult> {
-  return {
-    description: 'Read the current tastytrade equity market session, including open and close boundaries. This tool is read-only.',
-    execute: async () => textResult(await readMarketStatus(env)),
-    executionMode: 'sequential',
-    label: 'Reading market status',
-    name: 'read_market_status',
-    parameters: MarketStatusReadParameters,
   }
 }
 
@@ -603,8 +589,6 @@ function createInstrumentQuoteReadTool(
 export function createBrokerageReadTools(env: AppEnv) {
   return [
     createAccountHistoryReadTool(env),
-    createMarketMetricsReadTool(env),
-    createMarketStatusReadTool(env),
     createSymbolSearchTool(env),
     createOptionContractFindTool(env),
     createInstrumentQuoteReadTool(env),

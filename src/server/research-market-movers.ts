@@ -41,10 +41,8 @@ const MoverQuoteSchema = z.object({
   regularMarketTime: z.union([z.number().finite().positive(), z.date()]).optional(),
   regularMarketVolume: z.number().finite().nonnegative(),
   shortName: z.string().trim().min(1).optional(),
-  // The domain schema, not a looser local copy: a mover whose symbol this
-  // accepts is parsed again by MarketMoverInsightSchema, which throws rather
-  // than skipping. A digit-bearing ticker used to pass here and take the whole
-  // required daily job down from a best-effort source.
+  // Use the source-neutral equity schema here too. A digit-bearing ticker used
+  // to pass this fallback boundary and fail later evidence binding.
   symbol: EquitySymbolSchema,
 }).passthrough()
 

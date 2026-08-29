@@ -84,16 +84,15 @@ function artifact() {
       timing: 'unknown',
       title: 'SpaceX shareholder event',
     }],
-    generatedAt: '2026-08-26T12:00:00.000Z',
-    researchedSymbols: ['SPCX'],
-    runId: 'd239f195-630c-476f-9bf3-4930be438748',
-    transcripts: [`${JSON.stringify({
+    openPageTranscripts: [`${JSON.stringify({
       type: 'item.completed',
       item: {
         type: 'web_search',
         action: { type: 'open_page', url: 'https://www.spacex.com/investors/event#agenda' },
       },
     })}\n`],
+    researchedSymbols: ['SPCX'],
+    runId: 'd239f195-630c-476f-9bf3-4930be438748',
   }
 }
 
@@ -155,7 +154,7 @@ describe('local Codex catalyst bootstrap boundary', () => {
     const env = await initializedEnv()
     const instruments = await readCatalystBootstrapInstruments(env)
     const value = artifact()
-    value.transcripts = [
+    value.openPageTranscripts = [
       `${JSON.stringify({
         type: 'item.completed',
         item: {
@@ -187,7 +186,6 @@ describe('local Codex catalyst bootstrap boundary', () => {
     const value: JsonValue = {
       accessedUrls: ['https://www.spacex.com/investors/event'],
       findings: complete.findings,
-      generatedAt: complete.generatedAt,
       researchedSymbols: complete.researchedSymbols,
       runId: complete.runId,
     }

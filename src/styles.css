@@ -333,18 +333,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .reading-list span { grid-column: 1 / -1; color: #858891; font-size: 10px; line-height: 1.45; }
 .reading-list svg { width: 12px; height: 12px; margin-top: 2px; color: var(--ink-faint); }
 .reading-list a:hover strong, .reading-list a:focus-visible strong { color: var(--spice); }
-.movers-section { margin-bottom: 24px; }
-.mover-stack { border-top: 1px solid var(--hairline); }
-.mover-card { padding: 16px 0; border-bottom: 1px solid var(--hairline); }
-.mover-top[data-slot="card-header"] { grid-template-columns: minmax(0, 1fr) auto; gap: 0 12px; padding: 0; }
-.mover-top [data-slot="button"], .mover-symbol { width: fit-content; height: auto; padding: 0; color: var(--spice); font-size: 15px; font-weight: 820; }
-.mover-top [data-slot="card-title"] { grid-column: 1 / -1; margin-top: 10px; font-size: 16px; letter-spacing: -.02em; }
-.mover-top [data-slot="card-description"] { grid-column: 1 / -1; max-width: 600px; margin-top: 6px; color: #aeb0b7; font-size: 11px; line-height: 1.55; }
-.mover-metrics[data-slot="card-content"] { padding: 10px 0 0; display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--ink-faint); font: 10px/1 var(--mono); text-transform: uppercase; }
-.mover-sources[data-slot="card-footer"], .idea-sources[data-slot="card-footer"] { padding: 9px 0 0; border: 0; background: transparent; display: flex; flex-wrap: wrap; gap: 6px 14px; }
-.mover-sources a, .idea-sources a { min-width: 0; display: inline-flex; align-items: center; gap: 3px; color: #8f929b; font-size: 10px; line-height: 1.3; text-decoration: none; }
-.mover-sources a:hover, .mover-sources a:focus-visible, .idea-sources a:hover, .idea-sources a:focus-visible { color: var(--text); }
-.mover-sources svg, .idea-sources svg { width: 10px; height: 10px; flex: 0 0 auto; }
+.idea-sources[data-slot="card-footer"] { padding: 9px 0 0; border: 0; background: transparent; display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.idea-sources a { min-width: 0; display: inline-flex; align-items: center; gap: 3px; color: #8f929b; font-size: 10px; line-height: 1.3; text-decoration: none; }
+.idea-sources a:hover, .idea-sources a:focus-visible { color: var(--text); }
+.idea-sources svg { width: 10px; height: 10px; flex: 0 0 auto; }
 .idea-stack { border-top: 1px solid var(--hairline); }
 .idea-card { padding: 20px 0 22px; border-bottom: 1px solid var(--hairline); }
 .play-line { padding: 12px 0; border-block: 1px solid var(--hairline); display: flex; align-items: center; justify-content: space-between; gap: 18px; }

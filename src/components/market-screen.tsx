@@ -179,8 +179,6 @@ function focusTape(ticker: Ticker): Array<[label: string, value: string]> {
   return tape
 }
 
-const RUNWAY_LIMIT = 6
-
 const CATALYST_SCOPE = `${CATALYST_KIND_NAMES.slice(0, -1).join(', ')} and ${CATALYST_KIND_NAMES.at(-1)}`
 
 function ThesisPanel({ idea }: { idea: ResearchBrief['ideas'][number] }) {
@@ -217,8 +215,6 @@ function CatalystRunway({
   symbol: string
 }) {
   const upcoming = upcomingCatalystsForSymbol(symbol, catalysts, now)
-  const shown = upcoming.slice(0, RUNWAY_LIMIT)
-  const hidden = upcoming.length - shown.length
 
   return (
     <section className="focus-runway" aria-labelledby="focus-runway-title">
@@ -226,10 +222,10 @@ function CatalystRunway({
         <h3 id="focus-runway-title">What&rsquo;s coming</h3>
         <span>{upcoming.length ? `${upcoming.length} dated` : 'Nothing dated'}</span>
       </header>
-      {shown.length
+      {upcoming.length
         ? (
             <ol className="runway">
-              {shown.map((catalyst, index) => (
+              {upcoming.map((catalyst, index) => (
                 <li className={cn('runway-event', catalyst.confidence, index === 0 && 'next')} key={catalyst.id}>
                   <div className="runway-when">
                     <strong>{catalystCountdown(catalyst, now)}</strong>
@@ -260,9 +256,6 @@ function CatalystRunway({
               {` Spice tracks ${CATALYST_SCOPE} dates for ${symbol}, and none are scheduled — a re-rating from here would have to come from something unannounced.`}
             </p>
           )}
-      {hidden > 0 && (
-        <p className="runway-more">{hidden} further dated event{hidden === 1 ? '' : 's'} beyond these</p>
-      )}
     </section>
   )
 }
@@ -475,9 +468,15 @@ export function MarketScreen({
         </CardFooter>
       </Card>
 
-      <section className="watch-table" aria-labelledby="watch-title">
+      <section
+        className="watch-table"
+        aria-label={activeWatchlist.kind === 'public' ? activeWatchlist.name : undefined}
+        aria-labelledby={activeWatchlist.kind === 'private' ? 'watch-title' : undefined}
+      >
         <header className="section-header">
-          <h2 className="watchlist-title" id="watch-title">{activeWatchlist.name}</h2>
+          {activeWatchlist.kind === 'private' && (
+            <h2 className="watchlist-title" id="watch-title">{activeWatchlist.name}</h2>
+          )}
           <div className="watch-search">
             <Search aria-hidden="true" />
             <input
@@ -532,7 +531,7 @@ export function MarketScreen({
             ))}
             {!watchTickers.length && (
               <TableRow>
-                <TableCell colSpan={8}>
+                <TableCell colSpan={SORT_COLUMNS.length + 1}>
                   <Empty className="watch-empty">
                     <EmptyHeader>
                       <EmptyDescription>

@@ -141,7 +141,6 @@ describe('snapshot contract', () => {
       sources: [{ label: 'tastytrade market metrics', url: 'https://example.com/metrics' }],
     })
 
-    expect(brief.marketMovers).toEqual([])
     expect(brief.ideas).toEqual([{
       symbol: 'NVDA',
       direction: 'bullish',

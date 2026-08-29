@@ -2,16 +2,10 @@ import { Type } from '@earendil-works/pi-ai'
 import { type AgentTool } from '@earendil-works/pi-agent-core'
 import createYahooFinance from 'yahoo-finance2/createYahooFinance'
 import chart, { type ChartResultArray } from 'yahoo-finance2/modules/chart'
-import quoteSummary, {
-  type QuoteSummaryResult,
-} from 'yahoo-finance2/modules/quoteSummary'
 
 import { marketDate } from '../domain/catalyst'
 import { EQUITY_SYMBOL_PATTERN, EQUITY_SYMBOL_REGEX } from '../domain/instrument'
 import {
-  type CompanyFundamentalsProvider,
-  type CompanyFundamentalsReadResult,
-  type MarketResearchProviders,
   type PriceHistoryProvider,
   type PriceHistoryReadInput,
   type PriceHistoryReadResult,
@@ -28,8 +22,6 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 const MAX_HISTORY_DAYS = 10 * 366
 const MAX_HISTORY_ROWS = 250
 const MAX_RAW_HISTORY_ROWS = 4_000
-const MAX_PROFILE_CHARS = 1_600
-const MAX_FILINGS = 8
 const MAX_STUDIES = 5
 
 /**
@@ -37,7 +29,7 @@ const MAX_STUDIES = 5
  * It never supplies executable quotes or contracts; tastytrade remains the order
  * boundary, and every result below carries provider, delay, and adjustment labels.
  */
-const ResearchYahooFinance = createYahooFinance({ modules: { chart, quoteSummary } })
+const ResearchYahooFinance = createYahooFinance({ modules: { chart } })
 
 type ResearchYahooClient = {
   chart(symbol: string, options: {
@@ -45,26 +37,7 @@ type ResearchYahooClient = {
     period1: string
     period2: string
   }): Promise<ChartResultArray>
-  quoteSummary(symbol: string, options: {
-    modules: Array<
-      | 'defaultKeyStatistics'
-      | 'earningsTrend'
-      | 'financialData'
-      | 'majorHoldersBreakdown'
-      | 'price'
-      | 'secFilings'
-      | 'summaryDetail'
-      | 'summaryProfile'
-    >
-  }): Promise<QuoteSummaryResult>
 }
-
-const CompanyFundamentalsReadParameters = Type.Object({
-  symbol: Type.String({
-    description: 'One exact US equity ticker in tastytrade symbology.',
-    pattern: EQUITY_SYMBOL_PATTERN,
-  }),
-}, { additionalProperties: false })
 
 const ScalarStudyParameters = Type.Object({
   kind: Type.Union([Type.Literal('SMA'), Type.Literal('EMA'), Type.Literal('RSI')]),
@@ -114,26 +87,8 @@ function dateString(value: Date | null | undefined): string | undefined {
   return value instanceof Date && Number.isFinite(value.getTime()) ? value.toISOString().slice(0, 10) : undefined
 }
 
-function timestamp(value: Date | null | undefined): string | undefined {
-  return value instanceof Date && Number.isFinite(value.getTime()) ? value.toISOString() : undefined
-}
-
 function finite(value: number | null | undefined): number | undefined {
   return value !== null && value !== undefined && Number.isFinite(value) ? value : undefined
-}
-
-function compactObject<T extends object>(value: T): T | undefined {
-  return Object.values(value).some((entry) => entry !== undefined) ? value : undefined
-}
-
-function safeHttpsUrl(value: string | undefined): string | undefined {
-  if (!value) return undefined
-  try {
-    const url = new URL(value)
-    return url.protocol === 'https:' ? url.toString() : undefined
-  } catch {
-    return undefined
-  }
 }
 
 function validDate(value: string): boolean {
@@ -171,154 +126,6 @@ function createYahooClient(fetcher: typeof fetch = fetch): ResearchYahooClient {
     validation: { logErrors: false, logOptionsErrors: false },
     versionCheck: false,
   })
-}
-
-function compactFundamentals(
-  raw: QuoteSummaryResult,
-  requestedSymbol: string,
-  providerSymbol: string,
-  now: Date,
-): CompanyFundamentalsReadResult {
-  const price = raw.price
-  if (!price || price.symbol !== providerSymbol || price.quoteType !== 'EQUITY') {
-    throw new Error('Yahoo Finance fundamentals returned a mismatched or unsupported instrument.')
-  }
-  const profile = raw.summaryProfile
-  const financial = raw.financialData
-  const stats = raw.defaultKeyStatistics
-  const detail = raw.summaryDetail
-  const holders = raw.majorHoldersBreakdown
-  const rawFilings = raw.secFilings?.filings ?? []
-  const filings = rawFilings.flatMap((filing) => {
-    const url = safeHttpsUrl(filing.edgarUrl)
-    if (!url || !validDate(filing.date)) return []
-    return [{
-      date: filing.date,
-      title: filing.title.slice(0, 180),
-      type: filing.type,
-      url,
-    }]
-  }).slice(0, MAX_FILINGS)
-  const businessSummary = profile?.longBusinessSummary?.trim()
-  const sourceUrl = `https://finance.yahoo.com/quote/${encodeURIComponent(providerSymbol)}`
-
-  const result: CompanyFundamentalsReadResult = {
-    company: {
-      analystEstimates: raw.earningsTrend?.trend.slice(0, 4).map((trend) => ({
-        endDate: dateString(trend.endDate),
-        epsAverage: finite(trend.earningsEstimate.avg),
-        epsGrowth: finite(trend.earningsEstimate.growth),
-        epsRevisionsDown30Days: finite(trend.epsRevisions.downLast30days),
-        epsRevisionsUp30Days: finite(trend.epsRevisions.upLast30days),
-        numberOfEpsAnalysts: finite(trend.earningsEstimate.numberOfAnalysts),
-        numberOfRevenueAnalysts: finite(trend.revenueEstimate.numberOfAnalysts),
-        period: trend.period,
-        revenueAverage: finite(trend.revenueEstimate.avg),
-        revenueGrowth: finite(trend.revenueEstimate.growth),
-      })),
-      financials: financial ? compactObject({
-        currency: financial.financialCurrency ?? undefined,
-        currentRatio: finite(financial.currentRatio),
-        debtToEquity: finite(financial.debtToEquity),
-        ebitda: finite(financial.ebitda),
-        earningsGrowth: finite(financial.earningsGrowth),
-        freeCashFlow: finite(financial.freeCashflow),
-        grossMargin: finite(financial.grossMargins),
-        operatingCashFlow: finite(financial.operatingCashflow),
-        operatingMargin: finite(financial.operatingMargins),
-        profitMargin: finite(financial.profitMargins),
-        quickRatio: finite(financial.quickRatio),
-        returnOnAssets: finite(financial.returnOnAssets),
-        returnOnEquity: finite(financial.returnOnEquity),
-        revenueGrowth: finite(financial.revenueGrowth),
-        totalCash: finite(financial.totalCash),
-        totalDebt: finite(financial.totalDebt),
-        totalRevenue: finite(financial.totalRevenue),
-      }) : undefined,
-      filings,
-      marketDataObservedAt: timestamp(price.regularMarketTime),
-      name: price.longName ?? price.shortName ?? requestedSymbol,
-      ownership: holders ? compactObject({
-        insidersPercentHeld: finite(holders.insidersPercentHeld),
-        institutionsCount: finite(holders.institutionsCount),
-        institutionsFloatPercentHeld: finite(holders.institutionsFloatPercentHeld),
-        institutionsPercentHeld: finite(holders.institutionsPercentHeld),
-      }) : undefined,
-      profile: profile ? compactObject({
-        businessSummary: businessSummary
-          ? `${businessSummary.slice(0, MAX_PROFILE_CHARS)}${businessSummary.length > MAX_PROFILE_CHARS ? '…' : ''}`
-          : undefined,
-        country: profile.country,
-        fullTimeEmployees: finite(profile.fullTimeEmployees),
-        industry: profile.industry,
-        investorRelationsUrl: safeHttpsUrl(profile.irWebsite),
-        sector: profile.sector,
-        website: safeHttpsUrl(profile.website),
-      }) : undefined,
-      symbol: requestedSymbol,
-      valuation: (stats ?? detail) ? compactObject({
-        enterpriseToEbitda: finite(stats?.enterpriseToEbitda),
-        enterpriseToRevenue: finite(stats?.enterpriseToRevenue),
-        enterpriseValue: finite(stats?.enterpriseValue),
-        forwardEarningsPerShare: finite(stats?.forwardEps),
-        forwardPriceEarnings: finite(stats?.forwardPE ?? detail?.forwardPE),
-        marketCapitalization: finite(price.marketCap ?? detail?.marketCap),
-        priceToBook: finite(stats?.priceToBook),
-        priceToSalesTrailing12Months: finite(detail?.priceToSalesTrailing12Months),
-        trailingEarningsPerShare: finite(stats?.trailingEps),
-        trailingPriceEarnings: finite(detail?.trailingPE),
-      }) : undefined,
-    },
-    fetchedAt: now.toISOString(),
-    missingSections: [],
-    source: 'yahoo-finance-quote-summary',
-    sourceUrl,
-    truncated: rawFilings.length > filings.length || Boolean(businessSummary && businessSummary.length > MAX_PROFILE_CHARS),
-    warning: 'Secondary-source fundamentals and analyst estimates; verify material claims against primary filings before increasing risk.',
-  }
-  result.missingSections = ([
-    ['profile', result.company.profile],
-    ['financials', result.company.financials],
-    ['valuation', result.company.valuation],
-    ['ownership', result.company.ownership],
-    ['analystEstimates', result.company.analystEstimates?.length],
-    ['filings', result.company.filings.length],
-  ] as const).flatMap(([name, value]) => value ? [] : [name])
-  return result
-}
-
-export function createYahooFundamentalsProvider(
-  client: Pick<ResearchYahooClient, 'quoteSummary'>,
-): CompanyFundamentalsProvider {
-  return {
-    async read(symbol, now) {
-      const providerSymbol = yahooSymbol(symbol)
-      let raw: QuoteSummaryResult
-      try {
-        raw = await client.quoteSummary(providerSymbol, { modules: [
-          'price',
-          'summaryProfile',
-          'financialData',
-          'defaultKeyStatistics',
-          'earningsTrend',
-          'majorHoldersBreakdown',
-          'secFilings',
-          'summaryDetail',
-        ] })
-      } catch {
-        throw new Error('Company fundamentals provider is unavailable.')
-      }
-      return compactFundamentals(raw, symbol, providerSymbol, now)
-    },
-  }
-}
-
-export async function readCompanyFundamentals(
-  requestedSymbol: string,
-  now: Date,
-  provider: CompanyFundamentalsProvider,
-): Promise<CompanyFundamentalsReadResult> {
-  return provider.read(normalizeSymbol(requestedSymbol), now)
 }
 
 function invalidHistory(): never {
@@ -494,22 +301,6 @@ export async function readPriceHistory(
   }
 }
 
-function createCompanyFundamentalsReadTool(
-  provider: CompanyFundamentalsProvider,
-): AgentTool<
-  typeof CompanyFundamentalsReadParameters,
-  CompanyFundamentalsReadResult
-> {
-  return {
-    description: 'Read compact company profile, valuation, financial-health, ownership, analyst-estimate, and recent filing metadata for one exact equity. This is bounded secondary-source research; verify material claims against primary filings.',
-    execute: async (_toolCallId, params) => textResult(await readCompanyFundamentals(params.symbol, new Date(), provider)),
-    executionMode: 'sequential',
-    label: 'Reading company fundamentals',
-    name: 'read_company_fundamentals',
-    parameters: CompanyFundamentalsReadParameters,
-  }
-}
-
 function createPriceHistoryReadTool(
   provider: PriceHistoryProvider,
 ): AgentTool<
@@ -526,21 +317,8 @@ function createPriceHistoryReadTool(
   }
 }
 
-/** One Yahoo client for both providers: yahoo-finance2 queues per instance, so a second one would double the concurrency cap. */
-function createMarketResearchProviders(
-  client: ResearchYahooClient = createYahooClient(),
-): MarketResearchProviders {
-  return {
-    companyFundamentals: createYahooFundamentalsProvider(client),
-    priceHistory: createYahooPriceHistoryProvider(client),
-  }
-}
-
 export function createMarketResearchTools(
-  providers: MarketResearchProviders = createMarketResearchProviders(),
+  provider: PriceHistoryProvider = createYahooPriceHistoryProvider(createYahooClient()),
 ) {
-  return [
-    createCompanyFundamentalsReadTool(providers.companyFundamentals),
-    createPriceHistoryReadTool(providers.priceHistory),
-  ]
+  return [createPriceHistoryReadTool(provider)]
 }

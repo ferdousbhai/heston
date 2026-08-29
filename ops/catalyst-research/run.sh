@@ -70,8 +70,9 @@ if [[ -z "${SPICE_CATALYST_ARTIFACT:-}" ]]; then
 fi
 
 deploy_ops_worker
-node ops/shared/call-worker.mjs "$ops_secret" "$ops_url" validate "$ops_artifact"
 if [[ "$ops_mode" == 'apply' ]]; then
   node ops/shared/call-worker.mjs "$ops_secret" "$ops_url" apply "$ops_artifact"
+else
+  node ops/shared/call-worker.mjs "$ops_secret" "$ops_url" validate "$ops_artifact"
 fi
 echo "Artifact: $ops_artifact"

@@ -8,9 +8,8 @@ import {
 } from '../src/server/watchlist-actions'
 import { stubBroker } from './broker-stub'
 import {
-  createCancelOrderTool,
+  createDirectAccountActionTool,
   createRememberTradeSymbolsTool,
-  createWatchlistManagementTool,
 } from '../src/server/account-action-tools'
 import { preparePendingAction, rememberTradeIntentSymbol } from '../src/server/agent'
 import {
@@ -48,7 +47,9 @@ describe('direct non-placement actions', () => {
   })
 
   it('cancels an explicitly identified order without creating a confirmation draft', async () => {
-    const result = await createCancelOrderTool({}, 'Please cancel order #12345.').execute('call-1', { orderId: '12345' })
+    const result = await createDirectAccountActionTool({}, 'Please cancel order #12345.').execute('call-1', {
+      kind: 'cancel_order', orderId: '12345',
+    })
 
     expect(tastytrade.tastyRequest).toHaveBeenCalledWith(
       {}, '/accounts/TEST123/orders/12345', { method: 'DELETE' },
@@ -59,8 +60,8 @@ describe('direct non-placement actions', () => {
   })
 
   it('updates watchlists directly while retaining the strict server action schema', async () => {
-    const result = await createWatchlistManagementTool({}, 'Add SPY and NVDA to my watchlist.').execute('call-2', {
-      action: 'add', symbols: ['SPY', 'NVDA'],
+    const result = await createDirectAccountActionTool({}, 'Add SPY and NVDA to my watchlist.').execute('call-2', {
+      kind: 'add_watchlist_symbols', symbols: ['SPY', 'NVDA'],
     })
 
     expect(watchlists.executeWatchlistAction).toHaveBeenCalledWith({}, {
@@ -74,16 +75,16 @@ describe('direct non-placement actions', () => {
   it('never automatically repeats a failed direct mutation in one model turn', async () => {
     tastytrade.tastyRequest.mockRejectedValueOnce(new Error('Upstream response lost'))
     watchlists.executeWatchlistAction.mockRejectedValueOnce(new Error('Upstream response lost'))
-    const cancelTool = createCancelOrderTool({}, 'Cancel order #12345.')
-    const watchlistTool = createWatchlistManagementTool({}, 'Add SPY to my watchlist.')
+    const cancelTool = createDirectAccountActionTool({}, 'Cancel order #12345.')
+    const watchlistTool = createDirectAccountActionTool({}, 'Add SPY to my watchlist.')
 
-    await expect(cancelTool.execute('cancel-1', { orderId: '12345' })).rejects.toThrow('Upstream response lost')
-    await expect(cancelTool.execute('cancel-2', { orderId: '12345' })).rejects.toThrow('DirectActionAlreadyAttempted')
+    await expect(cancelTool.execute('cancel-1', { kind: 'cancel_order', orderId: '12345' })).rejects.toThrow('Upstream response lost')
+    await expect(cancelTool.execute('cancel-2', { kind: 'cancel_order', orderId: '12345' })).rejects.toThrow('DirectActionAlreadyAttempted')
     await expect(watchlistTool.execute('watchlist-1', {
-      action: 'add', symbols: ['SPY'],
+      kind: 'add_watchlist_symbols', symbols: ['SPY'],
     })).rejects.toThrow('Upstream response lost')
     await expect(watchlistTool.execute('watchlist-2', {
-      action: 'add', symbols: ['SPY'],
+      kind: 'add_watchlist_symbols', symbols: ['SPY'],
     })).rejects.toThrow('DirectActionAlreadyAttempted')
 
     expect(tastytrade.tastyRequest).toHaveBeenCalledTimes(1)
@@ -91,9 +92,13 @@ describe('direct non-placement actions', () => {
   })
 
   it('rejects model-selected cancellation parameters that do not exactly match the current request', async () => {
-    await expect(createCancelOrderTool({}, 'Cancel order #999.').execute('call-3', { orderId: '12345' }))
+    await expect(createDirectAccountActionTool({}, 'Cancel order #999.').execute('call-3', {
+      kind: 'cancel_order', orderId: '12345',
+    }))
       .rejects.toThrow('DirectActionIntentMismatch')
-    await expect(createCancelOrderTool({}, 'Explain how cancelling order #12345 works.').execute('call-4', { orderId: '12345' }))
+    await expect(createDirectAccountActionTool({}, 'Explain how cancelling order #12345 works.').execute('call-4', {
+      kind: 'cancel_order', orderId: '12345',
+    }))
       .rejects.toThrow('DirectActionIntentMismatch')
 
     expect(tastytrade.resolveAccountNumber).not.toHaveBeenCalled()
@@ -102,13 +107,13 @@ describe('direct non-placement actions', () => {
 
   it('rejects mismatched watchlist verbs, named broker lists, and symbol sets before any write', async () => {
     const cases = [
-      ['Remove SPY from my watchlist.', { action: 'add' as const, symbols: ['SPY'] }],
-      ['Add SPY to Long vol watchlist.', { action: 'add' as const, symbols: ['SPY'] }],
-      ['Add SPY to my watchlist.', { action: 'add' as const, symbols: ['SPY', 'NVDA'] }],
+      ['Remove SPY from my watchlist.', { kind: 'add_watchlist_symbols' as const, symbols: ['SPY'] }],
+      ['Add SPY to Long vol watchlist.', { kind: 'add_watchlist_symbols' as const, symbols: ['SPY'] }],
+      ['Add SPY to my watchlist.', { kind: 'add_watchlist_symbols' as const, symbols: ['SPY', 'NVDA'] }],
     ] as const
     for (const [message, params] of cases) {
       const mutableParams = 'symbols' in params ? { ...params, symbols: [...params.symbols] } : params
-      await expect(createWatchlistManagementTool({}, message).execute('call-5', mutableParams))
+      await expect(createDirectAccountActionTool({}, message).execute('call-5', mutableParams))
         .rejects.toThrow('DirectActionIntentMismatch')
     }
 

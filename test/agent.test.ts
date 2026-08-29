@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { JsonObjectSchema } from '../src/domain/json-payload'
 import { resetResponsesApi, setResponsesApi, type ResponsesApi } from '../src/server/pi-runtime'
 import {
   ChatRequestSchema,
@@ -140,7 +141,7 @@ describe('brokerage input boundary', () => {
 })
 
 describe('pi runtime protocol', () => {
-  it('uses Grok 4.6 with high reasoning through the Pi Responses adapter', () => {
+  it('uses Grok 4.6 with high reasoning and native web/X through the Pi Responses adapter', async () => {
     const runtime = createPiRuntime(
       'xai-test-key',
       'gateway-test-key',
@@ -152,7 +153,19 @@ describe('pi runtime protocol', () => {
       systemPrompt: 'Test',
       tools: [],
     }
-    runtime.stream(runtime.model, context, {})
+    const providerItems = [
+      { id: 'ws_1', status: 'completed', type: 'web_search_call' },
+      {
+        arguments: '{"symbols":["NVDA"]}', call_id: 'call_1', id: 'fc_1',
+        name: 'read_market_metrics', type: 'function_call',
+      },
+    ]
+    const providerFetch = vi.fn<typeof fetch>(async () => new Response(
+      providerItems.map((item) => `data: ${JSON.stringify({ item, type: 'response.output_item.done' })}\n\n`).join(''),
+      { headers: { 'Content-Type': 'text/event-stream' } },
+    ))
+    const callerPayload = vi.fn(<T,>(payload: T) => ({ ...JsonObjectSchema.parse(payload), caller: true }))
+    runtime.stream(runtime.model, context, { fetch: providerFetch, onPayload: callerPayload })
 
     expect(runtime.model).toMatchObject({
       baseUrl: 'https://gateway.ai.cloudflare.com/v1/account/spice/grok/v1',
@@ -170,6 +183,32 @@ describe('pi runtime protocol', () => {
       reasoningSummary: 'auto',
       sessionId: 'dan-run-123',
     }))
+    const options = pi.stream.mock.calls[0]?.[2]
+    const payload = await options?.onPayload?.(
+      { tools: [{ name: 'private_read', type: 'function' }] },
+      runtime.model,
+    )
+    expect(callerPayload).toHaveBeenCalledOnce()
+    expect(payload).toMatchObject({
+      caller: true,
+      tools: [
+        { name: 'private_read', type: 'function' },
+        { type: 'web_search' },
+        { type: 'x_search' },
+      ],
+    })
+    const providerResponse = await options!.fetch!(new Request('https://gateway.example/responses'))
+    await providerResponse.text()
+    const continued = await options?.onPayload?.({
+      input: [
+        providerItems[1],
+        { call_id: 'call_1', output: '{}', type: 'function_call_output' },
+      ],
+      tools: [],
+    }, runtime.model)
+    expect(continued).toMatchObject({
+      input: [providerItems[0], providerItems[1], expect.objectContaining({ type: 'function_call_output' })],
+    })
   })
 })
 

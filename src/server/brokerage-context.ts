@@ -1,12 +1,9 @@
 import { type Ticker } from '../domain/market'
-import { newYorkClock } from '../domain/market-clock'
 import { type AppEnv } from './env'
 import { brokerApi } from './tastytrade'
 import {
   accountBalancesFromPayload,
   type AccountBalances,
-  type RecentTrade,
-  tradeTransactionRecord,
   type WorkingOrder,
   workingOrderRecords,
 } from './tastytrade-payload'
@@ -27,7 +24,7 @@ export interface BrokerageContext {
   accountNumber: string
   asOf: string
   balances: BrokerageBalances
-  availability: { balances: boolean; orders: boolean; positions: boolean; trades: boolean }
+  availability: { balances: boolean; orders: boolean; positions: boolean }
   orders: WorkingOrder[]
   positions: Array<{
     averageOpenPrice?: number
@@ -38,60 +35,14 @@ export interface BrokerageContext {
     symbol: string
     underlying: string
   }>
-  recentTrades: RecentTrade[]
   source: 'tastytrade'
   completeness: {
     ordersTruncated: boolean
     positionsTruncated: boolean
-    tradesTruncated: boolean
   }
 }
 
 type BrokeragePosition = BrokerageContext['positions'][number]
-
-function optionExpiry(position: BrokeragePosition): string | undefined {
-  if (position.expiresAt) return position.expiresAt
-  if (!position.instrumentType.toLowerCase().includes('option')) return undefined
-  const compact = position.symbol.replaceAll(' ', '')
-  const match = compact.match(/(\d{6})[CP]\d{8}$/)
-  if (!match) return undefined
-  const year = 2000 + Number(match[1]!.slice(0, 2))
-  const month = Number(match[1]!.slice(2, 4))
-  const day = Number(match[1]!.slice(4, 6))
-  const expiry = new Date(Date.UTC(year, month - 1, day, 20))
-  return expiry.getUTCFullYear() === year && expiry.getUTCMonth() === month - 1 && expiry.getUTCDate() === day
-    ? expiry.toISOString()
-    : undefined
-}
-
-/** Keep near-expiry exercise and assignment risk visible without turning advice into a hard veto. */
-export function buildExpiryAwareness(positions: readonly BrokeragePosition[], now = new Date()) {
-  const nowMs = now.getTime()
-  if (!Number.isFinite(nowMs)) throw new Error('Expiry awareness requires a valid date.')
-  const currentMarketDate = Date.parse(`${newYorkClock(now).localDate}T00:00:00.000Z`)
-  const risks = positions.flatMap((position) => {
-    const expiresAt = optionExpiry(position)
-    if (!expiresAt) return []
-    const expiryMarketDate = Date.parse(`${expiresAt.slice(0, 10)}T00:00:00.000Z`)
-    const daysUntilExpiry = Math.round((expiryMarketDate - currentMarketDate) / 86_400_000)
-    if (daysUntilExpiry > 30) return []
-    const urgency = daysUntilExpiry < 0 ? 'expired'
-      : daysUntilExpiry === 0 ? 'expiry-day'
-        : daysUntilExpiry <= 3 ? 'within-3-days'
-          : daysUntilExpiry <= 7 ? 'within-7-days'
-            : 'within-30-days'
-    return [{
-      daysUntilExpiry,
-      direction: position.direction,
-      expiresAt,
-      quantity: position.quantity,
-      symbol: position.symbol,
-      underlying: position.underlying,
-      urgency,
-    }]
-  })
-  return risks.sort((left, right) => left.daysUntilExpiry - right.daysUntilExpiry).slice(0, 20)
-}
 
 type AgentMarketTicker = Pick<Ticker,
   'changePercent' | 'earningsDate' | 'ivIndex' | 'ivPercentile' | 'ivRank' | 'liquidity' | 'marketCap' | 'price' | 'symbol' | 'volume'>
@@ -213,28 +164,16 @@ function parsedOrders(
   })
 }
 
-function parsedTrades(result: PromiseSettledResult<JsonValue>) {
-  return section<RecentTrade>([result], (payload) => {
-    const rows = strictItems(payload)
-    const total = envelopeTotalItems(payload)
-    const truncated = rows.length >= 25 || (total !== undefined && total > rows.length)
-    return { available: true, rows: rows.map(tradeTransactionRecord).slice(0, 25), truncated }
-  })
-}
-
 export async function loadBrokerageContext(env: AppEnv): Promise<BrokerageContext> {
   const account = await brokerApi().resolveAccountNumber(env)
-  const recentStartDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1_000).toISOString().slice(0, 10)
-  const [positionResult, balanceResult, orderResult, complexOrderResult, tradeResult] = await Promise.allSettled([
+  const [positionResult, balanceResult, orderResult, complexOrderResult] = await Promise.allSettled([
     brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/positions?per-page=200`),
     brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/balances`),
     brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/orders/live?per-page=200`),
     brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/complex-orders/live?per-page=200`),
-    brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/transactions?type=Trade&sort=Desc&per-page=25&start-date=${recentStartDate}`),
   ])
   const positionSection = parsedPositions(positionResult)
   const orderSection = parsedOrders(orderResult, complexOrderResult)
-  const tradeSection = parsedTrades(tradeResult)
   const exactBalances = balanceResult.status === 'fulfilled'
     ? accountBalancesFromPayload(balanceResult.value, account)
     : undefined
@@ -246,18 +185,15 @@ export async function loadBrokerageContext(env: AppEnv): Promise<BrokerageContex
     completeness: {
       ordersTruncated: Boolean(orderSection.truncated),
       positionsTruncated: Boolean(positionSection.truncated),
-      tradesTruncated: Boolean(tradeSection.truncated),
     },
     availability: {
       balances: exactBalances !== undefined,
       orders: orderSection.available,
       positions: positionSection.available,
-      trades: tradeSection.available,
     },
     balances,
     positions: positionSection.rows,
     orders: orderSection.rows,
-    recentTrades: tradeSection.rows,
   }
 }
 
@@ -312,8 +248,6 @@ export function buildAgentRuntimeContext(
     // tastytrade deprecates REST position marks for P/L; exact live quotes belong in a market-data tool.
     positions: context.positions.map(agentPosition),
     orders: context.orders,
-    recentTrades: context.recentTrades,
-    expiryAwareness: buildExpiryAwareness(context.positions),
   }
   return unavailable.length ? { ...runtimeContext, unavailable } : runtimeContext
 }

@@ -4,8 +4,11 @@ import { toError } from '../domain/failure'
 
 import { appEnv } from '../server/worker-env'
 import { authorizePersonalRequest, jsonNoStore, publicError } from '../server/http'
-import { generateDailyResearch } from '../server/research'
-import { SCHEDULED_JOB_KINDS, type ScheduledJobKind } from '../server/scheduled-jobs'
+import {
+  SCHEDULED_JOB_KINDS,
+  startDailyResearchWorkflow,
+  type ScheduledJobKind,
+} from '../server/scheduled-jobs'
 
 function isScheduledJobKind(value: string): value is ScheduledJobKind {
   return SCHEDULED_JOB_KINDS.some((kind) => kind === value)
@@ -22,10 +25,14 @@ export const Route = createFileRoute('/api/jobs/$jobKind')({
         }
         try {
           const runAt = new Date()
-          // An owner preview is deliberately outside the durable Cron receipt and does
-          // not write the public brief, catalyst tables, or scheduled watchlist origins.
-          const brief = await generateDailyResearch(appEnv, runAt, { persist: false })
-          return jsonNoStore({ brief, job: params.jobKind, runAt: runAt.toISOString(), status: 'preview' })
+          // A preview gets its own Workflow identity and never writes the public brief,
+          // catalyst tables, scheduled watchlist origins, or the daily Cron receipt.
+          const instanceId = await startDailyResearchWorkflow(appEnv, {
+            persist: false,
+            requireMarketOpen: false,
+            scheduledAt: runAt.toISOString(),
+          })
+          return jsonNoStore({ instanceId, job: params.jobKind, runAt: runAt.toISOString(), status: 'started' }, { status: 202 })
         } catch (error) {
           console.error('DailyResearchPreviewFailed', toError(error)?.message ?? 'UnknownError')
           return jsonNoStore({ error: publicError(toError(error)) }, { status: 502 })

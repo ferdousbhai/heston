@@ -26,7 +26,7 @@ import { Field, FieldGroup, FieldLabel } from '#/components/ui/field'
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemTitle } from '#/components/ui/item'
 import { Spinner } from '#/components/ui/spinner'
 import { type Ticker, type Watchlist } from '../domain/market'
-import { EquitySymbolSchema } from '../domain/instrument'
+import { EquitySymbolSchema, MAX_EQUITY_SYMBOL_LENGTH } from '../domain/instrument'
 import { type WatchlistMutation } from '../domain/watchlist'
 
 const ComboboxValueSchema = z.string().min(1)
@@ -131,7 +131,7 @@ export function WatchlistEditor({
                     autoCapitalize="characters"
                     autoFocus
                     id="watchlist-symbol"
-                    maxLength={8}
+                    maxLength={MAX_EQUITY_SYMBOL_LENGTH}
                     placeholder="e.g. META"
                     showClear
                   />

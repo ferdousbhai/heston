@@ -11,6 +11,7 @@ import { searchRecentTickerCoverage, type RecentTickerCoverage } from './researc
 import { type ResearchSourceItem } from './research-contracts'
 import { collectRedditSources } from './research-reddit'
 import { readStoredSecret } from './secrets'
+import { createMarketMetricsReadTool, type MarketMetricsReadResult } from './brokerage-read-tools'
 
 const RedditSearchParameters = Type.Object({}, { additionalProperties: false })
 const RecentCoverageParameters = Type.Object({
@@ -36,6 +37,7 @@ export interface RedditResearchResult {
 
 export interface ResearchAgentToolCapture {
   evidence: ResearchSourceItem[]
+  marketMetrics: MarketMetricsReadResult['metrics']
   recentCoverage: RecentTickerCoverage[]
   reddit: RedditResearchResult | undefined
 }
@@ -187,5 +189,12 @@ export function createResearchAgentTools(
     name: 'get_recent_coverage',
     parameters: RecentCoverageParameters,
   }
-  return [reddit, coverage]
+  const metrics = createMarketMetricsReadTool(env)
+  const readMetrics = metrics.execute
+  metrics.execute = async (...args) => {
+    const result = await runRead(metrics.name, () => readMetrics(...args))
+    if (options.capture) options.capture.marketMetrics.push(...result.details.metrics)
+    return result
+  }
+  return [reddit, coverage, metrics]
 }

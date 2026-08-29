@@ -84,19 +84,6 @@ export const ResearchIdeaSchema = z.object({
   path: ['play'],
 })
 
-export const MarketMoverInsightSchema = z.object({
-  averageVolume3Month: z.number().nonnegative().optional(),
-  category: z.enum(['gainer', 'loser', 'most-active']),
-  changePercent: z.number(),
-  description: z.string().trim().min(1).max(360),
-  headline: z.string().trim().min(1).max(100),
-  name: z.string().trim().min(1).max(160),
-  price: z.number().positive(),
-  sources: z.array(ResearchSourceLinkSchema).min(1).max(3),
-  symbol: EquitySymbolSchema,
-  volume: z.number().nonnegative(),
-})
-
 export const ResearchReadingLinkSchema = z.object({
   reason: z.string().trim().min(1).max(180),
   title: z.string().trim().min(1).max(180),
@@ -111,7 +98,6 @@ export const ResearchBriefSchema = z.object({
   regime: z.string(),
   regimeDetail: z.string(),
   ideas: z.array(ResearchIdeaSchema).max(5),
-  marketMovers: z.array(MarketMoverInsightSchema).max(6),
   readingList: z.array(ResearchReadingLinkSchema).max(10),
   sources: z.array(ResearchSourceLinkSchema),
 })
@@ -127,7 +113,6 @@ const BackwardCompatibleResearchIdeaSchema = z.object({
 
 const CurrentStoredResearchBriefSchema = ResearchBriefSchema.extend({
   ideas: z.array(BackwardCompatibleResearchIdeaSchema).max(5),
-  marketMovers: z.array(MarketMoverInsightSchema).max(6).default([]),
   readingList: z.array(ResearchReadingLinkSchema).max(10).default([]),
 })
 
@@ -149,9 +134,9 @@ const PreEvidenceResearchIdeaSchema = z.object({
 }))
 
 const PreEvidenceStoredResearchBriefSchema = ResearchBriefSchema
-  .omit({ ideas: true, marketMovers: true, readingList: true })
+  .omit({ ideas: true, readingList: true })
   .extend({ ideas: z.array(PreEvidenceResearchIdeaSchema).max(5) })
-  .transform((brief) => ({ ...brief, marketMovers: [], readingList: [] }))
+  .transform((brief) => ({ ...brief, readingList: [] }))
 
 const StoredResearchBriefSchema = z.union([
   CurrentStoredResearchBriefSchema,
@@ -178,6 +163,27 @@ export type Ticker = z.infer<typeof TickerSchema>
 export type IvTermStructure = z.infer<typeof IvTermStructureSchema>
 export type ResearchBrief = z.infer<typeof ResearchBriefSchema>
 export type MarketSnapshot = z.infer<typeof MarketSnapshotSchema>
+
+/** Highest reported share volume first; missing volume sorts last, then ticker. */
+export function mostActiveSymbol(
+  tickers: readonly Ticker[],
+  watchlistSymbols: readonly string[] = [],
+): string | undefined {
+  const watchlist = new Set(watchlistSymbols)
+  const watchlistTickers = watchlist.size
+    ? tickers.filter((ticker) => watchlist.has(ticker.symbol))
+    : []
+  const candidates = watchlistTickers.length ? watchlistTickers : tickers
+  return [...candidates].sort((left, right) => {
+    if (left.volume === undefined || right.volume === undefined) {
+      const missingOrder = Number(left.volume === undefined) - Number(right.volume === undefined)
+      if (missingOrder) return missingOrder
+    } else if (left.volume !== right.volume) {
+      return right.volume - left.volume
+    }
+    return left.symbol.localeCompare(right.symbol)
+  })[0]?.symbol
+}
 
 export type VolatilityVerdict = 'cheap' | 'fair' | 'rich'
 

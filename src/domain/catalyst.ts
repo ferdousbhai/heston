@@ -70,7 +70,7 @@ function compareCatalystOrder(left: Catalyst, right: Catalyst): number {
   return compareCatalystSchedule(left, right) || left.id.localeCompare(right.id)
 }
 
-/** One pass that indexes what `nextCatalystForSymbol` would return for every symbol at once. */
+/** One pass that indexes the next dated event for every symbol at once. */
 export function nextCatalystsBySymbol(
   catalysts: readonly Catalyst[],
   now = new Date(),
@@ -98,14 +98,6 @@ export function upcomingCatalystsForSymbol(
   return catalysts
     .filter((catalyst) => catalyst.symbol === symbol && catalyst.date >= today)
     .sort(compareCatalystOrder)
-}
-
-export function nextCatalystForSymbol(
-  symbol: string,
-  catalysts: readonly Catalyst[],
-  now = new Date(),
-): Catalyst | undefined {
-  return upcomingCatalystsForSymbol(symbol, catalysts, now)[0]
 }
 
 export function catalystLabel(catalyst: Catalyst, now = new Date()): string {
@@ -148,68 +140,5 @@ export function catalystTimingLabel(timing: Catalyst['timing']): string | undefi
   } satisfies Record<Catalyst['timing'], string | undefined>)[timing]
 }
 
-export function sortSymbolsByCatalyst(
-  symbols: readonly string[],
-  catalysts: readonly Catalyst[],
-  now = new Date(),
-): string[] {
-  const originalOrder = new Map(symbols.map((symbol, index) => [symbol, index]))
-  const next = nextCatalystsBySymbol(catalysts, now)
-  return [...symbols].sort((left, right) => {
-    const leftCatalyst = next.get(left)
-    const rightCatalyst = next.get(right)
-    if (!leftCatalyst && !rightCatalyst) return originalOrder.get(left)! - originalOrder.get(right)!
-    if (!leftCatalyst) return 1
-    if (!rightCatalyst) return -1
-    return compareCatalystSchedule(leftCatalyst, rightCatalyst)
-      || originalOrder.get(left)! - originalOrder.get(right)!
-  })
-}
-
-export function upcomingCatalystSymbols(
-  symbols: readonly string[],
-  catalysts: readonly Catalyst[],
-  now = new Date(),
-  horizonDays = 30,
-  limit = 12,
-): string[] {
-  const nextCatalysts = nextCatalystsBySymbol(catalysts, now)
-  return [...new Set(symbols)]
-    .flatMap((symbol) => {
-      const catalyst = nextCatalysts.get(symbol)
-      if (!catalyst) return []
-      const days = daysUntilCatalyst(catalyst, now)
-      return days >= 0 && days <= horizonDays ? [{ catalyst, symbol }] : []
-    })
-    .sort((left, right) => compareCatalystSchedule(left.catalyst, right.catalyst)
-      || left.symbol.localeCompare(right.symbol))
-    .slice(0, Math.max(0, limit))
-    .map(({ symbol }) => symbol)
-}
-
 /** Every local Codex finding is keyed by this prefix; the D1 table CHECKs the same GLOB. */
 export const CODEX_WEB_CATALYST_ID_PREFIX = 'codex-web:'
-const CODEX_WEB_EVIDENCE_MAX_AGE_DAYS = 7
-const CODEX_WEB_EVIDENCE_MAX_ROWS = 40
-
-/**
- * Bounds the additive local Codex rows before they become editor evidence. Only
- * findings the local run re-verified within the last week qualify, so a runner
- * that stops working decays out of the brief instead of feeding it six-month-old
- * rows, and the nearest-dated forty keep the packet a fixed size.
- */
-export function recentCodexWebCatalysts(
-  catalysts: readonly Catalyst[],
-  symbols: ReadonlySet<string>,
-  now = new Date(),
-): Catalyst[] {
-  const freshSince = now.getTime() - CODEX_WEB_EVIDENCE_MAX_AGE_DAYS * 86_400_000
-  const today = marketDate(now)
-  return catalysts
-    .filter((catalyst) => catalyst.id.startsWith(CODEX_WEB_CATALYST_ID_PREFIX)
-      && symbols.has(catalyst.symbol)
-      && catalyst.date >= today
-      && Date.parse(catalyst.updatedAt) >= freshSince)
-    .sort((left, right) => left.date.localeCompare(right.date) || left.symbol.localeCompare(right.symbol))
-    .slice(0, CODEX_WEB_EVIDENCE_MAX_ROWS)
-}

@@ -1,16 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import { type ChartResultArray } from 'yahoo-finance2/modules/chart'
-import { type QuoteSummaryResult } from 'yahoo-finance2/modules/quoteSummary'
 
 import { type JsonObject } from '../src/domain/json-payload'
 
 import {
   createMarketResearchTools,
-  createYahooFundamentalsProvider,
   createYahooPriceHistoryProvider,
   type PriceHistoryProvider,
   type PriceHistoryRow,
-  readCompanyFundamentals,
   readPriceHistory,
 } from '../src/server/market-research-tools'
 
@@ -66,214 +63,11 @@ function chartClient(quotes: ChartResultArray['quotes'], meta: JsonObject = {}) 
   }
 }
 
-function fundamentals(summary = 'A'.repeat(1_700)): QuoteSummaryResult {
-  return {
-    defaultKeyStatistics: {
-      category: null,
-      enterpriseToEbitda: 20,
-      enterpriseToRevenue: 8,
-      enterpriseValue: 4_600_000_000_000,
-      forwardEps: 9.5,
-      forwardPE: 31,
-      fundFamily: null,
-      lastSplitFactor: null,
-      legalType: null,
-      maxAge: 1,
-      priceHint: 2,
-      priceToBook: 40,
-      trailingEps: 8.8,
-    },
-    earningsTrend: {
-      defaultMethodology: 'gaap',
-      maxAge: 1,
-      trend: [{
-        earningsEstimate: {
-          avg: 9.5,
-          earningsCurrency: 'USD',
-          growth: 0.08,
-          high: 10,
-          low: 9,
-          numberOfAnalysts: 30,
-          yearAgoEps: 8.8,
-        },
-        endDate: new Date('2027-09-30T00:00:00.000Z'),
-        epsRevisions: {
-          downLast30days: 1,
-          epsRevisionsCurrency: 'USD',
-          upLast30days: 5,
-        },
-        epsTrend: {
-          '30daysAgo': 9.4,
-          '60daysAgo': 9.3,
-          '7daysAgo': 9.5,
-          '90daysAgo': 9.2,
-          current: 9.5,
-          epsTrendCurrency: 'USD',
-        },
-        growth: 0.08,
-        maxAge: 1,
-        period: '+1y',
-        revenueEstimate: {
-          avg: 520_000_000_000,
-          growth: 0.09,
-          high: 540_000_000_000,
-          low: 500_000_000_000,
-          numberOfAnalysts: 28,
-          revenueCurrency: 'USD',
-          yearAgoRevenue: 477_000_000_000,
-        },
-      }],
-    },
-    financialData: {
-      currentRatio: 0.9,
-      debtToEquity: 150,
-      earningsGrowth: 0.1,
-      financialCurrency: 'USD',
-      freeCashflow: 100_000_000_000,
-      grossMargins: 0.46,
-      maxAge: 1,
-      operatingCashflow: 120_000_000_000,
-      operatingMargins: 0.32,
-      profitMargins: 0.27,
-      recommendationKey: 'buy',
-      revenueGrowth: 0.06,
-      totalCash: 60_000_000_000,
-      totalDebt: 100_000_000_000,
-      totalRevenue: 420_000_000_000,
-    },
-    majorHoldersBreakdown: {
-      insidersPercentHeld: 0.02,
-      institutionsCount: 7_000,
-      institutionsFloatPercentHeld: 0.68,
-      institutionsPercentHeld: 0.67,
-      maxAge: 1,
-    },
-    price: {
-      currency: 'USD',
-      fromCurrency: null,
-      lastMarket: null,
-      longName: 'Apple Inc.',
-      marketCap: 4_500_000_000_000,
-      maxAge: 1,
-      priceHint: 2,
-      quoteType: 'EQUITY',
-      regularMarketPrice: 300,
-      regularMarketTime: new Date('2026-08-13T20:00:00.000Z'),
-      shortName: 'Apple',
-      symbol: 'AAPL',
-      underlyingSymbol: null,
-    },
-    secFilings: {
-      filings: Array.from({ length: 10 }, (_, index) => ({
-        date: `2026-0${Math.max(1, 9 - index)}-01`,
-        edgarUrl: `https://finance.yahoo.com/sec-filing/AAPL/${index}`,
-        epochDate: new Date('2026-08-01T00:00:00.000Z'),
-        maxAge: 1,
-        title: `Filing ${index}`,
-        type: index % 2 ? '8-K' as const : '10-Q' as const,
-      })),
-      maxAge: 1,
-    },
-    summaryDetail: {
-      algorithm: null,
-      currency: 'USD',
-      fromCurrency: null,
-      lastMarket: null,
-      maxAge: 1,
-      priceHint: 2,
-      priceToSalesTrailing12Months: 10,
-      tradeable: true,
-      trailingPE: 34,
-    },
-    summaryProfile: {
-      companyOfficers: [],
-      country: 'United States',
-      fullTimeEmployees: 150_000,
-      industry: 'Consumer Electronics',
-      irWebsite: 'http://investor.example.com',
-      longBusinessSummary: summary,
-      maxAge: 86_400,
-      sector: 'Technology',
-      website: 'https://www.apple.com',
-    },
-  }
-}
-
 describe('market research tools', () => {
-  it('exposes only compact fundamentals and adjusted history capabilities', () => {
+  it('exposes adjusted price history while public fundamentals use native web search', () => {
     expect(createMarketResearchTools().map((tool) => tool.name)).toEqual([
-      'read_company_fundamentals',
       'read_price_history',
     ])
-  })
-
-  it('compacts fundamentals, omits a live quote, and labels secondary-source limitations', async () => {
-    const client = {
-      quoteSummary: vi.fn().mockResolvedValue(fundamentals()),
-    }
-    const result = await readCompanyFundamentals(' aapl ', now, createYahooFundamentalsProvider(client))
-
-    expect(client.quoteSummary).toHaveBeenCalledWith('AAPL', expect.objectContaining({
-      modules: expect.arrayContaining(['financialData', 'earningsTrend', 'secFilings']),
-    }))
-    expect(result).toMatchObject({
-      company: {
-        analystEstimates: [{ period: '+1y', epsAverage: 9.5, revenueGrowth: 0.09 }],
-        filings: expect.any(Array),
-        name: 'Apple Inc.',
-        symbol: 'AAPL',
-        valuation: { marketCapitalization: 4_500_000_000_000, trailingPriceEarnings: 34 },
-      },
-      fetchedAt: now.toISOString(),
-      missingSections: [],
-      source: 'yahoo-finance-quote-summary',
-      truncated: true,
-    })
-    expect(result.company.filings).toHaveLength(8)
-    expect(result.company.profile?.businessSummary).toHaveLength(1_601)
-    expect(result.company.profile?.investorRelationsUrl).toBeUndefined()
-    expect(result.warning).toContain('primary filings')
-    expect(JSON.stringify(result)).not.toContain('regularMarketPrice')
-  })
-
-  it('reports present but empty response sections as missing', async () => {
-    const raw = fundamentals()
-    raw.earningsTrend!.trend = []
-    raw.secFilings!.filings = []
-    const client = { quoteSummary: vi.fn().mockResolvedValue(raw) }
-
-    const result = await readCompanyFundamentals('AAPL', now, createYahooFundamentalsProvider(client))
-
-    expect(result.missingSections).toEqual(expect.arrayContaining(['analystEstimates', 'filings']))
-  })
-
-  it('rejects mismatched fundamentals instead of returning another instrument', async () => {
-    const raw = fundamentals()
-    raw.price!.symbol = 'MSFT'
-    const client = { quoteSummary: vi.fn().mockResolvedValue(raw) }
-    await expect(readCompanyFundamentals(
-      'AAPL',
-      now,
-      createYahooFundamentalsProvider(client),
-    )).rejects.toThrow('mismatched')
-  })
-
-  it('translates tastytrade class-share notation only at the fundamentals provider boundary', async () => {
-    const raw = fundamentals()
-    raw.price!.symbol = 'BRK-B'
-    const client = {
-      quoteSummary: vi.fn().mockResolvedValue(raw),
-    }
-
-    const company = await readCompanyFundamentals(
-      'BRK/B',
-      now,
-      createYahooFundamentalsProvider(client),
-    )
-
-    expect(client.quoteSummary).toHaveBeenCalledWith('BRK-B', expect.any(Object))
-    expect(company.company.symbol).toBe('BRK/B')
-    expect(company.sourceUrl).toContain('BRK-B')
   })
 
   it('returns adjusted history and aligns optional studies with the bounded row window', async () => {

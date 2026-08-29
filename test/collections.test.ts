@@ -12,7 +12,19 @@ import {
   watchlistCollection,
   type SyncState,
 } from '../src/data/collections'
+import { mostActiveSymbol } from '../src/domain/market'
 import { marketSnapshotFixture } from './fixtures/market'
+
+describe('default market focus', () => {
+  it('chooses the highest-volume loaded ticker in the active watchlist', () => {
+    const tickers = marketSnapshotFixture().tickers
+
+    expect(mostActiveSymbol(tickers, ['META', 'NVDA', 'INTC'])).toBe('NVDA')
+    expect(mostActiveSymbol(tickers, ['META', 'INTC'])).toBe('INTC')
+    expect(mostActiveSymbol(tickers, ['MISSING'])).toBe('NVDA')
+    expect(mostActiveSymbol([], ['NVDA'])).toBeUndefined()
+  })
+})
 
 describe('offline snapshot boundary', () => {
   it('treats a version marker, not collection row counts, as initialization', () => {

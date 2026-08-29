@@ -12,79 +12,6 @@ export type PriceHistoryReadInput = {
   symbol: string
 }
 
-export type CompanyFundamentalsReadResult = {
-  company: {
-    analystEstimates?: Array<{
-      endDate?: string
-      epsAverage?: number
-      epsGrowth?: number
-      epsRevisionsDown30Days?: number
-      epsRevisionsUp30Days?: number
-      numberOfEpsAnalysts?: number
-      numberOfRevenueAnalysts?: number
-      period: string
-      revenueAverage?: number
-      revenueGrowth?: number
-    }>
-    financials?: {
-      currency?: string
-      currentRatio?: number
-      debtToEquity?: number
-      ebitda?: number
-      earningsGrowth?: number
-      freeCashFlow?: number
-      grossMargin?: number
-      operatingCashFlow?: number
-      operatingMargin?: number
-      profitMargin?: number
-      quickRatio?: number
-      returnOnAssets?: number
-      returnOnEquity?: number
-      revenueGrowth?: number
-      totalCash?: number
-      totalDebt?: number
-      totalRevenue?: number
-    }
-    filings: Array<{ date: string; title: string; type: string; url: string }>
-    marketDataObservedAt?: string
-    name: string
-    ownership?: {
-      insidersPercentHeld?: number
-      institutionsCount?: number
-      institutionsFloatPercentHeld?: number
-      institutionsPercentHeld?: number
-    }
-    profile?: {
-      businessSummary?: string
-      country?: string
-      fullTimeEmployees?: number
-      industry?: string
-      investorRelationsUrl?: string
-      sector?: string
-      website?: string
-    }
-    symbol: string
-    valuation?: {
-      enterpriseToEbitda?: number
-      enterpriseToRevenue?: number
-      enterpriseValue?: number
-      forwardEarningsPerShare?: number
-      forwardPriceEarnings?: number
-      marketCapitalization?: number
-      priceToBook?: number
-      priceToSalesTrailing12Months?: number
-      trailingEarningsPerShare?: number
-      trailingPriceEarnings?: number
-    }
-  }
-  fetchedAt: string
-  missingSections: string[]
-  source: 'yahoo-finance-quote-summary'
-  sourceUrl: string
-  truncated: boolean
-  warning: string
-}
-
 export type PriceHistoryRow = {
   adjustedClose: number
   close: number
@@ -145,10 +72,6 @@ export type PriceHistoryReadResult = {
   truncated: boolean
 }
 
-export type CompanyFundamentalsProvider = {
-  read(symbol: string, now: Date): Promise<CompanyFundamentalsReadResult>
-}
-
 type ProviderPriceHistory = {
   adjustmentMethodology: string
   currency: string
@@ -164,9 +87,4 @@ type ProviderPriceHistory = {
 
 export type PriceHistoryProvider = {
   readDaily(symbol: string, range: { endDate: string; startDate: string }): Promise<ProviderPriceHistory>
-}
-
-export type MarketResearchProviders = {
-  companyFundamentals: CompanyFundamentalsProvider
-  priceHistory: PriceHistoryProvider
 }

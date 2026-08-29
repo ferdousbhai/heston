@@ -25,7 +25,7 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
     id: 'public-options-watch',
     kind: 'public',
     name: 'Options Watch',
-    symbols: ['NVDA', 'SPCX', 'META', 'BE', 'INTC'],
+    symbols: ['SPCX', 'META', 'BE', 'INTC', 'NVDA'],
   }]
   publicSnapshot.tickers = publicSnapshot.tickers
     .filter((ticker) => publicSnapshot.watchlists[0]!.symbols.includes(ticker.symbol))
@@ -46,7 +46,8 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
   await expect(page.getByRole('button', { name: /NVDA, NVIDIA, Expensive option premium/ })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Manage Options Watch' })).toHaveCount(0)
   await expect(page.getByRole('combobox', { name: 'Watchlist' })).toHaveCount(0)
-  await expect(page.locator('.watchlist-title')).toHaveText('Options Watch')
+  await expect(page.locator('.watchlist-title')).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Options Watch' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Upcoming catalysts' })).toBeVisible()
   await expect(page.getByText('Pin a ticker to see its upcoming events.')).toBeVisible()
   await expect(page.locator('.story')).toHaveCount(0)
@@ -212,6 +213,8 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   await expect(page.locator('.premium-data-table tbody tr')).toHaveCount(1)
   await page.getByRole('button', { name: /INTC, Intel, Cheap/ }).click()
   await expect(selectedSymbol).toHaveText('INTC')
+  await page.reload()
+  await expect(selectedSymbol).toHaveText('INTC')
   await search.fill('zzzz')
   await expect(page.getByText('No loaded symbol matches your search.')).toBeVisible()
   await search.fill('')
@@ -239,8 +242,6 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   await expect(page.getByRole('heading', { name: 'Ideas' })).toBeVisible()
   await expect(page.getByText('NVDA 205c 10/16')).toBeVisible()
   await expect(page.getByText('Selective long vol')).toBeVisible()
-  await expect(page.getByText('PLTR', { exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: /PLTR/ })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /NVDA/ })).toBeVisible()
   const sources = page.locator('.source-list')
   await expect(sources.getByText('Evidence reviewed')).toBeVisible()
@@ -502,7 +503,9 @@ test('two signed-out devices converge on the account union without granting owne
   await expect(mobile.getByRole('button', { name: 'Unpin INTC' })).toBeVisible()
   expect(anonymousMerges.some((symbols) => symbols.includes('INTC') && symbols.includes('SPCX'))).toBe(true)
 
-  await expect(page.getByRole('button', { name: 'Unpin SPCX' })).toBeVisible({ timeout: 20_000 })
+  await page.bringToFront()
+  await page.evaluate(() => window.dispatchEvent(new Event('visibilitychange')))
+  await expect(page.getByRole('button', { name: 'Unpin SPCX' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Unpin INTC' })).toBeVisible()
 
   rejectNextFavoriteMutation = true
@@ -511,7 +514,9 @@ test('two signed-out devices converge on the account union without granting owne
   await expect(mobile.getByRole('button', { name: 'Unpin NVDA' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Unpin META' }).click()
-  await expect(mobile.getByRole('button', { name: 'Pin META' })).toBeVisible({ timeout: 20_000 })
+  await mobile.bringToFront()
+  await mobile.evaluate(() => window.dispatchEvent(new Event('visibilitychange')))
+  await expect(mobile.getByRole('button', { name: 'Pin META' })).toBeVisible()
   await page.reload()
   await expect(page.getByRole('button', { name: 'Pin META' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Unpin BE' })).toBeVisible()

@@ -27,8 +27,9 @@ import {
 import { aiGatewayHeaders, grokGatewayBaseUrl } from './ai-gateway'
 import { readBoundedJson } from './bounded-response'
 import { type AppEnv } from './env'
+import { grokNativeSearchTools } from './grok-native-tools'
 import { addDays, type ResearchSourceItem } from './research-contracts'
-import { createMarketMetricsReadTool, type MarketMetricsReadResult } from './brokerage-read-tools'
+import { type MarketMetricsReadResult } from './brokerage-read-tools'
 import {
   createResearchAgentTools,
   type ResearchAgentToolCapture,
@@ -127,7 +128,7 @@ Surface zero to three clear, falsifiable opportunities with the core catalyst, w
 
 Before submitting, build sources as the only citation table used by ideas and the reading list. A supplied source contains an exact evidenceIndex returned by search_reddit and one symbol supported by it. A native-search source sets evidenceIndex to null and copies sourceUrl verbatim from a native tool citation, with its symbol, title, and context. An idea source symbol must have returned tastytrade metrics. Do not put URLs anywhere except native-search sources.
 
-Use the returned prior coverage to avoid repetition and require genuinely newer evidence before refreshing the same thesis. A play is null or one exact expiration, strike, and option type 21-90 days after ${today}; do not encode it as prose. Rank five to ten genuinely useful reading links when that many qualify: primary reporting, direct evidence, specific catalysts, and disconfirming analysis. Reject generic quote pages, duplicates, unsupported social posts, tutorials, videos, jobs, memes, and promotion. Call submit_daily_report exactly once and return no prose outside that tool call.`
+Use the returned prior coverage to avoid repetition and require genuinely newer evidence before refreshing the same thesis. A play is null or one exact expiration, strike, and option type; choose the expiry that best expresses the thesis and do not encode it as prose. Rank five to ten genuinely useful reading links when that many qualify: primary reporting, direct evidence, specific catalysts, and disconfirming analysis. Reject generic quote pages, duplicates, unsupported social posts, tutorials, videos, jobs, memes, and promotion. Call submit_daily_report exactly once and return no prose outside that tool call.`
 }
 
 function zeroUsage(): Usage {
@@ -314,12 +315,10 @@ function grokStream(
               input: conversation,
               max_output_tokens: options?.maxTokens,
               tools: [
-                { type: 'web_search' },
-                {
-                  type: 'x_search',
-                  from_date: addDays(marketDate(request.now), -180),
-                  to_date: addDays(marketDate(request.now), 1),
-                },
+                ...grokNativeSearchTools({
+                  fromDate: addDays(marketDate(request.now), -180),
+                  toDate: addDays(marketDate(request.now), 1),
+                }),
                 ...(context.tools ?? []).map((tool) => ({
                   type: 'function',
                   name: tool.name,
@@ -372,6 +371,7 @@ export async function runDailyResearchAgent(
   }
   const researchCapture: ResearchAgentToolCapture = {
     evidence: [],
+    marketMetrics: capture.marketMetrics,
     recentCoverage: [],
     reddit: undefined,
   }
@@ -393,15 +393,6 @@ export async function runDailyResearchAgent(
       return { content: [{ type: 'text', text: 'Report accepted.' }], details: {}, terminate: true }
     },
   }
-  const metricTool = createMarketMetricsReadTool(env)
-  const readMetrics = metricTool.execute
-  metricTool.execute = async (...args) => {
-    const result = runToolStep
-      ? await runToolStep(metricTool.name, () => readMetrics(...args))
-      : await readMetrics(...args)
-    capture.marketMetrics.push(...result.details.metrics)
-    return result
-  }
   const tools = [
     ...createResearchAgentTools(env, {
       capture: researchCapture,
@@ -410,7 +401,6 @@ export async function runDailyResearchAgent(
       now: request.now,
       runStep: runToolStep,
     }),
-    metricTool,
     submitTool,
   ]
   let failure: string | undefined
@@ -425,7 +415,7 @@ export async function runDailyResearchAgent(
       return messages as Message[]
     },
     maxTokens: 8_000,
-    shouldStopAfterTurn: () => capture.submission !== undefined || capture.payloads.length >= 12,
+    shouldStopAfterTurn: () => capture.submission !== undefined,
     toolExecution: 'sequential',
   }, (event) => {
     if (event.type === 'turn_end' && event.message.role === 'assistant'

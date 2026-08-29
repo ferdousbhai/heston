@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { catalystLabel, nextCatalystForSymbol, recentCodexWebCatalysts, sortSymbolsByCatalyst, upcomingCatalystSymbols, type Catalyst } from '../src/domain/catalyst'
+import { catalystLabel, nextCatalystsBySymbol, type Catalyst } from '../src/domain/catalyst'
 import {
   catalystsFromMarketMetrics,
   earningsDateFromMetric,
@@ -120,47 +120,6 @@ describe('research catalyst storage', () => {
   })
 })
 
-describe('local Codex catalyst evidence', () => {
-  function codexCatalyst(symbol: string, date: string, updatedAt = '2026-08-13T12:00:00.000Z'): Catalyst {
-    return {
-      id: `codex-web:${symbol}:conference:${date}:abc`,
-      symbol,
-      kind: 'conference',
-      title: `${symbol} investor event`,
-      date,
-      timing: 'unknown',
-      confidence: 'estimated',
-      source: 'Codex web · example.com',
-      sourceUrl: `https://example.com/${symbol.toLowerCase()}`,
-      updatedAt,
-    }
-  }
-
-  it('keeps only fresh, watched, upcoming Codex rows in nearest-date order', () => {
-    const watched = new Set(['NVDA', 'META'])
-    const fresh = codexCatalyst('NVDA', '2026-09-10')
-    const sooner = codexCatalyst('META', '2026-08-20')
-    const selected = recentCodexWebCatalysts([
-      fresh,
-      codexCatalyst('META', '2026-09-12', '2026-08-05T12:00:00.000Z'),
-      codexCatalyst('PLTR', '2026-09-11'),
-      codexCatalyst('NVDA', '2026-08-12'),
-      { ...codexCatalyst('NVDA', '2026-09-09'), id: 'x:NVDA:conference:2026-09-09', source: 'X · @nvidia' },
-      sooner,
-    ], watched, NOW)
-    expect(selected).toEqual([sooner, fresh])
-  })
-
-  it('caps the packet at the forty nearest findings', () => {
-    const isoDaysAhead = (days: number) => new Date(NOW.getTime() + days * 86_400_000).toISOString().slice(0, 10)
-    const rows = Array.from({ length: 45 }, (_, index) => codexCatalyst('NVDA', isoDaysAhead(index + 1)))
-    const selected = recentCodexWebCatalysts([...rows].reverse(), new Set(['NVDA']), NOW)
-    expect(selected).toHaveLength(40)
-    expect(selected[0]?.date).toBe(isoDaysAhead(1))
-    expect(selected.at(-1)?.date).toBe(isoDaysAhead(40))
-  })
-})
-
 describe('catalyst ordering', () => {
   const catalyst = (symbol: string, date: string): Catalyst => ({
     id: `tastytrade:${symbol}:earnings`,
@@ -175,30 +134,10 @@ describe('catalyst ordering', () => {
     updatedAt: NOW.toISOString(),
   })
 
-  it('puts the nearest upcoming catalyst first and preserves order without one', () => {
+  it('indexes the nearest upcoming catalyst and ignores past dates', () => {
     const catalysts = [catalyst('AAPL', '2026-10-29'), catalyst('NVDA', '2026-08-26')]
-    expect(sortSymbolsByCatalyst(['SPY', 'AAPL', 'TSLA', 'NVDA'], catalysts, NOW))
-      .toEqual(['NVDA', 'AAPL', 'SPY', 'TSLA'])
-    expect(nextCatalystForSymbol('NVDA', catalysts, NOW)?.date).toBe('2026-08-26')
+    expect(nextCatalystsBySymbol(catalysts, NOW).get('NVDA')?.date).toBe('2026-08-26')
     expect(catalystLabel(catalysts[1]!, NOW)).toBe('EARN 13D')
-  })
-
-  it('ignores catalysts that have passed', () => {
-    expect(nextCatalystForSymbol('NVDA', [catalyst('NVDA', '2026-08-12')], NOW)).toBeUndefined()
-  })
-
-  it('builds a source-neutral 30-day catalyst rail with deterministic ordering and deduplication', () => {
-    const rows = [
-      catalyst('AAPL', '2026-08-20'),
-      catalyst('NVDA', '2026-08-26'),
-      catalyst('META', '2026-08-18'),
-      catalyst('TSLA', '2026-09-20'),
-    ]
-
-    expect(upcomingCatalystSymbols(
-      ['NVDA', 'AAPL', 'META', 'AAPL', 'TSLA', 'SPY'],
-      rows,
-      NOW,
-    )).toEqual(['META', 'AAPL', 'NVDA'])
+    expect(nextCatalystsBySymbol([catalyst('NVDA', '2026-08-12')], NOW).has('NVDA')).toBe(false)
   })
 })

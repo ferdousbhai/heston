@@ -30,9 +30,8 @@ import { newYorkClock } from '../domain/market-clock'
 import { preparePendingAction } from './agent'
 import { ChatRequestSchema, OrderPlacementSchema } from './agent-contracts'
 import {
-  createCancelOrderTool,
+  createDirectAccountActionTool,
   createRememberTradeSymbolsTool,
-  createWatchlistManagementTool,
 } from './account-action-tools'
 import { createBrokerageReadTools, readMarketStatus } from './brokerage-read-tools'
 import { buildAgentRuntimeContext, loadBrokerageContext } from './brokerage-context'
@@ -351,8 +350,7 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
       const tools = [
         brokerageActionTool,
         createBrokerageReconciliationTool(this.env),
-        createCancelOrderTool(this.env, currentUserMessage),
-        createWatchlistManagementTool(this.env, currentUserMessage),
+        createDirectAccountActionTool(this.env, currentUserMessage),
         createRememberTradeSymbolsTool(this.env),
         createWatchlistReadTool(this.env),
         createExactOptionGreeksReadTool(this.env),
@@ -367,7 +365,6 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
         systemPrompt: `${DAN_SYSTEM_PROMPT}\n\n<runtime_context>${runtimeContext}</runtime_context>`,
         tools,
       }
-      let turnCount = 0
       const toolStartedAt = new Map<string, number>()
       let turnTools = new Map<string, AgentToolCall>()
 
@@ -488,9 +485,8 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
       await runAgentLoopContinue(context, {
         // SAFETY: this agent never appends CustomMessage values, so the context holds only pi Message values.
         convertToLlm: (messages) => messages as Message[],
-        maxTokens: 1_200,
         model: runtime.model,
-        shouldStopAfterTurn: () => controller.signal.aborted || ++turnCount >= 8,
+        shouldStopAfterTurn: () => controller.signal.aborted,
         toolExecution: 'sequential',
       }, emit, controller.signal, runtime.stream)
       if (controller.signal.aborted) turnFailure = 'Operation aborted'

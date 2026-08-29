@@ -6,7 +6,7 @@ import {
 } from '../domain/market'
 import { type DailyResearchSubmission } from './research-agent'
 import { type EquityOptionTuple } from './option-contract'
-import { addDays, type ResearchSourceItem } from './research-contracts'
+import { type ResearchSourceItem } from './research-contracts'
 
 type ResearchIdeaCandidate = DailyResearchSubmission['ideas'][number]
 type ReadingLinkCandidate = DailyResearchSubmission['readingList'][number]
@@ -23,14 +23,11 @@ function playLabel(play: EquityOptionTuple): string {
 }
 
 /** Bind evidence and option shape, then leave contract existence to the chain. */
-export function researchIdeasForDate(
+export function researchIdeas(
   ideas: readonly ResearchIdeaCandidate[],
-  today: string,
   evidence: readonly ResearchSourceItem[],
   allowedSymbols: readonly string[],
 ): BoundResearchIdea[] {
-  const minimum = addDays(today, 21)
-  const maximum = addDays(today, 90)
   const symbols = new Set(allowedSymbols)
   const bound = ideas.flatMap((idea) => {
     if (!symbols.has(idea.symbol)) return []
@@ -46,8 +43,6 @@ export function researchIdeasForDate(
       ...publicIdea
     } = idea
     const contract = idea.play !== null && isValidIsoDate(idea.play.expiration)
-      && idea.play.expiration >= minimum
-      && idea.play.expiration <= maximum
       ? {
           expiry: idea.play.expiration,
           optionType: idea.play.optionType === 'call' ? 'C' as const : 'P' as const,
