@@ -27,13 +27,9 @@ export function BriefScreen({
         <p>{brief.regimeDetail}</p>
         <p>{brief.summary}</p>
       </header>
-      <section className="ideas-section" aria-labelledby="ideas-title">
+      <div className="ideas-section">
         {brief.readingList.length > 0 && (
-          <section className="reading-section" aria-labelledby="reading-title">
-            <header className="ideas-heading">
-              <h2 id="reading-title">Links worth reading</h2>
-              <span>{brief.readingList.length} selected</span>
-            </header>
+          <section aria-label="Sources" className="reading-section">
             <ol className="reading-list">
               {brief.readingList.map((item) => (
                 <li key={item.url}>
@@ -46,10 +42,6 @@ export function BriefScreen({
             </ol>
           </section>
         )}
-        <header className="ideas-heading">
-          <h2 id="ideas-title">Ideas</h2>
-          <span>{brief.ideas.length ? `${brief.ideas.length} today` : 'None today'}</span>
-        </header>
         <div className="idea-stack">
           {brief.ideas.map((idea) => (
             <Card className="idea-card" key={`${idea.symbol}-${idea.headline}`} variant="flat">
@@ -107,7 +99,7 @@ export function BriefScreen({
           <AlertTitle>Research context only, not investment advice</AlertTitle>
           <AlertDescription>Every contract is illustrative; verify the live chain, spread, and expiry before acting.</AlertDescription>
         </Alert>
-      </section>
+      </div>
     </div>
   )
 }

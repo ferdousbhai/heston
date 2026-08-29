@@ -83,7 +83,7 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
   await expect(page.getByText('Long vol')).toHaveCount(0)
 
   await page.getByRole('tab', { name: 'Brief' }).click()
-  await expect(page.getByRole('heading', { name: 'Ideas' })).toBeVisible()
+  await expect(page.getByText('Selective long vol')).toBeVisible()
 
   await page.getByRole('tab', { name: 'Dan' }).click()
   await expect(page.getByRole('heading', { name: 'Dan can trade. Only for you.' })).toBeVisible()
@@ -239,7 +239,6 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
 
   await page.getByRole('tab', { name: 'Brief' }).click()
   await expect(page.getByRole('tab', { name: 'Brief' })).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByRole('heading', { name: 'Ideas' })).toBeVisible()
   await expect(page.getByText('NVDA 205c 10/16')).toBeVisible()
   await expect(page.getByText('Selective long vol')).toBeVisible()
   await expect(page.getByRole('button', { name: /NVDA/ })).toBeVisible()

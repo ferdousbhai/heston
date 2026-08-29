@@ -41,16 +41,13 @@ export interface RedditResearchResult {
 }
 
 export interface ResearchAgentToolCapture {
-  evidence: ResearchSourceItem[]
   marketMetrics: MarketMetricsReadResult['metrics']
-  recentCoverage: RecentTickerCoverage[]
-  reddit: RedditResearchResult | undefined
 }
 
 export interface ResearchAgentToolOptions {
   capture?: ResearchAgentToolCapture
-  fallbackOnRedditFailure?: boolean
   fetcher?: typeof fetch
+  includeReddit?: boolean
   now?: Date
   runStep?: <T>(name: string, task: () => Promise<T>) => Promise<T>
 }
@@ -150,9 +147,7 @@ export function createResearchAgentTools(
     options.runStep ? options.runStep(name, task) : task()
   )
   const reddit: AgentTool<typeof RedditSearchParameters, RedditResearchResult> = {
-    description: options.fallbackOnRedditFailure
-      ? 'Read the current high-signal WallStreetBets discovery packet: ranked posts, useful comments, and fetched outbound pages. Call this before choosing research candidates. The result explicitly reports when Yahoo movers and fresh local-Codex catalysts were used because Reddit failed.'
-      : 'Read the current high-signal WallStreetBets discovery packet: ranked posts, useful comments, and fetched outbound pages.',
+    description: 'Read the current high-signal WallStreetBets discovery packet: ranked posts, useful comments, and fetched outbound pages.',
     execute: async () => {
       const result = await runRead(
         'search_reddit',
@@ -160,13 +155,8 @@ export function createResearchAgentTools(
           env,
           now,
           options.fetcher,
-          options.fallbackOnRedditFailure,
         ),
       )
-      if (options.capture) {
-        options.capture.reddit = result
-        options.capture.evidence.push(...result.evidence)
-      }
       return textResult(result)
     },
     executionMode: 'sequential',
@@ -186,7 +176,6 @@ export function createResearchAgentTools(
           now,
         ),
       )
-      if (options.capture) options.capture.recentCoverage.push(...result)
       return textResult(result)
     },
     executionMode: 'sequential',
@@ -207,5 +196,11 @@ export function createResearchAgentTools(
   const quotes = createInstrumentQuoteReadTool(env)
   const readQuotes = quotes.execute
   quotes.execute = (...args) => runRead(quotes.name, () => readQuotes(...args))
-  return [reddit, coverage, metrics, optionContracts, quotes]
+  return [
+    ...(options.includeReddit === false ? [] : [reddit]),
+    coverage,
+    metrics,
+    optionContracts,
+    quotes,
+  ]
 }

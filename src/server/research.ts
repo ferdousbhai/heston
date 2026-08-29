@@ -7,6 +7,7 @@ import { researchBriefId, type ResearchSourceItem } from './research-contracts'
 import { bindEvidenceSymbols } from './research-evidence'
 import {
   mentionsDiscoverySource,
+  isPublicResearchSource,
   readingListFromCandidates,
   researchIdeas,
   type BoundResearchIdea,
@@ -14,7 +15,6 @@ import {
 import { equityOptionContractFromChainTuple } from './option-contract'
 import { dailyResearchAgent, type DailyResearchSubmission } from './research-agent'
 import { brokerApi } from './tastytrade'
-import { canonicalXPostUrl } from './x-url'
 
 function newYorkParts(date: Date) {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -51,8 +51,6 @@ export interface GenerateDailyResearchOptions {
 }
 
 function safeHttpsUrl(value: string): string | undefined {
-  const xPostUrl = canonicalXPostUrl(value)
-  if (xPostUrl) return xPostUrl
   try {
     const url = new URL(value)
     if (url.protocol !== 'https:' || url.username || url.password) return undefined
@@ -80,10 +78,11 @@ function bindSubmissionSources(
     if (candidate.evidenceIndex !== null) {
       const source = baseEvidence[candidate.evidenceIndex]
       if (!source?.symbols?.includes(candidate.symbol)) return undefined
+      if (!isPublicResearchSource(source.outbound?.url ?? source.url)) return undefined
       return allowedSymbols.has(candidate.symbol) ? candidate.evidenceIndex : undefined
     }
     const sourceUrl = safeHttpsUrl(candidate.sourceUrl)
-    if (!sourceUrl || !allowedSymbols.has(candidate.symbol)) return undefined
+    if (!sourceUrl || !isPublicResearchSource(sourceUrl) || !allowedSymbols.has(candidate.symbol)) return undefined
     if (!citations.has(sourceUrl)) return undefined
     const key = `${candidate.symbol}:${sourceUrl}`
     const existing = searched.get(key)

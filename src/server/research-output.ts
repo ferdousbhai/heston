@@ -11,6 +11,34 @@ import { type ResearchSourceItem } from './research-contracts'
 type ResearchIdeaCandidate = DailyResearchSubmission['ideas'][number]
 type ReadingLinkCandidate = DailyResearchSubmission['readingList'][number]
 
+const SOCIAL_SOURCE_HOSTS = [
+  'facebook.com',
+  'instagram.com',
+  'linkedin.com',
+  'reddit.com',
+  'redd.it',
+  'tiktok.com',
+  'twitter.com',
+  'x.com',
+  'youtube.com',
+  'youtu.be',
+]
+
+/** Discovery can begin socially, but public citations must resolve to source material. */
+export function isPublicResearchSource(value: string): boolean {
+  try {
+    const url = new URL(value)
+    const host = url.hostname.toLowerCase().replace(/^www\./, '').replace(/\.$/, '')
+    return url.protocol === 'https:'
+      && !url.username
+      && !url.password
+      && !SOCIAL_SOURCE_HOSTS.some((blocked) => host === blocked || host.endsWith(`.${blocked}`))
+      && !(host === 'finance.yahoo.com' && url.pathname.startsWith('/quote/'))
+  } catch {
+    return false
+  }
+}
+
 export interface BoundResearchIdea {
   contract: EquityOptionTuple | null
   idea: ResearchBrief['ideas'][number]
@@ -73,22 +101,19 @@ export function readingListFromCandidates(
 ): ResearchBrief['readingList'] {
   const accepted = new Map<string, ResearchBrief['readingList'][number]>()
   for (const candidate of value) {
-    if (mentionsDiscoverySource(candidate.reason)) continue
+    if (mentionsDiscoverySource(candidate.title) || mentionsDiscoverySource(candidate.description)) continue
     const source = evidence[candidate.sourceIndex]
     if (!source) continue
     const link = evidenceSourceLink(source)
-    try {
-      const url = new URL(link.url)
-      if (url.hostname.toLowerCase().replace(/^www\./, '') === 'finance.yahoo.com'
-        && url.pathname.startsWith('/quote/')) continue
-    } catch {
-      continue
-    }
+    if (!isPublicResearchSource(link.url)) continue
     if (accepted.has(link.url)) continue
-    const title = (source.outbound?.label ?? source.title).slice(0, 180)
-    const parsed = ResearchReadingLinkSchema.safeParse({ reason: candidate.reason, title, url: link.url })
+    const parsed = ResearchReadingLinkSchema.safeParse({
+      reason: candidate.description,
+      title: candidate.title,
+      url: link.url,
+    })
     if (parsed.success) accepted.set(link.url, parsed.data)
-    if (accepted.size === 10) break
+    if (accepted.size === 6) break
   }
   return [...accepted.values()]
 }

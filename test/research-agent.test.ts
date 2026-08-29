@@ -34,7 +34,11 @@ function submission(): DailyResearchSubmission {
       sourceIndices: [0],
       symbol: 'NVDA',
     }],
-    readingList: [{ reason: 'Contains the concrete agreement terms.', sourceIndex: 0 }],
+    readingList: [{
+      description: 'Contains the concrete agreement terms.',
+      sourceIndex: 0,
+      title: 'NVIDIA supply agreement',
+    }],
   }
 }
 
@@ -77,7 +81,6 @@ function environment() {
 
 function agentFetcher(xSearches = 2) {
   const providerResponses = [
-    providerToolCall('search_reddit', {}),
     providerToolCall('read_market_metrics', { symbols: ['NVDA'] }),
     providerToolCall('get_recent_coverage', { daysAgo: 14, tickers: ['NVDA'] }),
     providerToolCall('submit_daily_report', submission(), {
@@ -102,7 +105,7 @@ function agentFetcher(xSearches = 2) {
 afterEach(() => resetBrokerApi())
 
 describe('daily research Pi agent boundary', () => {
-  it('lets Pi choose candidates and iterate through Reddit, metrics, coverage, and submission tools', async () => {
+  it('gives Pi Reddit context before it chooses candidates and uses research tools', async () => {
     const broker = stubBroker()
     broker.tastyRequest.mockResolvedValue({
       data: { items: [{
@@ -130,24 +133,27 @@ describe('daily research Pi agent boundary', () => {
     expect(result.marketMetrics).toEqual([expect.objectContaining({ symbol: 'NVDA' })])
     expect(result.citations).toContain(CITED_URL)
     expect(result.xSearches).toBe(2)
-    expect(bodies).toHaveLength(4)
+    expect(bodies).toHaveLength(3)
     expect(bodies[0]?.tools).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'web_search' }),
       expect.objectContaining({ type: 'x_search' }),
-      expect.objectContaining({ name: 'search_reddit', type: 'function' }),
       expect.objectContaining({ name: 'read_market_metrics', type: 'function' }),
       expect.objectContaining({ name: 'get_recent_coverage', type: 'function' }),
       expect.objectContaining({ name: 'find_option_contracts', type: 'function' }),
       expect.objectContaining({ name: 'read_instrument_quotes', type: 'function' }),
       expect.objectContaining({ name: 'submit_daily_report', type: 'function' }),
     ]))
+    expect(bodies[0]?.tools).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'search_reddit', type: 'function' }),
+    ]))
     expect(JSON.stringify(bodies[1]?.input)).toContain('function_call_output')
     expect(JSON.stringify(bodies[0]?.input)).toContain('Not Found page is not evidence')
+    expect(JSON.stringify(bodies[0]?.input)).toContain('reddit_discovery_packet')
     expect(steps).toEqual([
-      'model-1', 'tool-1-search_reddit',
-      'model-2', 'tool-2-read_market_metrics',
-      'model-3', 'tool-3-get_recent_coverage',
-      'model-4',
+      'reddit-context',
+      'model-1', 'tool-1-read_market_metrics',
+      'model-2', 'tool-2-get_recent_coverage',
+      'model-3',
     ])
   })
 

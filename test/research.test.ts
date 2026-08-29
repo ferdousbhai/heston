@@ -6,7 +6,7 @@ import {
   type DailyResearchSubmission,
 } from '../src/server/research-agent'
 import { generateDailyResearch, shouldRunDailyResearch } from '../src/server/research'
-import { researchIdeas } from '../src/server/research-output'
+import { readingListFromCandidates, researchIdeas } from '../src/server/research-output'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
 
@@ -24,7 +24,11 @@ function submission(sourceUrl = EVIDENCE_URL): DailyResearchSubmission {
       sourceIndices: [0],
       symbol: 'NVDA',
     }],
-    readingList: [{ reason: 'Contains the signed agreement terms.', sourceIndex: 0 }],
+    readingList: [{
+      description: 'Contains the signed agreement terms.',
+      sourceIndex: 0,
+      title: 'NVIDIA supply agreement',
+    }],
     regime: 'Selective',
     regimeDetail: 'Prefer company-specific catalysts with usable volatility.',
     sources: [{ evidenceIndex: 0, symbol: 'NVDA' }],
@@ -104,6 +108,34 @@ describe('daily research schedule', () => {
 })
 
 describe('daily research final boundary', () => {
+  it('publishes at most six annotated source-material links', () => {
+    const candidates = Array.from({ length: 8 }, (_, sourceIndex) => ({
+      description: `Why source ${sourceIndex} matters.`,
+      sourceIndex,
+      title: `Reference ${sourceIndex}`,
+    }))
+    const evidence = candidates.map(({ sourceIndex }) => ({
+      context: 'Evidence',
+      source: 'Research',
+      title: `Raw source ${sourceIndex}`,
+      url: sourceIndex === 0
+        ? 'https://x.com/company/status/123'
+        : `https://example.com/reference-${sourceIndex}`,
+    }))
+
+    const links = readingListFromCandidates(candidates, evidence)
+
+    expect(links).toHaveLength(6)
+    expect(links[0]).toEqual({
+      reason: 'Why source 1 matters.',
+      title: 'Reference 1',
+      url: 'https://example.com/reference-1',
+    })
+    expect(links).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ url: expect.stringContaining('x.com') }),
+    ]))
+  })
+
   it('lets the agent choose any real expiry before exact chain verification', () => {
     const idea = submission().ideas[0]!
     const evidence = [{
