@@ -269,8 +269,9 @@ async function collectXDiscovery(
           strict: true,
         },
       },
-      // With only X Search available, required makes the mandatory provider action deterministic.
-      tool_choice: 'required',
+      // Select the built-in explicitly: xAI's generic `required` mode did not
+      // force a server-side search even when X was the only configured tool.
+      tool_choice: { type: 'x_search' },
     }),
   })
   if (!response.ok) {

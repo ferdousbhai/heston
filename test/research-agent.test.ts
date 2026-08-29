@@ -181,7 +181,7 @@ describe('daily research Pi agent boundary', () => {
     expect(result.submission.ideas[0]?.symbol).toBe('NVDA')
     expect(bodies).toHaveLength(4)
     expect(bodies[0]?.tools).toEqual([{ from_date: '2026-03-01', to_date: '2026-08-29', type: 'x_search' }])
-    expect(bodies[0]?.tool_choice).toBe('required')
+    expect(bodies[0]?.tool_choice).toEqual({ type: 'x_search' })
     expect(bodies[1]?.tools).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'web_search' }),
       expect.objectContaining({ type: 'x_search' }),
