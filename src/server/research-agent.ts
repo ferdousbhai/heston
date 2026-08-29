@@ -201,6 +201,17 @@ function inspectNativeXSearch(payload: JsonValue): boolean {
   return completed
 }
 
+function inspectDedicatedXDiscovery(payload: JsonValue): void {
+  if (inspectNativeXSearch(payload)) return
+  const usage = jsonObject(jsonObject(payload)?.usage)
+  const serverSideTools = z.number().int().nonnegative().safeParse(usage?.num_server_side_tools_used).data
+  // This provider request exposes only X Search. xAI may omit its call item, but
+  // a positive server-side usage count still proves that the mandatory tool ran.
+  if (serverSideTools === undefined || serverSideTools < 1) {
+    throw new Error('DailyResearchAgentMissingXSearch')
+  }
+}
+
 function assertCompletedProviderResponse(payload: JsonValue): void {
   const status = z.string().safeParse(jsonObject(payload)?.status).data
   if (status !== 'completed') throw new Error(`DailyResearchAgentResponse:status-${status ?? 'missing'}`)
@@ -268,7 +279,7 @@ async function collectXDiscovery(
   }
   const payload = await readBoundedJson(response, MAX_RESPONSE_BYTES, 'DailyResearchAgentProvider')
   assertCompletedProviderResponse(payload)
-  if (!inspectNativeXSearch(payload)) throw new Error('DailyResearchAgentMissingXSearch')
+  inspectDedicatedXDiscovery(payload)
   const text = providerOutputText(payload)
   if (!text) throw new Error('DailyResearchAgentResponse:missing-x-discovery')
   let value: JsonValue

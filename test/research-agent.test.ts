@@ -74,7 +74,8 @@ function providerReport(
 
 function providerXContext(
   status: string | null = 'completed',
-  xSearchStatus: string | null = 'completed',
+  xSearchStatus: string | null = null,
+  serverSideTools = 1,
 ) {
   const response = {
     output: [
@@ -87,6 +88,7 @@ function providerXContext(
         }],
       },
     ],
+    usage: { num_server_side_tools_used: serverSideTools },
   }
   return status === null ? response : { ...response, status }
 }
@@ -112,9 +114,10 @@ function environment() {
 function agentFetcher(
   status: string | null = 'completed',
   xSearchStatus: string | null = 'completed',
+  serverSideTools = xSearchStatus === null ? 0 : 1,
 ) {
   const providerResponses = [
-    providerXContext(status, xSearchStatus),
+    providerXContext(status, xSearchStatus, serverSideTools),
     providerToolCall('read_market_metrics', { symbols: ['NVDA'] }, status),
     providerToolCall('get_recent_coverage', { daysAgo: 14, tickers: ['NVDA'] }, status),
     providerReport(status),
@@ -245,11 +248,21 @@ describe('daily research Pi agent boundary', () => {
     expect([...cached.keys()]).not.toContain(expect.stringContaining('submit_daily_report'))
   })
 
-  it('does not require provider search counters before accepting the model report', async () => {
+  it('accepts the structured report after required discovery and local research', async () => {
     const broker = stubBroker()
     broker.tastyRequest.mockResolvedValue({ data: { items: [{ symbol: 'NVDA' }] } })
     setBrokerApi(broker)
     const { fetcher } = agentFetcher()
+
+    await expect(runDailyResearchAgent(environment(), { now: NOW, runId: 'daily-run' }, fetcher))
+      .resolves.toEqual(expect.objectContaining({ submission: expect.any(Object) }))
+  })
+
+  it('accepts dedicated X usage when xAI omits the native call item', async () => {
+    const broker = stubBroker()
+    broker.tastyRequest.mockResolvedValue({ data: { items: [{ symbol: 'NVDA' }] } })
+    setBrokerApi(broker)
+    const { fetcher } = agentFetcher('completed', null, 1)
 
     await expect(runDailyResearchAgent(environment(), { now: NOW, runId: 'daily-run' }, fetcher))
       .resolves.toEqual(expect.objectContaining({ submission: expect.any(Object) }))
