@@ -86,7 +86,12 @@ function ServiceWorkerRegistration() {
     // The SSR integration does not transform an index.html, so own registration
     // here and keep development sessions free of persistent worker caches.
     if (!import.meta.env.PROD || !('serviceWorker' in navigator)) return
-    void navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => undefined)
+    void navigator.serviceWorker.register('/sw.js', {
+      scope: '/',
+      // A deploy may leave the worker source URL unchanged while its shell and
+      // hashed assets change. Always revalidate the worker rather than an HTTP copy.
+      updateViaCache: 'none',
+    }).catch(() => undefined)
   }, [])
   return null
 }

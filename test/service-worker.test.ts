@@ -11,11 +11,16 @@ type TestWorkerEvent = {
 
 function loadWorker(fetcher: typeof fetch) {
   const handlers = new Map<string, (event: TestWorkerEvent) => void>()
-  const cache = { match: vi.fn(), put: vi.fn() }
+  const cache = {
+    delete: vi.fn(async (_request: Request): Promise<boolean> => true),
+    keys: vi.fn(async (): Promise<readonly Request[]> => []),
+    match: vi.fn(async (_request: Request): Promise<Response | undefined> => undefined),
+    put: vi.fn(async (_request: Request, _response: Response): Promise<void> => undefined),
+  }
   const cacheStorage = {
-    delete: vi.fn(),
-    keys: vi.fn(async () => []),
-    open: vi.fn(async () => cache),
+    delete: vi.fn(async (_name: string): Promise<boolean> => true),
+    keys: vi.fn(async (): Promise<string[]> => []),
+    open: vi.fn(async (_name: string) => cache),
   }
   const worker = {
     __WB_MANIFEST: [],
@@ -40,6 +45,7 @@ function loadWorker(fetcher: typeof fetch) {
     self: worker,
   })
   return {
+    activate: handlers.get('activate')!,
     cache,
     cacheStorage,
     fetch: handlers.get('fetch')!,
@@ -53,8 +59,13 @@ function dispatchFetch(
   request: NonNullable<TestWorkerEvent['request']>,
 ) {
   let response: Promise<Response> | undefined
-  handler({ request, respondWith: (value) => { response = value } })
-  return response
+  const background: Promise<unknown>[] = []
+  handler({
+    request,
+    respondWith: (value) => { response = value },
+    waitUntil: (task) => { background.push(task) },
+  })
+  return { background, response }
 }
 
 function serviceWorkerRequest(input: RequestInfo | URL): Request {
@@ -94,7 +105,7 @@ describe('service-worker audience boundary', () => {
   it.each(['/api/snapshot', '/api/public-snapshot', '/agents/DanAgent/owner'])('never intercepts %s', (path) => {
     const fetcher = vi.fn<typeof fetch>()
     const worker = loadWorker(fetcher)
-    const response = dispatchFetch(worker.fetch, {
+    const { response } = dispatchFetch(worker.fetch, {
       method: 'GET',
       mode: 'cors',
       url: `https://tryspice.xyz${path}`,
@@ -104,19 +115,50 @@ describe('service-worker audience boundary', () => {
     expect(worker.cacheStorage.open).not.toHaveBeenCalled()
   })
 
+  it('deletes the prior public-shell cache when the updated worker activates', async () => {
+    const worker = loadWorker(vi.fn<typeof fetch>())
+    worker.cacheStorage.keys.mockResolvedValueOnce([
+      'spice-public-shell-v1',
+      'unrelated-browser-cache',
+    ])
+    let activated: Promise<unknown> | undefined
+    worker.activate({ waitUntil: (task) => { activated = task } })
+    await activated
+
+    expect(worker.cacheStorage.delete).toHaveBeenCalledOnce()
+    expect(worker.cacheStorage.delete).toHaveBeenCalledWith('spice-public-shell-v1')
+    expect(worker.worker.clients.claim).toHaveBeenCalledOnce()
+  })
+
   it('does not persist an authenticated navigation response', async () => {
     const ownerPage = new Response('<html>owner context</html>', {
       headers: { 'content-type': 'text/html' },
     })
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(ownerPage)
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      if (input instanceof Request && input.credentials === 'omit') {
+        return new Response('<html>public shell</html>', {
+          headers: { 'content-type': 'text/html' },
+        })
+      }
+      return ownerPage
+    })
     const worker = loadWorker(fetcher)
-    const response = dispatchFetch(worker.fetch, {
+    const staleAsset = new Request('https://tryspice.xyz/assets/old-build.js')
+    worker.cache.keys.mockResolvedValueOnce([staleAsset])
+    const { background, response } = dispatchFetch(worker.fetch, {
       method: 'GET',
       mode: 'navigate',
       url: 'https://tryspice.xyz/',
     })
     expect(response).toBeDefined()
     await expect(response).resolves.toBe(ownerPage)
-    expect(worker.cache.put).not.toHaveBeenCalled()
+    await Promise.all(background)
+    const cachedBodies = await Promise.all(worker.cache.put.mock.calls.map(async ([, cachedResponse]) => {
+      if (!(cachedResponse instanceof Response)) throw new Error('ServiceWorkerCachedInvalidResponse')
+      return cachedResponse.clone().text()
+    }))
+    expect(cachedBodies).toContain('<html>public shell</html>')
+    expect(cachedBodies).not.toContain('<html>owner context</html>')
+    expect(worker.cache.delete).toHaveBeenCalledWith(staleAsset)
   })
 })

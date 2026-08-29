@@ -1,5 +1,7 @@
 const CACHE_PREFIX = 'spice-public-shell-'
-const CACHE_NAME = `${CACHE_PREFIX}v1`
+// Rotate the original cache once, then keep the current public shell fresh on
+// successful navigations. Hashed build assets make future refreshes incremental.
+const CACHE_NAME = `${CACHE_PREFIX}v2`
 const PUBLIC_SHELL_KEY = '/__spice-public-offline-shell__'
 const MAX_INSTALL_ASSETS = 200
 const PUBLIC_ASSETS = [
@@ -53,13 +55,14 @@ async function cacheStaticAsset(cache, value) {
   const url = staticAssetUrl(value)
   if (!url) return []
   const request = new Request(url, { credentials: 'omit' })
-  const response = await fetch(request)
+  const cached = await cache.match(request)
+  const response = cached || await fetch(request)
   if (!response.ok || response.type === 'opaque') return []
   const contentType = response.headers.get('content-type') || ''
   const dependencies = contentType.includes('javascript') || contentType.includes('css')
     ? dependencyAssetUrls(await response.clone().text(), url)
     : []
-  await cache.put(request, response)
+  if (!cached) await cache.put(request, response)
   return dependencies
 }
 
@@ -80,9 +83,18 @@ async function cacheStaticAssets(cache, initialAssets) {
       if (result.status === 'fulfilled') queue.push(...result.value)
     }
   }
+  return seen
 }
 
-async function installPublicShell() {
+async function pruneStaticAssets(cache, retainedUrls) {
+  const requests = await cache.keys()
+  await Promise.all(requests
+    .filter((request) => new URL(request.url).pathname.startsWith('/assets/')
+      && !retainedUrls.has(request.url))
+    .map((request) => cache.delete(request)))
+}
+
+async function refreshPublicShell() {
   const cache = await caches.open(CACHE_NAME)
   const shellRequest = new Request(new URL('/', self.location.origin), {
     cache: 'reload',
@@ -107,7 +119,13 @@ async function installPublicShell() {
     }))
   }
 
-  await cacheStaticAssets(cache, [...PUBLIC_ASSETS, ...buildAssets, ...discoveredAssets])
+  const retainedUrls = await cacheStaticAssets(
+    cache,
+    [...PUBLIC_ASSETS, ...buildAssets, ...discoveredAssets],
+  )
+  if (shellResponse?.ok && shellResponse.type !== 'opaque') {
+    await pruneStaticAssets(cache, retainedUrls)
+  }
 }
 
 async function cachedStaticAsset(request) {
@@ -134,7 +152,7 @@ async function networkNavigation(request) {
 }
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(installPublicShell().then(() => self.skipWaiting()))
+  event.waitUntil(refreshPublicShell().then(() => self.skipWaiting()))
 })
 
 self.addEventListener('activate', (event) => {
@@ -157,6 +175,9 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/agents/')) return
   if (request.mode === 'navigate') {
     event.respondWith(networkNavigation(request))
+    // Refresh through a separate credentialless request: the navigation itself
+    // may contain owner-rendered state and must never enter Cache Storage.
+    event.waitUntil(refreshPublicShell().catch(() => undefined))
     return
   }
   if (staticAssetUrl({ url: url.href })) event.respondWith(cachedStaticAsset(request))
