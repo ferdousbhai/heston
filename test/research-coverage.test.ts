@@ -108,4 +108,21 @@ describe('recent ticker coverage search', () => {
     await expect(searchRecentTickerCoverage({ DB }, [])).resolves.toEqual([])
     expect(prepare).not.toHaveBeenCalled()
   })
+
+  it('fails when coverage storage is unavailable', async () => {
+    await expect(searchRecentTickerCoverage({}, ['NVDA']))
+      .rejects.toThrow('RecentCoverageUnavailable')
+  })
+
+  it('fails when a stored coverage row is malformed', async () => {
+    const all = vi.fn().mockResolvedValue({ results: [{ symbol: 'NVDA' }] })
+    const bind = vi.fn(() => ({ ...unsupportedStatement(), all }))
+    const DB: D1Database = {
+      ...unsupportedDatabase(),
+      prepare: () => ({ ...unsupportedStatement(), bind }),
+    }
+
+    await expect(searchRecentTickerCoverage({ DB }, ['NVDA']))
+      .rejects.toThrow()
+  })
 })

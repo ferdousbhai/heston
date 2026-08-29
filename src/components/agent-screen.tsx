@@ -37,6 +37,7 @@ import {
 import { Spinner } from '#/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#/components/ui/tooltip'
 import { cn } from '#/lib/utils'
+import { toError } from '../domain/failure'
 import { jsonObject, JsonObjectSchema, type JsonValue } from '../domain/json-payload'
 import {
   isDanAgentEvent,
@@ -50,7 +51,23 @@ import { volatilityVerdict, type Ticker } from '../domain/market'
 /** The relay delivers text frames; binary frames are not part of the agent protocol. */
 const RelayFrameSchema = z.string()
 
-const ActionResponseSchema = z.looseObject({ detail: z.string().optional(), error: z.string().optional() })
+export const ActionResponseSchema = z.looseObject({
+  detail: z.string().trim().min(1).optional(),
+  error: z.string().trim().min(1).optional(),
+})
+type ActionResponse = z.infer<typeof ActionResponseSchema>
+type ActionResponseResult =
+  | { detail: string; error?: never }
+  | { detail?: never; error: string }
+
+export function actionResponseResult(
+  payload: ActionResponse | undefined,
+  responseOk: boolean,
+): ActionResponseResult {
+  if (!responseOk) return { error: payload?.error ?? 'The action could not be resolved' }
+  if (!payload?.detail) return { error: 'The action service returned an invalid response' }
+  return { detail: payload.detail }
+}
 
 type ProvisionalTool = AgentToolCall & { rawInput: string }
 type ProvisionalTurn = { reasoning: string; text: string; tools: ProvisionalTool[] }
@@ -144,10 +161,12 @@ function ToolCallRow({ tool }: { tool: AgentToolCall }) {
 function ActionCard({
   action,
   messageId,
+  onAccountMutation,
   onResolved,
 }: {
   action: PendingAction
   messageId: string
+  onAccountMutation: () => Promise<void>
   onResolved: (messageId: string, status: string) => void
 }) {
   const [working, setWorking] = useState(false)
@@ -161,12 +180,14 @@ function ActionCard({
         headers: { 'Content-Type': 'application/json' },
         method: 'POST',
       })
-      const payload = ActionResponseSchema.safeParse(await response.json()).data
-      if (!response.ok) {
-        setError(payload?.error ?? 'The action could not be resolved')
+      const payload = ActionResponseSchema.safeParse(await response.json().catch(() => undefined)).data
+      const result = actionResponseResult(payload, response.ok)
+      if (!result.detail) {
+        setError(result.error)
         return
       }
-      onResolved(messageId, payload?.detail ?? payload?.error ?? 'Action resolved')
+      if (decision === 'confirm') await onAccountMutation()
+      onResolved(messageId, result.detail)
     } catch {
       setError('Could not reach the action service')
     } finally {
@@ -215,8 +236,9 @@ function ActionCard({
   )
 }
 
-function TranscriptMessage({ message, onResolved }: {
+function TranscriptMessage({ message, onAccountMutation, onResolved }: {
   message: AgentChatMessage
+  onAccountMutation: () => Promise<void>
   onResolved: (messageId: string, status: string) => void
 }) {
   if (message.role === 'user') {
@@ -239,7 +261,14 @@ function TranscriptMessage({ message, onResolved }: {
         {message.reasoning && <ReasoningTrace text={message.reasoning} />}
         {message.text && <Bubble variant="ghost"><BubbleContent><RichText text={message.text} /></BubbleContent></Bubble>}
         {message.toolCalls?.map((tool) => <ToolCallRow key={tool.id} tool={tool} />)}
-        {message.pendingAction && <ActionCard action={message.pendingAction} messageId={message.id} onResolved={onResolved} />}
+        {message.pendingAction && (
+          <ActionCard
+            action={message.pendingAction}
+            messageId={message.id}
+            onAccountMutation={onAccountMutation}
+            onResolved={onResolved}
+          />
+        )}
         {message.actionStatus && (
           <Marker className="action-status" variant="border"><MarkerIcon><ShieldCheck aria-hidden="true" /></MarkerIcon><MarkerContent>{message.actionStatus}</MarkerContent></Marker>
         )}
@@ -281,6 +310,22 @@ export function AgentScreen({
   const [connected, setConnected] = useState(false)
   const [input, setInput] = useState('')
   const [provisional, setProvisional] = useState<ProvisionalTurn | null>(null)
+  const [accountRefreshError, setAccountRefreshError] = useState<string>()
+
+  const refreshAccount = useCallback(async () => {
+    if (!onAccountMutation) return
+    setAccountRefreshError(undefined)
+    try {
+      await onAccountMutation()
+    } catch (cause: unknown) {
+      const failure = toError(cause)
+      if (failure?.name === 'AbortError') return
+      const detail = failure?.message
+      setAccountRefreshError(detail
+        ? `The account action succeeded, but refresh failed: ${detail}`
+        : 'The account action succeeded, but the latest account data could not be refreshed.')
+    }
+  }, [onAccountMutation])
 
   const onAgentMessage = useCallback((message: MessageEvent) => {
     const frame = RelayFrameSchema.safeParse(message.data).data
@@ -319,13 +364,13 @@ export function AgentScreen({
         || event.toolName === 'remember_trade_symbols'
         || event.toolName === 'prepare_brokerage_action'
       )) {
-        void onAccountMutation?.()
+        void refreshAccount()
       }
       setProvisional((current) => current ? { ...current, tools: current.tools.map((tool) => tool.id === event.toolCallId ? { ...tool, durationMs: event.durationMs, error: event.error, output: event.output, status: event.error ? 'error' : 'complete' } : tool) } : current)
     } else if (event.type === 'dan:turn_end' || event.type === 'dan:agent_end') {
       setProvisional(null)
     }
-  }, [onAccountMutation])
+  }, [refreshAccount])
 
   const agent = useAgent<DanAgentState>({
     agent: 'DanAgent',
@@ -388,7 +433,14 @@ export function AgentScreen({
               {messageGroups.map((group) => (
                 <MessageScrollerItem key={group[0].id} messageId={group[0].id} scrollAnchor={group[0].role === 'user'}>
                   <MessageGroup>
-                    {group.map((message) => <TranscriptMessage key={message.id} message={message} onResolved={resolved} />)}
+                    {group.map((message) => (
+                      <TranscriptMessage
+                        key={message.id}
+                        message={message}
+                        onAccountMutation={refreshAccount}
+                        onResolved={resolved}
+                      />
+                    ))}
                   </MessageGroup>
                 </MessageScrollerItem>
               ))}
@@ -414,6 +466,14 @@ export function AgentScreen({
               {state?.error && !running && (
                 <MessageScrollerItem messageId="agent-runtime-error">
                   <Alert className="agent-runtime-error" variant="destructive"><AlertTitle>Dan stopped</AlertTitle><AlertDescription>{state.error}</AlertDescription></Alert>
+                </MessageScrollerItem>
+              )}
+              {accountRefreshError && (
+                <MessageScrollerItem messageId="account-refresh-error">
+                  <Alert variant="destructive">
+                    <AlertTitle>Account refresh failed</AlertTitle>
+                    <AlertDescription>{accountRefreshError}</AlertDescription>
+                  </Alert>
                 </MessageScrollerItem>
               )}
             </MessageScrollerContent>

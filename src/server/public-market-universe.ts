@@ -7,11 +7,12 @@ import { type AppEnv } from './env'
 // owns the private cap: this must stay equal to MAX_MAINTAINED_ITEMS, since the
 // public universe is a bounded projection of that list.
 export const MAX_PUBLIC_MARKET_SYMBOLS = 100
-const PublicSymbolSchema = EquitySymbolSchema
 
 const PublicMarketUniverseSchema = z.strictObject({
-  symbols: z.array(PublicSymbolSchema).max(MAX_PUBLIC_MARKET_SYMBOLS),
+  symbols: z.array(EquitySymbolSchema).max(MAX_PUBLIC_MARKET_SYMBOLS),
 })
+const PublicMarketUniverseRowSchema = z.strictObject({ symbol: EquitySymbolSchema })
+const StoredPublicMarketUniverseRowSchema = z.strictObject({ payload_json: z.string() })
 
 export type PublicMarketUniverse = z.infer<typeof PublicMarketUniverseSchema>
 
@@ -20,37 +21,26 @@ export async function publishInternalWatchlistUniverse(
   env: AppEnv,
   updatedAt = new Date(),
 ): Promise<void> {
-  if (!env.DB) return
+  if (!env.DB) throw new Error('PublicMarketUniverse:store-unavailable')
+  const rows = await env.DB.prepare(
+    'SELECT symbol FROM internal_watchlist_items ORDER BY symbol ASC',
+  ).all<{ symbol: string }>()
+  const universe = PublicMarketUniverseSchema.parse({
+    symbols: z.array(PublicMarketUniverseRowSchema).parse(rows.results).map((row) => row.symbol),
+  })
   await env.DB.prepare(
     `INSERT INTO public_market_universe (id, payload_json, updated_at)
-     SELECT 'primary', json_object('symbols', json_group_array(symbol)), ?
-     FROM (
-       SELECT symbol FROM internal_watchlist_items
-       ORDER BY symbol ASC LIMIT ${MAX_PUBLIC_MARKET_SYMBOLS}
-     )
-     WHERE true
+     VALUES ('primary', ?, ?)
      ON CONFLICT(id) DO UPDATE SET payload_json = excluded.payload_json, updated_at = excluded.updated_at`,
-  ).bind(updatedAt.toISOString()).run()
+  ).bind(JSON.stringify(universe), updatedAt.toISOString()).run()
 }
 
-export async function persistPublicMarketUniverse(env: AppEnv, updatedAt: Date): Promise<void> {
-  try {
-    await publishInternalWatchlistUniverse(env, updatedAt)
-  } catch (error) {
-    console.error('PublicMarketUniverseStoreFailed', error instanceof Error ? error.message : 'UnknownError')
-  }
-}
-
-export async function loadStoredPublicMarketUniverse(env: AppEnv): Promise<PublicMarketUniverse | undefined> {
-  if (!env.DB) return undefined
-  try {
-    const row = await env.DB.prepare(
-      `SELECT payload_json FROM public_market_universe WHERE id = 'primary'`,
-    ).first<{ payload_json: string }>()
-    if (!row) return undefined
-    return PublicMarketUniverseSchema.parse(JSON.parse(row.payload_json))
-  } catch (error) {
-    console.error('PublicMarketUniverseLoadFailed', error instanceof Error ? error.message : 'UnknownError')
-    return undefined
-  }
+export async function loadStoredPublicMarketUniverse(env: AppEnv): Promise<PublicMarketUniverse> {
+  if (!env.DB) throw new Error('PublicMarketUniverse:store-unavailable')
+  const result = await env.DB.prepare(
+    `SELECT payload_json FROM public_market_universe WHERE id = 'primary'`,
+  ).first<{ payload_json: string }>()
+  if (!result) throw new Error('PublicMarketUniverse:not-found')
+  const row = StoredPublicMarketUniverseRowSchema.parse(result)
+  return PublicMarketUniverseSchema.parse(JSON.parse(row.payload_json))
 }

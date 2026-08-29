@@ -150,10 +150,11 @@ function normalizeChartQuote(quote: ChartResultArray['quotes'][number]): PriceHi
   const high = finite(quote.high)
   const low = finite(quote.low)
   const close = finite(quote.close)
+  const adjustedClose = finite(quote.adjclose)
   const volume = finite(quote.volume)
   if (date === undefined || open === undefined || high === undefined
-    || low === undefined || close === undefined || volume === undefined) return undefined
-  const adjustedClose = finite(quote.adjclose) ?? close
+    || low === undefined || close === undefined || adjustedClose === undefined
+    || volume === undefined) return undefined
   if (volume < 0 || low > high || open < 0 || close < 0 || adjustedClose < 0) return undefined
   return { adjustedClose, close, date, high, low, open, volume }
 }
@@ -178,6 +179,9 @@ export function createYahooPriceHistoryProvider(
       const quotes = raw.quotes
       if (!Array.isArray(quotes) || quotes.length > MAX_RAW_HISTORY_ROWS) return invalidHistory()
       if (raw.meta?.symbol && raw.meta.symbol.toUpperCase() !== providerSymbol) return invalidHistory()
+      const currency = raw.meta?.currency
+      const exchange = raw.meta?.exchangeName
+      if (!currency || !exchange) return invalidHistory()
 
       const prices = quotes.flatMap((quote): PriceHistoryRow[] => {
         const row = normalizeChartQuote(quote)
@@ -193,9 +197,9 @@ export function createYahooPriceHistoryProvider(
       source.searchParams.set('period2', range.endDate)
       return {
         adjustmentMethodology: 'OHLCV is split-adjusted; adjustedClose additionally applies dividend adjustments. Both are provider-calculated.',
-        currency: raw.meta?.currency ?? 'USD',
+        currency,
         delay: 'end-of-day',
-        exchange: raw.meta?.exchangeName ?? 'US equities EOD',
+        exchange,
         name: raw.meta?.longName ?? raw.meta?.shortName,
         prices,
         provider: 'yahoo-finance-chart',

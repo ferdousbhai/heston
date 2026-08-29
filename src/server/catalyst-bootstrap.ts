@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { CatalystKindSchema, CatalystSchema, CODEX_WEB_CATALYST_ID_PREFIX, isValidIsoDate, marketDate, type Catalyst } from '../domain/catalyst'
+import { toError } from '../domain/failure'
 import { EquitySymbolSchema, instrumentDisplayName, type InstrumentCatalogItem } from '../domain/instrument'
 import { type JsonValue } from '../domain/json-payload'
 import { persistResearchedCatalysts } from './catalysts'
@@ -9,22 +10,23 @@ import { type AppEnv } from './env'
 import { readInstrumentCatalog } from './instrument-catalog'
 import { MAX_MAINTAINED_ITEMS, readInternalWatchlistFocus } from './internal-watchlist'
 
-const MODEL = 'local-codex-native-web'
-const MAX_FINDINGS = 1_000
 const FindingSchema = z.object({
   date: z.string(),
-  description: z.string().trim().min(1).max(500),
-  instrumentName: z.string().trim().min(1).max(512),
+  description: z.string().min(1).max(500),
+  instrumentName: z.string().min(1).max(512),
   kind: CatalystKindSchema.exclude(['earnings']),
-  sourceUrl: z.string().trim().max(2_048),
+  sourceUrl: z.string().min(1).max(2_048),
   symbol: EquitySymbolSchema,
   timing: z.enum(['pre-market', 'intraday', 'after-hours', 'unknown']),
-  title: z.string().trim().min(1).max(160),
+  title: z.string().min(1).max(160),
 })
 
 const ArtifactEnvelopeSchema = z.object({
-  findings: z.array(z.custom<JsonValue>()).max(MAX_FINDINGS),
+  codexVersion: z.string().regex(/^codex-cli \d+\.\d+\.\d+$/),
+  findings: z.array(z.custom<JsonValue>()),
+  model: z.string().min(1).max(160),
   openPageTranscripts: z.array(z.string().max(1_000_000)).min(1).max(MAX_MAINTAINED_ITEMS),
+  reasoningEffort: z.string().min(1).max(40),
   researchedSymbols: z.array(EquitySymbolSchema).min(1).max(MAX_MAINTAINED_ITEMS),
   runId: z.string().uuid(),
 })
@@ -40,7 +42,7 @@ export type CatalystBootstrapInstrument = {
 
 export type CatalystBootstrapValidation = {
   catalysts: Catalyst[]
-  rejected: Array<{ index: number; reason: string }>
+  model: string
   researchedSymbolCount: number
   runId: string
 }
@@ -48,10 +50,6 @@ export type CatalystBootstrapValidation = {
 function plusDays(date: string, days: number): string {
   const [year, month, day] = date.split('-').map(Number)
   return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10)
-}
-
-function cleanText(value: string): string {
-  return value.replaceAll('—', '-').replaceAll(/\s+/g, ' ').trim()
 }
 
 function shortStableHash(value: string): string {
@@ -68,29 +66,29 @@ function catalystFromFinding(
   instrument: CatalystBootstrapInstrument,
   accessedUrls: ReadonlySet<string>,
   now: Date,
-): Catalyst | undefined {
+): Catalyst {
   const today = marketDate(now)
   if (finding.instrumentName !== instrument.name
     || !isValidIsoDate(finding.date)
     || finding.date < today
-    || finding.date > plusDays(today, 180)) return undefined
+    || finding.date > plusDays(today, 180)) {
+    throw new Error('invalid-instrument-or-date')
+  }
   const sourceUrl = canonicalCodexSourceUrl(finding.sourceUrl)
-  if (!sourceUrl || !accessedUrls.has(sourceUrl)) return undefined
-  const title = cleanText(finding.title)
-  const description = cleanText(finding.description)
+  if (!sourceUrl || !accessedUrls.has(sourceUrl)) throw new Error('invalid-provenance')
   const sourceName = new URL(sourceUrl).hostname.replace(/^www\./, '')
-  const identity = `${finding.symbol}:${finding.kind}:${finding.date}:${sourceUrl}:${title}`
+  const identity = `${finding.symbol}:${finding.kind}:${finding.date}:${sourceUrl}:${finding.title}`
   return CatalystSchema.parse({
     confidence: 'estimated',
     date: finding.date,
-    description,
+    description: finding.description,
     id: `${CODEX_WEB_CATALYST_ID_PREFIX}${finding.symbol}:${finding.kind}:${finding.date}:${shortStableHash(identity)}`,
     kind: finding.kind,
     source: `Codex web · ${sourceName}`,
     sourceUrl,
     symbol: finding.symbol,
     timing: finding.timing,
-    title,
+    title: finding.title,
     updatedAt: now.toISOString(),
   })
 }
@@ -123,30 +121,31 @@ export function validateCatalystBootstrapArtifact(
   for (const symbol of researchedSymbols) {
     if (!known.has(symbol)) throw new Error('CatalystBootstrap:unknown-researched-symbol')
   }
-  const allowed = new Map([...known].filter(([symbol]) => researchedSymbols.has(symbol)))
   const accepted = new Map<string, Catalyst>()
-  const rejected: CatalystBootstrapValidation['rejected'] = []
   for (const [index, candidate] of artifact.findings.entries()) {
-    const finding = FindingSchema.safeParse(candidate)
-    if (!finding.success) {
-      rejected.push({ index, reason: 'invalid-shape' })
-      continue
+    let finding: z.infer<typeof FindingSchema>
+    try {
+      finding = FindingSchema.parse(candidate)
+    } catch {
+      throw new Error(`CatalystBootstrap:invalid-finding:${index}:invalid-shape`)
     }
-    const instrument = allowed.get(finding.data.symbol)
-    const catalyst = instrument ? catalystFromFinding(finding.data, instrument, accessedUrls, now) : undefined
-    if (!catalyst) {
-      rejected.push({ index, reason: 'invalid-provenance-or-date' })
-      continue
+    const instrument = researchedSymbols.has(finding.symbol) ? known.get(finding.symbol) : undefined
+    if (!instrument) throw new Error(`CatalystBootstrap:invalid-finding:${index}:unknown-symbol`)
+    let catalyst: Catalyst
+    try {
+      catalyst = catalystFromFinding(finding, instrument, accessedUrls, now)
+    } catch (cause) {
+      const reason = cause instanceof Error ? cause.message : 'invalid-finding'
+      throw new Error(`CatalystBootstrap:invalid-finding:${index}:${reason}`)
     }
     if (accepted.has(catalyst.id)) {
-      rejected.push({ index, reason: 'duplicate' })
-      continue
+      throw new Error(`CatalystBootstrap:invalid-finding:${index}:duplicate`)
     }
     accepted.set(catalyst.id, catalyst)
   }
   return {
     catalysts: [...accepted.values()],
-    rejected,
+    model: `${artifact.model}/${artifact.reasoningEffort} (${artifact.codexVersion})`,
     researchedSymbolCount: researchedSymbols.size,
     runId: artifact.runId,
   }
@@ -159,6 +158,7 @@ async function recordRun(
     completedAt?: string
     error?: string
     id: string
+    model: string
     rejected?: number
     startedAt: string
     status: 'running' | 'completed' | 'failed'
@@ -175,7 +175,7 @@ async function recordRun(
        rejected_count = excluded.rejected_count, error_code = excluded.error_code,
        completed_at = excluded.completed_at`,
   ).bind(
-    values.id, MODEL, values.status, values.symbolCount, values.accepted ?? null,
+    values.id, values.model, values.status, values.symbolCount, values.accepted ?? null,
     values.rejected ?? null, values.error ?? null, values.startedAt, values.completedAt ?? null,
   ).run()
 }
@@ -190,6 +190,7 @@ export async function applyCatalystBootstrapArtifact(
   const startedAt = now.toISOString()
   await recordRun(env, {
     id: validation.runId,
+    model: validation.model,
     startedAt,
     status: 'running',
     symbolCount: validation.researchedSymbolCount,
@@ -200,7 +201,8 @@ export async function applyCatalystBootstrapArtifact(
       accepted: validation.catalysts.length,
       completedAt: new Date().toISOString(),
       id: validation.runId,
-      rejected: validation.rejected.length,
+      model: validation.model,
+      rejected: 0,
       startedAt,
       status: 'completed',
       symbolCount: validation.researchedSymbolCount,
@@ -212,10 +214,16 @@ export async function applyCatalystBootstrapArtifact(
       completedAt: new Date().toISOString(),
       error,
       id: validation.runId,
+      model: validation.model,
       startedAt,
       status: 'failed',
       symbolCount: validation.researchedSymbolCount,
-    }).catch(() => undefined)
+    }).catch((receiptCause) => {
+      const receiptError = toError(receiptCause)
+      console.error('Catalyst bootstrap failed and its failure receipt could not be recorded', {
+        receiptError: receiptError?.name ?? 'UnknownError',
+      })
+    })
     throw cause
   }
 }

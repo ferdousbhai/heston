@@ -13,6 +13,7 @@ const LAST_KNOWN_AMBIGUOUS_TRANSCRIPT_VERSION = [0, 148, 0]
 const versionResult = spawnSync('codex', ['--version'], { encoding: 'utf8' })
 const versionMatch = versionResult.stdout?.match(/codex-cli\s+(\d+)\.(\d+)\.(\d+)/)
 const installedVersion = versionMatch?.slice(1).map(Number)
+const codexVersion = versionMatch?.[0]
 const versionOrder = installedVersion
   ? installedVersion[0] - LAST_KNOWN_AMBIGUOUS_TRANSCRIPT_VERSION[0]
     || installedVersion[1] - LAST_KNOWN_AMBIGUOUS_TRANSCRIPT_VERSION[1]
@@ -28,17 +29,23 @@ if (versionResult.status !== 0 || versionOrder <= 0) {
 const operationDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(operationDir, '../..')
 const schemaPath = path.join(operationDir, 'output-schema.json')
+const model = 'gpt-5.6-sol'
+const reasoningEffort = 'xhigh'
 const input = JSON.parse(await readFile(inputPath, 'utf8'))
 if (!Array.isArray(input.instruments)) throw new Error('Catalyst input is missing instruments')
 await mkdir(runsPath, { recursive: true })
 
-function positiveInteger(value, fallback) {
+function positiveInteger(name, value, fallback) {
+  if (value === undefined) return fallback
   const parsed = Number(value)
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive integer`)
+  }
+  return parsed
 }
 
-const chunkSize = positiveInteger(process.env.SPICE_CATALYST_CHUNK_SIZE, 12)
-const concurrency = positiveInteger(process.env.SPICE_CATALYST_CONCURRENCY, 2)
+const chunkSize = positiveInteger('SPICE_CATALYST_CHUNK_SIZE', process.env.SPICE_CATALYST_CHUNK_SIZE, 12)
+const concurrency = positiveInteger('SPICE_CATALYST_CONCURRENCY', process.env.SPICE_CATALYST_CONCURRENCY, 2)
 const selectedInstruments = input.instruments
 if (!selectedInstruments.length) throw new Error('Catalyst run selected no instruments')
 
@@ -53,13 +60,30 @@ for (let chunkStart = 0; chunkStart < selectedInstruments.length; chunkStart += 
 }
 const manifest = {
   chunkSize,
+  codexVersion,
   horizon,
   inputHash: createHash('sha256').update(JSON.stringify(selectedInstruments)).digest('hex'),
+  model,
+  reasoningEffort,
   symbols: selectedInstruments.map((instrument) => instrument.symbol),
   today,
 }
 const manifestPath = path.join(runsPath, 'manifest.json')
-const existingManifest = await readFile(manifestPath, 'utf8').then(JSON.parse).catch(() => undefined)
+async function readOptionalFile(filePath) {
+  try {
+    return await readFile(filePath, 'utf8')
+  } catch (cause) {
+    if (cause?.code === 'ENOENT') return undefined
+    throw cause
+  }
+}
+
+async function readOptionalJson(filePath) {
+  const contents = await readOptionalFile(filePath)
+  return contents === undefined ? undefined : JSON.parse(contents)
+}
+
+const existingManifest = await readOptionalJson(manifestPath)
 if (existingManifest && JSON.stringify(existingManifest) !== JSON.stringify(manifest)) {
   // Chunk files are keyed by position, so partial work for a different instrument
   // list would be reused for the wrong symbols. The daily timer resumes into one
@@ -93,41 +117,42 @@ Instruments:\n${JSON.stringify(instruments)}`
 }
 
 function openPageTranscript(transcript) {
-  return transcript.split('\n').flatMap((line) => {
-    if (!line) return []
-    try {
-      const event = JSON.parse(line)
-      return event?.type === 'item.completed'
-        && event.item?.type === 'web_search'
-        && event.item.action?.type === 'open_page'
-        ? [line]
-        : []
-    } catch {
-      return []
-    }
+  return transcript.split('\n').filter((line) => {
+    if (!line) return false
+    const event = JSON.parse(line)
+    return event?.type === 'item.completed'
+      && event.item?.type === 'web_search'
+      && event.item.action?.type === 'open_page'
   }).join('\n')
 }
 
 async function runChunk(instruments, index) {
   const finalPath = path.join(runsPath, `chunk-${String(index + 1).padStart(3, '0')}.json`)
   const transcriptPath = path.join(runsPath, `chunk-${String(index + 1).padStart(3, '0')}.jsonl`)
-  try {
-    const [completed, transcript] = await Promise.all([
-      readFile(finalPath, 'utf8').then(JSON.parse),
-      readFile(transcriptPath, 'utf8'),
-    ])
+  const [completed, existingTranscript] = await Promise.all([
+    readOptionalJson(finalPath),
+    readOptionalFile(transcriptPath),
+  ])
+  if (completed !== undefined && existingTranscript !== undefined) {
     if (Array.isArray(completed.findings)) {
       process.stderr.write(`Reusing catalyst chunk ${index + 1}/${chunks.length}\n`)
-      return { findings: completed.findings, transcript }
+      return { findings: completed.findings, transcript: existingTranscript }
     }
-  } catch {
-    // Missing or incomplete chunks are safe to rerun because no D1 write happens here.
+    throw new Error(`Stored catalyst chunk ${index + 1} returned no findings`)
+  }
+  if (completed !== undefined || existingTranscript !== undefined) {
+    // A process can stop between writing its transcript and structured response.
+    // Neither file has reached D1, so rerunning this incomplete pair is safe.
+    process.stderr.write(`Rerunning incomplete catalyst chunk ${index + 1}/${chunks.length}\n`)
   }
   process.stderr.write(`Starting catalyst chunk ${index + 1}/${chunks.length}\n`)
   const child = spawn('codex', [
     '--search',
     'exec',
     '--ephemeral',
+    '--ignore-user-config',
+    '--model', model,
+    '--config', `model_reasoning_effort="${reasoningEffort}"`,
     '--sandbox', 'read-only',
     '--json',
     '--output-schema', schemaPath,
@@ -167,8 +192,11 @@ for (const chunk of chunkResults) {
 }
 
 await writeFile(artifactPath, `${JSON.stringify({
+  codexVersion,
   findings,
+  model,
   openPageTranscripts,
+  reasoningEffort,
   researchedSymbols: selectedInstruments.map((instrument) => instrument.symbol),
   runId: randomUUID(),
 }, null, 2)}\n`)

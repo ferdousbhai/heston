@@ -5,17 +5,37 @@ import { EquitySymbolSchema } from '../domain/instrument'
 import { type AppEnv } from './env'
 import { researchBriefId } from './research-contracts'
 
-const RecentCoverageRowSchema = z.object({
-  description: z.string().trim().min(1).max(360).nullable(),
+const CoverageRowFields = {
   direction: z.enum(['bullish', 'bearish', 'neutral']),
-  headline: z.string().trim().min(1).max(100).nullable(),
-  horizon: z.string().trim().min(1).nullable(),
   published_at: z.string().datetime(),
-  risk: z.string().trim().min(1).max(240),
-  setup: z.string().trim().min(1).nullable(),
+  risk: z.string().min(1),
   symbol: EquitySymbolSchema,
-  thesis: z.string().trim().min(1).nullable(),
-})
+}
+
+const CurrentCoverageRowSchema = z.object({
+  ...CoverageRowFields,
+  description: z.string().min(1),
+  headline: z.string().min(1),
+  horizon: z.null(),
+  setup: z.null(),
+  thesis: z.null(),
+}).transform((row) => ({ ...row, publishedAt: row.published_at }))
+
+const LegacyCoverageRowSchema = z.object({
+  ...CoverageRowFields,
+  description: z.null(),
+  headline: z.null(),
+  horizon: z.string().min(1),
+  setup: z.string().min(1),
+  thesis: z.string().min(1),
+}).transform((row) => ({
+  ...row,
+  description: `${row.thesis} Horizon: ${row.horizon}.`,
+  headline: row.setup,
+  publishedAt: row.published_at,
+}))
+
+const RecentCoverageRowSchema = z.union([CurrentCoverageRowSchema, LegacyCoverageRowSchema])
 
 export interface RecentTickerCoverage {
   description: string
@@ -44,7 +64,8 @@ export async function searchRecentTickerCoverage(
   daysAgo = 14,
   now = new Date(),
 ): Promise<RecentTickerCoverage[]> {
-  if (!env.DB || symbols.length === 0) return []
+  if (symbols.length === 0) return []
+  if (!env.DB) throw new Error('RecentCoverageUnavailable')
   if (!Number.isSafeInteger(daysAgo) || daysAgo < 1 || daysAgo > 365) {
     throw new Error('Recent coverage lookback is invalid.')
   }
@@ -73,21 +94,16 @@ export async function searchRecentTickerCoverage(
     JSON.stringify([...requested]),
   ).all()
 
-  return rows.results.flatMap((value) => {
-    const row = RecentCoverageRowSchema.safeParse(value).data
-    if (!row || !requested.has(row.symbol)) return []
-    const headline = row.headline ?? row.setup
-    const description = row.description ?? (row.thesis && row.horizon
-      ? `${row.thesis} Horizon: ${row.horizon}.`.slice(0, 360)
-      : undefined)
-    if (!headline || !description) return []
-    return [{
-      description,
+  return rows.results.map((value) => {
+    const row = RecentCoverageRowSchema.parse(value)
+    if (!requested.has(row.symbol)) throw new Error(`RecentCoverageUnexpectedSymbol:${row.symbol}`)
+    return {
+      description: row.description,
       direction: row.direction,
-      headline,
-      publishedAt: row.published_at,
+      headline: row.headline,
+      publishedAt: row.publishedAt,
       risk: row.risk,
       symbol: row.symbol,
-    }]
+    }
   })
 }

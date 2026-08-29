@@ -7,6 +7,7 @@ import {
 } from '../src/server/research-agent'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
+import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
 import { unsupportedAi } from './fake-ai'
 
 const NOW = new Date('2026-08-28T13:30:00.000Z')
@@ -16,9 +17,7 @@ function submission(): DailyResearchSubmission {
   return {
     sources: [{
       context: 'A signed supply agreement improves near-term demand visibility.',
-      evidenceIndex: null,
       sourceUrl: CITED_URL,
-      symbol: 'NVDA',
       title: 'NVIDIA signs supply agreement',
     }],
     title: 'Selective convexity',
@@ -45,10 +44,10 @@ function submission(): DailyResearchSubmission {
 function providerToolCall(
   name: string,
   args: JsonObject,
-  usage: JsonObject = {},
   citedUrl?: string,
+  status: string | null = 'completed',
 ) {
-  return {
+  const response = {
     output: [
       ...(citedUrl ? [{
         type: 'message',
@@ -60,12 +59,14 @@ function providerToolCall(
       }] : []),
       { type: 'function_call', call_id: `${name}-1`, name, arguments: JSON.stringify(args) },
     ],
-    usage: { server_side_tool_usage_details: usage },
   }
+  return status === null ? response : { ...response, status }
 }
 
 function environment() {
   const secret = (value: string): SecretsStoreSecret => ({ get: async () => value })
+  const all = async () => d1Result([])
+  const bind = () => ({ ...unsupportedStatement(), all })
   return {
     AI: {
       ...unsupportedAi(),
@@ -73,20 +74,18 @@ function environment() {
       gateway: () => ({ getUrl: async () => 'https://gateway.example/spice/grok' }) as AiGateway,
     },
     AI_GATEWAY_TOKEN: secret('gateway-token'),
+    DB: { ...unsupportedDatabase(), prepare: () => ({ ...unsupportedStatement(), bind }) },
     REDDIT_CLIENT_ID: secret('reddit-id'),
     REDDIT_CLIENT_SECRET: secret('reddit-secret'),
     XAI_API_KEY: secret('xai-key'),
   }
 }
 
-function agentFetcher(xSearches = 2) {
+function agentFetcher(status: string | null = 'completed') {
   const providerResponses = [
-    providerToolCall('read_market_metrics', { symbols: ['NVDA'] }),
-    providerToolCall('get_recent_coverage', { daysAgo: 14, tickers: ['NVDA'] }),
-    providerToolCall('submit_daily_report', submission(), {
-      web_search_calls: 1,
-      x_search_calls: xSearches,
-    }, CITED_URL),
+    providerToolCall('read_market_metrics', { symbols: ['NVDA'] }, undefined, status),
+    providerToolCall('get_recent_coverage', { daysAgo: 14, tickers: ['NVDA'] }, undefined, status),
+    providerToolCall('submit_daily_report', submission(), CITED_URL, status),
   ]
   const bodies: JsonObject[] = []
   const fetcher = vi.fn<typeof fetch>(async (input, init) => {
@@ -130,9 +129,7 @@ describe('daily research Pi agent boundary', () => {
     }, fetcher)
 
     expect(result.submission.ideas[0]?.symbol).toBe('NVDA')
-    expect(result.marketMetrics).toEqual([expect.objectContaining({ symbol: 'NVDA' })])
     expect(result.citations).toContain(CITED_URL)
-    expect(result.xSearches).toBe(2)
     expect(bodies).toHaveLength(3)
     expect(bodies[0]?.tools).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'web_search' }),
@@ -186,21 +183,38 @@ describe('daily research Pi agent boundary', () => {
     )
 
     expect(replayed.submission.ideas[0]?.symbol).toBe('NVDA')
-    expect(replayed.marketMetrics).toEqual([expect.objectContaining({ symbol: 'NVDA' })])
-    expect(replayed.evidence).toEqual([])
     expect(replayed.citations).toContain(CITED_URL)
     expect(second.fetcher).not.toHaveBeenCalled()
     expect(broker.tastyRequest).toHaveBeenCalledTimes(1)
     expect([...cached.keys()]).not.toContain(expect.stringContaining('submit_daily_report'))
   })
 
-  it('requires native X research somewhere in the run', async () => {
+  it('does not require provider search counters before accepting the model report', async () => {
     const broker = stubBroker()
     broker.tastyRequest.mockResolvedValue({ data: { items: [{ symbol: 'NVDA' }] } })
     setBrokerApi(broker)
-    const { fetcher } = agentFetcher(0)
+    const { fetcher } = agentFetcher()
 
     await expect(runDailyResearchAgent(environment(), { now: NOW, runId: 'daily-run' }, fetcher))
-      .rejects.toThrow('DailyResearchAgentMissingXSearch')
+      .resolves.toEqual(expect.objectContaining({ submission: expect.any(Object) }))
+  })
+
+  it('fails immediately when a research tool fails', async () => {
+    const broker = stubBroker()
+    broker.tastyRequest.mockRejectedValue(new Error('provider unavailable'))
+    setBrokerApi(broker)
+    const { bodies, fetcher } = agentFetcher()
+
+    await expect(runDailyResearchAgent(environment(), { now: NOW, runId: 'daily-run' }, fetcher))
+      .rejects.toThrow('DailyResearchAgentTool:read_market_metrics')
+    expect(bodies).toHaveLength(1)
+  })
+
+  it('rejects a provider response without a completed status', async () => {
+    setBrokerApi(stubBroker())
+    const { fetcher } = agentFetcher(null)
+
+    await expect(runDailyResearchAgent(environment(), { now: NOW, runId: 'daily-run' }, fetcher))
+      .rejects.toThrow('DailyResearchAgentResponse:status-missing')
   })
 })

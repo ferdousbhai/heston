@@ -38,12 +38,20 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
     contentType: 'application/json',
     body: JSON.stringify(publicSnapshot),
   }))
+  await page.addInitScript(() => {
+    localStorage.setItem('spice.tickers.v6', 'stale owner ticker rows')
+    localStorage.setItem('spice.watchlists.v6', 'stale owner watchlist rows')
+  })
   await page.goto('/')
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible()
   await expect(page.getByText('Premium looks')).toHaveCount(0)
   await expect(page.locator('.intent-label')).toHaveCount(0)
   await expect(page.locator('.premium-data-table [data-slot="badge"]')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /NVDA, NVIDIA, Expensive option premium/ })).toBeVisible()
+  expect(await page.evaluate(() => Object.keys(localStorage).filter((key) => (
+    key === 'spice.snapshot.v7'
+      || /^spice\.(?:tickers|watchlists|research|catalysts|sync-state)\.v/.test(key)
+  )))).toEqual(['spice.snapshot.v7'])
   await expect(page.getByRole('button', { name: 'Manage Options Watch' })).toHaveCount(0)
   await expect(page.getByRole('combobox', { name: 'Watchlist' })).toHaveCount(0)
   await expect(page.locator('.watchlist-title')).toHaveCount(0)
@@ -102,6 +110,8 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
 
 test('mobile market, research, search, sorting, and agent flows remain coherent', async ({ page, context }) => {
   const snapshot = marketSnapshotFixture()
+  let rejectNextSnapshot = false
+  let rejectSnapshots = false
   snapshot.catalysts.forEach((catalyst, index) => {
     catalyst.date = isoDateAfter(10 + index * 7)
   })
@@ -109,10 +119,16 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
     contentType: 'application/json',
     body: JSON.stringify({ authRequired: true, user: { id: 'owner-1', name: 'Owner', role: 'owner' } }),
   }))
-  await page.route('**/api/snapshot', (route) => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify(snapshot),
-  }))
+  await page.route('**/api/snapshot', (route) => {
+    if (rejectNextSnapshot || rejectSnapshots) {
+      rejectNextSnapshot = false
+      return route.fulfill({ status: 503, body: '{}' })
+    }
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify(snapshot),
+    })
+  })
   await page.route('**/api/watchlists', async (route) => {
     const action = WatchlistMutationRequestSchema.parse(route.request().postDataJSON())
     const watchlist = snapshot.watchlists.find((candidate) => candidate.kind === 'private')!
@@ -193,7 +209,9 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   await watchlistEditor.getByLabel('Add a symbol').fill('PLTR')
   await expect(page.getByText('No loaded symbol matches. You can still add the typed equity symbol.')).toBeVisible()
   await page.keyboard.press('Escape')
+  rejectNextSnapshot = true
   await watchlistEditor.getByRole('button', { name: 'Add symbol' }).click()
+  await expect(watchlistEditor.getByText('Snapshot sync failed (503)')).toBeVisible()
   await expect(watchlistEditor.locator('.watchlist-member', { hasText: 'PLTR' })).toBeVisible()
   await watchlistEditor.getByRole('button', { name: 'Remove PLTR from Watchlist' }).click()
   await expect(watchlistEditor.locator('.watchlist-member', { hasText: 'PLTR' })).toHaveCount(0)
@@ -249,7 +267,17 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   await context.setOffline(true)
   await page.evaluate(() => window.dispatchEvent(new Event('offline')))
   await page.getByRole('tab', { name: 'Watch', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('Market data may be stale')
+  await expect(page.getByRole('alert')).toContainText('Live market updates are paused while offline')
   await expect(selectedSymbol).toHaveText('INTC')
+
+  rejectSnapshots = true
+  await context.setOffline(false)
+  await page.evaluate(() => window.dispatchEvent(new Event('online')))
+  await expect(page.getByRole('alert')).toContainText('Latest market data could not be synchronized')
+  rejectSnapshots = false
+  await page.evaluate(() => window.dispatchEvent(new Event('online')))
+  await expect(page.getByRole('alert')).toHaveCount(0)
 })
 
 test('authenticated favorites consume only unchanged anonymous staging across tabs', async ({ context, page }) => {
@@ -507,6 +535,8 @@ test('two signed-out devices converge on the account union without granting owne
   rejectNextFavoriteMutation = true
   await mobile.getByRole('button', { name: 'Unpin NVDA' }).click()
   await expect.poll(() => rejectedFavoriteMutations).toBe(1)
+  await expect(mobile.getByRole('alert')).toContainText('Favorite update failed')
+  await expect(mobile.getByRole('alert')).toContainText('Favorite sync failed (503)')
   await expect(mobile.getByRole('button', { name: 'Unpin NVDA' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Unpin META' }).click()

@@ -97,9 +97,7 @@ export async function reconcileUnknownBrokerageAction(
   env: AppEnv,
   now = new Date(),
 ): Promise<ReconciliationResult> {
-  if (!env.DB) {
-    return { detail: 'Live brokerage reconciliation is unavailable.', status: 'none' }
-  }
+  if (!env.DB) throw new Error('TastytradeReconciliation:store-unavailable')
   const staleBefore = new Date(now.getTime() - 2 * 60_000).toISOString()
   const stored = await env.DB.prepare(
     `SELECT id, payload_json, resolved_at, error_code

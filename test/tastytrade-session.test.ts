@@ -101,6 +101,24 @@ describe('tastytrade OAuth boundary', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('rejects an OAuth response without a positive token lifetime', async () => {
+    vi.resetModules()
+    const fetchMock = vi.fn(async () => Response.json({ access_token: 'token-without-lifetime' }))
+    vi.stubGlobal('fetch', fetchMock)
+    const { tastyRequest } = await import('../src/server/tastytrade')
+    const secret: SecretsStoreSecret = { get: async () => 'secret' }
+    const brokerGate = stubBrokerGate()
+
+    await expect(tastyRequest({
+      BROKER_GATE: brokerGate.namespace,
+      TASTYTRADE_CLIENT_SECRET: secret,
+      TASTYTRADE_REFRESH_TOKEN: secret,
+    }, '/market-time/equities/sessions/current')).rejects.toThrow('TastytradeAuth:invalid-token-lifetime')
+
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(brokerGate.gate.acquire).not.toHaveBeenCalled()
+  })
+
   it('redacts account identifiers from API errors', async () => {
     vi.resetModules()
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => String(input).endsWith('/oauth/token')

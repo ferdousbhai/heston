@@ -15,8 +15,12 @@ export const Route = createFileRoute('/api/stream')({
         }
         if (!appEnv.MARKET_FEED) return new Response('Live market feed unavailable', { status: 503 })
         const url = new URL(request.url)
-        const symbols = parseRequestedSymbols(url)
-        if (!symbols.length) return new Response('At least one valid symbol is required', { status: 400 })
+        let symbols: string[]
+        try {
+          symbols = parseRequestedSymbols(url)
+        } catch {
+          return new Response('Invalid market feed subscription', { status: 400 })
+        }
         url.searchParams.set('symbols', symbols.join(','))
         return appEnv.MARKET_FEED.get(appEnv.MARKET_FEED.idFromName('primary-account')).fetch(new Request(url, request))
       },

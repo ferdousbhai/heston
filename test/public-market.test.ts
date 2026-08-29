@@ -3,6 +3,11 @@ import { stubBrokerGate } from './broker-stub'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
 import { migrationStore } from './sqlite-d1'
 import { ensureInternalWatchlistSeeded, finalizeInternalWatchlist } from '../src/server/internal-watchlist'
+import { marketSnapshotFixture } from './fixtures/market'
+import {
+  loadStoredPublicMarketUniverse,
+  publishInternalWatchlistUniverse,
+} from '../src/server/public-market-universe'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -59,7 +64,28 @@ function equitySymbolAt(index: number): string {
 }
 
 describe('public market boundary', () => {
-  it('has no hardcoded fallback and never reaches an account or watchlist endpoint', async () => {
+  it('rejects missing, malformed, and oversized stored universes', async () => {
+    const store = await migrationStore()
+    await expect(loadStoredPublicMarketUniverse({ DB: store.database })).rejects.toThrow('not-found')
+    store.sqlite.prepare(
+      `INSERT INTO public_market_universe (id, payload_json, updated_at) VALUES ('primary', ?, ?)`,
+    ).run(JSON.stringify({ symbols: ['not a ticker'] }), '2026-08-26T12:00:00.000Z')
+    await expect(loadStoredPublicMarketUniverse({ DB: store.database })).rejects.toThrow()
+
+    store.sqlite.prepare(`DELETE FROM public_market_universe WHERE id = 'primary'`).run()
+    const symbols = Array.from({ length: 101 }, (_, index) => equitySymbolAt(index))
+    const insert = store.sqlite.prepare(
+      `INSERT INTO internal_watchlist_items
+        (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
+       VALUES (?, 'Equity', 'owner', '{}', ?, ?)`,
+    )
+    for (const symbol of symbols) insert.run(symbol, '2026-08-26T12:00:00.000Z', '2026-08-26T12:00:00.000Z')
+    await expect(publishInternalWatchlistUniverse({ DB: store.database })).rejects.toThrow()
+    expect(store.sqlite.prepare(`SELECT id FROM public_market_universe WHERE id = 'primary'`).get()).toBeUndefined()
+    store.close()
+  })
+
+  it('fails before provider access when the public D1 universe is unavailable', async () => {
     vi.resetModules()
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
@@ -72,21 +98,42 @@ describe('public market boundary', () => {
     const secret: SecretsStoreSecret = { get: async () => 'secret' }
     const brokerGate = stubBrokerGate()
 
-    const snapshot = await loadPublicMarketSnapshot({
+    await expect(loadPublicMarketSnapshot({
       BROKER_GATE: brokerGate.namespace,
       TASTYTRADE_CLIENT_SECRET: secret,
       TASTYTRADE_REFRESH_TOKEN: secret,
-    })
+    })).rejects.toThrow('PublicMarketUniverse:store-unavailable')
 
     const requestedUrls = fetchMock.mock.calls.map(([input]) => String(input))
     expect(requestedUrls.some((url) => url.includes('/accounts/'))).toBe(false)
     expect(requestedUrls.some((url) => url.includes('/watchlists'))).toBe(false)
     expect(requestedUrls.some((url) => url.includes('/market-metrics'))).toBe(false)
     expect(requestedUrls.some((url) => url.includes('/market-data'))).toBe(false)
-    expect(snapshot.watchlists).toEqual([{
-      id: 'public-options-watch', kind: 'public', name: 'Options Watch', symbols: [],
-    }])
-    expect(snapshot.tickers).toEqual([])
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('does not persist an unresolved catalog row for a provider transport failure', async () => {
+    vi.resetModules()
+    const store = await migrationStore()
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/oauth/token')) return Response.json({ access_token: 'catalog-token', expires_in: 900 })
+      if (url.includes('/instruments/equities?')) return Response.json({ data: { items: [] } })
+      if (url.includes('/instruments/equities/SPCX')) return new Response('', { status: 500 })
+      return new Response('', { status: 404 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { refreshTastytradeInstrumentCatalog } = await import('../src/server/tastytrade')
+    const secret: SecretsStoreSecret = { get: async () => 'secret' }
+
+    await expect(refreshTastytradeInstrumentCatalog({
+      BROKER_GATE: stubBrokerGate().namespace,
+      DB: store.database,
+      TASTYTRADE_CLIENT_SECRET: secret,
+      TASTYTRADE_REFRESH_TOKEN: secret,
+    }, ['SPCX'])).rejects.toThrow('TastytradeApi:500')
+    expect(store.sqlite.prepare('SELECT count(*) AS count FROM instrument_catalog').get()).toEqual({ count: 0 })
+    store.close()
   })
 
   it('serves the internal list alone and never syncs a held symbol into it', async () => {
@@ -103,6 +150,10 @@ describe('public market boundary', () => {
         (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
       VALUES ('NVDA', 'Equity', 'tastytrade-seed', '{}', '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z');
     `)
+    const research = marketSnapshotFixture().research
+    store.sqlite.prepare(
+      'INSERT INTO research_briefs (id, published_at, payload_json) VALUES (?, ?, ?)',
+    ).run(research.id, research.publishedAt, JSON.stringify(research))
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
       if (url.endsWith('/oauth/token')) return Response.json({ access_token: 'owner-read-token', expires_in: 900 })
@@ -125,6 +176,7 @@ describe('public market boundary', () => {
       })) } })
       if (url.includes('/market-data/by-type')) return Response.json({ data: { items: symbols.map((symbol) => ({
         symbol, mark: '100', 'previous-close': '98', description: symbol,
+        change: '2', 'change-percent': '2.0408163265',
         'updated-at': '2026-08-26T13:31:00.000Z',
       })) } })
       if (url.includes('/instruments/equities')) return Response.json({ data: { items: symbols.map((symbol) => ({
@@ -173,6 +225,10 @@ describe('public market boundary', () => {
       publicPayload: [],
     }))
     await finalizeInternalWatchlist(env, [])
+    const research = marketSnapshotFixture().research
+    store.sqlite.prepare(
+      'INSERT INTO research_briefs (id, published_at, payload_json) VALUES (?, ?, ?)',
+    ).run(research.id, research.publishedAt, JSON.stringify(research))
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input))
       if (url.pathname.endsWith('/oauth/token')) return Response.json({ access_token: 'owner-read-token', expires_in: 900 })
@@ -200,6 +256,7 @@ describe('public market boundary', () => {
       if (url.pathname.endsWith('/market-data/by-type')) {
         return Response.json({ data: { items: url.searchParams.getAll('equity').map((symbol) => ({
           symbol, mark: '100', 'previous-close': '98', description: symbol,
+          change: '2', 'change-percent': '2.0408163265',
           'updated-at': '2026-08-26T13:31:00.000Z',
         })) } })
       }
@@ -242,6 +299,7 @@ describe('public market boundary', () => {
       })) } })
       if (url.includes('/market-data/by-type')) return Response.json({ data: { items: ['BE', 'NVDA'].map((symbol) => ({
         symbol, mark: '100', 'previous-close': '98', description: symbol,
+        change: '2', 'change-percent': '2.0408163265',
         'updated-at': '2026-08-26T13:31:00.000Z',
       })) } })
       return new Response('', { status: 404 })
@@ -256,7 +314,9 @@ describe('public market boundary', () => {
           if (sql.includes('FROM public_market_universe')) {
             return { payload_json: JSON.stringify({ symbols: ['BE', 'NVDA'] }) }
           }
-          if (sql.includes('FROM research_briefs')) return null
+          if (sql.includes('FROM research_briefs')) {
+            return { payload_json: JSON.stringify(marketSnapshotFixture().research) }
+          }
           throw new Error(`Unexpected first query: ${sql}`)
         },
         bind: () => ({

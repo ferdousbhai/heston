@@ -12,6 +12,12 @@ export const DXLINK_SNAPSHOT_SNIP = 0x10
 
 const MarketSymbolSchema = EquitySymbolSchema
 
+export const MAX_MARKET_FEED_SYMBOLS = 100
+
+export const MarketFeedSymbolsSchema = z.array(MarketSymbolSchema)
+  .min(1)
+  .max(MAX_MARKET_FEED_SYMBOLS)
+
 export const LiveMarketEventSchema = z.object({
   type: z.literal('market'),
   symbol: MarketSymbolSchema,
@@ -231,12 +237,15 @@ export function candleSubscription(symbol: string, fromTime: number) {
   return { type: 'Candle' as const, symbol: candleStreamerSymbol(symbol), fromTime }
 }
 
-export function parseRequestedSymbols(url: URL, limit = 100): string[] {
-  return [...new Set((url.searchParams.get('symbols') ?? '')
-    .split(',')
-    .map((symbol) => MarketSymbolSchema.safeParse(symbol))
-    .flatMap((result) => result.success ? [result.data] : []))]
-    .slice(0, limit)
+/** Validate the entire subscription before normalization can change its cardinality. */
+export function parseMarketFeedSymbols(value: readonly string[]): string[] {
+  return [...new Set(MarketFeedSymbolsSchema.parse(value))]
+}
+
+export function parseRequestedSymbols(url: URL): string[] {
+  const parameters = url.searchParams.getAll('symbols')
+  if (parameters.length !== 1) throw new Error('Exactly one symbols parameter is required.')
+  return parseMarketFeedSymbols(parameters[0]!.split(','))
 }
 
 export function isSameOriginWebSocketRequest(request: Request): boolean {

@@ -1,5 +1,5 @@
-import { type CandlePoint } from '../domain/candle'
-import { toError } from '../domain/failure'
+import { z } from 'zod'
+
 import { isValidIsoDate } from '../domain/catalyst'
 import { EquitySymbolSchema, type InstrumentCatalogItem } from '../domain/instrument'
 import {
@@ -24,7 +24,6 @@ import {
 } from './internal-watchlist'
 import {
   envelopeRows,
-  JsonArraySchema,
   jsonNumber,
   JsonObjectArraySchema,
   jsonObject,
@@ -39,35 +38,72 @@ import {
   loadInstrumentCatalog,
   persistInstrumentCatalog,
   readInstrumentCatalog,
+  type InstrumentCatalogRecord,
   type InstrumentCatalogRefresh,
   unresolvedInstrumentCatalogItem,
 } from './instrument-catalog'
 import { tastytradeApiVersion } from './tastytrade-version'
-import { persistTastytradeMarketSnapshot } from './tastytrade-market-store'
+import {
+  persistTastytradeMarketSnapshot,
+  type TastytradeMarketMetricRecord,
+  type TastytradeMarketQuoteRecord,
+} from './tastytrade-market-store'
 import { defineSeam, type SeamValue } from './seam'
 import {
   loadStoredPublicMarketUniverse,
   MAX_PUBLIC_MARKET_SYMBOLS,
-  persistPublicMarketUniverse,
+  publishInternalWatchlistUniverse,
 } from './public-market-universe'
 
 const USER_AGENT = 'Spice/0.1'
 const MAX_TASTYTRADE_RESPONSE_BYTES = 16 * 1024 * 1024
 let cachedAccess: { expiresAt: number; token: string } | undefined
 
-function bounded(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value))
+function numeric(value: JsonValue, field: string): number {
+  const parsed = jsonNumber(value)
+  if (parsed === undefined) throw new Error(`TastytradeSnapshot:invalid-${field}`)
+  return parsed
 }
 
-function previousCloseValue(quote: JsonObject | undefined): number | undefined {
-  return jsonNumber(
-    quote?.prevClose
-    ?? quote?.['prev-close']
-    ?? quote?.previousClose
-    ?? quote?.['previous-close']
-    ?? quote?.prevDayClose
-    ?? quote?.['prev-day-close'],
-  )
+function optionalNumeric(value: JsonValue, field: string): number | undefined {
+  if (value === undefined || value === null) return undefined
+  return numeric(value, field)
+}
+
+function nonnegative(value: JsonValue, field: string): number {
+  const parsed = numeric(value, field)
+  if (parsed < 0) throw new Error(`TastytradeSnapshot:invalid-${field}`)
+  return parsed
+}
+
+function optionalNonnegative(value: JsonValue, field: string): number | undefined {
+  if (value === undefined || value === null) return undefined
+  return nonnegative(value, field)
+}
+
+function positive(value: JsonValue, field: string): number {
+  const parsed = numeric(value, field)
+  if (parsed <= 0) throw new Error(`TastytradeSnapshot:invalid-${field}`)
+  return parsed
+}
+
+function optionalPositive(value: JsonValue, field: string): number | undefined {
+  if (value === undefined || value === null) return undefined
+  return positive(value, field)
+}
+
+function optionalText(value: JsonValue, field: string): string | undefined {
+  if (value === undefined || value === null) return undefined
+  const parsed = jsonText(value)
+  if (!parsed) throw new Error(`TastytradeSnapshot:invalid-${field}`)
+  return parsed
+}
+
+function optionalBoolean(value: JsonValue, field: string): boolean | undefined {
+  if (value === undefined || value === null) return undefined
+  const parsed = z.boolean().safeParse(value)
+  if (!parsed.success) throw new Error(`TastytradeSnapshot:invalid-${field}`)
+  return parsed.data
 }
 
 /*
@@ -80,72 +116,65 @@ function previousCloseValue(quote: JsonObject | undefined): number | undefined {
  * observations, so the `*Points` helpers below keep them as reported.
  */
 
-/** Decimal-ratio metrics; the UI contract uses percentage points. */
-export function percentMetric(value: JsonValue, max = 100): number | undefined {
+/** Convert a provider decimal ratio into the UI's percentage-point unit without changing the observation. */
+export function percentMetric(value: JsonValue): number | undefined {
   const parsed = jsonNumber(value)
-  return parsed === undefined ? undefined : bounded(parsed * 100, 0, max)
+  return parsed === undefined ? undefined : parsed * 100
 }
 
-/**
- * Optional metrics reject an implausible value instead of clamping it. Clamping an
- * optional field publishes the bound itself as if it were an observation — the UI
- * then renders a confident "30-day HV 1,000%" that tastytrade never reported, while
- * an absent value renders honestly as an em dash. Required Ticker fields (`ivIndex`,
- * `ivRank`, `ivPercentile`, `liquidity`) keep clamping: rank and percentile ratios
- * legitimately land marginally above 1.0, and rejecting one would drop the whole
- * ticker from the snapshot rather than blank a single cell.
- */
-export function plausiblePercentMetric(value: JsonValue, max = 100): number | undefined {
-  const parsed = jsonNumber(value)
-  if (parsed === undefined) return undefined
-  const points = parsed * 100
-  return points >= 0 && points <= max ? points : undefined
+function percentagePoints(value: JsonValue, field: string): number {
+  return numeric(value, field) * 100
 }
 
-/** Decimal-ratio metrics such as the IV index 5-day change, which may be negative. */
-export function plausibleSignedPercentMetric(value: JsonValue, maxAbsolute: number): number | undefined {
-  const parsed = jsonNumber(value)
-  if (parsed === undefined) return undefined
-  const points = parsed * 100
-  return Math.abs(points) <= maxAbsolute ? points : undefined
+function optionalPercentagePoints(value: JsonValue, field: string): number | undefined {
+  if (value === undefined || value === null) return undefined
+  return percentagePoints(value, field)
 }
 
-/**
- * Point-denominated metrics such as 30-day realized volatility, which are never negative.
- * A zero realized volatility means the stock did not trade, not an observation worth
- * publishing; `allowZero` keeps this helper reusable for metrics where zero is a real reading.
- */
-export function plausiblePercentPoints(value: JsonValue, max: number, allowZero = false): number | undefined {
-  const parsed = jsonNumber(value)
-  if (parsed === undefined) return undefined
-  const aboveFloor = allowZero ? parsed >= 0 : parsed > 0
-  return aboveFloor && parsed <= max ? parsed : undefined
+function requiredPercentageRank(value: JsonValue, field: string): number {
+  const points = percentagePoints(value, field)
+  if (points < 0 || points > 100) throw new Error(`TastytradeSnapshot:invalid-${field}`)
+  return points
 }
 
-/** Point-denominated metrics such as the IV-HV gap, which may be negative. */
-export function plausibleSignedPoints(value: JsonValue, maxAbsolute: number): number | undefined {
-  const parsed = jsonNumber(value)
-  if (parsed === undefined) return undefined
-  return Math.abs(parsed) <= maxAbsolute ? parsed : undefined
+function requiredLiquidity(value: JsonValue): number {
+  const parsed = numeric(value, 'liquidity-rating')
+  if (parsed < 0 || parsed > 5) throw new Error('TastytradeSnapshot:invalid-liquidity-rating')
+  return parsed
+}
+
+function reportedEarningsDate(metrics: JsonObject): string | null {
+  const value = metrics.earnings
+  if (value === undefined || value === null) return null
+  const earnings = jsonObject(value)
+  if (!earnings) throw new Error('TastytradeSnapshot:invalid-earnings')
+  const rawDate = earnings['expected-report-date']
+  if (rawDate === undefined || rawDate === null) return null
+  const date = optionalText(rawDate, 'earnings-date')
+  if (!date || !isValidIsoDate(date)) throw new Error('TastytradeSnapshot:invalid-earnings-date')
+  return date
 }
 
 function optionTermStructure(metrics: JsonObject): Ticker['ivTermStructure'] {
-  const rows = JsonArraySchema.safeParse(
-    metrics['option-expiration-implied-volatilities'] ?? metrics.optionExpirationImpliedVolatilities,
-  ).data ?? []
-  const candidates = rows.flatMap((value) => {
-    const row = jsonObject(value)
-    const rawExpiration = jsonText(row?.['expiration-date'] ?? row?.expirationDate)
+  const value = metrics['option-expiration-implied-volatilities'] ?? metrics.optionExpirationImpliedVolatilities
+  if (value === undefined || value === null) return undefined
+  if (!Array.isArray(value)) throw new Error('TastytradeSnapshot:invalid-option-term-structure')
+  const candidates = value.map((candidate) => {
+    const row = jsonObject(candidate)
+    if (!row) throw new Error('TastytradeSnapshot:invalid-option-term-row')
+    const rawExpiration = optionalText(row['expiration-date'] ?? row.expirationDate, 'option-expiration')
     const expiration = rawExpiration?.slice(0, 10)
-    // A rejected expiration drops out of the term structure below, so an implausible
-    // per-expiration IV costs one row rather than fabricating a 1,000% front or back leg.
-    const impliedVolatility = plausiblePercentMetric(row?.['implied-volatility'] ?? row?.impliedVolatility, 1_000)
-    if (!expiration || !isValidIsoDate(expiration) || impliedVolatility === undefined) return []
-    return [{
-      chainType: jsonText(row?.['option-chain-type'] ?? row?.optionChainType) ?? '',
+    if (!expiration || !isValidIsoDate(expiration)) throw new Error('TastytradeSnapshot:invalid-option-expiration')
+    const impliedVolatility = percentagePoints(
+      row['implied-volatility'] ?? row.impliedVolatility,
+      'option-implied-volatility',
+    )
+    if (impliedVolatility < 0) throw new Error('TastytradeSnapshot:invalid-option-implied-volatility')
+    return {
+      chainType: optionalText(row['option-chain-type'] ?? row.optionChainType, 'option-chain-type') ?? '',
       expiration,
       impliedVolatility,
-    }]
+    }
   }).sort((left, right) => left.expiration.localeCompare(right.expiration)
     || Number(right.chainType === 'Standard') - Number(left.chainType === 'Standard')
     || left.chainType.localeCompare(right.chainType))
@@ -161,9 +190,12 @@ function optionTermStructure(metrics: JsonObject): Ticker['ivTermStructure'] {
 
 function assetType(instrument: JsonObject | undefined): Ticker['assetType'] {
   if (!instrument) return undefined
-  if (instrument['is-index'] === true || instrument.isIndex === true) return 'index'
-  if (instrument['is-etf'] === true || instrument.isEtf === true) return 'etf'
-  return 'stock'
+  const isIndex = optionalBoolean(instrument['is-index'] ?? instrument.isIndex, 'is-index')
+  const isEtf = optionalBoolean(instrument['is-etf'] ?? instrument.isEtf, 'is-etf')
+  if (isIndex && isEtf) throw new Error('TastytradeSnapshot:conflicting-asset-type')
+  if (isIndex) return 'index'
+  if (isEtf) return 'etf'
+  return isIndex === false && isEtf === false ? 'stock' : undefined
 }
 
 function apiBase(env: AppEnv) {
@@ -196,8 +228,12 @@ async function refreshAccessToken(env: AppEnv): Promise<string> {
   const payload = jsonObjectOrEmpty(await readBoundedJson(response, 256_000, 'TastytradeAuth'))
   const token = jsonText(payload.access_token)
   if (!token) throw new Error('TastytradeAuth:missing-token')
-  const lifetimeMs = Math.max(1_000, (jsonNumber(payload.expires_in) ?? 900) * 1_000)
-  const skewMs = Math.min(30_000, Math.max(1_000, lifetimeMs * 0.1))
+  const lifetimeSeconds = jsonNumber(payload.expires_in)
+  if (lifetimeSeconds === undefined || !Number.isSafeInteger(lifetimeSeconds) || lifetimeSeconds <= 0) {
+    throw new Error('TastytradeAuth:invalid-token-lifetime')
+  }
+  const lifetimeMs = lifetimeSeconds * 1_000
+  const skewMs = Math.min(30_000, lifetimeMs * 0.1)
   cachedAccess = { token, expiresAt: Date.now() + lifetimeMs - skewMs }
   return token
 }
@@ -319,17 +355,18 @@ async function loadQuoteToken(env: AppEnv): Promise<{ token: string; url: string
   return { token, url }
 }
 
-const CANDLE_FALLBACK_LOOKBACK = 7 * 24 * 60 * 60 * 1_000
-
 export function equityCandleFromTime(payload: JsonValue, now = Date.now()): number {
-  const body = jsonObjectOrEmpty(payload)
-  const session = jsonObjectOrEmpty(body.data ?? body)
+  const body = jsonObject(payload)
+  const session = jsonObject(body?.data ?? payload)
+  if (!session) throw new Error('TastytradeCandleSession:invalid-response')
   const currentOpen = Date.parse(jsonText(session['open-at']) ?? '')
-  const previous = jsonObjectOrEmpty(session['previous-session'])
+  if (!Number.isFinite(currentOpen)) throw new Error('TastytradeCandleSession:invalid-current-open')
+  if (currentOpen <= now) return currentOpen
+  const previous = jsonObject(session['previous-session'])
+  if (!previous) throw new Error('TastytradeCandleSession:invalid-previous-session')
   const previousOpen = Date.parse(jsonText(previous['open-at']) ?? '')
-  if (Number.isFinite(currentOpen) && currentOpen <= now) return currentOpen
   if (Number.isFinite(previousOpen) && previousOpen <= now) return previousOpen
-  return now - CANDLE_FALLBACK_LOOKBACK
+  throw new Error('TastytradeCandleSession:no-open-session')
 }
 
 async function loadEquityCandleFromTime(env: AppEnv): Promise<number> {
@@ -343,8 +380,147 @@ function strictRows(payload: JsonValue, label: string): JsonObject[] {
   return rows
 }
 
-/** Speculative names have printed front-month IVs near 1,000%, so the required `ivIndex` clamp sits above every real reading. */
-const MAX_IV_INDEX_POINTS = 2_000
+function rowsByRequestedSymbol(
+  rows: readonly JsonObject[],
+  requestedSymbols: readonly string[],
+  label: string,
+): Map<string, JsonObject> {
+  const requested = new Set(requestedSymbols)
+  const bySymbol = new Map<string, JsonObject>()
+  for (const row of rows) {
+    const parsed = EquitySymbolSchema.safeParse(jsonText(row.symbol))
+    if (!parsed.success) throw new Error(`${label}:invalid-symbol`)
+    const symbol = parsed.data
+    if (!requested.has(symbol)) throw new Error(`${label}:unexpected-symbol`)
+    if (bySymbol.has(symbol)) throw new Error(`${label}:duplicate-symbol`)
+    bySymbol.set(symbol, row)
+  }
+  if (bySymbol.size !== requested.size) throw new Error(`${label}:missing-symbol`)
+  return bySymbol
+}
+
+type NormalizedLiveTicker = {
+  metricRecord: TastytradeMarketMetricRecord
+  quoteRecord: TastytradeMarketQuoteRecord
+  ticker: Ticker
+}
+
+function normalizeLiveTicker(
+  symbol: string,
+  metrics: JsonObject | undefined,
+  quote: JsonObject | undefined,
+  position: boolean,
+  instrument?: JsonObject,
+): NormalizedLiveTicker {
+  if (!metrics) throw new Error(`TastytradeSnapshot:missing-metrics:${symbol}`)
+  if (!quote) throw new Error(`TastytradeSnapshot:missing-quote:${symbol}`)
+  const price = positive(quote.mark ?? quote['mark-price'] ?? quote.last ?? quote['last-price'] ?? quote.close, 'price')
+  const previousClose = positive(
+    quote.prevClose
+      ?? quote['prev-close']
+      ?? quote.previousClose
+      ?? quote['previous-close']
+      ?? quote.prevDayClose
+      ?? quote['prev-day-close'],
+    'previous-close',
+  )
+  const change = numeric(quote.change, 'change')
+  const changePercent = numeric(quote['change-percent'] ?? quote.changePercent, 'change-percent')
+  const ivIndex = percentagePoints(metrics['implied-volatility-index'], 'implied-volatility-index')
+  if (ivIndex < 0) throw new Error('TastytradeSnapshot:invalid-implied-volatility-index')
+  const ivRank = requiredPercentageRank(
+    metrics['implied-volatility-index-rank'] ?? metrics['implied-volatility-rank'],
+    'implied-volatility-rank',
+  )
+  const ivPercentile = requiredPercentageRank(
+    metrics['implied-volatility-percentile'],
+    'implied-volatility-percentile',
+  )
+  const liquidity = requiredLiquidity(metrics['liquidity-rating'])
+  const marketCap = optionalNonnegative(metrics['market-cap'] ?? metrics.marketCap, 'market-cap')
+  const volume = optionalNonnegative(quote.volume ?? quote['day-volume'], 'volume')
+  const yearLow = optionalPositive(quote.yearLowPrice ?? quote['year-low-price'], 'year-low')
+  const yearHigh = optionalPositive(quote.yearHighPrice ?? quote['year-high-price'], 'year-high')
+  if (yearLow !== undefined && yearHigh !== undefined && yearHigh <= yearLow) {
+    throw new Error('TastytradeSnapshot:invalid-year-range')
+  }
+  const quoteUpdatedAt = optionalText(quote.updatedAt ?? quote['updated-at'], 'updated-at')
+  const quoteTime = Date.parse(quoteUpdatedAt ?? '')
+  if (!Number.isFinite(quoteTime)) throw new Error('TastytradeSnapshot:invalid-updated-at')
+  const updatedAt = new Date(quoteTime).toISOString()
+  const borrowRate = optionalNonnegative(
+    metrics['borrow-rate'] ?? instrument?.['borrow-rate'] ?? instrument?.borrowRate,
+    'borrow-rate',
+  )
+  const lendability = optionalText(metrics.lendability ?? instrument?.lendability, 'lendability')
+  const ivIndex5DayChange = optionalPercentagePoints(
+    metrics['implied-volatility-index-5-day-change'] ?? metrics.impliedVolatilityIndex5DayChange,
+    'implied-volatility-index-5-day-change',
+  )
+  const historicalVolatility30Day = optionalNonnegative(
+    metrics['historical-volatility-30-day'] ?? metrics.historicalVolatility30Day,
+    'historical-volatility-30-day',
+  )
+  const ivHistoricalVolatility30DayDifference = optionalNumeric(
+    metrics['iv-hv-30-day-difference'] ?? metrics.ivHv30DayDifference,
+    'iv-hv-30-day-difference',
+  )
+  const ivTermStructure = optionTermStructure(metrics)
+  const earningsDate = earningsDateFromMetric(metrics)
+  const metricRecord: TastytradeMarketMetricRecord = {
+    earningsDate: reportedEarningsDate(metrics),
+    historicalVolatility30Day,
+    ivHistoricalVolatility30DayDifference,
+    ivIndex,
+    ivIndex5DayChange,
+    ivPercentile,
+    ivRank,
+    ivTermStructure,
+    liquidity,
+    marketCap,
+    symbol,
+  }
+  const quoteRecord: TastytradeMarketQuoteRecord = {
+    change,
+    changePercent,
+    previousClose,
+    price,
+    providerUpdatedAt: updatedAt,
+    symbol,
+    volume,
+    yearHigh,
+    yearLow,
+  }
+  return { metricRecord, quoteRecord, ticker: {
+    symbol,
+    name: optionalText(
+      instrument?.description ?? instrument?.['short-description'] ?? quote.description,
+      'instrument-name',
+    ) ?? symbol,
+    assetType: assetType(instrument),
+    borrowRate,
+    lendability,
+    marketCap,
+    price,
+    change,
+    changePercent,
+    sparkline: [],
+    ivRank,
+    ivPercentile,
+    ivIndex,
+    ivIndex5DayChange,
+    historicalVolatility30Day,
+    ivHistoricalVolatility30DayDifference,
+    ivTermStructure,
+    liquidity,
+    volume,
+    yearHigh,
+    yearLow,
+    earningsDate,
+    position,
+    updatedAt,
+  } }
+}
 
 export function liveTickerFromRecords(
   symbol: string,
@@ -352,74 +528,8 @@ export function liveTickerFromRecords(
   quote: JsonObject | undefined,
   position: boolean,
   instrument?: JsonObject,
-): Ticker | undefined {
-  if (!metrics || !quote) return undefined
-  const price = jsonNumber(quote.mark ?? quote['mark-price'] ?? quote.last ?? quote['last-price'] ?? quote.close)
-  const previousClose = previousCloseValue(quote)
-  const explicitChange = jsonNumber(quote.change)
-  const explicitChangePercent = jsonNumber(quote['change-percent'] ?? quote.changePercent)
-  const ivIndex = percentMetric(metrics['implied-volatility-index'], MAX_IV_INDEX_POINTS)
-  const ivRank = percentMetric(metrics['implied-volatility-index-rank'] ?? metrics['implied-volatility-rank'])
-  const ivPercentile = percentMetric(metrics['implied-volatility-percentile'])
-  const liquidityValue = jsonNumber(metrics['liquidity-rating'])
-  const marketCap = jsonNumber(metrics['market-cap'] ?? metrics.marketCap)
-  const volume = jsonNumber(quote.volume ?? quote['day-volume'])
-  const candidateYearLow = jsonNumber(quote.yearLowPrice ?? quote['year-low-price'])
-  const candidateYearHigh = jsonNumber(quote.yearHighPrice ?? quote['year-high-price'])
-  const hasYearRange = candidateYearLow !== undefined && candidateYearLow > 0
-    && candidateYearHigh !== undefined && candidateYearHigh > candidateYearLow
-  const quoteUpdatedAt = jsonText(quote?.updatedAt ?? quote?.['updated-at'])
-  const quoteTime = Date.parse(quoteUpdatedAt ?? '')
-  if (price === undefined || price <= 0 || previousClose === undefined || previousClose <= 0
-    || ivIndex === undefined || ivRank === undefined || ivPercentile === undefined
-    || liquidityValue === undefined || !Number.isFinite(quoteTime)) return undefined
-  const change = explicitChange ?? price - previousClose
-  const changePercent = explicitChangePercent ?? (change / previousClose) * 100
-  const sparkline: CandlePoint[] = [
-    { time: quoteTime - 5 * 60 * 1_000, sequence: 0, close: previousClose },
-    { time: quoteTime, sequence: 0, close: price },
-  ]
-  return {
-    symbol,
-    name: jsonText(instrument?.description ?? instrument?.['short-description'] ?? quote.description) ?? symbol,
-    assetType: assetType(instrument),
-    // Zero is a real easy-to-borrow reading rather than a missing metric, so it is allowed.
-    borrowRate: plausiblePercentPoints(
-      metrics['borrow-rate'] ?? instrument?.['borrow-rate'] ?? instrument?.borrowRate,
-      10_000,
-      true,
-    ),
-    lendability: jsonText(metrics.lendability ?? instrument?.lendability),
-    // ETFs and indices report exactly 0 for market cap; that is absence, not a reading.
-    marketCap: marketCap !== undefined && marketCap > 0 ? marketCap : undefined,
-    price,
-    change,
-    changePercent,
-    sparkline,
-    ivRank,
-    ivPercentile,
-    ivIndex,
-    ivIndex5DayChange: plausibleSignedPercentMetric(
-      metrics['implied-volatility-index-5-day-change'] ?? metrics.impliedVolatilityIndex5DayChange,
-      1_000,
-    ),
-    historicalVolatility30Day: plausiblePercentPoints(
-      metrics['historical-volatility-30-day'] ?? metrics.historicalVolatility30Day,
-      2_000,
-    ),
-    ivHistoricalVolatility30DayDifference: plausibleSignedPoints(
-      metrics['iv-hv-30-day-difference'] ?? metrics.ivHv30DayDifference,
-      2_000,
-    ),
-    ivTermStructure: optionTermStructure(metrics),
-    liquidity: bounded(liquidityValue, 0, 5),
-    volume: volume !== undefined && volume >= 0 ? volume : undefined,
-    yearHigh: hasYearRange ? candidateYearHigh : undefined,
-    yearLow: hasYearRange ? candidateYearLow : undefined,
-    earningsDate: earningsDateFromMetric(metrics),
-    position,
-    updatedAt: new Date(quoteTime).toISOString(),
-  }
+): Ticker {
+  return normalizeLiveTicker(symbol, metrics, quote, position, instrument).ticker
 }
 
 function catalogTickerInstrument(item: InstrumentCatalogItem | undefined): JsonObject | undefined {
@@ -434,46 +544,28 @@ function catalogTickerInstrument(item: InstrumentCatalogItem | undefined): JsonO
   }
 }
 
-function emptyResearch(now: string): MarketSnapshot['research'] {
-  return {
-    id: `research-unavailable-${now.slice(0, 10)}`,
-    publishedAt: now,
-    title: 'No market brief yet',
-    summary: 'The next verified daily market brief has not been published.',
-    regime: 'Waiting for research',
-    regimeDetail: 'No stored live brief',
-    ideas: [],
-    readingList: [],
-    sources: [],
-  }
-}
+const StoredResearchRowSchema = z.object({ payload_json: z.string() })
 
-async function loadStoredResearch(env: AppEnv, fallback: MarketSnapshot['research']) {
-  if (!env.DB) return fallback
-  let stored: JsonValue
-  try {
-    const row = await env.DB.prepare(
-      'SELECT payload_json FROM research_briefs ORDER BY published_at DESC LIMIT 1',
-    ).first<{ payload_json: string }>()
-    if (!row) return fallback
-    stored = JSON.parse(row.payload_json)
-  } catch {
-    return fallback
-  }
-  try {
-    return parseStoredResearchBrief(stored)
-  } catch {
-    return fallback
-  }
+async function loadStoredResearch(env: AppEnv): Promise<MarketSnapshot['research']> {
+  if (!env.DB) throw new Error('TastytradeResearch:store-unavailable')
+  const result = await env.DB.prepare(
+    'SELECT payload_json FROM research_briefs ORDER BY published_at DESC LIMIT 1',
+  ).first<{ payload_json: string }>()
+  if (!result) throw new Error('TastytradeResearch:not-found')
+  const row = StoredResearchRowSchema.parse(result)
+  return parseStoredResearchBrief(JSON.parse(row.payload_json))
 }
 
 type MarketSnapshotOptions = {
   symbols?: readonly string[]
 }
 
-function marketStateFromSession(payload: JsonValue | undefined): MarketSnapshot['marketState'] {
-  const session = jsonObjectOrEmpty(jsonObjectOrEmpty(payload).data ?? payload)
-  const rawState = (jsonText(session.state) ?? '').toLowerCase()
+function marketStateFromSession(payload: JsonValue): MarketSnapshot['marketState'] {
+  const body = jsonObject(payload)
+  const session = jsonObject(body?.data ?? payload)
+  if (!session) throw new Error('TastytradeMarketSession:invalid-response')
+  const rawState = optionalText(session.state, 'market-state')?.toLowerCase()
+  if (!rawState) throw new Error('TastytradeMarketSession:missing-state')
   return rawState === 'open'
     ? 'open'
     : rawState.includes('pre') ? 'pre'
@@ -488,67 +580,37 @@ async function loadMarketFacts(
 ): Promise<Pick<MarketSnapshot, 'catalysts' | 'tickers'>> {
   const metricQuery = symbols.map(encodeURIComponent).join(',')
   const marketDataQuery = symbols.map((symbol) => `equity=${encodeURIComponent(symbol)}`).join('&')
-  const [[metricsResult, marketDataResult], instrumentCatalog] = await Promise.all([
-    Promise.allSettled([
+  const [[metricsPayload, marketDataPayload], instrumentCatalog] = await Promise.all([
+    Promise.all([
       symbols.length ? tastyRequest(env, `/market-metrics?symbols=${metricQuery}`) : Promise.resolve([]),
       symbols.length ? tastyRequest(env, `/market-data/by-type?${marketDataQuery}`) : Promise.resolve([]),
     ]),
     readInstrumentCatalog(env, symbols),
   ])
-  // With no symbols both entries resolve to an empty array, so an empty request settles
-  // fulfilled and `strictRows` reads back no rows.
-  if (metricsResult.status !== 'fulfilled' || marketDataResult.status !== 'fulfilled') {
-    throw new Error('TastytradeSnapshot:market-data-unavailable')
-  }
-  const metrics = strictRows(metricsResult.value, 'TastytradeMetrics')
-  const quotes = strictRows(marketDataResult.value, 'TastytradeMarketData')
-  const metricBySymbol = new Map(metrics.map((row) => [jsonText(row.symbol), row]))
-  const quoteBySymbol = new Map(quotes.map((row) => [jsonText(row.symbol), row]))
-  const tickers = symbols.flatMap((symbol) => {
-    const ticker = liveTickerFromRecords(
+  const metrics = strictRows(metricsPayload, 'TastytradeMetrics')
+  const quotes = strictRows(marketDataPayload, 'TastytradeMarketData')
+  const metricBySymbol = rowsByRequestedSymbol(metrics, symbols, 'TastytradeMetrics')
+  const quoteBySymbol = rowsByRequestedSymbol(quotes, symbols, 'TastytradeMarketData')
+  if (instrumentCatalog.size !== symbols.length) throw new Error('InstrumentCatalog:incomplete')
+  const normalized = symbols.map((symbol) => normalizeLiveTicker(
       symbol,
       metricBySymbol.get(symbol),
       quoteBySymbol.get(symbol),
       positionSymbols.has(symbol),
       catalogTickerInstrument(instrumentCatalog.get(symbol)),
-    )
-    return ticker ? [ticker] : []
-  })
-  if (symbols.length && tickers.length === 0) {
-    const metric = metricBySymbol.get(symbols[0]!)
-    const quote = quoteBySymbol.get(symbols[0]!)
-    console.error('TastytradeSnapshotIncompleteTicker', JSON.stringify({
-      metricCount: metrics.length,
-      quoteCount: quotes.length,
-      sample: {
-        hasIvIndex: percentMetric(metric?.['implied-volatility-index'], MAX_IV_INDEX_POINTS) !== undefined,
-        hasIvPercentile: percentMetric(metric?.['implied-volatility-percentile']) !== undefined,
-        hasIvRank: percentMetric(metric?.['implied-volatility-index-rank'] ?? metric?.['implied-volatility-rank']) !== undefined,
-        hasLiquidity: jsonNumber(metric?.['liquidity-rating']) !== undefined,
-        hasMetric: Boolean(metric),
-        hasPreviousClose: previousCloseValue(quote) !== undefined,
-        hasPrice: jsonNumber(quote?.mark ?? quote?.['mark-price'] ?? quote?.last ?? quote?.['last-price'] ?? quote?.close) !== undefined,
-        hasQuote: Boolean(quote),
-        hasTimestamp: Number.isFinite(Date.parse(jsonText(quote?.updatedAt ?? quote?.['updated-at']) ?? '')),
-      },
-      symbolCount: symbols.length,
-    }))
-    throw new Error('TastytradeSnapshot:no-complete-tickers')
-  }
-  const metricSymbols = metrics
-    .map((metric) => jsonText(metric.symbol)?.toUpperCase())
-    .filter((symbol): symbol is string => Boolean(symbol))
+  ))
   const allCatalysts = await persistAndLoadCatalysts(
     env,
     catalystsFromMarketMetrics(metrics),
-    metricSymbols,
+    symbols,
   )
-  await persistTastytradeMarketSnapshot(env, tickers).catch((cause) => {
-    console.error('TastytradeMarketStoreFailed', toError(cause)?.message ?? 'UnknownError')
+  await persistTastytradeMarketSnapshot(env, {
+    metrics: normalized.map((item) => item.metricRecord),
+    quotes: normalized.map((item) => item.quoteRecord),
   })
   const allowedSymbols = new Set(symbols)
   return {
-    tickers,
+    tickers: normalized.map((item) => item.ticker),
     catalysts: allCatalysts.filter((catalyst) => allowedSymbols.has(catalyst.symbol)),
   }
 }
@@ -558,11 +620,13 @@ export function selectSnapshotSymbols(
   requestedSymbols: readonly string[],
   internalWatchlistSymbols: readonly string[],
 ): string[] {
-  return [...new Set([
+  const symbols = [...new Set([
     ...requestedSymbols,
     ...positionSymbols,
     ...internalWatchlistSymbols,
-  ])].slice(0, MAX_PUBLIC_MARKET_SYMBOLS)
+  ].map((symbol) => EquitySymbolSchema.parse(symbol)))]
+  if (symbols.length > MAX_PUBLIC_MARKET_SYMBOLS) throw new Error('TastytradeSnapshot:too-many-symbols')
+  return symbols
 }
 
 function equityInstrumentPath(symbols: readonly string[]): string {
@@ -580,7 +644,7 @@ async function loadTastytradeInstrumentCatalog(
     (chunk) => tastyRequest(env, equityInstrumentPath(chunk)),
     now,
   )
-  const recovered: InstrumentCatalogItem[] = []
+  const recovered: InstrumentCatalogRecord[] = []
   for (const symbol of bulk.missingSymbols) {
     try {
       const single = await loadInstrumentCatalog(
@@ -589,8 +653,9 @@ async function loadTastytradeInstrumentCatalog(
         now,
       )
       recovered.push(...single.items)
-    } catch {
-      // Missing or non-Equity watchlist rows remain explicit in the operation result.
+    } catch (cause) {
+      if (!(cause instanceof Error && cause.message.startsWith('TastytradeApi:404:'))) throw cause
+      // A definitive 404 is the only transport result that means the provider has no Equity identity.
     }
   }
   const items = [...bulk.items, ...recovered]
@@ -705,12 +770,15 @@ export async function seedInternalWatchlistFromTastytrade(env: AppEnv): Promise<
 }
 
 function activeEquityPositionSymbols(positions: readonly JsonObject[]): string[] {
-  return [...new Set(positions
-    .filter((position) => (jsonNumber(position.quantity) ?? 0) !== 0)
-    .map((position) => EquitySymbolSchema.safeParse(
-      jsonText(position['underlying-symbol']) ?? jsonText(position.symbol),
-    ).data)
-    .filter((symbol): symbol is string => Boolean(symbol)))]
+  const symbols = positions.flatMap((position) => {
+    const quantity = numeric(position.quantity, 'position-quantity')
+    if (quantity === 0) return []
+    const rawSymbol = jsonText(position['underlying-symbol']) ?? jsonText(position.symbol)
+    const parsed = EquitySymbolSchema.safeParse(rawSymbol)
+    if (!parsed.success) throw new Error('TastytradePositions:invalid-symbol')
+    return [parsed.data]
+  })
+  return [...new Set(symbols)]
 }
 
 /** Fetch position identity before the one-time D1 finalization mutates live rows. */
@@ -727,7 +795,7 @@ async function loadMarketSnapshot(
   const accountNumber = await resolveAccountNumber(env)
   const [positionPayload, sessionPayload] = await Promise.all([
     tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/positions`),
-    tastyRequest(env, '/market-time/equities/sessions/current').catch(() => undefined),
+    tastyRequest(env, '/market-time/equities/sessions/current'),
   ])
   const positions = strictRows(positionPayload, 'TastytradePositions')
   const positionSymbols = activeEquityPositionSymbols(positions)
@@ -748,8 +816,7 @@ async function loadMarketSnapshot(
   // never as a second list, so account membership is not itself a watchlist.
   const watchlists = [privateWatchlist]
   const requestedSymbols = (options.symbols ?? [])
-    .map((symbol) => EquitySymbolSchema.safeParse(symbol).data)
-    .filter((symbol): symbol is string => Boolean(symbol))
+    .map((symbol) => EquitySymbolSchema.parse(symbol))
   const symbols = selectSnapshotSymbols(positionSymbols, requestedSymbols, privateWatchlist.symbols)
   // New owner, agent, research, and position symbols get an authoritative name
   // immediately; existing catalog rows wait for the daily full status refresh.
@@ -765,9 +832,9 @@ async function loadMarketSnapshot(
     watchlists,
     tickers,
     catalysts,
-    research: await loadStoredResearch(env, emptyResearch(syncedAt)),
+    research: await loadStoredResearch(env),
   })
-  await persistPublicMarketUniverse(env, new Date(syncedAt))
+  await publishInternalWatchlistUniverse(env, new Date(syncedAt))
   return snapshot
 }
 
@@ -779,12 +846,9 @@ export async function loadPublicMarketSnapshot(
   env: AppEnv,
 ): Promise<MarketSnapshot> {
   const storedUniverse = await loadStoredPublicMarketUniverse(env)
-  const publicSymbols = [...new Set((storedUniverse?.symbols ?? [])
-    .map((symbol) => EquitySymbolSchema.safeParse(symbol).data)
-    .filter((symbol): symbol is string => Boolean(symbol)))]
-    .slice(0, MAX_PUBLIC_MARKET_SYMBOLS)
+  const publicSymbols = [...new Set(storedUniverse.symbols)]
   const [sessionResult, marketFacts] = await Promise.all([
-    tastyRequest(env, '/market-time/equities/sessions/current').catch(() => undefined),
+    tastyRequest(env, '/market-time/equities/sessions/current'),
     loadMarketFacts(env, publicSymbols, new Set()),
   ])
   const syncedAt = new Date().toISOString()
@@ -792,7 +856,7 @@ export async function loadPublicMarketSnapshot(
     id: 'public-options-watch',
     kind: 'public' as const,
     name: 'Options Watch',
-    symbols: storedUniverse?.symbols ?? [],
+    symbols: storedUniverse.symbols,
   }]
   return MarketSnapshotSchema.parse({
     source: 'tastytrade',
@@ -801,7 +865,7 @@ export async function loadPublicMarketSnapshot(
     watchlists,
     tickers: marketFacts.tickers,
     catalysts: marketFacts.catalysts,
-    research: await loadStoredResearch(env, emptyResearch(syncedAt)),
+    research: await loadStoredResearch(env),
   })
 }
 

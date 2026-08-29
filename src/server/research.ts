@@ -1,20 +1,13 @@
 import { marketDate } from '../domain/catalyst'
-import { type JsonValue } from '../domain/json-payload'
 import { ResearchBriefSchema, type ResearchBrief } from '../domain/market'
 import { readMarketStatus } from './brokerage-read-tools'
 import { type AppEnv } from './env'
-import { researchBriefId, type ResearchSourceItem } from './research-contracts'
-import { bindEvidenceSymbols } from './research-evidence'
+import { researchBriefId } from './research-contracts'
 import {
-  mentionsDiscoverySource,
-  isPublicResearchSource,
   readingListFromCandidates,
   researchIdeas,
-  type BoundResearchIdea,
 } from './research-output'
-import { equityOptionContractFromChainTuple } from './option-contract'
 import { dailyResearchAgent, type DailyResearchSubmission } from './research-agent'
-import { brokerApi } from './tastytrade'
 
 function newYorkParts(date: Date) {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -34,14 +27,10 @@ function researchSourceLinks(
   ideas: ResearchBrief['ideas'],
   readingList: ResearchBrief['readingList'],
 ): ResearchBrief['sources'] {
-  const links: ResearchBrief['sources'] = [
-    { label: 'tastytrade market metrics', url: 'https://developer.tastytrade.com/open-api-spec/market-metrics/' },
+  return [
     ...ideas.flatMap((idea) => idea.sources),
     ...readingList.map((item) => ({ label: item.title, url: item.url })),
   ]
-  const unique = new Map<string, ResearchBrief['sources'][number]>()
-  for (const link of links) if (!unique.has(link.url)) unique.set(link.url, link)
-  return [...unique.values()]
 }
 
 export interface GenerateDailyResearchOptions {
@@ -61,158 +50,26 @@ function safeHttpsUrl(value: string): string | undefined {
   }
 }
 
-interface BoundSubmissionSources {
-  evidence: ResearchSourceItem[]
-  indices: Array<number | undefined>
-}
-
 function bindSubmissionSources(
   sources: readonly DailyResearchSubmission['sources'][number][],
-  baseEvidence: readonly ResearchSourceItem[],
-  allowedSymbols: ReadonlySet<string>,
   citations: ReadonlySet<string>,
-): BoundSubmissionSources {
-  const evidence = [...baseEvidence]
-  const searched = new Map<string, number>()
-  const indices = sources.map((candidate) => {
-    if (candidate.evidenceIndex !== null) {
-      const source = baseEvidence[candidate.evidenceIndex]
-      if (!source?.symbols?.includes(candidate.symbol)) return undefined
-      if (!isPublicResearchSource(source.outbound?.url ?? source.url)) return undefined
-      return allowedSymbols.has(candidate.symbol) ? candidate.evidenceIndex : undefined
-    }
+): ResearchBrief['sources'] {
+  return sources.map((candidate, candidateIndex) => {
     const sourceUrl = safeHttpsUrl(candidate.sourceUrl)
-    if (!sourceUrl || !isPublicResearchSource(sourceUrl) || !allowedSymbols.has(candidate.symbol)) return undefined
-    if (!citations.has(sourceUrl)) return undefined
-    const key = `${candidate.symbol}:${sourceUrl}`
-    const existing = searched.get(key)
-    if (existing !== undefined) return existing
-    const index = evidence.length
-    evidence.push({
-      context: candidate.context,
-      source: `Grok research · ${new URL(sourceUrl).hostname.replace(/^www\./, '')}`,
-      symbols: [candidate.symbol],
-      title: candidate.title,
+    if (!sourceUrl) throw new Error(`DailyResearchOutput:invalid-native-source-url:${candidateIndex}`)
+    if (!citations.has(sourceUrl)) throw new Error(`DailyResearchOutput:uncited-native-source:${candidateIndex}`)
+    return {
+      label: `Grok research · ${new URL(sourceUrl).hostname.replace(/^www\./, '')} · ${candidate.title}`,
       url: sourceUrl,
-    })
-    searched.set(key, index)
-    return index
+    }
   })
-  return { evidence, indices }
-}
-
-function remapSubmissionSources(
-  submission: DailyResearchSubmission,
-  sourceIndices: readonly (number | undefined)[],
-) {
-  const remap = (indices: readonly number[]) => [...new Set(indices.flatMap((index) => {
-    const mapped = sourceIndices[index]
-    return mapped === undefined ? [] : [mapped]
-  }))]
-  return {
-    title: submission.title,
-    summary: submission.summary,
-    regime: submission.regime,
-    regimeDetail: submission.regimeDetail,
-    ideas: submission.ideas.flatMap((idea) => {
-      const mapped = remap(idea.sourceIndices)
-      return mapped.length ? [{ ...idea, sourceIndices: mapped }] : []
-    }),
-    readingList: submission.readingList.flatMap((item) => {
-      const sourceIndex = sourceIndices[item.sourceIndex]
-      return sourceIndex === undefined ? [] : [{ ...item, sourceIndex }]
-    }),
-  }
-}
-
-/**
- * Resolve every surviving idea's optional play against the current tastytrade chain.
- *
- * A play is illustrative, but a reader acts on it, and the editor writes it from prose: a
- * production brief shipped plays expiring on a Sunday. The weekday rule in
- * `research-output` fixed impossible dates without knowing which contracts tastytrade
- * actually lists, so the exact tuple is resolved here through the same chain resolver the
- * order path uses. Chains are fetched once per underlying and released immediately; a
- * brief carries at most three ideas.
- *
- * Outage posture: an unreadable chain clears the illustrative contract rather than
- * publishing a date-validated guess. The independently bound thesis survives as
- * "structure pending"; model output still never establishes an executable contract.
- */
-async function chainVerifiedIdeas(
-  env: AppEnv,
-  ideas: readonly BoundResearchIdea[],
-  runId: string,
-): Promise<ResearchBrief['ideas']> {
-  const chains = new Map<string, JsonValue | undefined>()
-  const verified: ResearchBrief['ideas'] = []
-  let chainUnavailable = 0
-  let checked = 0
-  let structureCleared = 0
-  for (const { contract, idea } of ideas) {
-    // A thesis may carry no proposed contract; there is then no chain lookup to make.
-    if (contract === null) {
-      verified.push(idea)
-      continue
-    }
-    checked += 1
-    if (!chains.has(idea.symbol)) {
-      chains.set(idea.symbol, await brokerApi()
-        .tastyRequest(env, `/option-chains/${encodeURIComponent(idea.symbol)}`)
-        .catch(() => undefined))
-    }
-    const chain = chains.get(idea.symbol)
-    if (!chain) {
-      chainUnavailable += 1
-      structureCleared += 1
-      verified.push({ ...idea, play: null })
-      continue
-    }
-    try {
-      // A malformed or incomplete chain payload throws here too, so it counts as a
-      // contract the chain does not list; only a failed fetch is an outage.
-      equityOptionContractFromChainTuple(chain, contract)
-      verified.push(idea)
-    } catch {
-      structureCleared += 1
-      verified.push({ ...idea, play: null })
-    }
-  }
-  // Without this counter a cleared structure looks identical to an editor that proposed
-  // no option at all, and a broker outage looks like an intentional thesis-only idea.
-  console.info(JSON.stringify({
-    event: 'DailyResearchPlaysChecked',
-    chainUnavailable,
-    checked,
-    dropped: 0,
-    runId,
-    structureCleared,
-  }))
-  return verified
-}
-
-function boundResearchSummary(
-  generatedSummary: string,
-  candidateCount: number,
-  ideas: ResearchBrief['ideas'],
-): string {
-  if (ideas.length === candidateCount && ideas.length > 0 && !mentionsDiscoverySource(generatedSummary)) {
-    return generatedSummary
-  }
-  if (!ideas.length) return 'No evidence-linked options thesis was strong enough to surface today.'
-  const headlines = ideas.slice(0, 2).map((idea) => idea.headline).join('; ')
-  return `${ideas.length} evidence-linked setup${ideas.length === 1 ? '' : 's'} survived validation: ${headlines}.`
-}
-
-function completeEditorialFrame(candidateCount: number, ideas: ResearchBrief['ideas']): boolean {
-  return candidateCount > 0 && ideas.length === candidateCount
 }
 
 async function persistDailyResearch(
   env: AppEnv,
   brief: ResearchBrief,
 ): Promise<void> {
-  if (!env.DB) return
+  if (!env.DB) throw new Error('DailyResearchPersistenceUnavailable')
   await env.DB.prepare(
     `INSERT INTO research_briefs (id, published_at, payload_json)
      VALUES (?, ?, ?)
@@ -242,55 +99,21 @@ export async function generateDailyResearch(
     runId: gatewayRunId,
     runStep: options.runStep,
   })
-  const baseEvidence = bindEvidenceSymbols(agent.evidence, agent.marketMetrics)
-  const allowedCandidates = new Set(agent.marketMetrics.map((ticker) => ticker.symbol))
-  const boundSources = bindSubmissionSources(
-    agent.submission.sources,
-    baseEvidence,
-    allowedCandidates,
-    agent.citations,
-  )
-  const evidence = boundSources.evidence
-  const generated = remapSubmissionSources(agent.submission, boundSources.indices)
+  const { submission } = agent
+  const sources = bindSubmissionSources(submission.sources, agent.citations)
   console.info(JSON.stringify({
     event: 'DailyResearchModelCompleted',
     runId: gatewayRunId,
   }))
-  const boundIdeas = researchIdeas(
-    generated.ideas,
-    evidence,
-    [...allowedCandidates],
-  )
-  // Only a bound idea is worth a chain request: binding has already proved the symbol
-  // and citations, and normalized an out-of-horizon expression to no play.
-  const ideas = await runTask(
-    'verify-option-chains',
-    () => chainVerifiedIdeas(env, boundIdeas, gatewayRunId),
-  )
-  // A zero-idea brief is otherwise silent about whether the editor surfaced nothing or
-  // every thesis failed symbol, coverage, citation, or discovery-provider validation.
-  console.info(JSON.stringify({
-    event: 'DailyResearchIdeasBound',
-    bound: ideas.length,
-    candidates: generated.ideas.length,
-    runId: gatewayRunId,
-  }))
-  const readingList = readingListFromCandidates(generated.readingList, evidence)
-  // If deterministic validation removes an editor candidate, do not retain a
-  // top-level summary that may still repeat the rejected thesis.
-  const summary = boundResearchSummary(generated.summary, generated.ideas.length, ideas)
-  const completeFrame = completeEditorialFrame(generated.ideas.length, ideas)
+  const ideas = researchIdeas(submission.ideas, sources)
+  const readingList = readingListFromCandidates(submission.readingList, sources)
   // Persist the completion time so replay cannot return a timestamp different from D1.
   const publishedAt = await runTask('published-at', async () => new Date().toISOString())
   const brief = ResearchBriefSchema.parse({
-    title: completeFrame && !mentionsDiscoverySource(generated.title)
-      ? generated.title
-      : `Options read for ${today}`,
-    summary,
-    regime: mentionsDiscoverySource(generated.regime) ? 'Selective' : generated.regime,
-    regimeDetail: completeFrame && !mentionsDiscoverySource(generated.regimeDetail)
-      ? generated.regimeDetail
-      : 'Only independently supported setups survived.',
+    title: submission.title,
+    summary: submission.summary,
+    regime: submission.regime,
+    regimeDetail: submission.regimeDetail,
     ideas,
     readingList,
     id: researchBriefId(today),

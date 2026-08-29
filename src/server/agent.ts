@@ -131,9 +131,16 @@ export async function resolvePendingAction(
     receipt = await executeOrderPlacement(env, JSON.parse(row.payload_json))
   } catch (error) {
     if (error instanceof BrokerageSubmissionUnknownError) {
-      await env.DB.prepare(
-        "UPDATE brokerage_actions SET error_code = 'BrokerageSubmissionUnknown' WHERE id = ? AND status = 'executing'",
-      ).bind(actionId).run()
+      try {
+        const marked = await env.DB.prepare(
+          "UPDATE brokerage_actions SET error_code = 'BrokerageSubmissionUnknown' WHERE id = ? AND status = 'executing'",
+        ).bind(actionId).run()
+        if (marked.meta.changes !== 1) console.error('BrokerageUnknownMarkerPersistenceFailed')
+      } catch {
+        // The broker outcome remains the primary failure. Log only a fixed marker:
+        // D1/provider details can carry private account or order context.
+        console.error('BrokerageUnknownMarkerPersistenceFailed')
+      }
     } else {
       await env.DB.prepare(
         "UPDATE brokerage_actions SET status = 'failed', error_code = ? WHERE id = ? AND status = 'executing'",
@@ -147,9 +154,14 @@ export async function resolvePendingAction(
     ).bind(receipt.orderId ?? null, actionId).run()
     if (recorded.meta.changes !== 1) throw new Error('BrokerageReceiptNotRecorded')
   } catch {
-    await env.DB.prepare(
-      "UPDATE brokerage_actions SET error_code = 'BrokerageReceiptNotRecorded' WHERE id = ? AND status = 'executing'",
-    ).bind(actionId).run().catch(() => undefined)
+    try {
+      const marked = await env.DB.prepare(
+        "UPDATE brokerage_actions SET error_code = 'BrokerageReceiptNotRecorded' WHERE id = ? AND status = 'executing'",
+      ).bind(actionId).run()
+      if (marked.meta.changes !== 1) console.error('BrokerageReceiptMarkerPersistenceFailed')
+    } catch {
+      console.error('BrokerageReceiptMarkerPersistenceFailed')
+    }
     throw new BrokerageSubmissionUnknownError()
   }
   return { status: 'executed', detail: receipt.detail }

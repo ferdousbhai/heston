@@ -1,5 +1,10 @@
-const MAX_PORTFOLIO_DRAWDOWN = 0.40
-const RETAINED_PORTFOLIO_FLOOR = 1 - MAX_PORTFOLIO_DRAWDOWN
+// Owner-approved survival policy: enforcement and Dan's context must read this
+// same value so advice cannot drift from the server-side execution boundary.
+export const PORTFOLIO_POLICY = {
+  maxDrawdownPercent: 40,
+} as const
+
+const RETAINED_PORTFOLIO_FLOOR = 1 - PORTFOLIO_POLICY.maxDrawdownPercent / 100
 
 function finitePositive(value: number): boolean {
   return Number.isFinite(value) && value > 0

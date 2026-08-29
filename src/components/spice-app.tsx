@@ -3,23 +3,20 @@ import { useLiveQuery } from '@tanstack/react-db'
 import { Bot, Gauge, Newspaper } from 'lucide-react'
 import { z } from 'zod'
 
+import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import { Empty, EmptyDescription, EmptyHeader } from '#/components/ui/empty'
 import { Skeleton } from '#/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import {
   applyWatchlistMutation,
-  catalystCollection,
-  isSnapshotInitialized,
+  offlineSnapshotCollection,
   preferenceCollection,
-  researchCollection,
   requestPersistentLocalStorage,
   restoreOfflineSnapshot,
   selectTicker,
   selectLiveMarketSymbols,
   syncFromCloud,
-  syncStateCollection,
   tickerCollection,
-  watchlistCollection,
 } from '../data/collections'
 import {
   createFavoriteSync,
@@ -42,12 +39,17 @@ const ApiErrorSchema = z.looseObject({ error: z.string().optional() })
 const TabSchema = z.enum(['market', 'brief', 'agent'])
 
 type Tab = z.infer<typeof TabSchema>
+type SnapshotSyncOperation = {
+  audience: 'owner' | 'public'
+  controller: AbortController
+  promise: Promise<void>
+}
 
 export function SpiceApp() {
   const auth = useViewer()
   // Boot the source-neutral public surface while the session check is in flight
   // instead of holding the whole app behind it. If the viewer turns out to be the
-  // owner, the audience-tagged sync marker keeps public rows from ever being
+  // owner, the audience-tagged atomic snapshot keeps public rows from ever being
   // rendered as the private snapshot; the workspace re-syncs for that audience.
   return (
     <SpiceWorkspace
@@ -66,24 +68,22 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
     [viewerId],
   )
   const { data: storedTickers = [] } = useLiveQuery((query) => query.from({ ticker: tickerCollection }))
-  const { data: storedCatalysts = [] } = useLiveQuery((query) => query.from({ catalyst: catalystCollection }))
-  const { data: storedWatchlists = [] } = useLiveQuery((query) => query.from({ watchlist: watchlistCollection }))
-  const { data: storedResearch = [] } = useLiveQuery((query) => query.from({ research: researchCollection }))
+  const { data: storedSnapshots = [] } = useLiveQuery((query) => query.from({ snapshot: offlineSnapshotCollection }))
   const { data: preferences = [] } = useLiveQuery((query) => query.from({ preference: preferenceCollection }))
   const { data: favoriteStageMarkers = [] } = useLiveQuery(
     (query) => query.from({ favoriteStageMarker: favoriteStageMarkerCollection }),
   )
-  const { data: syncStates = [] } = useLiveQuery((query) => query.from({ sync: syncStateCollection }))
   const { data: syncedFavorites } = useLiveQuery(
     () => favoriteSync?.collection,
     [favoriteSync],
   )
-  const syncState = syncStates.find((candidate) => candidate.id === 'snapshot')
-  const snapshotReady = isSnapshotInitialized(syncState, audience)
+  const storedSnapshot = storedSnapshots.find((candidate) => candidate.id === 'snapshot')
+  const snapshot = storedSnapshot?.audience === audience ? storedSnapshot.snapshot : undefined
+  const snapshotReady = Boolean(snapshot)
   const tickers = snapshotReady ? storedTickers : []
-  const catalysts = snapshotReady ? storedCatalysts : []
-  const watchlists = snapshotReady ? storedWatchlists : []
-  const research = snapshotReady ? storedResearch[0] : undefined
+  const catalysts = snapshot?.catalysts ?? []
+  const watchlists = snapshot?.watchlists ?? []
+  const research = snapshot?.research
   const preference = preferences[0]
   const favoriteStageMarker = favoriteStageMarkers[0]
   const pinnedSymbols = favoriteSync
@@ -92,12 +92,10 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
   const [tab, setTab] = useState<Tab>('market')
   const [watchlistEditorOpen, setWatchlistEditorOpen] = useState(false)
   const [bootstrappedAudience, setBootstrappedAudience] = useState<'owner' | 'public'>()
+  const [favoriteError, setFavoriteError] = useState<string>()
+  const [snapshotWarning, setSnapshotWarning] = useState<string>()
   const bootstrapComplete = bootstrappedAudience === audience
-  const lastSyncAt = useRef(0)
-  const syncInFlight = useRef<Promise<void> | undefined>(undefined)
-  const syncInFlightAudience = useRef<typeof audience | undefined>(undefined)
-  const syncAbort = useRef<AbortController | undefined>(undefined)
-  const syncRevision = useRef(0)
+  const syncOperation = useRef<SnapshotSyncOperation | undefined>(undefined)
   const closeWatchlistEditor = useCallback(() => setWatchlistEditorOpen(false), [setWatchlistEditorOpen])
   const openWatchlistEditor = useCallback(() => setWatchlistEditorOpen(true), [setWatchlistEditorOpen])
   // One D1-backed watchlist reaches each audience; the preference only survives
@@ -112,63 +110,75 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
   useLiveMarket(streamSymbols, snapshotReady && owner)
 
   const synchronize = useCallback(async (signal?: AbortSignal, force = false): Promise<void> => {
-    if (!navigator.onLine) return
-    if (force) {
-      syncRevision.current += 1
-      syncAbort.current?.abort()
+    if (!navigator.onLine) throw new Error('Market synchronization is unavailable while offline')
+    const active = syncOperation.current
+    if (active) {
+      if (!force && active.audience === audience) return active.promise
+      active.controller.abort()
     }
-    if (syncInFlight.current) {
-      const activeAudience = syncInFlightAudience.current
-      await syncInFlight.current
-      if ((!force && activeAudience === audience) || signal?.aborted || !navigator.onLine) return
-    }
-    const revision = syncRevision.current
     const controller = new AbortController()
-    syncAbort.current = controller
     const taskSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
-    const task = syncFromCloud(taskSignal, () => revision === syncRevision.current, audience).then(() => {
-      lastSyncAt.current = Date.now()
-    }).catch(() => {
-      // Keep the local snapshot; focus, reconnect, or an account mutation retries automatically.
-    }).finally(() => {
-      if (syncInFlight.current === task) {
-        syncInFlight.current = undefined
-        syncInFlightAudience.current = undefined
-        if (syncAbort.current === controller) syncAbort.current = undefined
-      }
+    let operation!: SnapshotSyncOperation
+    const task = syncFromCloud(taskSignal, () => syncOperation.current === operation, audience).then(() => {
+      setSnapshotWarning(undefined)
     })
-    syncInFlight.current = task
-    syncInFlightAudience.current = audience
-    return task
+    operation = { audience, controller, promise: task }
+    syncOperation.current = operation
+    try {
+      await task
+    } finally {
+      if (syncOperation.current === operation) syncOperation.current = undefined
+    }
   }, [audience])
+
+  const synchronizeWithWarning = useCallback(async (signal?: AbortSignal): Promise<void> => {
+    try {
+      await synchronize(signal)
+    } catch (cause: unknown) {
+      const failure = toError(cause)
+      if (signal?.aborted || failure?.name === 'AbortError') return
+      setSnapshotWarning(navigator.onLine
+        ? 'Latest market data could not be synchronized. Showing saved data when available.'
+        : 'Live market updates are paused while offline. Showing saved data when available.')
+    }
+  }, [setSnapshotWarning, synchronize])
 
   useEffect(() => {
     const controller = new AbortController()
 
     void (async () => {
-      await restoreOfflineSnapshot(audience)
-      void requestPersistentLocalStorage()
-      if (!controller.signal.aborted) await synchronize(controller.signal)
-      if (!controller.signal.aborted) setBootstrappedAudience(audience)
-    })().catch(() => {
-      if (!controller.signal.aborted) setBootstrappedAudience(audience)
-    })
-    const online = () => void synchronize(controller.signal)
-    const refreshVisible = () => {
-      if (document.visibilityState === 'visible' && Date.now() - lastSyncAt.current >= 5 * 60_000) {
-        void synchronize(controller.signal)
+      // Local storage is only one bootstrap source. A corrupt or unavailable offline
+      // snapshot must not prevent the independent network recovery path.
+      try {
+        await restoreOfflineSnapshot(audience)
+      } catch {
+        if (!controller.signal.aborted) {
+          setSnapshotWarning('Saved market data could not be restored. Trying the network instead.')
+        }
       }
+      void requestPersistentLocalStorage()
+      if (!controller.signal.aborted) await synchronizeWithWarning(controller.signal)
+      if (!controller.signal.aborted) setBootstrappedAudience(audience)
+    })()
+    const online = () => void synchronizeWithWarning(controller.signal)
+    const offline = () => {
+      setSnapshotWarning('Live market updates are paused while offline. Showing saved data when available.')
+    }
+    const refreshVisible = () => {
+      if (document.visibilityState === 'visible') void synchronizeWithWarning(controller.signal)
     }
     window.addEventListener('online', online)
+    window.addEventListener('offline', offline)
     window.addEventListener('focus', refreshVisible)
     document.addEventListener('visibilitychange', refreshVisible)
     return () => {
       controller.abort()
       window.removeEventListener('online', online)
+      window.removeEventListener('offline', offline)
       window.removeEventListener('focus', refreshVisible)
       document.removeEventListener('visibilitychange', refreshVisible)
     }
-  }, [audience, synchronize])
+  }, [audience, synchronizeWithWarning])
 
   // Stable row callbacks keep the memoized market rows from re-rendering on every
   // workspace render.
@@ -177,10 +187,11 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
     setTab('market')
   }, [setTab])
   const togglePinned = useCallback((symbol: string) => {
+    setFavoriteError(undefined)
     void toggleFavoriteSymbol(symbol, favoriteSync).catch((cause: unknown) => {
-      console.error('FavoriteMutationFailed', toError(cause)?.message ?? 'UnknownError')
+      setFavoriteError(toError(cause)?.message ?? 'The favorite could not be updated')
     })
-  }, [favoriteSync])
+  }, [favoriteSync, setFavoriteError])
   const mutateWatchlist = async (action: WatchlistMutation) => {
     if (!owner) throw new Error('Owner authentication is required')
     const response = await fetch('/api/watchlists', {
@@ -195,12 +206,29 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
       // A typed zero-apply capacity rejection changed no server state. Avoid a
       // needless snapshot reconciliation that can erase the rejected form value.
       if (snapshotReady && (!result || result.appliedSymbols.length > 0)) {
-        await synchronize(undefined, true).catch(() => undefined)
+        try {
+          await synchronize(undefined, true)
+        } catch (cause: unknown) {
+          const refreshFailure = toError(cause)
+          if (refreshFailure?.name === 'AbortError') {
+            throw new Error(result?.detail ?? apiError?.error ?? 'The watchlist could not be updated')
+          }
+          const refreshDetail = refreshFailure?.message ?? 'Unknown refresh failure'
+          throw new Error(`${result?.detail ?? apiError?.error ?? 'The watchlist could not be updated'}. Refresh also failed: ${refreshDetail}`)
+        }
       }
       throw new Error(result?.detail ?? apiError?.error ?? 'The watchlist could not be updated')
     }
     await applyWatchlistMutation(action)
-    if (snapshotReady) await synchronize(undefined, true)
+    if (snapshotReady) {
+      try {
+        await synchronize(undefined, true)
+      } catch (cause: unknown) {
+        const refreshFailure = toError(cause)
+        if (refreshFailure?.name === 'AbortError') return
+        throw new Error(refreshFailure?.message ?? 'The updated watchlist could not be refreshed')
+      }
+    }
   }
 
   const overlayOpen = watchlistEditorOpen
@@ -226,6 +254,18 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
         )}
         <TabsContent value={tab}>
           <main id="main-content" className={ownerAgentOpen ? 'main-content agent-main' : 'main-content'}>
+            {snapshotWarning && (
+              <Alert>
+                <AlertTitle>Market data may be stale</AlertTitle>
+                <AlertDescription>{snapshotWarning}</AlertDescription>
+              </Alert>
+            )}
+            {tab === 'market' && favoriteError && (
+              <Alert variant="destructive">
+                <AlertTitle>Favorite update failed</AlertTitle>
+                <AlertDescription>{favoriteError}</AlertDescription>
+              </Alert>
+            )}
             {tab === 'agent' && !owner && <OwnerAccessScreen authError={authError} signedIn={Boolean(viewer)} />}
             {tab !== 'agent' && !snapshotReady && (
               <MarketState loading={!bootstrapComplete} message={bootstrapComplete ? 'Market data is unavailable.' : 'Loading market data…'} />

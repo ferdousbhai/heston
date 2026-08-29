@@ -31,64 +31,28 @@ function submission(sourceUrl = EVIDENCE_URL): DailyResearchSubmission {
     }],
     regime: 'Selective',
     regimeDetail: 'Prefer company-specific catalysts with usable volatility.',
-    sources: [{ evidenceIndex: 0, symbol: 'NVDA' }],
+    sources: [{
+      context: 'The agreement improves near-term demand visibility.',
+      sourceUrl,
+      title: 'NVIDIA supply agreement',
+    }],
     summary: 'One falsifiable company-specific setup stands out.',
     title: 'Selective convexity',
   }
-  if (sourceUrl !== EVIDENCE_URL) report.sources = [{
-    context: 'The agreement improves near-term demand visibility.',
-    evidenceIndex: null,
-    sourceUrl,
-    symbol: 'NVDA',
-    title: 'NVIDIA supply agreement',
-  }]
   return report
 }
 
-function chainRow() {
-  return {
-    active: true,
-    'expiration-date': '2026-10-16',
-    'instrument-type': 'Equity Option',
-    'is-closing-only': false,
-    'option-chain-type': 'Standard',
-    'option-type': 'C',
-    'root-symbol': 'NVDA',
-    'shares-per-contract': 100,
-    'streamer-symbol': '.NVDA261016C225',
-    'strike-price': '225',
-    symbol: 'NVDA  261016C00225000',
-    'underlying-symbol': 'NVDA',
-  }
-}
-
-function response(report = submission(), citations = new Set<string>()) {
+function response(report = submission(), citations = new Set<string>([EVIDENCE_URL])) {
   return Promise.resolve({
     citations,
-    evidence: [{
-      context: 'NVDA: NVIDIA signed a new supply agreement.',
-      evidenceIndex: 0,
-      source: 'Linked-page discovery · reuters.com',
-      title: 'NVIDIA supply agreement',
-      url: EVIDENCE_URL,
-    }],
-    marketMetrics: [{
-      impliedVolatilityIndex: 42,
-      impliedVolatilityPercentile: 38,
-      impliedVolatilityRank: 27,
-      liquidityRating: 5,
-      symbol: 'NVDA',
-    }],
     submission: report,
-    webSearches: 1,
-    xSearches: 1,
   })
 }
 
 const broker = stubBroker()
 
 beforeEach(() => {
-  broker.tastyRequest.mockReset().mockResolvedValue({ data: { items: [chainRow()] } })
+  broker.tastyRequest.mockReset()
   setBrokerApi(broker)
   setDailyResearchAgent({ run: () => response() })
 })
@@ -108,74 +72,75 @@ describe('daily research schedule', () => {
 })
 
 describe('daily research final boundary', () => {
-  it('publishes at most six annotated source-material links', () => {
-    const candidates = Array.from({ length: 8 }, (_, sourceIndex) => ({
+  it('publishes the six structured reading links without filtering or rewriting them', () => {
+    const candidates = Array.from({ length: 6 }, (_, sourceIndex) => ({
       description: `Why source ${sourceIndex} matters.`,
       sourceIndex,
       title: `Reference ${sourceIndex}`,
     }))
     const evidence = candidates.map(({ sourceIndex }) => ({
-      context: 'Evidence',
-      source: 'Research',
-      title: `Raw source ${sourceIndex}`,
-      url: sourceIndex === 0
-        ? 'https://x.com/company/status/123'
-        : `https://example.com/reference-${sourceIndex}`,
+      label: `Raw source ${sourceIndex}`,
+      url: `https://example.com/reference-${sourceIndex}`,
     }))
 
     const links = readingListFromCandidates(candidates, evidence)
 
     expect(links).toHaveLength(6)
     expect(links[0]).toEqual({
-      reason: 'Why source 1 matters.',
-      title: 'Reference 1',
-      url: 'https://example.com/reference-1',
+      reason: 'Why source 0 matters.',
+      title: 'Reference 0',
+      url: 'https://example.com/reference-0',
     })
-    expect(links).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ url: expect.stringContaining('x.com') }),
-    ]))
   })
 
-  it('lets the agent choose any real expiry before exact chain verification', () => {
+  it('leaves a poor source choice visible for transcript auditing', () => {
+    expect(readingListFromCandidates([{
+      description: 'Social post.',
+      sourceIndex: 0,
+      title: 'X post',
+    }], [{
+      label: 'Social post',
+      url: 'https://x.com/company/status/123',
+    }])).toEqual([{
+      reason: 'Social post.',
+      title: 'X post',
+      url: 'https://x.com/company/status/123',
+    }])
+  })
+
+  it('renders the model option expression without a second validation pass', () => {
     const idea = submission().ideas[0]!
     const evidence = [{
-      context: 'NVDA signed a new supply agreement.',
-      source: 'Independent wire',
-      symbols: ['NVDA'],
-      title: 'NVIDIA supply agreement',
+      label: 'Independent wire · NVIDIA supply agreement',
       url: EVIDENCE_URL,
     }]
 
     expect(researchIdeas([
-      { ...idea, play: { ...idea.play!, expiration: '2027-01-15' } },
-    ], evidence, ['NVDA'])[0]?.contract).toMatchObject({ expiry: '2027-01-15' })
+      { ...idea, play: { ...idea.play!, expiration: '2027-02-31' } },
+    ], evidence)[0]?.play).toBe('NVDA 225c 2/31')
   })
 
-  it('keeps an idea while dropping a cross-symbol citation', () => {
+  it('preserves the model source selection without checking its editorial fit', () => {
     const idea = submission().ideas[0]!
     const evidence = [
       {
-        context: 'NVDA signed a new supply agreement.',
-        source: 'Independent wire',
-        symbols: ['NVDA'],
-        title: 'NVIDIA supply agreement',
+        label: 'Independent wire · NVIDIA supply agreement',
         url: EVIDENCE_URL,
       },
       {
-        context: 'A peer reported strong demand.',
-        source: 'Peer filing',
-        symbols: ['AMD'],
-        title: 'Peer demand',
+        label: 'Peer filing · Peer demand',
         url: 'https://example.com/peer-demand',
       },
     ]
 
-    const result = researchIdeas([{ ...idea, sourceIndices: [0, 1] }], evidence, ['NVDA'])
-
-    expect(result[0]?.idea.sources).toEqual([expect.objectContaining({ url: EVIDENCE_URL })])
+    expect(researchIdeas([{ ...idea, sourceIndices: [0, 1] }], evidence)[0]?.sources)
+      .toEqual([
+        { label: 'Independent wire · NVIDIA supply agreement', url: EVIDENCE_URL },
+        { label: 'Peer filing · Peer demand', url: 'https://example.com/peer-demand' },
+      ])
   })
 
-  it('binds an agent-selected symbol to fetched evidence and verifies its exact option', async () => {
+  it('binds source references and publishes the typed model report unchanged', async () => {
     const brief = await generateDailyResearch({}, NOW, { persist: false })
 
     expect(brief.ideas).toEqual([expect.objectContaining({
@@ -185,10 +150,10 @@ describe('daily research final boundary', () => {
     })])
     expect(brief.readingList).toEqual([expect.objectContaining({ url: EVIDENCE_URL })])
     expect(brief.sources).toEqual([
-      { label: 'tastytrade market metrics', url: 'https://developer.tastytrade.com/open-api-spec/market-metrics/' },
-      { label: 'Linked-page discovery · reuters.com · NVIDIA supply agreement', url: EVIDENCE_URL },
+      { label: 'Grok research · reuters.com · NVIDIA supply agreement', url: EVIDENCE_URL },
+      { label: 'NVIDIA supply agreement', url: EVIDENCE_URL },
     ])
-    expect(broker.tastyRequest).toHaveBeenCalledWith(expect.anything(), '/option-chains/NVDA')
+    expect(broker.tastyRequest).not.toHaveBeenCalled()
     expect(broker.loadMarketSnapshot).not.toHaveBeenCalled()
   })
 
@@ -203,6 +168,13 @@ describe('daily research final boundary', () => {
       label: 'Grok research · example.com · NVIDIA supply agreement',
       url: nativeUrl,
     }])
+  })
+
+  it('fails when the model invents a native source URL', async () => {
+    setDailyResearchAgent({ run: () => response(submission(), new Set()) })
+
+    await expect(generateDailyResearch({}, NOW, { persist: false }))
+      .rejects.toThrow('DailyResearchOutput:uncited-native-source:0')
   })
 
   it('uses the narrow market-status read for scheduled runs', async () => {
@@ -240,7 +212,7 @@ describe('daily research final boundary', () => {
 
     expect(replayed.publishedAt).toBe(first.publishedAt)
     expect(runIds).toEqual([runIds[0], runIds[0]])
-    expect(executed).toEqual(['run-id', 'verify-option-chains', 'published-at'])
-    expect(broker.tastyRequest).toHaveBeenCalledTimes(1)
+    expect(executed).toEqual(['run-id', 'published-at'])
+    expect(broker.tastyRequest).not.toHaveBeenCalled()
   })
 })

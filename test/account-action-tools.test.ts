@@ -8,6 +8,7 @@ import {
 } from '../src/server/watchlist-actions'
 import { stubBroker } from './broker-stub'
 import {
+  BrokerageCancellationUnknownError,
   createDirectAccountActionTool,
   createRememberTradeSymbolsTool,
 } from '../src/server/account-action-tools'
@@ -78,7 +79,8 @@ describe('direct non-placement actions', () => {
     const cancelTool = createDirectAccountActionTool({}, 'Cancel order #12345.')
     const watchlistTool = createDirectAccountActionTool({}, 'Add SPY to my watchlist.')
 
-    await expect(cancelTool.execute('cancel-1', { kind: 'cancel_order', orderId: '12345' })).rejects.toThrow('Upstream response lost')
+    await expect(cancelTool.execute('cancel-1', { kind: 'cancel_order', orderId: '12345' }))
+      .rejects.toBeInstanceOf(BrokerageCancellationUnknownError)
     await expect(cancelTool.execute('cancel-2', { kind: 'cancel_order', orderId: '12345' })).rejects.toThrow('DirectActionAlreadyAttempted')
     await expect(watchlistTool.execute('watchlist-1', {
       kind: 'add_watchlist_symbols', symbols: ['SPY'],
@@ -89,6 +91,35 @@ describe('direct non-placement actions', () => {
 
     expect(tastytrade.tastyRequest).toHaveBeenCalledTimes(1)
     expect(watchlists.executeWatchlistAction).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['network loss', new TypeError('fetch failed')],
+    ['timeout', Object.assign(new Error('timed out'), { name: 'TimeoutError' })],
+    ['provider 5xx', Object.assign(new Error('TastytradeApi:503:/orders/12345'), { name: 'TastytradeApiAmbiguousError' })],
+  ])('reports an explicit unknown cancellation after %s', async (_label, failure) => {
+    tastytrade.tastyRequest.mockRejectedValueOnce(failure)
+    const tool = createDirectAccountActionTool({}, 'Cancel order #12345.')
+
+    await expect(tool.execute('cancel-ambiguous', { kind: 'cancel_order', orderId: '12345' }))
+      .rejects.toMatchObject({
+        message: expect.stringContaining('may have received this cancellation'),
+        name: 'BrokerageCancellationUnknownError',
+      })
+    await expect(tool.execute('cancel-retry', { kind: 'cancel_order', orderId: '12345' }))
+      .rejects.toThrow('DirectActionAlreadyAttempted')
+  })
+
+  it('preserves a definitive provider rejection for a cancellation', async () => {
+    const rejection = Object.assign(new Error('TastytradeApi:422:/orders/12345'), {
+      name: 'TastytradeApiError',
+    })
+    tastytrade.tastyRequest.mockRejectedValueOnce(rejection)
+
+    await expect(createDirectAccountActionTool({}, 'Cancel order #12345.').execute(
+      'cancel-rejected',
+      { kind: 'cancel_order', orderId: '12345' },
+    )).rejects.toBe(rejection)
   })
 
   it('rejects model-selected cancellation parameters that do not exactly match the current request', async () => {

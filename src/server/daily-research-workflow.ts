@@ -5,8 +5,8 @@ import { generateDailyResearch } from './research'
 import { type AppEnv, type DailyResearchWorkflowParams } from './env'
 
 const DailyResearchWorkflowParameters = z.object({
-  persist: z.boolean().default(true),
-  requireMarketOpen: z.boolean().default(true),
+  persist: z.boolean(),
+  requireMarketOpen: z.boolean(),
   scheduledAt: z.string().datetime(),
 })
 
@@ -23,7 +23,10 @@ export class DailyResearchWorkflow extends WorkflowEntrypoint<AppEnv, DailyResea
       }
       const result = step.do(
         `${++call}-${name}`,
-        { retries: { backoff: 'exponential', delay: '10 seconds', limit: 2 } },
+        // A repeated model or provider turn is a different research run. Keep the
+        // original failure for AI Gateway inspection instead of silently paying for
+        // and accepting a second answer.
+        { retries: { delay: 0, limit: 0 } },
         execute,
       )
       // SAFETY: Workflow replay preserves the exact value returned by this generic task.

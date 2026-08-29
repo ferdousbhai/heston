@@ -3,11 +3,26 @@ import { JsonObjectSchema, type JsonValue } from '../src/domain/json-payload'
 
 import { type AppEnv } from '../src/server/env'
 
-import { MarketFeedCore, type FeedClientSocket, type FeedContext } from '../src/server/market-feed-core'
+import {
+  MarketFeedCore,
+  type FeedClientSocket,
+  type FeedContext,
+  type FeedControlSocket,
+} from '../src/server/market-feed-core'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
 
 const tasty = stubBroker()
+
+const GREEKS_FIELDS = [
+  'eventSymbol', 'eventFlags', 'index', 'time', 'sequence', 'price',
+  'volatility', 'delta', 'gamma', 'theta', 'rho', 'vega',
+]
+const TRADE_FIELDS = [
+  'eventSymbol', 'eventTime', 'time', 'timeNanoPart', 'sequence', 'exchangeCode',
+  'dayId', 'tickDirection', 'extendedTradingHours', 'price', 'change', 'size',
+  'dayVolume', 'dayTurnover',
+]
 
 type Listener = (event: { data?: unknown }) => void
 
@@ -85,6 +100,16 @@ function downstream(symbols: string[]): FeedClientSocket {
   }
 }
 
+function controlSocket(symbols: string[]): FeedControlSocket {
+  let attachment: JsonValue = { symbols }
+  return {
+    close: vi.fn(),
+    deserializeAttachment: () => attachment,
+    send: vi.fn(),
+    serializeAttachment: vi.fn((next: JsonValue) => { attachment = next }),
+  }
+}
+
 function liveEnvironment(): AppEnv {
   const secret: SecretsStoreSecret = { get: vi.fn() }
   return {
@@ -108,6 +133,63 @@ beforeEach(() => {
 })
 
 describe('MarketFeed option Greeks RPC', () => {
+  it('rejects invalid initial and resubscribe requests without accepting a partial symbol list', async () => {
+    const context = new FakeContext([])
+    const feed = new MarketFeedCore(context, liveEnvironment())
+    const initial = await feed.fetch(new Request(
+      'https://spice.test/api/stream?symbols=SPY,../secret,NVDA',
+      { headers: { Upgrade: 'websocket' } },
+    ))
+    expect(initial.status).toBe(400)
+    expect(context.acceptWebSocket).not.toHaveBeenCalled()
+
+    const client = controlSocket(['SPY'])
+    await feed.webSocketMessage(client, JSON.stringify({ type: 'subscribe', symbols: ['NVDA', '../secret'] }))
+    expect(client.serializeAttachment).not.toHaveBeenCalled()
+    expect(client.close).toHaveBeenCalledWith(1008, 'Invalid subscription request')
+    expect(vi.mocked(client.send).mock.calls.some(([frame]) => (
+      JsonObjectSchema.parse(JSON.parse(frame)).state === 'degraded'
+    ))).toBe(true)
+
+    const oversized = controlSocket(['SPY'])
+    await feed.webSocketMessage(oversized, JSON.stringify({
+      type: 'subscribe',
+      symbols: Array.from({ length: 101 }, (_, index) => `A${index}`),
+    }))
+    expect(oversized.serializeAttachment).not.toHaveBeenCalled()
+    expect(oversized.close).toHaveBeenCalledWith(1008, 'Invalid subscription request')
+  })
+
+  it('stays visibly degraded when the current candle session cannot be loaded', async () => {
+    tasty.loadEquityCandleFromTime.mockRejectedValueOnce(new Error('malformed-session'))
+    const client = downstream(['SPY'])
+    const context = new FakeContext([client])
+    new MarketFeedCore(context, liveEnvironment())
+    await vi.waitFor(() => expect(tasty.loadEquityCandleFromTime).toHaveBeenCalledTimes(1))
+    await context.drain()
+
+    expect(FakeUpstreamWebSocket.instances).toHaveLength(0)
+    expect(context.setAlarm).toHaveBeenCalled()
+    expect(vi.mocked(client.send).mock.calls.some(([frame]) => {
+      const status = JsonObjectSchema.parse(JSON.parse(frame))
+      return status.type === 'feed-status' && status.state === 'degraded'
+    })).toBe(true)
+  })
+
+  it('does not connect when the candle session timestamp is malformed', async () => {
+    tasty.loadEquityCandleFromTime.mockResolvedValueOnce(Date.now() + 60_000)
+    const client = downstream(['SPY'])
+    const context = new FakeContext([client])
+    new MarketFeedCore(context, liveEnvironment())
+    await vi.waitFor(() => expect(tasty.loadEquityCandleFromTime).toHaveBeenCalledTimes(1))
+    await context.drain()
+
+    expect(FakeUpstreamWebSocket.instances).toHaveLength(0)
+    expect(vi.mocked(client.send).mock.calls.some(([frame]) => (
+      JsonObjectSchema.parse(JSON.parse(frame)).state === 'degraded'
+    ))).toBe(true)
+  })
+
   it('single-flights concurrent reads, completes both, unsubscribes, and ignores stale close callbacks', async () => {
     const context = new FakeContext([downstream(['SPY'])])
     const feed = new MarketFeedCore(context, liveEnvironment())
@@ -122,15 +204,21 @@ describe('MarketFeed option Greeks RPC', () => {
     const socket = FakeUpstreamWebSocket.instances[0]!
     socket.open()
     await context.drain()
-    socket.message({ type: 'SETUP' })
+    socket.message({ type: 'SETUP', channel: 0, version: '0.1-test' })
     await context.drain()
-    socket.message({ type: 'AUTH_STATE', state: 'AUTHORIZED' })
+    socket.message({ type: 'AUTH_STATE', channel: 0, state: 'AUTHORIZED' })
     await context.drain()
-    socket.message({ type: 'CHANNEL_OPENED', channel: 7 })
+    socket.message({ type: 'CHANNEL_OPENED', channel: 7, service: 'FEED', parameters: { contract: 'AUTO' } })
+    await context.drain()
+    socket.message({
+      type: 'FEED_CONFIG', channel: 7, aggregationPeriod: 0.25,
+      dataFormat: 'COMPACT', eventFields: { Greeks: GREEKS_FIELDS },
+    })
     await context.drain()
 
     socket.message({
       type: 'FEED_DATA',
+      channel: 7,
       data: ['Greeks', [
         '.NVDA260814C250', 0, 0, 1_786_629_600_000, 1,
         3.2, 0.42, 0.5, 0.03, -0.04, 0.02, 0.12,
@@ -174,15 +262,21 @@ describe('MarketFeed option Greeks RPC', () => {
     const socket = FakeUpstreamWebSocket.instances[0]!
     socket.open()
     await context.drain()
-    socket.message({ type: 'SETUP' })
+    socket.message({ type: 'SETUP', channel: 0, version: '0.1-test' })
     await context.drain()
-    socket.message({ type: 'AUTH_STATE', state: 'AUTHORIZED' })
+    socket.message({ type: 'AUTH_STATE', channel: 0, state: 'AUTHORIZED' })
     await context.drain()
-    socket.message({ type: 'CHANNEL_OPENED', channel: 3 })
+    socket.message({ type: 'CHANNEL_OPENED', channel: 3, service: 'FEED', parameters: { contract: 'AUTO' } })
+    await context.drain()
+    socket.message({
+      type: 'FEED_CONFIG', channel: 3, aggregationPeriod: 0.25,
+      dataFormat: 'COMPACT', eventFields: { Trade: TRADE_FIELDS },
+    })
     await context.drain()
 
     socket.message({
       type: 'FEED_DATA',
+      channel: 3,
       data: ['Trade', [
         'SPY', 1_786_629_600_000, 1_786_629_600_000, null, 1, 'Q',
         1, 'Up', false, 700, null, 10, 1_000, 700_000,
@@ -223,11 +317,67 @@ describe('MarketFeed option Greeks RPC', () => {
     const socket = FakeUpstreamWebSocket.instances[0]!
     socket.open()
     await context.drain()
-    socket.message({ type: 'ERROR', message: 'private-provider-payload' })
+    socket.message({ type: 'ERROR', channel: 0, message: 'private-provider-payload' })
     await context.drain()
 
     expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('private-provider-payload')
     expect(JSON.stringify(vi.mocked(client.send).mock.calls)).not.toContain('private-provider-payload')
     expect(vi.mocked(client.send).mock.calls.some(([frame]) => frame.includes('Upstream feed error'))).toBe(true)
+  })
+
+  it('degrades and reconnects instead of dropping malformed upstream envelopes', async () => {
+    const client = downstream(['SPY'])
+    const context = new FakeContext([client])
+    new MarketFeedCore(context, liveEnvironment())
+    await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(1))
+
+    const socket = FakeUpstreamWebSocket.instances[0]!
+    socket.open()
+    await context.drain()
+    socket.emit('message', '{not-json')
+    await context.drain()
+
+    expect(socket.readyState).toBe(FakeUpstreamWebSocket.CLOSED)
+    expect(context.setAlarm).toHaveBeenCalled()
+    expect(vi.mocked(client.send).mock.calls.some(([frame]) => {
+      const status = JsonObjectSchema.parse(JSON.parse(frame))
+      return status.type === 'feed-status'
+        && status.state === 'degraded'
+        && status.detail === 'Malformed upstream feed frame'
+    })).toBe(true)
+  })
+
+  it('validates a whole COMPACT batch before broadcasting any of its rows', async () => {
+    const client = downstream(['SPY'])
+    const context = new FakeContext([client])
+    new MarketFeedCore(context, liveEnvironment())
+    await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(1))
+
+    const socket = FakeUpstreamWebSocket.instances[0]!
+    socket.open()
+    await context.drain()
+    socket.message({ type: 'CHANNEL_OPENED', channel: 3, service: 'FEED', parameters: { contract: 'AUTO' } })
+    await context.drain()
+    socket.message({
+      type: 'FEED_CONFIG', channel: 3, aggregationPeriod: 0.25,
+      dataFormat: 'COMPACT', eventFields: { Trade: TRADE_FIELDS },
+    })
+    await context.drain()
+    socket.message({
+      type: 'FEED_DATA',
+      channel: 3,
+      data: ['Trade', [
+        'SPY', 1_786_629_600_000, 1_786_629_600_000, null, 1, 'Q',
+        1, 'Up', false, 700, 1, 10, 1_000, 700_000,
+        'SPY', 1_786_629_600_100, 1_786_629_600_100, null, 2, 'Q',
+        1, 'Up', false, null, 1, 10, 1_010, 707_000,
+      ]],
+    })
+    await context.drain()
+
+    expect(vi.mocked(client.send).mock.calls.every(([frame]) => (
+      JsonObjectSchema.parse(JSON.parse(frame)).type !== 'market'
+    ))).toBe(true)
+    expect(socket.readyState).toBe(FakeUpstreamWebSocket.CLOSED)
   })
 })

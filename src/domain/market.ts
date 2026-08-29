@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 import { CatalystSchema, isValidIsoDate } from './catalyst'
 import { CandlePointSchema } from './candle'
-import { EquitySymbolSchema, POTENTIAL_PLAY_REGEX } from './instrument'
+import { EquitySymbolSchema } from './instrument'
 import { type JsonValue } from './json-payload'
 
 // One list, two audiences: `private` is the owner's authoritative D1 internal
@@ -36,7 +36,9 @@ export const TickerSchema = z.object({
   price: z.number(),
   change: z.number(),
   changePercent: z.number(),
-  sparkline: z.array(CandlePointSchema).min(1),
+  // REST quotes do not contain candle history. Keep this empty until real DXLink
+  // candles arrive instead of drawing a synthetic move from previous close.
+  sparkline: z.array(CandlePointSchema),
   ivRank: z.number().min(0).max(100),
   ivPercentile: z.number().min(0).max(100),
   ivIndex: z.number().min(0),
@@ -53,17 +55,16 @@ export const TickerSchema = z.object({
   updatedAt: z.string(),
 })
 
-const PotentialPlaySchema = z.string().trim().max(40).regex(
-  POTENTIAL_PLAY_REGEX,
-  'Use TICKER STRIKE(c/p) M/D',
-)
+// Daily research has already validated the structured play before rendering this label.
+// Reinterpreting the label here would create a second model-output policy.
+const PotentialPlaySchema = z.string()
 
 const ResearchIdeaFields = {
   symbol: EquitySymbolSchema,
   direction: z.enum(['bullish', 'bearish', 'neutral']),
-  headline: z.string().trim().min(1).max(100),
-  description: z.string().trim().min(1).max(360),
-  risk: z.string().trim().min(1).max(240),
+  headline: z.string().min(1).max(100),
+  description: z.string().min(1).max(360),
+  risk: z.string().min(1).max(240),
 }
 
 const ResearchSourceLinkSchema = z.object({
@@ -75,18 +76,13 @@ const ResearchSourceLinkSchema = z.object({
 
 export const ResearchIdeaSchema = z.object({
   ...ResearchIdeaFields,
-  // The thesis is the durable research product. An exact contract is an optional,
-  // separately verified expression of it and may be cleared without hiding the idea.
   play: PotentialPlaySchema.nullable(),
   sources: z.array(ResearchSourceLinkSchema).max(3),
-}).refine((idea) => idea.play === null || idea.play.startsWith(`${idea.symbol} `), {
-  message: 'Potential play must use the idea symbol',
-  path: ['play'],
 })
 
 export const ResearchReadingLinkSchema = z.object({
-  reason: z.string().trim().min(1).max(180),
-  title: z.string().trim().min(1).max(180),
+  reason: z.string().min(1).max(180),
+  title: z.string().min(1).max(180),
   url: z.string().url().refine((url) => new URL(url).protocol === 'https:', 'Use an HTTPS source URL'),
 })
 
@@ -102,57 +98,16 @@ export const ResearchBriefSchema = z.object({
   sources: z.array(ResearchSourceLinkSchema),
 })
 
-const BackwardCompatibleResearchIdeaSchema = z.object({
-  ...ResearchIdeaFields,
-  play: PotentialPlaySchema.nullable(),
-  sources: z.array(ResearchSourceLinkSchema).max(3).default([]),
-}).refine((idea) => idea.play === null || idea.play.startsWith(`${idea.symbol} `), {
-  message: 'Potential play must use the idea symbol',
-  path: ['play'],
-})
-
-const CurrentStoredResearchBriefSchema = ResearchBriefSchema.extend({
-  ideas: z.array(BackwardCompatibleResearchIdeaSchema).max(5),
-  readingList: z.array(ResearchReadingLinkSchema).max(10).default([]),
-})
-
-const PreEvidenceResearchIdeaSchema = z.object({
-  symbol: EquitySymbolSchema,
-  direction: z.enum(['bullish', 'bearish', 'neutral']),
-  setup: z.string().trim().min(1),
-  thesis: z.string().trim().min(1),
-  risk: z.string().trim().min(1),
-  horizon: z.string().trim().min(1),
-}).transform((idea) => ({
-  symbol: idea.symbol,
-  direction: idea.direction,
-  headline: idea.setup.slice(0, 100),
-  description: `${idea.thesis} Horizon: ${idea.horizon}.`.slice(0, 360),
-  risk: idea.risk.slice(0, 240),
-  play: null,
-  sources: [],
-}))
-
-const PreEvidenceStoredResearchBriefSchema = ResearchBriefSchema
-  .omit({ ideas: true, readingList: true })
-  .extend({ ideas: z.array(PreEvidenceResearchIdeaSchema).max(5) })
-  .transform((brief) => ({ ...brief, readingList: [] }))
-
-const StoredResearchBriefSchema = z.union([
-  CurrentStoredResearchBriefSchema,
-  PreEvidenceStoredResearchBriefSchema,
-])
-
-/** Normalize every historical D1 payload shape only at the persistence boundary. */
+/** D1 stores the current public research contract; incompatible rows fail visibly. */
 export function parseStoredResearchBrief(value: JsonValue): ResearchBrief {
-  return StoredResearchBriefSchema.parse(value)
+  return ResearchBriefSchema.parse(value)
 }
 
 export const MarketSnapshotSchema = z.object({
   source: z.literal('tastytrade'),
   syncedAt: z.string(),
   marketState: z.enum(['open', 'closed', 'pre', 'after', 'unknown']),
-  watchlists: z.array(WatchlistSchema),
+  watchlists: z.array(WatchlistSchema).length(1),
   tickers: z.array(TickerSchema),
   catalysts: z.array(CatalystSchema),
   research: ResearchBriefSchema,

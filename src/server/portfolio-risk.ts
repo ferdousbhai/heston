@@ -1,4 +1,4 @@
-import { survivalBudget } from '../domain/portfolio-risk'
+import { PORTFOLIO_POLICY, survivalBudget } from '../domain/portfolio-risk'
 import { type FreshOrderPlacement } from './agent-contracts'
 import { type BrokerageContext } from './brokerage-context'
 import { type AppEnv } from './env'
@@ -43,7 +43,7 @@ export interface PortfolioPolicyContext {
   cashPercent?: number
   modeledFloor?: number
   highWaterValue?: number
-  maxDrawdownPercent: 40
+  maxDrawdownPercent: typeof PORTFOLIO_POLICY.maxDrawdownPercent
   status: 'approximate-new-risk-budget' | 'risk-increasing-actions-blocked' | 'unavailable'
 }
 
@@ -249,7 +249,7 @@ export async function buildPortfolioPolicyContext(env: AppEnv, account: Brokerag
   const withdrawableCash = account.balances.cashAvailableToWithdraw
   if (!account.availability.balances || netLiquidatingValue === undefined
     || cashBalance === undefined || withdrawableCash === undefined || netLiquidatingValue <= 0) {
-    return { maxDrawdownPercent: 40, status: 'unavailable' }
+    return { maxDrawdownPercent: PORTFOLIO_POLICY.maxDrawdownPercent, status: 'unavailable' }
   }
   const cash = Math.min(cashBalance, withdrawableCash)
   try {
@@ -262,7 +262,7 @@ export async function buildPortfolioPolicyContext(env: AppEnv, account: Brokerag
       && account.positions.every((position) => position.direction === 'Long'
         && (position.instrumentType === 'Equity' || position.instrumentType === 'Equity Option'))
     return {
-      maxDrawdownPercent: 40,
+      maxDrawdownPercent: PORTFOLIO_POLICY.maxDrawdownPercent,
       status: supported ? 'approximate-new-risk-budget' : 'risk-increasing-actions-blocked',
       highWaterValue,
       modeledFloor: budget.floor,
@@ -271,6 +271,6 @@ export async function buildPortfolioPolicyContext(env: AppEnv, account: Brokerag
       availableNewRisk: supported ? budget.remainingLossBudget : 0,
     }
   } catch {
-    return { maxDrawdownPercent: 40, status: 'unavailable' }
+    return { maxDrawdownPercent: PORTFOLIO_POLICY.maxDrawdownPercent, status: 'unavailable' }
   }
 }

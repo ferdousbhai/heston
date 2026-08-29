@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { persistTastytradeMarketSnapshot } from '../src/server/tastytrade-market-store'
+import { type Ticker } from '../src/domain/market'
+import {
+  persistTastytradeMarketSnapshot,
+  type TastytradeMarketRecords,
+} from '../src/server/tastytrade-market-store'
 import { marketTickersFixture } from './fixtures/market'
 import { unsupportedDatabase, unsupportedStatement } from './fake-d1'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
@@ -13,7 +17,46 @@ beforeEach(async () => {
 
 afterEach(() => store.close())
 
+function sourceRecords(
+  tickers: readonly Ticker[],
+  previousClose = (ticker: Ticker) => ticker.price - ticker.change,
+): TastytradeMarketRecords {
+  return {
+    metrics: tickers.map((ticker) => ({
+      earningsDate: ticker.earningsDate,
+      historicalVolatility30Day: ticker.historicalVolatility30Day,
+      ivHistoricalVolatility30DayDifference: ticker.ivHistoricalVolatility30DayDifference,
+      ivIndex: ticker.ivIndex,
+      ivIndex5DayChange: ticker.ivIndex5DayChange,
+      ivPercentile: ticker.ivPercentile,
+      ivRank: ticker.ivRank,
+      ivTermStructure: ticker.ivTermStructure,
+      liquidity: ticker.liquidity,
+      marketCap: ticker.marketCap,
+      symbol: ticker.symbol,
+    })),
+    quotes: tickers.map((ticker) => ({
+      change: ticker.change,
+      changePercent: ticker.changePercent,
+      previousClose: previousClose(ticker),
+      price: ticker.price,
+      providerUpdatedAt: ticker.updatedAt,
+      symbol: ticker.symbol,
+      volume: ticker.volume,
+      yearHigh: ticker.yearHigh,
+      yearLow: ticker.yearLow,
+    })),
+  }
+}
+
 describe('source-specific tastytrade market storage', () => {
+  it('fails when source storage is unavailable', async () => {
+    await expect(persistTastytradeMarketSnapshot(
+      {},
+      sourceRecords([marketTickersFixture[0]!]),
+    )).rejects.toThrow('TastytradeMarketStore:unavailable')
+  })
+
   it('keeps a 100-symbol refresh below D1 query and bind limits', async () => {
     const boundParameterCounts: number[] = []
     let batchStatementCount = 0
@@ -40,7 +83,7 @@ describe('source-specific tastytrade market storage', () => {
       symbol: `T${index}`,
     }))
 
-    await persistTastytradeMarketSnapshot({ DB: database }, tickers)
+    await persistTastytradeMarketSnapshot({ DB: database }, sourceRecords(tickers))
 
     expect(batch).toHaveBeenCalledOnce()
     expect(batchStatementCount).toBe(27)
@@ -64,7 +107,7 @@ describe('source-specific tastytrade market storage', () => {
 
     await persistTastytradeMarketSnapshot(
       { DB: store.database },
-      [ticker],
+      sourceRecords([ticker], () => 180),
       new Date('2026-08-26T20:00:00.000Z'),
     )
 
@@ -77,9 +120,10 @@ describe('source-specific tastytrade market storage', () => {
       symbol: 'NVDA',
     })
     expect(store.sqlite.prepare(
-      'SELECT symbol, price, volume, provider_updated_at FROM tastytrade_market_quotes',
+      'SELECT symbol, previous_close, price, volume, provider_updated_at FROM tastytrade_market_quotes',
     ).get()).toEqual({
       price: 191.68,
+      previous_close: 180,
       provider_updated_at: '2026-08-13T13:31:00.000Z',
       symbol: 'NVDA',
       volume: 128_400_000,

@@ -65,6 +65,19 @@ describe('tastytrade catalyst normalization', () => {
       symbol: 'AAPL',
       earnings: { visible: false, 'expected-report-date': '2026-02-31' },
     }], NOW)).toEqual([])
+    expect(() => catalystsFromMarketMetrics([{
+      symbol: 'AAPL',
+      'updated-at': '2026-08-13T15:00:00Z',
+      earnings: { visible: true, 'expected-report-date': '2026-02-31' },
+    }], NOW)).toThrow('invalid-earnings-date')
+  })
+
+  it('rejects malformed provider timestamps instead of substituting observation time', () => {
+    expect(() => catalystsFromMarketMetrics([{
+      symbol: 'AAPL',
+      'updated-at': 'not-a-timestamp',
+      earnings: { visible: true, 'expected-report-date': '2026-08-26' },
+    }], NOW)).toThrow('invalid-updated-at')
   })
 
   it('rejects a recent report date that has already passed', () => {
@@ -80,6 +93,11 @@ describe('tastytrade catalyst normalization', () => {
 })
 
 describe('research catalyst storage', () => {
+  it('fails when authoritative catalyst storage is unavailable', async () => {
+    await expect(persistAndLoadCatalysts({}, [], [], NOW)).rejects.toThrow('CatalystStoreUnavailable')
+    await expect(persistResearchedCatalysts({}, 'codex-web', [], NOW)).rejects.toThrow('CatalystStoreUnavailable')
+  })
+
   it('keeps the maximum accepted bootstrap below D1 query and bind limits', async () => {
     const boundParameterCounts: number[] = []
     let batchStatementCount = 0

@@ -73,7 +73,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         <TooltipProvider>{children}</TooltipProvider>
-        <ServiceWorkerRegistration />
+        <LegacyServiceWorkerRetirement />
 
         <Scripts />
       </body>
@@ -81,17 +81,33 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   )
 }
 
-function ServiceWorkerRegistration() {
+const LEGACY_SPICE_CACHE_PREFIX = 'spice-public-shell-'
+
+async function clearLegacySpiceCaches(): Promise<void> {
+  if (!('caches' in globalThis)) return
+  const names = await caches.keys()
+  await Promise.all(names
+    .filter((name) => name.startsWith(LEGACY_SPICE_CACHE_PREFIX))
+    .map((name) => caches.delete(name)))
+}
+
+async function retireLegacyServiceWorker(): Promise<void> {
+  const registration = await navigator.serviceWorker.getRegistration('/')
+  if (registration) {
+    // Registering the same URL updates the installed offline-shell worker to the
+    // recovery-only worker, which clears its caches and unregisters itself.
+    await navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' })
+    return
+  }
+  await clearLegacySpiceCaches()
+}
+
+function LegacyServiceWorkerRetirement() {
   useEffect(() => {
-    // The SSR integration does not transform an index.html, so own registration
-    // here and keep development sessions free of persistent worker caches.
     if (!import.meta.env.PROD || !('serviceWorker' in navigator)) return
-    void navigator.serviceWorker.register('/sw.js', {
-      scope: '/',
-      // A deploy may leave the worker source URL unchanged while its shell and
-      // hashed assets change. Always revalidate the worker rather than an HTTP copy.
-      updateViaCache: 'none',
-    }).catch(() => undefined)
+    void retireLegacyServiceWorker().catch((cause: unknown) => {
+      console.error('LegacyServiceWorkerRetirementFailed', cause)
+    })
   }, [])
   return null
 }

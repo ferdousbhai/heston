@@ -18,9 +18,10 @@ describe('canonical host redirect', () => {
 })
 
 describe('personal API authorization', () => {
-  it('fails closed when authentication is not configured', async () => {
+  it('reports runtime authentication failure as temporary unavailability', async () => {
     const response = await authorizePersonalRequest(new Request('https://spice.test/api/snapshot'), {})
     expect(response?.status).toBe(503)
+    await expect(response?.json()).resolves.toEqual({ error: 'Authentication is temporarily unavailable' })
   })
 
   it('rejects an authenticated non-owner from personal and trading routes', async () => {

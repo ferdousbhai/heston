@@ -14,11 +14,7 @@ import { aiGatewayHeaders } from './ai-gateway'
 import { grokNativeSearchTools } from './grok-native-tools'
 import { defineSeam, type SeamValue } from './seam'
 
-export const GROK_MODEL: Model<'openai-responses'> = {
-  ...XAI_MODELS['grok-4.5'],
-  id: 'grok-4.6',
-  name: 'Grok 4.6',
-}
+export const GROK_MODEL: Model<'openai-responses'> = XAI_MODELS['grok-4.6']
 
 export type PiRuntime = {
   model: Model<'openai-responses'>
@@ -34,30 +30,39 @@ function responseId(value: JsonValue): string | undefined {
 
 function responseItem(event: JsonValue): JsonObject | undefined {
   const record = jsonObject(event)
-  return record?.type === 'response.output_item.done' ? jsonObject(record.item) : undefined
+  if (record?.type !== 'response.output_item.done') return undefined
+  const item = jsonObject(record.item)
+  if (!item) throw new Error('Grok returned an invalid output item event.')
+  return item
 }
 
 async function streamItems(response: Response): Promise<JsonObject[]> {
-  if (!response.body) return []
+  if (!response.body) throw new Error('Grok returned no response stream.')
   const items: JsonObject[] = []
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffered = ''
   const consume = (line: string) => {
     if (!line.startsWith('data:') || line.slice(5).trim() === '[DONE]') return
+    let event: JsonValue
     try {
-      const event: JsonValue = JSON.parse(line.slice(5).trim())
-      const item = responseItem(event)
-      if (item) items.push(item)
-    } catch { /* Ignore non-JSON provider event lines. */ }
+      event = JSON.parse(line.slice(5).trim())
+    } catch (cause) {
+      throw new Error('Grok returned a malformed stream event.', { cause })
+    }
+    const item = responseItem(event)
+    if (item) items.push(item)
   }
   for (;;) {
     const { done, value } = await reader.read()
     buffered += decoder.decode(value, { stream: !done })
     const lines = buffered.split('\n')
-    buffered = done ? '' : lines.pop() ?? ''
+    buffered = lines.pop() ?? ''
     for (const line of lines) consume(line)
-    if (done) break
+    if (done) {
+      if (buffered) consume(buffered)
+      break
+    }
   }
   return items
 }
@@ -65,22 +70,32 @@ async function streamItems(response: Response): Promise<JsonObject[]> {
 function createNativeReplay() {
   const turns: NativeReplay[] = []
   let capture = Promise.resolve()
+  let captureFailure: Error | undefined
   const fetchWithCapture = (baseFetch: typeof fetch): typeof fetch => async (input, init) => {
     const response = await baseFetch(input, init)
+    captureFailure = undefined
     capture = streamItems(response.clone()).then((items) => {
       const nativeItems = items.filter((item) => item.type === 'web_search_call' || item.type === 'x_search_call')
-      const callIds = new Set(items.flatMap((item) => {
-        if (item.type !== 'function_call') return []
+      const callIds = new Set<string>()
+      for (const item of items) {
+        if (item.type !== 'function_call') continue
         const callId = responseId(item.call_id)
-        return callId ? [callId] : []
-      }))
+        if (!callId) throw new Error('Grok returned a function call without a call id.')
+        callIds.add(callId)
+      }
+      for (const item of nativeItems) {
+        if (!responseId(item.id)) throw new Error('Grok returned a native search item without an id.')
+      }
       if (nativeItems.length && callIds.size) turns.push({ callIds, items: nativeItems })
-    }).catch(() => undefined)
+    }).catch((cause: unknown) => {
+      captureFailure = cause instanceof Error ? cause : new Error('Grok replay capture failed.')
+    })
     return response
   }
   const addTo = async (request: JsonObject): Promise<JsonObject> => {
     await capture
-    const input = [...(JsonArraySchema.safeParse(request.input).data ?? [])]
+    if (captureFailure) throw captureFailure
+    const input = request.input === undefined ? [] : [...JsonArraySchema.parse(request.input)]
     const presentIds = new Set(input.flatMap((item) => {
       const id = responseId(jsonObject(item)?.id)
       return id ? [id] : []
@@ -116,7 +131,7 @@ export type ResponsesApi = SeamValue<typeof responsesApiSeam>
 const responsesApi = responsesApiSeam.current
 
 function withNativeSearch(request: JsonObject) {
-  const localTools = JsonArraySchema.safeParse(request.tools).data ?? []
+  const localTools = request.tools === undefined ? [] : JsonArraySchema.parse(request.tools)
   return { ...request, tools: [...localTools, ...grokNativeSearchTools()] }
 }
 

@@ -42,9 +42,24 @@ describe('market feed subscription boundary', () => {
     }).success).toBe(false)
   })
 
-  it('normalizes, deduplicates, bounds, and rejects invalid symbols', () => {
-    const url = new URL('https://spice.test/api/stream?symbols=spy,NVDA,spy,../secret,BRK/B')
+  it('normalizes and deduplicates only after the whole subscription is valid', () => {
+    const url = new URL('https://spice.test/api/stream?symbols=spy,NVDA,spy,BRK/B')
     expect(parseRequestedSymbols(url)).toEqual(['SPY', 'NVDA', 'BRK/B'])
+    expect(() => parseRequestedSymbols(new URL(
+      'https://spice.test/api/stream?symbols=SPY,../secret,NVDA',
+    ))).toThrow()
+  })
+
+  it('rejects missing, repeated, empty, and oversized symbol parameters', () => {
+    expect(() => parseRequestedSymbols(new URL('https://spice.test/api/stream'))).toThrow()
+    expect(() => parseRequestedSymbols(new URL('https://spice.test/api/stream?symbols='))).toThrow()
+    expect(() => parseRequestedSymbols(new URL(
+      'https://spice.test/api/stream?symbols=SPY&symbols=NVDA',
+    ))).toThrow()
+    const symbols = Array.from({ length: 101 }, (_, index) => `A${index}`)
+    expect(() => parseRequestedSymbols(new URL(
+      `https://spice.test/api/stream?symbols=${symbols.join(',')}`,
+    ))).toThrow()
   })
 
   it('rejects cross-origin WebSocket handshakes', () => {

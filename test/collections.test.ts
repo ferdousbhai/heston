@@ -1,16 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  applyWatchlistMutation,
   applyLiveMarketEvent,
   hydrateCollections,
-  isSnapshotInitialized,
   MAX_LIVE_MARKET_SYMBOLS,
+  offlineSnapshotCollection,
   OFFLINE_SNAPSHOT_VERSION,
+  restoreOfflineSnapshot,
   selectLiveMarketSymbols,
-  syncStateCollection,
   tickerCollection,
-  watchlistCollection,
-  type SyncState,
 } from '../src/data/collections'
 import { mostActiveSymbol } from '../src/domain/market'
 import { marketSnapshotFixture } from './fixtures/market'
@@ -27,20 +26,34 @@ describe('default market focus', () => {
 })
 
 describe('offline snapshot boundary', () => {
-  it('treats a version marker, not collection row counts, as initialization', () => {
-    const liveState: SyncState = {
+  it('persists the audience and full server snapshot as one versioned record', async () => {
+    const snapshot = marketSnapshotFixture()
+
+    await hydrateCollections(snapshot, 'owner')
+
+    expect([...offlineSnapshotCollection.keys()]).toEqual(['snapshot'])
+    expect(offlineSnapshotCollection.get('snapshot')).toMatchObject({
       audience: 'owner',
       id: 'snapshot',
-      marketState: 'closed',
       schemaVersion: OFFLINE_SNAPSHOT_VERSION,
-      source: 'tastytrade',
-      syncedAt: '2026-08-13T20:00:00.000Z',
-    }
+      snapshot,
+    })
+  })
 
-    expect(isSnapshotInitialized(liveState)).toBe(true)
-    expect(isSnapshotInitialized(liveState, 'owner')).toBe(true)
-    expect(isSnapshotInitialized(liveState, 'public')).toBe(false)
-    expect(isSnapshotInitialized(undefined)).toBe(false)
+  it('restores only the exact persisted audience and clears an opposite in-memory projection', async () => {
+    const snapshot = marketSnapshotFixture()
+    await hydrateCollections(snapshot, 'owner')
+    await tickerCollection.delete([...tickerCollection.keys()]).isPersisted.promise
+
+    await restoreOfflineSnapshot('owner')
+
+    expect(offlineSnapshotCollection.get('snapshot')?.audience).toBe('owner')
+    expect([...tickerCollection.keys()].sort()).toEqual(snapshot.tickers.map((ticker) => ticker.symbol).sort())
+
+    await restoreOfflineSnapshot('public')
+
+    expect(offlineSnapshotCollection.get('snapshot')).toBeUndefined()
+    expect([...tickerCollection.keys()]).toEqual([])
   })
 
   it('replaces owner cache and live overlay with only public rows before marking it public', async () => {
@@ -58,9 +71,8 @@ describe('offline snapshot boundary', () => {
       timestamp: liveAt,
       type: 'market',
     })
-    // Simulate the audience marker being evicted independently while owner-only
-    // in-memory quote data remains alive in the current page.
-    await syncStateCollection.delete('snapshot').isPersisted.promise
+    // Simulate atomic storage eviction while owner-only quote data remains in memory.
+    await offlineSnapshotCollection.delete('snapshot').isPersisted.promise
     const publicTicker = {
       ...original,
       change: 1,
@@ -77,8 +89,9 @@ describe('offline snapshot boundary', () => {
 
     await hydrateCollections(publicSnapshot, 'public')
 
-    expect(syncStateCollection.get('snapshot')?.audience).toBe('public')
-    expect([...watchlistCollection.keys()]).toEqual(['public-options-watch'])
+    expect(offlineSnapshotCollection.get('snapshot')?.audience).toBe('public')
+    expect(offlineSnapshotCollection.get('snapshot')?.snapshot.watchlists.map((watchlist) => watchlist.id))
+      .toEqual(['public-options-watch'])
     expect(tickerCollection.get(original.symbol)).toMatchObject(publicTicker)
 
     applyLiveMarketEvent({
@@ -122,10 +135,22 @@ describe('offline snapshot boundary', () => {
 
     await Promise.all([ownerHydration, publicHydration])
 
-    expect(syncStateCollection.get('snapshot')?.audience).toBe('public')
-    expect([...watchlistCollection.keys()]).toEqual(['public-options-watch'])
+    expect(offlineSnapshotCollection.get('snapshot')?.audience).toBe('public')
+    expect(offlineSnapshotCollection.get('snapshot')?.snapshot.watchlists.map((watchlist) => watchlist.id))
+      .toEqual(['public-options-watch'])
     expect([...tickerCollection.keys()]).toEqual([publicTicker.symbol])
     expect(tickerCollection.get(privateTicker.symbol)).toBeUndefined()
+  })
+
+  it('applies an owner watchlist change to the same atomic record', async () => {
+    const snapshot = marketSnapshotFixture()
+    await hydrateCollections(snapshot, 'owner')
+
+    await applyWatchlistMutation({ kind: 'add_watchlist_symbols', symbols: ['PLTR'] })
+
+    const watchlist = offlineSnapshotCollection.get('snapshot')?.snapshot.watchlists
+      .find((candidate) => candidate.kind === 'private')
+    expect(watchlist?.symbols).toContain('PLTR')
   })
 })
 
@@ -178,7 +203,7 @@ describe('live market subscriptions', () => {
     })
   })
 
-  it('does not replace a richer live candle series with a newer two-point broker fallback', async () => {
+  it('does not replace a richer live candle series with a shorter broker candle series', async () => {
     const snapshot = marketSnapshotFixture()
     const original = snapshot.tickers[0]!
     const baseTime = Date.parse(original.updatedAt)

@@ -53,7 +53,11 @@ function providerRow(symbol = 'SPCX') {
 }
 
 describe('typed tastytrade instrument catalog', () => {
-  it('extracts every interesting Equity field and never retains a raw payload', () => {
+  it('fails when catalog storage is unavailable instead of returning an empty catalog', async () => {
+    await expect(readInstrumentCatalog({}, ['SPCX'])).rejects.toThrow('store-unavailable')
+  })
+
+  it('extracts the normalized Equity source record without retaining unused tick tiers or raw payload', () => {
     const [item] = instrumentCatalogFromPayload(
       { data: { items: [providerRow()] } },
       ['SPCX'],
@@ -75,15 +79,11 @@ describe('typed tastytrade instrument catalog', () => {
       shortDescription: 'SpaceX',
       symbol: 'SPCX',
     })
-    expect(item?.tickSizes).toEqual([
-      { appliesToSymbol: 'SPCX', kind: 'equity', threshold: 1, tierIndex: 0, value: 0.01 },
-      { appliesToSymbol: 'SPCX', kind: 'option', threshold: 3, tierIndex: 0, value: 0.05 },
-      { appliesToSymbol: 'SPCX', kind: 'option', threshold: null, tierIndex: 1, value: 0.1 },
-    ])
+    expect(item).not.toHaveProperty('tickSizes')
     expect(JSON.stringify(item)).not.toContain('unmodeled-provider-field')
   })
 
-  it('persists identity, daily status, and normalized tick tiers with stable creation time', async () => {
+  it('persists identity and daily status with stable creation time', async () => {
     const env = { DB: store.database }
     await refreshInstrumentCatalog(env, ['SPCX'], async () => ({ data: { items: [providerRow()] } }),
       new Date('2026-08-26T12:00:00.000Z'))
@@ -96,15 +96,17 @@ describe('typed tastytrade instrument catalog', () => {
 
     const item = (await readInstrumentCatalog(env, ['SPCX'])).get('SPCX')
     expect(item).toMatchObject({
-      active: false,
-      createdAt: '2026-08-26T12:00:00.000Z',
       description: 'Space Exploration Technologies Corp.',
-      statusRefreshedAt: '2026-08-27T12:00:00.000Z',
-      updatedAt: '2026-08-27T12:00:00.000Z',
     })
-    expect(item?.tickSizes).toEqual([
-      { appliesToSymbol: 'SPCX', kind: 'equity', threshold: 1, tierIndex: 0, value: 0.01 },
-    ])
+    expect(store.sqlite.prepare(
+      'SELECT active, created_at, status_refreshed_at, updated_at FROM instrument_catalog WHERE symbol = ?',
+    ).get('SPCX')).toEqual({
+      active: 0,
+      created_at: '2026-08-26T12:00:00.000Z',
+      status_refreshed_at: '2026-08-27T12:00:00.000Z',
+      updated_at: '2026-08-27T12:00:00.000Z',
+    })
+    expect(store.sqlite.prepare('SELECT count(*) AS count FROM instrument_tick_sizes').get()).toEqual({ count: 0 })
   })
 
   it('rejects provider rows for a different symbol or instrument type', () => {
@@ -112,6 +114,8 @@ describe('typed tastytrade instrument catalog', () => {
       .toThrow('unexpected-symbol')
     expect(() => instrumentCatalogFromPayload([{ ...providerRow(), 'instrument-type': 'Equity Option' }], ['SPCX']))
       .toThrow('invalid-instrument-type')
+    expect(() => instrumentCatalogFromPayload([{ ...providerRow(), description: 7 }], ['SPCX']))
+      .toThrow('description-invalid')
   })
 
   it('represents a missing provider definition honestly without inventing a name or status', () => {
@@ -125,7 +129,7 @@ describe('typed tastytrade instrument catalog', () => {
     })
   })
 
-  it('does not let a temporary unresolved result erase resolved identity or tick tiers', async () => {
+  it('does not let a definitive unresolved result erase resolved identity', async () => {
     const env = { DB: store.database }
     await refreshInstrumentCatalog(env, ['SPCX'], async () => [providerRow()],
       new Date('2026-08-26T12:00:00.000Z'))
@@ -137,14 +141,10 @@ describe('typed tastytrade instrument catalog', () => {
     const catalog = await readInstrumentCatalog(env, ['SPCX', 'VXD'])
     expect(catalog.get('SPCX')).toMatchObject({
       description: 'SpaceX Corporation',
-      identitySource: 'equity-endpoint',
       resolutionStatus: 'resolved',
-      updatedAt: '2026-08-26T12:00:00.000Z',
     })
-    expect(catalog.get('SPCX')?.tickSizes).toHaveLength(3)
     expect(catalog.get('VXD')).toMatchObject({
       description: null,
-      identitySource: 'watchlist-symbol',
       resolutionStatus: 'unresolved',
     })
   })

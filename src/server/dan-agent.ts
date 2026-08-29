@@ -22,7 +22,6 @@ import {
   type DanAgentState,
   type PendingAction,
 } from '../domain/agent-chat'
-import { compactTranscript } from '../domain/agent-transcript'
 import { EQUITY_SYMBOL_PATTERN } from '../domain/instrument'
 import { toError } from '../domain/failure'
 import { jsonObject, jsonObjectOrEmpty, type JsonValue } from '../domain/json-payload'
@@ -47,8 +46,6 @@ import { createResearchReadTools } from './research-read-tools'
 import { createResearchAgentTools } from './research-agent-tools'
 import { createWatchlistReadTool } from './watchlist-tool'
 import { createExactOptionGreeksReadTool } from './option-greeks-tool'
-
-const MAX_STORED_TOOL_RESULT_CHARS = 4_000
 
 /** The chat relay delivers text frames; binary frames are not part of the client protocol. */
 const ClientFrameSchema = z.string()
@@ -139,14 +136,9 @@ function contentText(content: ToolResultMessage['content']): string {
   return content.filter((part) => part.type === 'text').map((part) => part.text).join('\n')
 }
 
-function boundedText(value: string, max = MAX_STORED_TOOL_RESULT_CHARS): string {
-  return value.length <= max ? value : `${value.slice(0, max)}\n[truncated]`
-}
-
-/** Tool results are stored asymmetrically: errors stay short, successful output keeps more context. */
 function applyToolOutcome(call: AgentToolCall, output: string, isError: boolean) {
-  call.error = isError ? boundedText(output, 1_000) : undefined
-  call.output = isError ? undefined : boundedText(output)
+  call.error = isError ? output : undefined
+  call.output = isError ? undefined : output
   call.status = isError ? 'error' : 'complete'
 }
 
@@ -183,9 +175,13 @@ function replayTranscript(messages: AgentChatMessage[], model: Model<any>): Mess
       } : emptyUsage(),
     })
     for (const tool of message.toolCalls ?? []) {
+      const missing = tool.error === undefined && tool.output === undefined
       replay.push({
-        content: [{ text: boundedText(tool.error ?? tool.output ?? 'Tool completed.'), type: 'text' }],
-        isError: Boolean(tool.error),
+        content: [{
+          text: tool.error ?? tool.output ?? 'Tool result unavailable: the run ended before completion.',
+          type: 'text',
+        }],
+        isError: missing || Boolean(tool.error),
         role: 'toolResult',
         timestamp,
         toolCallId: tool.id,
@@ -267,7 +263,7 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
     this.setState({
       ...this.state,
       error: undefined,
-      messages: compactTranscript([...this.state.messages, userMessage]),
+      messages: [...this.state.messages, userMessage],
       status: 'running',
     })
     // Model/tool turns can span minutes; the SDK heartbeat prevents idle eviction while waitUntil
@@ -449,10 +445,14 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
                 input: block.arguments,
                 label: toolLabel.get(block.name) ?? block.name,
                 name: block.name,
-                status: 'complete' as const,
+                status: 'running' as const,
               }
               const result = toolResults.get(block.id)
-              if (result) applyToolOutcome(stored, contentText(result.content), result.isError)
+              if (result) {
+                applyToolOutcome(stored, contentText(result.content), result.isError)
+              } else {
+                applyToolOutcome(stored, 'Tool execution result was not observed.', true)
+              }
               turnTools.set(block.id, stored)
             }
             const toolCalls = [...turnTools.values()]
@@ -471,7 +471,7 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
             }
             this.setState({
               ...this.state,
-              messages: compactTranscript([...this.state.messages, transcriptMessage]),
+              messages: [...this.state.messages, transcriptMessage],
             })
             this.sendEvent({ type: 'dan:turn_end' })
             break

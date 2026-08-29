@@ -23,7 +23,7 @@ export const CatalystSchema = z.object({
   symbol: EquitySymbolSchema,
   kind: CatalystKindSchema,
   title: z.string(),
-  description: z.string().trim().min(1).max(500).nullable().optional(),
+  description: z.string().min(1).max(500).nullable().optional(),
   date: z.string().refine(isValidIsoDate, 'Use a real YYYY-MM-DD date'),
   timing: CatalystTimingSchema,
   confidence: CatalystConfidenceSchema,

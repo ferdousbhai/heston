@@ -76,6 +76,13 @@ function authorizesWatchlistChange(
     && authorizedSymbols.every((symbol) => normalizedSymbols.includes(symbol)))
 }
 
+export class BrokerageCancellationUnknownError extends Error {
+  constructor() {
+    super('Tastytrade may have received this cancellation, but Spice could not verify the result. Refresh working orders before taking any further action.')
+    this.name = 'BrokerageCancellationUnknownError'
+  }
+}
+
 export function createDirectAccountActionTool(
   env: AppEnv,
   currentUserMessage: string,
@@ -104,7 +111,15 @@ export function createDirectAccountActionTool(
         return brokerApi().withBrokerMutationLease(env, async (lease) => {
           const account = await brokerApi().resolveAccountNumber(env)
           await lease.renew()
-          await brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/orders/${parsed.orderId}`, { method: 'DELETE' })
+          try {
+            await brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/orders/${parsed.orderId}`, { method: 'DELETE' })
+          } catch (error) {
+            // A provider 4xx proves the cancellation was rejected. A network loss,
+            // timeout, 5xx, or unreadable success response after DELETE means the
+            // broker may have received it, so it must never become an automatic retry.
+            if (error instanceof Error && error.name === 'TastytradeApiError') throw error
+            throw new BrokerageCancellationUnknownError()
+          }
           return textResult({ orderId: parsed.orderId, status: 'cancelled' as const })
         })
       }

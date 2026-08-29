@@ -1,6 +1,9 @@
+import { z } from 'zod'
+
 import { CatalystSchema, isValidIsoDate, marketDate, type Catalyst } from '../domain/catalyst'
+import { EquitySymbolSchema } from '../domain/instrument'
 import { type AppEnv } from './env'
-import { jsonObjectOrEmpty, jsonText, type JsonObject, type JsonValue } from '../domain/json-payload'
+import { jsonObject, jsonText, type JsonObject, type JsonValue } from '../domain/json-payload'
 
 const TASTYTRADE_METRICS_URL = 'https://developer.tastytrade.com/open-api-spec/market-metrics/'
 const D1_MAX_BOUND_PARAMETERS = 100
@@ -45,20 +48,45 @@ function catalystUpsertStatements(
   return statements
 }
 
-function upcomingEarningsDate(earnings: JsonObject, today: string): string | undefined {
-  if (earnings.visible === false) return undefined
-  const candidate = jsonText(earnings['expected-report-date'])
-  if (!candidate || !isValidIsoDate(candidate) || candidate < today) return undefined
+function optionalBoolean(object: JsonObject, key: string): boolean | undefined {
+  const value = object[key]
+  if (value === undefined || value === null) return undefined
+  const parsed = z.boolean().safeParse(value)
+  if (!parsed.success) throw new Error(`TastytradeCatalyst:invalid-${key}`)
+  return parsed.data
+}
+
+function earningsRecord(metric: JsonObject | undefined): JsonObject | undefined {
+  const value = metric?.earnings
+  if (value === undefined || value === null) return undefined
+  const earnings = jsonObject(value)
+  if (!earnings) throw new Error('TastytradeCatalyst:invalid-earnings')
+  return earnings
+}
+
+function upcomingEarningsDate(earnings: JsonObject | undefined, today: string): string | undefined {
+  if (!earnings || optionalBoolean(earnings, 'visible') === false) return undefined
+  const rawDate = earnings['expected-report-date']
+  if (rawDate === undefined || rawDate === null) return undefined
+  const candidate = jsonText(rawDate)
+  if (!candidate || !isValidIsoDate(candidate)) throw new Error('TastytradeCatalyst:invalid-earnings-date')
+  if (candidate < today) return undefined
   return candidate
 }
 
-function iso(value: JsonValue, fallback: string): string {
+function providerTimestamp(value: JsonValue): string {
   const candidate = jsonText(value)
-  return candidate && !Number.isNaN(Date.parse(candidate)) ? new Date(candidate).toISOString() : fallback
+  if (!candidate || Number.isNaN(Date.parse(candidate))) {
+    throw new Error('TastytradeCatalyst:invalid-updated-at')
+  }
+  return new Date(candidate).toISOString()
 }
 
 function earningsTiming(value: JsonValue): Catalyst['timing'] {
-  const timing = jsonText(value)?.toLowerCase() ?? ''
+  if (value === undefined || value === null) return 'unknown'
+  const parsed = z.string().safeParse(value)
+  if (!parsed.success) throw new Error('TastytradeCatalyst:invalid-time-of-day')
+  const timing = parsed.data.toLowerCase()
   if (timing.includes('before') || timing.includes('pre')) return 'pre-market'
   if (timing.includes('after') || timing.includes('post')) return 'after-hours'
   if (timing.includes('during') || timing.includes('market')) return 'intraday'
@@ -66,14 +94,17 @@ function earningsTiming(value: JsonValue): Catalyst['timing'] {
 }
 
 export function catalystsFromMarketMetrics(metrics: readonly JsonObject[], now = new Date()): Catalyst[] {
-  const observedAt = now.toISOString()
   const today = marketDate(now)
   return metrics.flatMap((metric) => {
-    const symbol = jsonText(metric.symbol)?.toUpperCase()
-    if (!symbol) return []
-    const earnings = jsonObjectOrEmpty(metric.earnings)
+    const symbol = EquitySymbolSchema.parse(jsonText(metric.symbol)?.toUpperCase())
+    const earnings = earningsRecord(metric)
+    if (!earnings) return []
     const earningsDate = upcomingEarningsDate(earnings, today)
     if (!earningsDate) return []
+    const estimated = optionalBoolean(earnings, 'estimated')
+    const updatedAt = earnings['updated-at'] === undefined || earnings['updated-at'] === null
+      ? providerTimestamp(metric['updated-at'])
+      : providerTimestamp(earnings['updated-at'])
     return [CatalystSchema.parse({
       id: `tastytrade:${symbol}:earnings`,
       symbol,
@@ -81,16 +112,16 @@ export function catalystsFromMarketMetrics(metrics: readonly JsonObject[], now =
       title: `${symbol} earnings`,
       date: earningsDate,
       timing: earningsTiming(earnings['time-of-day']),
-      confidence: earnings.estimated === false ? 'confirmed' : 'estimated',
+      confidence: estimated === false ? 'confirmed' : 'estimated',
       source: 'tastytrade market metrics',
       sourceUrl: TASTYTRADE_METRICS_URL,
-      updatedAt: iso(earnings['updated-at'] ?? metric['updated-at'], observedAt),
+      updatedAt,
     })]
   })
 }
 
 export function earningsDateFromMetric(metric: JsonObject | undefined, now = new Date()): string | null {
-  const earnings = jsonObjectOrEmpty(metric?.earnings)
+  const earnings = earningsRecord(metric)
   return upcomingEarningsDate(earnings, marketDate(now)) ?? null
 }
 
@@ -100,31 +131,26 @@ export async function persistAndLoadCatalysts(
   refreshedSymbols: readonly string[],
   now = new Date(),
 ): Promise<Catalyst[]> {
-  if (!env.DB) return [...observed]
-  try {
-    const normalizedSymbols = [...new Set(refreshedSymbols.map((symbol) => symbol.toUpperCase()))]
-    const statements: D1PreparedStatement[] = []
-    for (let start = 0; start < normalizedSymbols.length; start += DELETE_SYMBOL_CHUNK_SIZE) {
-      const symbols = normalizedSymbols.slice(start, start + DELETE_SYMBOL_CHUNK_SIZE)
-      statements.push(env.DB.prepare(
-        `DELETE FROM tastytrade_catalysts
-         WHERE symbol IN (${symbols.map(() => '?').join(', ')})`,
-      ).bind(...symbols))
-    }
-    statements.push(...catalystUpsertStatements(env.DB, 'tastytrade_catalysts', observed, now.toISOString()))
-    if (statements.length) await env.DB.batch(statements)
-    const result = await env.DB.prepare(
-      `SELECT id, symbol, kind, title, description, event_date AS date, timing, confidence,
-        source_label AS source, source_url AS "sourceUrl", updated_at AS "updatedAt"
-       FROM upcoming_catalysts
-       WHERE event_date >= ?
-       ORDER BY event_date ASC, symbol ASC`,
-    ).bind(marketDate(now)).all()
-    return CatalystSchema.array().parse(result.results ?? [])
-  } catch (error) {
-    console.error('CatalystStoreFailed', error instanceof Error ? error.message : 'UnknownError')
-    return [...observed]
+  if (!env.DB) throw new Error('CatalystStoreUnavailable')
+  const normalizedSymbols = [...new Set(refreshedSymbols.map((symbol) => EquitySymbolSchema.parse(symbol)))]
+  const statements: D1PreparedStatement[] = []
+  for (let start = 0; start < normalizedSymbols.length; start += DELETE_SYMBOL_CHUNK_SIZE) {
+    const symbols = normalizedSymbols.slice(start, start + DELETE_SYMBOL_CHUNK_SIZE)
+    statements.push(env.DB.prepare(
+      `DELETE FROM tastytrade_catalysts
+       WHERE symbol IN (${symbols.map(() => '?').join(', ')})`,
+    ).bind(...symbols))
   }
+  statements.push(...catalystUpsertStatements(env.DB, 'tastytrade_catalysts', observed, now.toISOString()))
+  if (statements.length) await env.DB.batch(statements)
+  const result = await env.DB.prepare(
+    `SELECT id, symbol, kind, title, description, event_date AS date, timing, confidence,
+      source_label AS source, source_url AS "sourceUrl", updated_at AS "updatedAt"
+     FROM upcoming_catalysts
+     WHERE event_date >= ?
+     ORDER BY event_date ASC, symbol ASC`,
+  ).bind(marketDate(now)).all()
+  return CatalystSchema.array().parse(result.results ?? [])
 }
 
 /**
@@ -138,7 +164,8 @@ export async function persistResearchedCatalysts(
   catalysts: readonly Catalyst[],
   now = new Date(),
 ): Promise<void> {
-  if (!env.DB || !catalysts.length) return
+  if (!env.DB) throw new Error('CatalystStoreUnavailable')
+  if (!catalysts.length) return
   const table = RESEARCH_CATALYST_TABLES[source]
   await env.DB.batch(catalystUpsertStatements(env.DB, table, catalysts, now.toISOString()))
 }

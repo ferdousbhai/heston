@@ -9,11 +9,13 @@ import {
   OrderPlacementSchema,
 } from '../src/server/agent-contracts'
 import { preparePendingAction, resolvePendingAction } from '../src/server/agent'
+import { BrokerageSubmissionUnknownError } from '../src/server/brokerage'
 import { brokerApi, resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { resetInternalWatchlistWriter, setInternalWatchlistWriter } from '../src/server/internal-watchlist'
 import { resetTradeGuards, setTradeGuards } from '../src/server/trade-guards'
 import { createPiRuntime } from '../src/server/pi-runtime'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
+import { stubBroker } from './broker-stub'
 
 const pi = { stream: vi.fn() } satisfies ResponsesApi
 
@@ -169,7 +171,9 @@ describe('pi runtime protocol', () => {
 
     expect(runtime.model).toMatchObject({
       baseUrl: 'https://gateway.ai.cloudflare.com/v1/account/spice/grok/v1',
+      cost: { cacheRead: 0.5 },
       id: 'grok-4.6', name: 'Grok 4.6', reasoning: true,
+      thinkingLevelMap: { xhigh: 'xhigh' },
     })
     expect(pi.stream).toHaveBeenCalledWith(runtime.model, context, expect.objectContaining({
       apiKey: 'xai-test-key',
@@ -246,5 +250,82 @@ describe('order confirmation draft', () => {
     const [, , , createdAt, expiresAt] = binds[0] ?? []
     expect(Date.parse(String(expiresAt)) - Date.parse(String(createdAt))).toBe(5 * 60_000)
     expect(Date.parse(draft.expiresAt)).toBe(Date.parse(String(expiresAt)))
+  })
+
+  it('preserves submission ambiguity when its quarantine marker cannot be recorded', async () => {
+    const token = 'opaque-confirmation-token-1234567890'
+    const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token)))
+    let binary = ''
+    for (const byte of bytes) binary += String.fromCharCode(byte)
+    const tokenDigest = btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '')
+    const digest = crypto.subtle.digest.bind(crypto.subtle)
+    const timingSafeEqual = vi.fn(() => true)
+    vi.stubGlobal('crypto', { subtle: { digest, timingSafeEqual } })
+
+    const action = {
+      action: 'Buy to Open' as const,
+      kind: 'place_equity_order' as const,
+      limitPrice: 700,
+      priceEffect: 'Debit' as const,
+      quantity: 1,
+      symbol: 'SPY',
+    }
+    const db: D1Database = {
+      ...unsupportedDatabase(),
+      prepare: (sql: string) => ({
+        ...unsupportedStatement(),
+        bind: () => ({
+          ...unsupportedStatement(),
+          first: async () => {
+            if (!sql.startsWith('SELECT payload_json')) throw new Error(`Unexpected first query: ${sql}`)
+            return {
+              expires_at: new Date(Date.now() + 60_000).toISOString(),
+              payload_json: JSON.stringify(action),
+              status: 'pending',
+              token_digest: tokenDigest,
+            }
+          },
+          run: async () => {
+            if (sql.includes("SET status = 'executing'")) return d1Result([], 1)
+            if (sql.includes("error_code = 'BrokerageSubmissionUnknown'")) {
+              throw new Error('D1 persistence unavailable')
+            }
+            throw new Error(`Unexpected run query: ${sql}`)
+          },
+        }),
+      }),
+    }
+    const brokerage = stubBroker()
+    brokerage.resolveAccountNumber.mockResolvedValue('TEST123')
+    brokerage.tastyRequest
+      .mockResolvedValueOnce({ data: {
+        'buying-power-effect': { effect: 'Debit' },
+        order: {
+          id: 123,
+          legs: [{
+            action: 'Buy to Open',
+            'instrument-type': 'Equity',
+            quantity: 1,
+            symbol: 'SPY',
+          }],
+          'order-type': 'Limit',
+          price: '700.00',
+          'time-in-force': 'Day',
+        },
+        warnings: [],
+      } })
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+    setBrokerApi(brokerage)
+    setTradeGuards({
+      assertOrderMarketSafe: async () => ({ ask: 700, bid: 699, observedAt: new Date().toISOString(), tickSize: 0.01 }),
+      assertPortfolioActionAllowed: async () => ({ allowed: true, floor: 0, maxLoss: 700, remainingLossBudget: 1_000 }),
+    })
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(resolvePendingAction({ DB: db }, 'action-unknown', {
+      decision: 'confirm',
+      token,
+    })).rejects.toBeInstanceOf(BrokerageSubmissionUnknownError)
+    expect(errorLog).toHaveBeenCalledWith('BrokerageUnknownMarkerPersistenceFailed')
   })
 })

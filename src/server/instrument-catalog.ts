@@ -4,7 +4,6 @@ import {
   EquitySymbolSchema,
   InstrumentCatalogItemSchema,
   type InstrumentCatalogItem,
-  type InstrumentTickSize,
 } from '../domain/instrument'
 import {
   envelopeRows,
@@ -14,14 +13,12 @@ import {
   type JsonValue,
 } from '../domain/json-payload'
 import { type AppEnv } from './env'
-import { tastytradeTickSizes } from './tastytrade-tick-sizes'
 
 const PROVIDER_CHUNK_SIZE = 100
 const SQL_SYMBOL_CHUNK_SIZE = 90
 const MAX_CATALOG_ITEMS = 10_000
 const MAX_PERSIST_ITEMS = 100
 const CATALOG_ROWS_PER_STATEMENT = 3
-const TICK_ROWS_PER_STATEMENT = 16
 
 export type InstrumentCatalogRefresh = {
   missingSymbols: string[]
@@ -31,9 +28,37 @@ export type InstrumentCatalogRefresh = {
 
 export type InstrumentCatalogLoader = (symbols: readonly string[]) => Promise<JsonValue>
 
+const InstrumentCatalogRecordSchema = InstrumentCatalogItemSchema.extend({
+  active: z.boolean().nullable(),
+  bypassManualReview: z.boolean().nullable(),
+  countryOfTaxation: z.string().trim().min(1).max(128).nullable(),
+  createdAt: z.string().datetime(),
+  haltedAt: z.string().datetime().nullable(),
+  identityRefreshedAt: z.string().datetime(),
+  identitySource: z.enum(['equity-endpoint', 'watchlist-symbol']),
+  instrumentSubType: z.string().trim().min(1).max(128).nullable(),
+  instrumentType: z.literal('Equity'),
+  isClosingOnly: z.boolean().nullable(),
+  isFractionalQuantityEligible: z.boolean().nullable(),
+  isIlliquid: z.boolean().nullable(),
+  isOptionsClosingOnly: z.boolean().nullable(),
+  marketTimeInstrumentCollection: z.string().trim().min(1).max(128).nullable(),
+  overnightTradingPermitted: z.boolean().nullable(),
+  preIpo: z.boolean().nullable(),
+  source: z.literal('tastytrade'),
+  statusRefreshedAt: z.string().datetime(),
+  stopsTradingAt: z.string().datetime().nullable(),
+  streamerSymbol: z.string().trim().min(1).max(128).nullable(),
+  underlyingProductType: z.string().trim().min(1).max(128).nullable(),
+  updatedAt: z.string().datetime(),
+})
+
+export type InstrumentCatalogRecord = z.infer<typeof InstrumentCatalogRecordSchema>
+
 function optionalText(value: JsonValue, max: number, field: string): string | null {
+  if (value === undefined || value === null) return null
   const text = jsonText(value)
-  if (text === undefined) return null
+  if (text === undefined) throw new Error(`InstrumentCatalog:${field}-invalid`)
   if (text.length > max) throw new Error(`InstrumentCatalog:${field}-too-long`)
   return text
 }
@@ -60,23 +85,11 @@ function optionalDateTime(value: JsonValue, field: string): string | null {
   return new Date(epoch).toISOString()
 }
 
-function tickSizes(value: JsonValue, kind: InstrumentTickSize['kind']): InstrumentTickSize[] {
-  return tastytradeTickSizes(value, `InstrumentCatalog:${kind}`).map((tick, tierIndex) => {
-    return {
-      appliesToSymbol: tick.appliesToSymbol,
-      kind,
-      threshold: tick.threshold,
-      tierIndex,
-      value: tick.value,
-    }
-  })
-}
-
 export function instrumentCatalogFromPayload(
   payload: JsonValue,
   requestedSymbols: readonly string[],
   now = new Date(),
-): InstrumentCatalogItem[] {
+): InstrumentCatalogRecord[] {
   const requested = new Set(requestedSymbols.map((symbol) => EquitySymbolSchema.parse(symbol)))
   const body = jsonObject(payload)
   const single = jsonObject(body?.data ?? payload)
@@ -94,7 +107,7 @@ export function instrumentCatalogFromPayload(
     if (jsonText(row['instrument-type']) !== 'Equity') {
       throw new Error('InstrumentCatalog:invalid-instrument-type')
     }
-    return InstrumentCatalogItemSchema.parse({
+    return InstrumentCatalogRecordSchema.parse({
       active: optionalBoolean(row.active, 'active'),
       borrowRate: optionalNumber(row['borrow-rate'], 'borrow-rate'),
       bypassManualReview: optionalBoolean(row['bypass-manual-review'], 'bypass-manual-review'),
@@ -135,10 +148,6 @@ export function instrumentCatalogFromPayload(
       stopsTradingAt: optionalDateTime(row['stops-trading-at'], 'stops-trading-at'),
       streamerSymbol: optionalText(row['streamer-symbol'], 128, 'streamer-symbol'),
       symbol,
-      tickSizes: [
-        ...tickSizes(row['tick-sizes'], 'equity'),
-        ...tickSizes(row['option-tick-sizes'], 'option'),
-      ],
       underlyingProductType: optionalText(row['underlying-product-type'], 128, 'underlying-product-type'),
       updatedAt: timestamp,
     })
@@ -149,7 +158,7 @@ function sqlBoolean(value: boolean | null): number | null {
   return value === null ? null : Number(value)
 }
 
-function catalogValues(item: InstrumentCatalogItem): Array<number | null | string> {
+function catalogValues(item: InstrumentCatalogRecord): Array<number | null | string> {
   return [
     item.symbol, item.source, item.description, item.shortDescription, item.instrumentType,
     item.instrumentSubType, item.streamerSymbol, item.listedMarket, item.marketTimeInstrumentCollection,
@@ -186,7 +195,7 @@ const resolvedConflictClause = `ON CONFLICT(symbol) DO UPDATE SET
 
 function catalogUpserts(
   db: D1Database,
-  items: readonly InstrumentCatalogItem[],
+  items: readonly InstrumentCatalogRecord[],
   conflictClause: string,
 ): D1PreparedStatement[] {
   const statements: D1PreparedStatement[] = []
@@ -209,7 +218,7 @@ function catalogUpserts(
   return statements
 }
 
-export async function persistInstrumentCatalog(env: AppEnv, items: readonly InstrumentCatalogItem[]): Promise<void> {
+export async function persistInstrumentCatalog(env: AppEnv, items: readonly InstrumentCatalogRecord[]): Promise<void> {
   if (!env.DB) throw new Error('InstrumentCatalog:store-unavailable')
   if (items.length > MAX_PERSIST_ITEMS) throw new Error('InstrumentCatalog:persist-chunk-too-large')
   if (!items.length) return
@@ -221,25 +230,6 @@ export async function persistInstrumentCatalog(env: AppEnv, items: readonly Inst
     ...catalogUpserts(env.DB, resolved, resolvedConflictClause),
     ...catalogUpserts(env.DB, unresolved, 'ON CONFLICT(symbol) DO NOTHING'),
   ]
-  for (let start = 0; start < resolved.length; start += SQL_SYMBOL_CHUNK_SIZE) {
-    const symbols = resolved.slice(start, start + SQL_SYMBOL_CHUNK_SIZE).map((item) => item.symbol)
-    statements.push(env.DB.prepare(
-      `DELETE FROM instrument_tick_sizes WHERE symbol IN (${symbols.map(() => '?').join(', ')})`,
-    ).bind(...symbols))
-  }
-  const ticks = resolved.flatMap((item) => item.tickSizes.map((tick) => ({ symbol: item.symbol, tick })))
-  for (let start = 0; start < ticks.length; start += TICK_ROWS_PER_STATEMENT) {
-    const chunk = ticks.slice(start, start + TICK_ROWS_PER_STATEMENT)
-    statements.push(env.DB.prepare(
-        `INSERT INTO instrument_tick_sizes
-          (symbol, kind, tier_index, applies_to_symbol, threshold, tick_value)
-         VALUES ${chunk.map(() => '(?, ?, ?, ?, ?, ?)').join(', ')}`,
-    ).bind(...chunk.flatMap(({ symbol, tick }) => [
-      symbol, tick.kind, tick.tierIndex, tick.appliesToSymbol, tick.threshold, tick.value,
-    ])))
-  }
-  // At 100 instruments the worst documented tick payload stays below D1's
-  // 1,000-query and 100-bind limits, and the batch keeps catalog rows and tiers atomic.
   await env.DB.batch(statements)
 }
 
@@ -247,14 +237,14 @@ const StoredCatalogRowSchema = z.object({
   active: z.number().int().min(0).max(1).nullable(),
   borrow_rate: z.number().finite().nullable(),
   bypass_manual_review: z.number().int().min(0).max(1).nullable(),
-  country_of_incorporation: z.string().nullable(),
-  country_of_taxation: z.string().nullable(),
-  created_at: z.string(),
-  description: z.string().nullable(),
-  halted_at: z.string().nullable(),
-  identity_refreshed_at: z.string(),
+  country_of_incorporation: z.string().min(1).max(128).nullable(),
+  country_of_taxation: z.string().min(1).max(128).nullable(),
+  created_at: z.string().datetime(),
+  description: z.string().min(1).max(512).nullable(),
+  halted_at: z.string().datetime().nullable(),
+  identity_refreshed_at: z.string().datetime(),
   identity_source: z.enum(['equity-endpoint', 'watchlist-symbol']),
-  instrument_sub_type: z.string().nullable(),
+  instrument_sub_type: z.string().min(1).max(128).nullable(),
   instrument_type: z.literal('Equity'),
   is_closing_only: z.number().int().min(0).max(1).nullable(),
   is_etf: z.number().int().min(0).max(1).nullable(),
@@ -262,29 +252,20 @@ const StoredCatalogRowSchema = z.object({
   is_illiquid: z.number().int().min(0).max(1).nullable(),
   is_index: z.number().int().min(0).max(1).nullable(),
   is_options_closing_only: z.number().int().min(0).max(1).nullable(),
-  lendability: z.string().nullable(),
-  listed_market: z.string().nullable(),
-  market_time_instrument_collection: z.string().nullable(),
+  lendability: z.string().min(1).max(128).nullable(),
+  listed_market: z.string().min(1).max(128).nullable(),
+  market_time_instrument_collection: z.string().min(1).max(128).nullable(),
   overnight_trading_permitted: z.number().int().min(0).max(1).nullable(),
   pre_ipo: z.number().int().min(0).max(1).nullable(),
   resolution_status: z.enum(['resolved', 'unresolved']),
-  short_description: z.string().nullable(),
+  short_description: z.string().min(1).max(256).nullable(),
   source_name: z.literal('tastytrade'),
-  status_refreshed_at: z.string(),
-  stops_trading_at: z.string().nullable(),
-  streamer_symbol: z.string().nullable(),
+  status_refreshed_at: z.string().datetime(),
+  stops_trading_at: z.string().datetime().nullable(),
+  streamer_symbol: z.string().min(1).max(128).nullable(),
   symbol: EquitySymbolSchema,
-  underlying_product_type: z.string().nullable(),
-  updated_at: z.string(),
-})
-
-const StoredTickRowSchema = z.object({
-  applies_to_symbol: z.string().nullable(),
-  kind: z.enum(['equity', 'option']),
-  symbol: EquitySymbolSchema,
-  threshold: z.number().finite().nullable(),
-  tick_value: z.number().finite().positive(),
-  tier_index: z.number().int().nonnegative(),
+  underlying_product_type: z.string().min(1).max(128).nullable(),
+  updated_at: z.string().datetime(),
 })
 
 function storedBoolean(value: number | null): boolean | null {
@@ -295,73 +276,31 @@ export async function readInstrumentCatalog(
   env: AppEnv,
   requestedSymbols: readonly string[],
 ): Promise<Map<string, InstrumentCatalogItem>> {
-  if (!env.DB) return new Map()
+  if (!env.DB) throw new Error('InstrumentCatalog:store-unavailable')
   const symbols = [...new Set(requestedSymbols.map((symbol) => EquitySymbolSchema.parse(symbol)))]
   if (symbols.length > MAX_CATALOG_ITEMS) throw new Error('InstrumentCatalog:too-many-symbols')
   if (!symbols.length) return new Map()
   const catalogRows: z.infer<typeof StoredCatalogRowSchema>[] = []
-  const tickRows: z.infer<typeof StoredTickRowSchema>[] = []
   for (let start = 0; start < symbols.length; start += SQL_SYMBOL_CHUNK_SIZE) {
     const chunk = symbols.slice(start, start + SQL_SYMBOL_CHUNK_SIZE)
     const placeholders = chunk.map(() => '?').join(', ')
-    const [catalog, ticks] = await Promise.all([
-      env.DB.prepare(`SELECT * FROM instrument_catalog WHERE symbol IN (${placeholders})`).bind(...chunk).all(),
-      env.DB.prepare(
-        `SELECT symbol, kind, tier_index, applies_to_symbol, threshold, tick_value
-         FROM instrument_tick_sizes WHERE symbol IN (${placeholders})
-         ORDER BY symbol, kind, tier_index`,
-      ).bind(...chunk).all(),
-    ])
-    catalogRows.push(...z.array(StoredCatalogRowSchema).parse(catalog.results ?? []))
-    tickRows.push(...z.array(StoredTickRowSchema).parse(ticks.results ?? []))
-  }
-  const ticksBySymbol = new Map<string, InstrumentTickSize[]>()
-  for (const tick of tickRows) {
-    const values = ticksBySymbol.get(tick.symbol) ?? []
-    values.push({
-      appliesToSymbol: tick.applies_to_symbol,
-      kind: tick.kind,
-      threshold: tick.threshold,
-      tierIndex: tick.tier_index,
-      value: tick.tick_value,
-    })
-    ticksBySymbol.set(tick.symbol, values)
+    const catalog = await env.DB.prepare(
+      `SELECT * FROM instrument_catalog WHERE symbol IN (${placeholders})`,
+    ).bind(...chunk).all()
+    catalogRows.push(...z.array(StoredCatalogRowSchema).parse(catalog.results))
   }
   return new Map(catalogRows.map((row) => {
     const item = InstrumentCatalogItemSchema.parse({
-      active: storedBoolean(row.active),
       borrowRate: row.borrow_rate,
-      bypassManualReview: storedBoolean(row.bypass_manual_review),
       countryOfIncorporation: row.country_of_incorporation,
-      countryOfTaxation: row.country_of_taxation,
-      createdAt: row.created_at,
       description: row.description,
-      haltedAt: row.halted_at,
-      identityRefreshedAt: row.identity_refreshed_at,
-      identitySource: row.identity_source,
-      instrumentSubType: row.instrument_sub_type,
-      instrumentType: row.instrument_type,
-      isClosingOnly: storedBoolean(row.is_closing_only),
       isEtf: storedBoolean(row.is_etf),
-      isFractionalQuantityEligible: storedBoolean(row.is_fractional_quantity_eligible),
-      isIlliquid: storedBoolean(row.is_illiquid),
       isIndex: storedBoolean(row.is_index),
-      isOptionsClosingOnly: storedBoolean(row.is_options_closing_only),
       lendability: row.lendability,
       listedMarket: row.listed_market,
-      marketTimeInstrumentCollection: row.market_time_instrument_collection,
-      overnightTradingPermitted: storedBoolean(row.overnight_trading_permitted),
-      preIpo: storedBoolean(row.pre_ipo),
       resolutionStatus: row.resolution_status,
       shortDescription: row.short_description,
-      source: row.source_name,
-      statusRefreshedAt: row.status_refreshed_at,
-      stopsTradingAt: row.stops_trading_at,
-      streamerSymbol: row.streamer_symbol,
       symbol: row.symbol,
-      tickSizes: ticksBySymbol.get(row.symbol) ?? [],
-      underlyingProductType: row.underlying_product_type,
-      updatedAt: row.updated_at,
     })
     return [item.symbol, item]
   }))
@@ -382,11 +321,11 @@ export async function loadInstrumentCatalog(
   requestedSymbols: readonly string[],
   load: InstrumentCatalogLoader,
   now = new Date(),
-): Promise<{ items: InstrumentCatalogItem[]; missingSymbols: string[]; requestedCount: number }> {
+): Promise<{ items: InstrumentCatalogRecord[]; missingSymbols: string[]; requestedCount: number }> {
   const symbols = [...new Set(requestedSymbols.map((symbol) => EquitySymbolSchema.parse(symbol)))]
   if (symbols.length > MAX_CATALOG_ITEMS) throw new Error('InstrumentCatalog:too-many-symbols')
   if (!symbols.length) return { items: [], missingSymbols: [], requestedCount: 0 }
-  const received: InstrumentCatalogItem[] = []
+  const received: InstrumentCatalogRecord[] = []
   for (let start = 0; start < symbols.length; start += PROVIDER_CHUNK_SIZE) {
     const chunk = symbols.slice(start, start + PROVIDER_CHUNK_SIZE)
     received.push(...instrumentCatalogFromPayload(await load(chunk), chunk, now))
@@ -406,10 +345,10 @@ export async function missingInstrumentCatalogSymbols(env: AppEnv, symbols: read
 }
 
 /** Honest placeholder for a tastytrade watchlist Equity absent from its instrument endpoints. */
-export function unresolvedInstrumentCatalogItem(symbolValue: string, now = new Date()): InstrumentCatalogItem {
+export function unresolvedInstrumentCatalogItem(symbolValue: string, now = new Date()): InstrumentCatalogRecord {
   const symbol = EquitySymbolSchema.parse(symbolValue)
   const timestamp = now.toISOString()
-  return InstrumentCatalogItemSchema.parse({
+  return InstrumentCatalogRecordSchema.parse({
     active: null,
     borrowRate: null,
     bypassManualReview: null,
@@ -440,7 +379,6 @@ export function unresolvedInstrumentCatalogItem(symbolValue: string, now = new D
     stopsTradingAt: null,
     streamerSymbol: null,
     symbol,
-    tickSizes: [],
     underlyingProductType: null,
     updatedAt: timestamp,
   })

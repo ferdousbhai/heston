@@ -10,6 +10,7 @@ import {
   candleStreamerSymbol,
   candleSubscription,
   type LiveMarketEvent,
+  MarketFeedSymbolsSchema,
   type MarketFeedStatus,
   type OptionGreeksReadResult,
   OptionGreeksReadResultSchema,
@@ -20,11 +21,15 @@ import {
 } from './market-feed-contracts'
 // dxFeed COMPACT rows encode absent numeric slots as null or empty strings, which
 // `jsonNumber` already reads back as absent.
-import { JsonArraySchema, jsonNumber, jsonObjectOrEmpty, type JsonObject, type JsonValue } from '../domain/json-payload'
+import { JsonArraySchema, jsonNumber, JsonObjectSchema, type JsonObject, type JsonValue } from '../domain/json-payload'
 import { brokerApi } from './tastytrade'
 
-const SocketAttachmentSchema = z.object({ symbols: z.array(z.string()) })
+const SocketAttachmentSchema = z.object({ symbols: MarketFeedSymbolsSchema }).strict()
 type SocketAttachment = z.infer<typeof SocketAttachmentSchema>
+const SubscriptionFrameSchema = z.object({
+  symbols: MarketFeedSymbolsSchema,
+  type: z.literal('subscribe'),
+}).strict()
 const TextFrameSchema = z.string()
 
 const CHANNELS = { Quote: 1, Trade: 3, Candle: 5, Greeks: 7 } as const
@@ -42,15 +47,31 @@ const FEED_TYPES = ['Quote', 'Trade', 'Candle', 'Greeks'] as const satisfies rea
 const OPTION_GREEKS_TIMEOUT_MS = 10_000
 const UPSTREAM_SETUP_TIMEOUT_MS = 15_000
 
+class FeedProtocolError extends Error {}
+
 function streamRows(type: FeedType, values: JsonValue): JsonObject[] {
-  const items = JsonArraySchema.safeParse(values).data
+  const items = JsonArraySchema.parse(values)
   const fields = FIELDS[type]
-  if (!items || items.length % fields.length !== 0) return []
+  if (items.length % fields.length !== 0) throw new Error('Malformed COMPACT row batch.')
   const rows: JsonObject[] = []
   for (let offset = 0; offset + fields.length <= items.length; offset += fields.length) {
     rows.push(Object.fromEntries(fields.map((field, index) => [field, items[offset + index]])))
   }
   return rows
+}
+
+function parseCandleFromTime(value: number): number {
+  const timestamp = z.number().int().positive().safe().parse(value)
+  if (timestamp > Date.now()) throw new Error('Candle session starts in the future.')
+  return timestamp
+}
+
+function isPresent<T>(value: T | undefined): value is T {
+  return value !== undefined
+}
+
+function compactValueIsAbsent(value: JsonValue): boolean {
+  return value === undefined || value === null || value === ''
 }
 
 /**
@@ -63,6 +84,10 @@ export type FeedClientSocket = {
   /** Hibernation hands the attachment back undecoded; `socketSymbols` parses it. */
   deserializeAttachment(): JsonValue
   send(message: string): void
+}
+
+export type FeedControlSocket = FeedClientSocket & {
+  serializeAttachment(attachment: JsonValue): void
 }
 
 /**
@@ -79,17 +104,10 @@ export type FeedContext = {
   waitUntil(task: Promise<unknown>): void
 }
 
-/** Hibernated sockets return their attachment untyped; the symbol list is re-parsed on every read. */
-function socketSymbols(socket: FeedClientSocket): string[] {
-  return SocketAttachmentSchema.safeParse(socket.deserializeAttachment()).data?.symbols ?? []
-}
-
 function eventTimestamp(row: JsonObject): string | undefined {
   const epoch = jsonNumber(row.time ?? row.eventTime)
-  if (epoch === undefined || epoch <= 1_000_000_000) return undefined
-  const milliseconds = epoch < 10_000_000_000 ? epoch * 1_000 : epoch
-  if (!Number.isSafeInteger(milliseconds)) return undefined
-  const date = new Date(milliseconds)
+  if (epoch === undefined || epoch <= 0 || !Number.isSafeInteger(epoch)) return undefined
+  const date = new Date(epoch)
   return Number.isFinite(date.getTime()) ? date.toISOString() : undefined
 }
 
@@ -114,25 +132,29 @@ function eventFromRow(type: Exclude<FeedType, 'Greeks'>, row: JsonObject): LiveM
   if (type === 'Trade') {
     const price = jsonNumber(row.price)
     const change = jsonNumber(row.change)
-    if (price === undefined || price <= 0) return undefined
+    if (price === undefined || price <= 0
+      || (change === undefined && !compactValueIsAbsent(row.change))) return undefined
     const trade: LiveMarketEvent = { type: 'market', symbol, price, timestamp }
     if (change !== undefined) trade.change = change
     return trade
   }
   const candleClose = jsonNumber(row.close)
   const candleTime = jsonNumber(row.time)
-  const sequence = jsonNumber(row.sequence) ?? 0
-  const eventFlags = jsonNumber(row.eventFlags) ?? 0
-  if (candleTime === undefined || candleTime < 0 || !Number.isInteger(candleTime)) return undefined
+  const sequence = jsonNumber(row.sequence)
+  const eventFlags = jsonNumber(row.eventFlags)
+  if (candleTime === undefined || candleTime < 0 || !Number.isSafeInteger(candleTime)
+    || sequence === undefined || sequence < 0 || !Number.isSafeInteger(sequence)
+    || eventFlags === undefined || eventFlags < 0 || !Number.isSafeInteger(eventFlags)
+    || (candleClose === undefined && !compactValueIsAbsent(row.close))) return undefined
   if (!(eventFlags & DXLINK_REMOVE_EVENT) && !(candleClose && candleClose > 0)) return undefined
   return {
     type: 'market',
     symbol,
     candle: {
       time: candleTime,
-      sequence: Math.max(0, Math.trunc(sequence)),
+      sequence,
       close: candleClose && candleClose > 0 ? candleClose : 0,
-      eventFlags: Math.max(0, Math.trunc(eventFlags)),
+      eventFlags,
     },
     timestamp,
   }
@@ -151,10 +173,11 @@ export class MarketFeedCore {
   private reconcileNeeded = false
   private readonly subscribedByType = new Map<FeedType, Set<string>>()
   private openedChannels = new Set<number>()
+  private configuredChannels = new Set<number>()
   private reconnectAttempt = 0
   private keepalive?: ReturnType<typeof setInterval>
   private setupTimeout?: ReturnType<typeof setTimeout>
-  private candleFromTime = Date.now() - 7 * 24 * 60 * 60 * 1_000
+  private candleFromTime?: number
   private candles = new Map<string, CandlePoint[]>()
   private readonly greekRequests = new OptionGreeksRequestRegistry()
   private feedState: MarketFeedStatus['state'] = 'connecting'
@@ -169,8 +192,12 @@ export class MarketFeedCore {
 
   async fetch(request: Request): Promise<Response> {
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return new Response('WebSocket required', { status: 426 })
-    const symbols = parseRequestedSymbols(new URL(request.url))
-    if (!symbols.length) return new Response('At least one valid symbol is required', { status: 400 })
+    let symbols: string[]
+    try {
+      symbols = parseRequestedSymbols(new URL(request.url))
+    } catch {
+      return new Response('Invalid market feed subscription', { status: 400 })
+    }
     const pair = new WebSocketPair()
     const [client, server] = Object.values(pair)
     this.ctx.acceptWebSocket(server)
@@ -199,22 +226,19 @@ export class MarketFeedCore {
     }
   }
 
-  async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): Promise<void> {
-    const frame = TextFrameSchema.safeParse(message).data
-    if (frame === undefined) return
+  async webSocketMessage(socket: FeedControlSocket, message: string | ArrayBuffer): Promise<void> {
+    let symbols: string[]
     try {
-      const payload = jsonObjectOrEmpty(JSON.parse(frame))
-      const requested = JsonArraySchema.safeParse(payload.symbols).data
-      if (payload.type !== 'subscribe' || !requested) return
-      const url = new URL('https://relay.invalid')
-      url.searchParams.set('symbols', requested.join(','))
-      const symbols = parseRequestedSymbols(url)
-      if (!symbols.length) return
-      socket.serializeAttachment({ symbols } satisfies SocketAttachment)
-      await this.reconcile()
+      const frame = TextFrameSchema.parse(message)
+      const payload = SubscriptionFrameSchema.parse(JSON.parse(frame))
+      symbols = [...new Set(payload.symbols)]
     } catch {
-      // Ignore malformed client control frames; subscriptions remain unchanged.
+      this.sendStatus(socket, 'degraded', 'Invalid subscription request')
+      try { socket.close(1008, 'Invalid subscription request') } catch { /* Already closed. */ }
+      return
     }
+    socket.serializeAttachment({ symbols } satisfies SocketAttachment)
+    await this.reconcile()
   }
 
   async webSocketClose(): Promise<void> { await this.reconcile() }
@@ -225,7 +249,11 @@ export class MarketFeedCore {
   }
 
   private downstreamSymbols(): Set<string> {
-    return new Set(this.ctx.getWebSockets().flatMap(socketSymbols))
+    const symbols = new Set<string>()
+    for (const socket of this.ctx.getWebSockets()) {
+      for (const symbol of this.socketSymbols(socket)) symbols.add(symbol)
+    }
+    return symbols
   }
 
   private hasDemand(): boolean {
@@ -277,6 +305,7 @@ export class MarketFeedCore {
       await attempt
     } catch (error) {
       this.logError('MarketFeedConnectFailed', toError(error))
+      this.broadcastStatus('degraded', 'Live market feed unavailable')
       if (this.hasDemand()) await this.scheduleReconnect()
     } finally {
       if (this.connectInFlight === attempt) this.connectInFlight = undefined
@@ -285,18 +314,20 @@ export class MarketFeedCore {
 
   private async openUpstream(): Promise<void> {
     this.broadcastStatus('connecting')
-    const [credentials, candleFromTime] = await Promise.all([
+    const [credentials, rawCandleFromTime] = await Promise.all([
       brokerApi().loadQuoteToken(this.env),
-      brokerApi().loadEquityCandleFromTime(this.env).catch(() => this.candleFromTime),
+      brokerApi().loadEquityCandleFromTime(this.env),
     ])
+    const candleFromTime = parseCandleFromTime(rawCandleFromTime)
     if (!this.hasDemand() || (this.upstream && this.upstream.readyState <= WebSocket.OPEN)) return
     this.candleFromTime = candleFromTime
     const socket = new WebSocket(credentials.url)
     this.upstream = socket
     this.openedChannels.clear()
+    this.configuredChannels.clear()
     this.clearSetupTimeout()
     this.setupTimeout = setTimeout(() => {
-      if (socket !== this.upstream || this.openedChannels.size === FEED_TYPES.length) return
+      if (socket !== this.upstream || this.demandIsConfigured()) return
       this.track(this.closeUpstream(socket, 1013, 'Upstream setup timed out'))
     }, UPSTREAM_SETUP_TIMEOUT_MS)
     socket.addEventListener('open', () => this.track(this.handleUpstreamOpen(socket)))
@@ -317,15 +348,29 @@ export class MarketFeedCore {
   }
 
   private async handleUpstreamMessage(socket: WebSocket, raw: string | ArrayBuffer, token: string): Promise<void> {
-    const frame = TextFrameSchema.safeParse(raw).data
-    if (socket !== this.upstream || frame === undefined) return
-    let message: JsonObject
-    try { message = jsonObjectOrEmpty(JSON.parse(frame)) } catch { return }
-    if (message.type === 'SETUP') {
+    if (socket !== this.upstream) return
+    try {
+      const frame = TextFrameSchema.parse(raw)
+      const message = JsonObjectSchema.parse(JSON.parse(frame))
+      await this.processUpstreamMessage(socket, message, token)
+    } catch (error) {
+      await this.failProtocol(socket, error instanceof FeedProtocolError
+        ? error.message
+        : 'Malformed upstream feed frame')
+    }
+  }
+
+  private async processUpstreamMessage(socket: WebSocket, message: JsonObject, token: string): Promise<void> {
+    const messageType = TextFrameSchema.parse(message.type)
+    const messageChannel = z.number().int().nonnegative().parse(message.channel)
+    if (messageType === 'SETUP') {
+      if (messageChannel !== 0) throw new Error('Unexpected setup channel.')
+      TextFrameSchema.min(1).parse(message.version)
       await this.sendToUpstream(socket, { type: 'AUTH', channel: 0, token })
       return
     }
-    if (message.type === 'AUTH_STATE' && message.state === 'AUTHORIZED') {
+    if (messageType === 'AUTH_STATE' && message.state === 'AUTHORIZED') {
+      if (messageChannel !== 0) throw new Error('Unexpected auth channel.')
       this.reconnectAttempt = 0
       if (this.keepalive) clearInterval(this.keepalive)
       for (const channel of Object.values(CHANNELS)) {
@@ -336,20 +381,19 @@ export class MarketFeedCore {
       }, 30_000)
       return
     }
-    if (message.type === 'AUTH_STATE') {
+    if (messageType === 'AUTH_STATE') {
+      if (messageChannel !== 0 || message.state !== 'UNAUTHORIZED') throw new Error('Malformed auth state.')
       // Provider frames are untrusted and may echo credentials or private payloads.
-      await this.failProtocol(socket, 'Upstream authorization failed')
-      return
+      throw new FeedProtocolError('Upstream authorization failed')
     }
-    if (message.type === 'CHANNEL_OPENED') {
-      const type = FEED_TYPES.find((candidate) => CHANNELS[candidate] === jsonNumber(message.channel))
-      if (!type) return
-      const channel = CHANNELS[type]
+    if (messageType === 'CHANNEL_OPENED') {
+      const type = FEED_TYPES.find((candidate) => CHANNELS[candidate] === messageChannel)
+      if (!type) throw new Error('Unexpected feed channel.')
+      if (message.service !== 'FEED') throw new Error('Unexpected channel service.')
+      JsonObjectSchema.parse(message.parameters)
+      const channel = messageChannel
       this.openedChannels.add(channel)
-      if (this.openedChannels.size === FEED_TYPES.length) {
-        this.clearSetupTimeout()
-        this.broadcastStatus('live')
-      }
+      this.configuredChannels.delete(channel)
       if (!await this.sendToUpstream(socket, {
         type: 'FEED_SETUP', channel, acceptAggregationPeriod: 0.25,
         acceptDataFormat: 'COMPACT', acceptEventFields: { [type]: [...FIELDS[type]] },
@@ -357,11 +401,45 @@ export class MarketFeedCore {
       await this.reconcile()
       return
     }
-    const feedData = JsonArraySchema.safeParse(message.data).data
-    if (message.type === 'FEED_DATA' && feedData) this.broadcastFeedData(feedData)
-    if (message.type === 'ERROR' || message.type === 'CHANNEL_CLOSED') {
-      await this.failProtocol(socket, message.type === 'ERROR' ? 'Upstream feed error' : 'Upstream channel closed')
+    if (messageType === 'FEED_CONFIG') {
+      const type = FEED_TYPES.find((candidate) => CHANNELS[candidate] === messageChannel)
+      if (!type || !this.openedChannels.has(messageChannel)) throw new Error('Unexpected feed config channel.')
+      z.number().finite().nonnegative().parse(message.aggregationPeriod)
+      if (message.dataFormat !== 'COMPACT') throw new Error('Unexpected feed data format.')
+      const eventFields = message.eventFields === undefined
+        ? undefined
+        : JsonObjectSchema.parse(message.eventFields)
+      if (eventFields === undefined && !this.configuredChannels.has(messageChannel)) {
+        throw new Error('Initial feed config has no event fields.')
+      }
+      if (eventFields) {
+        const fields = z.array(z.string()).parse(eventFields[type])
+        if (fields.length !== FIELDS[type].length
+          || fields.some((field, index) => field !== FIELDS[type][index])) {
+          throw new Error('Unexpected feed field configuration.')
+        }
+      }
+      this.configuredChannels.add(messageChannel)
+      if (this.demandIsConfigured()) {
+        this.clearSetupTimeout()
+        this.broadcastStatus('live')
+      }
+      return
     }
+    if (messageType === 'FEED_DATA') {
+      const type = FEED_TYPES.find((candidate) => CHANNELS[candidate] === messageChannel)
+      if (!type || !this.configuredChannels.has(messageChannel)) throw new Error('Unconfigured feed data channel.')
+      this.broadcastFeedData(JsonArraySchema.parse(message.data), type)
+      return
+    }
+    if (messageType === 'KEEPALIVE') {
+      if (messageChannel !== 0) throw new Error('Unexpected keepalive channel.')
+      return
+    }
+    if (messageType === 'ERROR' || messageType === 'CHANNEL_CLOSED') {
+      throw new FeedProtocolError(messageType === 'ERROR' ? 'Upstream feed error' : 'Upstream channel closed')
+    }
+    throw new Error('Unexpected upstream message.')
   }
 
   private async syncSubscriptions(socket: WebSocket): Promise<void> {
@@ -373,9 +451,13 @@ export class MarketFeedCore {
       const added = [...next].filter((symbol) => !current.has(symbol))
       const removed = [...current].filter((symbol) => !next.has(symbol))
       const frame: JsonObject = { type: 'FEED_SUBSCRIPTION', channel }
-      if (added.length) frame.add = added.map((symbol) => type === 'Candle'
-        ? candleSubscription(symbol, this.candleFromTime)
-        : { symbol, type })
+      if (added.length) {
+        if (type === 'Candle') {
+          const fromTime = this.candleFromTime
+          if (fromTime === undefined) throw new Error('Candle session is unavailable.')
+          frame.add = added.map((symbol) => candleSubscription(symbol, fromTime))
+        } else frame.add = added.map((symbol) => ({ symbol, type }))
+      }
       if (removed.length) frame.remove = removed.map((symbol) => ({
         symbol: type === 'Candle' ? candleStreamerSymbol(symbol) : symbol,
         type,
@@ -385,24 +467,36 @@ export class MarketFeedCore {
     }
   }
 
-  private broadcastFeedData(data: JsonValue[]): void {
-    const descriptor = data[0]
-    const name = TextFrameSchema.safeParse(descriptor).data
-      ?? TextFrameSchema.safeParse(JsonArraySchema.safeParse(descriptor).data?.[0]).data
-    const type = FEED_TYPES.find((candidate) => candidate === name)
-    if (!type) return
-    for (const row of streamRows(type, data[1])) {
-      if (type === 'Greeks') {
-        const event = optionGreeksFromRow(row)
-        if (event) this.greekRequests.accept(event)
-        continue
-      }
-      const event = eventFromRow(type, row)
-      if (!event) continue
+  /** dxLink config is lazy, so idle event channels never hold a demanded feed in setup. */
+  private demandIsConfigured(): boolean {
+    return FEED_TYPES.every((type) => (
+      this.desiredSymbols(type).size === 0 || this.configuredChannels.has(CHANNELS[type])
+    ))
+  }
+
+  private broadcastFeedData(data: JsonValue[], channelType: FeedType): void {
+    if (!data.length || data.length % 2 !== 0) throw new Error('Malformed upstream feed envelope.')
+    const batches: JsonObject[][] = []
+    for (let offset = 0; offset < data.length; offset += 2) {
+      const type = TextFrameSchema.parse(data[offset])
+      if (type !== channelType) throw new Error('Feed descriptor does not match its channel.')
+      batches.push(streamRows(channelType, data[offset + 1]))
+    }
+    const rows = batches.flat()
+    const type = channelType
+    if (type === 'Greeks') {
+      const events = rows.map((row) => optionGreeksFromRow(row)).filter(isPresent)
+      if (events.length !== rows.length) throw new Error('Malformed upstream Greeks row.')
+      for (const event of events) this.greekRequests.accept(event)
+      return
+    }
+    const events = rows.map((row) => eventFromRow(type, row)).filter(isPresent)
+    if (events.length !== rows.length) throw new Error(`Malformed upstream ${type} row.`)
+    for (const event of events) {
       this.cacheCandle(event)
       const serialized = JSON.stringify(event)
       for (const socket of this.ctx.getWebSockets()) {
-        if (socketSymbols(socket).includes(event.symbol)) {
+        if (this.socketSymbols(socket).includes(event.symbol)) {
           try { socket.send(serialized) } catch { socket.close(1011, 'Delivery failed') }
         }
       }
@@ -446,6 +540,7 @@ export class MarketFeedCore {
     if (socket !== this.upstream) return
     this.upstream = undefined
     this.openedChannels.clear()
+    this.configuredChannels.clear()
     this.subscribedByType.clear()
     this.clearSetupTimeout()
     if (this.keepalive) clearInterval(this.keepalive)
@@ -468,6 +563,7 @@ export class MarketFeedCore {
     const socket = this.upstream
     this.upstream = undefined
     this.openedChannels.clear()
+    this.configuredChannels.clear()
     this.subscribedByType.clear()
     this.clearSetupTimeout()
     try { socket?.close(code, reason) } catch { /* Already closed. */ }
@@ -479,6 +575,16 @@ export class MarketFeedCore {
     this.logError('MarketFeedProtocolError', detail)
     this.broadcastStatus('degraded', detail)
     await this.closeUpstream(socket, 1011, 'Upstream protocol failure')
+    if (this.hasDemand()) this.broadcastStatus('degraded', detail)
+  }
+
+  /** Invalid hibernation state is closed instead of turning a subscribed client into no demand. */
+  private socketSymbols(socket: FeedClientSocket): string[] {
+    const attachment = SocketAttachmentSchema.safeParse(socket.deserializeAttachment())
+    if (attachment.success) return [...new Set(attachment.data.symbols)]
+    this.logError('MarketFeedAttachmentInvalid', 'Invalid socket subscription state')
+    try { socket.close(1011, 'Invalid subscription state') } catch { /* Already closed. */ }
+    return []
   }
 
   private broadcastStatus(state: MarketFeedStatus['state'], detail?: string): void {
@@ -489,7 +595,7 @@ export class MarketFeedCore {
   private sendStatus(socket: FeedClientSocket, state: MarketFeedStatus['state'], detail?: string): void {
     try {
       const status: MarketFeedStatus = { asOf: new Date().toISOString(), state, type: 'feed-status' }
-      if (detail) status.detail = detail.slice(0, 160)
+      if (detail) status.detail = detail
       socket.send(JSON.stringify(status))
     } catch {
       try { socket.close(1011, 'Status delivery failed') } catch { /* Already closed. */ }

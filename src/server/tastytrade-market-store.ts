@@ -1,8 +1,43 @@
-import { type Ticker } from '../domain/market'
 import { type AppEnv } from './env'
 
 const METRIC_ROWS_PER_STATEMENT = 6
 const QUOTE_ROWS_PER_STATEMENT = 10
+
+export type TastytradeMarketMetricRecord = {
+  earningsDate: string | null
+  historicalVolatility30Day?: number
+  ivHistoricalVolatility30DayDifference?: number
+  ivIndex: number
+  ivIndex5DayChange?: number
+  ivPercentile: number
+  ivRank: number
+  ivTermStructure?: {
+    backExpiration: string
+    backIv: number
+    frontExpiration: string
+    frontIv: number
+  }
+  liquidity: number
+  marketCap?: number
+  symbol: string
+}
+
+export type TastytradeMarketQuoteRecord = {
+  change: number
+  changePercent: number
+  previousClose: number
+  price: number
+  providerUpdatedAt: string
+  symbol: string
+  volume?: number
+  yearHigh?: number
+  yearLow?: number
+}
+
+export type TastytradeMarketRecords = {
+  metrics: readonly TastytradeMarketMetricRecord[]
+  quotes: readonly TastytradeMarketQuoteRecord[]
+}
 
 /**
  * Persist normalized tastytrade responses into separate metric and quote source
@@ -10,14 +45,15 @@ const QUOTE_ROWS_PER_STATEMENT = 10
  */
 export async function persistTastytradeMarketSnapshot(
   env: AppEnv,
-  tickers: readonly Ticker[],
+  records: TastytradeMarketRecords,
   observedAt = new Date(),
 ): Promise<void> {
-  if (!env.DB || !tickers.length) return
+  if (!env.DB) throw new Error('TastytradeMarketStore:unavailable')
+  if (!records.metrics.length && !records.quotes.length) return
   const timestamp = observedAt.toISOString()
   const statements: D1PreparedStatement[] = []
-  for (let start = 0; start < tickers.length; start += METRIC_ROWS_PER_STATEMENT) {
-    const chunk = tickers.slice(start, start + METRIC_ROWS_PER_STATEMENT)
+  for (let start = 0; start < records.metrics.length; start += METRIC_ROWS_PER_STATEMENT) {
+    const chunk = records.metrics.slice(start, start + METRIC_ROWS_PER_STATEMENT)
     statements.push(env.DB.prepare(
         `INSERT INTO tastytrade_market_metrics (
           symbol, iv_index_percent, iv_rank_percent, iv_percentile_percent,
@@ -41,18 +77,18 @@ export async function persistTastytradeMarketSnapshot(
           market_cap = excluded.market_cap,
           earnings_date = excluded.earnings_date,
           observed_at = excluded.observed_at`,
-      ).bind(...chunk.flatMap((ticker) => {
-        const term = ticker.ivTermStructure
-        return [ticker.symbol, ticker.ivIndex, ticker.ivRank, ticker.ivPercentile,
-        ticker.ivIndex5DayChange ?? null, ticker.historicalVolatility30Day ?? null,
-        ticker.ivHistoricalVolatility30DayDifference ?? null,
+      ).bind(...chunk.flatMap((metric) => {
+        const term = metric.ivTermStructure
+        return [metric.symbol, metric.ivIndex, metric.ivRank, metric.ivPercentile,
+        metric.ivIndex5DayChange ?? null, metric.historicalVolatility30Day ?? null,
+        metric.ivHistoricalVolatility30DayDifference ?? null,
         term?.frontExpiration ?? null, term?.frontIv ?? null,
         term?.backExpiration ?? null, term?.backIv ?? null,
-        ticker.liquidity, ticker.marketCap ?? null, ticker.earningsDate, timestamp]
+        metric.liquidity, metric.marketCap ?? null, metric.earningsDate, timestamp]
       })))
   }
-  for (let start = 0; start < tickers.length; start += QUOTE_ROWS_PER_STATEMENT) {
-    const chunk = tickers.slice(start, start + QUOTE_ROWS_PER_STATEMENT)
+  for (let start = 0; start < records.quotes.length; start += QUOTE_ROWS_PER_STATEMENT) {
+    const chunk = records.quotes.slice(start, start + QUOTE_ROWS_PER_STATEMENT)
     statements.push(env.DB.prepare(
         `INSERT INTO tastytrade_market_quotes (
           symbol, price, previous_close, change_amount, change_percent, volume,
@@ -68,10 +104,10 @@ export async function persistTastytradeMarketSnapshot(
           year_high = excluded.year_high,
           provider_updated_at = excluded.provider_updated_at,
           observed_at = excluded.observed_at`,
-      ).bind(...chunk.flatMap((ticker) => [
-        ticker.symbol, ticker.price, ticker.price - ticker.change, ticker.change, ticker.changePercent,
-        ticker.volume ?? null, ticker.yearLow ?? null, ticker.yearHigh ?? null,
-        ticker.updatedAt, timestamp,
+      ).bind(...chunk.flatMap((quote) => [
+        quote.symbol, quote.price, quote.previousClose, quote.change, quote.changePercent,
+        quote.volume ?? null, quote.yearLow ?? null, quote.yearHigh ?? null,
+        quote.providerUpdatedAt, timestamp,
       ])))
   }
   await env.DB.batch(statements)

@@ -26,8 +26,8 @@ export default {
       return Response.json({
         accepted: result.catalysts,
         acceptedCount: result.catalysts.length,
-        rejected: result.rejected,
-        rejectedCount: result.rejected.length,
+        rejected: [],
+        rejectedCount: 0,
         researchedSymbolCount: result.researchedSymbolCount,
         runId: result.runId,
       })

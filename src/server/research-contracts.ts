@@ -11,36 +11,3 @@ export function addDays(date: string, days: number): string {
 export function researchBriefId(marketDate: string): string {
   return `brief-${marketDate}`
 }
-
-export interface ResearchSourceItem {
-  context?: string
-  marketMover?: {
-    averageVolume3Month?: number
-    category: 'gainer' | 'loser' | 'most-active'
-    changePercent: number
-    name: string
-    price: number
-    symbol: string
-    volume: number
-  }
-  /** Fetched pages found in one private discovery item; never raw model URLs. */
-  linkedPages?: Array<{
-    excerpt: string
-    label: string
-    title: string
-    url: string
-  }>
-  outbound?: {
-    /** Bounded fetched page text, retained only for private research editing. */
-    excerpt?: string
-    label: string
-    title?: string
-    url: string
-  }
-  source: string
-  /** Symbols deterministically associated with this item before model editing. */
-  symbols?: string[]
-  title: string
-  url: string
-  publishedAt?: string
-}

@@ -1,4 +1,5 @@
 import { type JsonValue } from '../domain/json-payload'
+import { toError } from '../domain/failure'
 import {
   getAuthenticatedIdentity,
   isOwnerEmail,
@@ -41,8 +42,9 @@ export async function authenticateRequest(
   let identity: AuthenticatedIdentity | null
   try {
     identity = await readIdentity(request, env)
-  } catch {
-    return { response: jsonNoStore({ error: 'Authentication is not configured' }, { status: 503 }) }
+  } catch (cause) {
+    console.error('AuthenticationUnavailable', toError(cause)?.name ?? 'UnknownError')
+    return { response: jsonNoStore({ error: 'Authentication is temporarily unavailable' }, { status: 503 }) }
   }
   if (!identity) return { response: jsonNoStore({ error: 'Authentication required' }, { status: 401 }) }
   if (write) {

@@ -13,10 +13,6 @@ import {
   equityCandleFromTime,
   liveTickerFromRecords,
   percentMetric,
-  plausiblePercentMetric,
-  plausiblePercentPoints,
-  plausibleSignedPercentMetric,
-  plausibleSignedPoints,
   selectSnapshotSymbols,
 } from '../src/server/tastytrade'
 
@@ -113,6 +109,7 @@ describe('instrument signals', () => {
 describe('snapshot contract', () => {
   it('validates a complete tastytrade snapshot', () => {
     expect(MarketSnapshotSchema.parse(marketSnapshotFixture()).tickers.length).toBeGreaterThan(3)
+    expect(() => MarketSnapshotSchema.parse({ ...marketSnapshotFixture(), watchlists: [] })).toThrow()
   })
 
   it('returns isolated fixtures for tests that mutate broker state', () => {
@@ -122,8 +119,8 @@ describe('snapshot contract', () => {
     expect(marketSnapshotFixture().watchlists[0]!.symbols).not.toContain('MUTATED')
   })
 
-  it('normalizes the pre-evidence D1 brief shape after an application upgrade', () => {
-    const brief = parseStoredResearchBrief({
+  it('rejects the pre-evidence D1 brief shape instead of manufacturing current output', () => {
+    const legacy = {
       id: 'brief-2026-08-12',
       publishedAt: '2026-08-12T13:35:00.000Z',
       title: 'Legacy daily brief',
@@ -139,17 +136,9 @@ describe('snapshot contract', () => {
         horizon: '45–75 DTE',
       }],
       sources: [{ label: 'tastytrade market metrics', url: 'https://example.com/metrics' }],
-    })
+    }
 
-    expect(brief.ideas).toEqual([{
-      symbol: 'NVDA',
-      direction: 'bullish',
-      headline: 'Defined-risk call spread',
-      description: 'Demand remains resilient. Horizon: 45–75 DTE.',
-      risk: 'A guide-down would break the thesis.',
-      play: null,
-      sources: [],
-    }])
+    expect(() => parseStoredResearchBrief(legacy)).toThrow()
   })
 
   it('rejects non-HTTPS links in historical briefs before they reach anchor elements', () => {
@@ -168,43 +157,28 @@ describe('tastytrade normalization', () => {
     expect(selectSnapshotSymbols(
       ['ZZPOS'],
       ['AAREQ'],
-      ['MMWATCH', 'ZZPOS'],
-    )).toEqual(['AAREQ', 'ZZPOS', 'MMWATCH'])
+      ['MMWATC', 'ZZPOS'],
+    )).toEqual(['AAREQ', 'ZZPOS', 'MMWATC'])
+  })
+
+  it('rejects a snapshot symbol overflow instead of slicing it', () => {
+    const symbols = Array.from({ length: 101 }, (_, index) => `A${index.toString(36).toUpperCase()}`)
+    expect(() => selectSnapshotSymbols([], symbols, [])).toThrow('too-many-symbols')
   })
 
   it('normalizes tastytrade decimal ratios into percentage points', () => {
     expect(percentMetric('0.184')).toBeCloseTo(18.4)
     expect(percentMetric(undefined)).toBeUndefined()
-    expect(percentMetric('1.5', 500)).toBe(150)
-    expect(percentMetric('7.5', 2_000)).toBe(750)
+    expect(percentMetric('1.5')).toBe(150)
+    expect(percentMetric('7.5')).toBe(750)
   })
 
-  it('clamps required rank and percentile ratios that land just above 1.0', () => {
-    expect(percentMetric('1.0004')).toBe(100)
-    expect(percentMetric('-0.0001')).toBe(0)
+  it('does not clamp provider ratios', () => {
+    expect(percentMetric('1.0004')).toBeCloseTo(100.04)
+    expect(percentMetric('-0.0001')).toBeCloseTo(-0.01)
   })
 
-  it('reports an implausible optional metric as unavailable instead of the bound', () => {
-    expect(plausiblePercentMetric('0.14', 1_000)).toBeCloseTo(14)
-    expect(plausibleSignedPercentMetric('-0.02', 1_000)).toBeCloseTo(-2)
-    expect(plausiblePercentMetric(undefined, 1_000)).toBeUndefined()
-    expect(plausibleSignedPercentMetric(undefined, 1_000)).toBeUndefined()
-    expect(plausiblePercentMetric('99', 1_000)).toBeUndefined()
-    expect(plausiblePercentMetric('-0.5', 1_000)).toBeUndefined()
-    expect(plausibleSignedPercentMetric('-99', 1_000)).toBeUndefined()
-  })
-
-  it('keeps point-denominated metrics as reported and treats a zero realized volatility as absent', () => {
-    expect(plausiblePercentPoints('30.8', 2_000)).toBe(30.8)
-    expect(plausiblePercentPoints('0', 2_000)).toBeUndefined()
-    expect(plausiblePercentPoints('0', 2_000, true)).toBe(0)
-    expect(plausiblePercentPoints('2001', 2_000)).toBeUndefined()
-    expect(plausiblePercentPoints(undefined, 2_000)).toBeUndefined()
-    expect(plausibleSignedPoints('-4.7', 2_000)).toBe(-4.7)
-    expect(plausibleSignedPoints('-2001', 2_000)).toBeUndefined()
-  })
-
-  it('blanks implausible optional volatility fields without dropping the ticker', () => {
+  it('preserves present optional volatility observations without plausibility caps', () => {
     const ticker = liveTickerFromRecords('BE', {
       symbol: 'BE',
       'historical-volatility-30-day': '0',
@@ -216,13 +190,14 @@ describe('tastytrade normalization', () => {
       'liquidity-rating': '5',
     }, {
       symbol: 'BE', mark: '700', 'previous-close': '695',
+      change: '5', 'change-percent': '0.7194244604',
       'updated-at': '2026-08-13T13:31:00.000Z',
     }, false)
 
     expect(ticker).toMatchObject({ symbol: 'BE', ivRank: 25 })
-    expect(ticker?.historicalVolatility30Day).toBeUndefined()
-    expect(ticker?.ivIndex5DayChange).toBeUndefined()
-    expect(ticker?.ivHistoricalVolatility30DayDifference).toBeUndefined()
+    expect(ticker.historicalVolatility30Day).toBe(0)
+    expect(ticker.ivIndex5DayChange).toBe(-9_900)
+    expect(ticker.ivHistoricalVolatility30DayDifference).toBe(2_001)
   })
 
   it('keeps a nonnegative annual borrow percent as reported and rejects a negative one', () => {
@@ -233,16 +208,17 @@ describe('tastytrade normalization', () => {
         'liquidity-rating': '5',
       }, {
         symbol: 'BE', mark: '700', 'previous-close': '695',
+        change: '5', 'change-percent': '0.7194244604',
         'updated-at': '2026-08-13T13:31:00.000Z',
-      }, false)?.borrowRate
+      }, false).borrowRate
     }
 
-    expect(borrowRate('-1')).toBeUndefined()
+    expect(() => borrowRate('-1')).toThrow('invalid-borrow-rate')
     expect(borrowRate('0')).toBe(0)
     expect(borrowRate('951.1531')).toBe(951.1531)
   })
 
-  it('drops an implausible expiration from the term structure', () => {
+  it('keeps the provider term observation without an arbitrary volatility ceiling', () => {
     const ticker = liveTickerFromRecords('BE', {
       symbol: 'BE', 'implied-volatility-index': '0.18',
       'implied-volatility-index-rank': '0.25', 'implied-volatility-percentile': '0.3',
@@ -253,15 +229,17 @@ describe('tastytrade normalization', () => {
       ],
     }, {
       symbol: 'BE', mark: '700', 'previous-close': '695',
+      change: '5', 'change-percent': '0.7194244604',
       'updated-at': '2026-08-13T13:31:00.000Z',
     }, false)
 
-    expect(ticker?.ivTermStructure).toBeUndefined()
+    expect(ticker.ivTermStructure?.backIv).toBe(9_900)
   })
 
   it('rejects incomplete live ticker facts instead of filling estimates', () => {
     const quote = {
       symbol: 'SPY', mark: '700', 'previous-close': '695',
+      change: '5', 'change-percent': '0.7194244604',
       volume: '12345678',
       'updated-at': '2026-08-13T13:31:00.000Z',
     }
@@ -275,15 +253,25 @@ describe('tastytrade normalization', () => {
       marketCap: 900_000_000_000, volume: 12_345_678,
       position: true, updatedAt: '2026-08-13T13:31:00.000Z',
     })
-    expect(liveTickerFromRecords('SPY', { ...metrics, 'market-cap': '0' }, quote, true)?.marketCap).toBeUndefined()
+    expect(liveTickerFromRecords('SPY', metrics, quote, true).sparkline).toEqual([])
+    expect(liveTickerFromRecords('SPY', { ...metrics, 'market-cap': '0' }, quote, true).marketCap).toBe(0)
     expect(liveTickerFromRecords('SPCX', metrics, quote, false, {
       symbol: 'SPCX', description: 'SpaceX Corporation',
-    })).toMatchObject({ name: 'SpaceX Corporation' })
+    })).toMatchObject({ assetType: undefined, name: 'SpaceX Corporation' })
+    expect(liveTickerFromRecords('SPCX', metrics, quote, false, {
+      symbol: 'SPCX', description: 'SpaceX Corporation', 'is-etf': false, 'is-index': false,
+    }).assetType).toBe('stock')
     expect(liveTickerFromRecords('SPY', metrics, {
-      symbol: 'SPY', mark: '700', prevDayClose: '695', updatedAt: '2026-08-13T13:31:00.000Z',
-    }, false)?.change).toBe(5)
-    expect(liveTickerFromRecords('SPY', undefined, quote, false)).toBeUndefined()
-    expect(liveTickerFromRecords('SPY', metrics, { ...quote, 'updated-at': undefined }, false)).toBeUndefined()
+      symbol: 'SPY', mark: '700', prevDayClose: '695', change: '5', changePercent: '0.7194244604',
+      updatedAt: '2026-08-13T13:31:00.000Z',
+    }, false).change).toBe(5)
+    expect(() => liveTickerFromRecords('SPY', undefined, quote, false)).toThrow('missing-metrics')
+    expect(() => liveTickerFromRecords('SPY', metrics, { ...quote, 'updated-at': undefined }, false))
+      .toThrow('invalid-updated-at')
+    expect(() => liveTickerFromRecords('SPY', metrics, { ...quote, change: undefined }, false))
+      .toThrow('invalid-change')
+    expect(() => liveTickerFromRecords('SPY', metrics, { ...quote, volume: 'many' }, false))
+      .toThrow('invalid-volume')
   })
 
   it('normalizes optional volatility, instrument, borrow, and 52-week enrichment', () => {
@@ -302,6 +290,7 @@ describe('tastytrade normalization', () => {
       ],
     }, {
       symbol: 'SPY', mark: '700', 'previous-close': '695',
+      change: '5', 'change-percent': '0.7194244604',
       'updated-at': '2026-08-13T13:31:00.000Z',
       'year-high-price': '710', 'year-low-price': '480',
     }, false, {
@@ -347,5 +336,10 @@ describe('tastytrade normalization', () => {
         'previous-session': { 'open-at': '2026-08-12T13:30:00.000Z' },
       },
     }, now)).toBe(Date.parse('2026-08-12T13:30:00.000Z'))
+    expect(() => equityCandleFromTime({ data: { state: 'Closed' } }, now))
+      .toThrow('invalid-current-open')
+    expect(() => equityCandleFromTime({
+      data: { 'open-at': '2026-08-14T13:30:00.000Z', 'previous-session': {} },
+    }, now)).toThrow('no-open-session')
   })
 })

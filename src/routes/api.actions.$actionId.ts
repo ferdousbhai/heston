@@ -18,7 +18,11 @@ export const Route = createFileRoute('/api/actions/$actionId')({
         try {
           return jsonNoStore(await resolvePendingAction(appEnv, params.actionId, parsed.data))
         } catch (error) {
-          return jsonNoStore({ error: publicError(toError(error)) }, { status: 409 })
+          const cause = toError(error)
+          // An unknown broker submission is an upstream indeterminate result, not
+          // a confirmation-state conflict. Clients must not treat it like a fresh draft.
+          const status = cause?.name === 'BrokerageSubmissionUnknownError' ? 502 : 409
+          return jsonNoStore({ error: publicError(cause) }, { status })
         }
       },
     },

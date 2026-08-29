@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { type InstrumentCatalogItem } from '../src/domain/instrument'
+import { type InstrumentCatalogRecord } from '../src/server/instrument-catalog'
 import { type JsonValue } from '../src/domain/json-payload'
 import {
   applyCatalystBootstrapArtifact,
@@ -20,7 +20,7 @@ beforeEach(async () => {
 
 afterEach(() => store.close())
 
-function catalogItem(): InstrumentCatalogItem {
+function catalogItem(): InstrumentCatalogRecord {
   return {
     active: true,
     borrowRate: 0.02,
@@ -52,7 +52,6 @@ function catalogItem(): InstrumentCatalogItem {
     stopsTradingAt: null,
     streamerSymbol: 'SPCX',
     symbol: 'SPCX',
-    tickSizes: [],
     underlyingProductType: 'Equity',
     updatedAt: '2026-08-26T12:00:00.000Z',
   }
@@ -74,6 +73,7 @@ async function initializedEnv() {
 
 function artifact() {
   return {
+    codexVersion: 'codex-cli 0.150.1',
     findings: [{
       date: '2026-09-24',
       description: 'SpaceX will hold a shareholder event — the agenda includes a launch-program update.',
@@ -84,6 +84,7 @@ function artifact() {
       timing: 'unknown',
       title: 'SpaceX shareholder event',
     }],
+    model: 'gpt-5.6-sol',
     openPageTranscripts: [`${JSON.stringify({
       type: 'item.completed',
       item: {
@@ -91,6 +92,7 @@ function artifact() {
         action: { type: 'open_page', url: 'https://www.spacex.com/investors/event#agenda' },
       },
     })}\n`],
+    reasoningEffort: 'xhigh',
     researchedSymbols: ['SPCX'],
     runId: 'd239f195-630c-476f-9bf3-4930be438748',
   }
@@ -109,26 +111,36 @@ describe('local Codex catalyst bootstrap boundary', () => {
     expect(canonicalCodexSourceUrl('https://t.co./example')).toBeUndefined()
   })
 
-  it('uses exact stored instrument identity and rejects social, wrong-name, and out-of-range evidence', async () => {
+  it('preserves exact model text after enforcing instrument, date, and provenance boundaries', async () => {
     const env = await initializedEnv()
     const instruments = await readCatalystBootstrapInstruments(env)
     const value = artifact()
-    value.findings.push(
-      { ...value.findings[0]!, instrumentName: 'The SPAC and New Issue ETF' },
-      { ...value.findings[0]!, sourceUrl: 'https://x.com/spacex/status/1234' },
-      { ...value.findings[0]!, date: '2027-03-01' },
-      { ...value.findings[0]!, sourceUrl: 'https://www.spacex.com/investors/unopened' },
-    )
-
     const result = validateCatalystBootstrapArtifact(value, instruments, new Date('2026-08-26T12:00:00.000Z'))
 
     expect(result.catalysts).toEqual([expect.objectContaining({
       confidence: 'estimated',
-      description: 'SpaceX will hold a shareholder event - the agenda includes a launch-program update.',
+      description: 'SpaceX will hold a shareholder event — the agenda includes a launch-program update.',
       sourceUrl: 'https://www.spacex.com/investors/event',
       symbol: 'SPCX',
     })])
-    expect(result.rejected).toHaveLength(4)
+  })
+
+  it.each([
+    ['wrong-name', { instrumentName: 'The SPAC and New Issue ETF' }],
+    ['social-source', { sourceUrl: 'https://x.com/spacex/status/1234' }],
+    ['out-of-range-date', { date: '2027-03-01' }],
+    ['unopened-source', { sourceUrl: 'https://www.spacex.com/investors/unopened' }],
+  ])('fails the whole artifact for an invalid %s finding', async (_name, replacement) => {
+    const env = await initializedEnv()
+    const instruments = await readCatalystBootstrapInstruments(env)
+    const value = artifact()
+    value.findings.push({ ...value.findings[0]!, ...replacement })
+
+    expect(() => validateCatalystBootstrapArtifact(
+      value,
+      instruments,
+      new Date('2026-08-26T12:00:00.000Z'),
+    )).toThrow('CatalystBootstrap:invalid-finding:1:')
   })
 
   it('applies the exact validated artifact and records a compact run receipt', async () => {
@@ -143,7 +155,7 @@ describe('local Codex catalyst bootstrap boundary', () => {
       'SELECT model, status, symbol_count, accepted_count, rejected_count FROM catalyst_research_runs',
     ).get()).toEqual({
       accepted_count: 1,
-      model: 'local-codex-native-web',
+      model: 'gpt-5.6-sol/xhigh (codex-cli 0.150.1)',
       rejected_count: 0,
       status: 'completed',
       symbol_count: 1,

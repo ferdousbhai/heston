@@ -210,16 +210,17 @@ describe('market research tools', () => {
     ])
   })
 
-  it('falls back to close when Yahoo omits an adjusted close', async () => {
+  it('rejects Yahoo history when required adjusted close or market metadata is absent', async () => {
     const provider = createYahooPriceHistoryProvider(chartClient([
       { close: 10, date: chartDate('2026-08-14'), high: 11, low: 9, open: 10, volume: 1_000 },
     ]))
+    const missingCurrency = createYahooPriceHistoryProvider(chartClient([
+      { adjclose: 10, close: 10, date: chartDate('2026-08-14'), high: 11, low: 9, open: 10, volume: 1_000 },
+    ], { currency: undefined }))
+    const range = { endDate: '2026-08-14', startDate: '2026-08-14' }
 
-    const result = await provider.readDaily('AAPL', { endDate: '2026-08-14', startDate: '2026-08-14' })
-
-    expect(result.prices).toEqual([
-      { adjustedClose: 10, close: 10, date: '2026-08-14', high: 11, low: 9, open: 10, volume: 1_000 },
-    ])
+    await expect(provider.readDaily('AAPL', range)).rejects.toThrow('invalid-response')
+    await expect(missingCurrency.readDaily('AAPL', range)).rejects.toThrow('invalid-response')
   })
 
   it('rejects duplicate dates, cross-symbol responses, and empty Yahoo history', async () => {

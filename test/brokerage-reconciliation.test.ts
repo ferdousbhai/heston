@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { matchesSubmittedOrder } from '../src/server/brokerage-reconciliation'
+import { matchesSubmittedOrder, reconcileUnknownBrokerageAction } from '../src/server/brokerage-reconciliation'
 import { buildOrderPayload } from '../src/server/order-payload'
 
 describe('brokerage submission reconciliation', () => {
@@ -33,5 +33,9 @@ describe('brokerage submission reconciliation', () => {
     expect(matchesSubmittedOrder(
       replacementRow, intended, new Date('2026-08-14T14:00:00.000Z'), new Date('2026-08-14T14:01:00.000Z'), 'other',
     )).toBe(false)
+  })
+
+  it('does not report an unavailable reconciliation store as no quarantined action', async () => {
+    await expect(reconcileUnknownBrokerageAction({})).rejects.toThrow('store-unavailable')
   })
 })
