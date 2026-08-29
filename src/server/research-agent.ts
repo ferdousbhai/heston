@@ -178,6 +178,12 @@ function citationUrls(payload: JsonValue): ReadonlySet<string> {
   for (const citation of optionalArray(response.citations, 'citations')) add(citation)
   for (const item of optionalArray(response.output, 'output')) {
     const message = jsonObject(item)
+    const action = jsonObject(message?.action)
+    if (message?.type === 'web_search_call'
+      && message.status === 'completed'
+      && action?.type === 'open_page') {
+      add(action.url)
+    }
     if (message?.type !== 'message') continue
     for (const block of optionalArray(message.content, 'message-content')) {
       const content = jsonObject(block)

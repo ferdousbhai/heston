@@ -46,9 +46,15 @@ function providerToolCall(
   args: JsonObject,
   citedUrl?: string,
   status: string | null = 'completed',
+  openedUrl?: string,
 ) {
   const response = {
     output: [
+      ...(openedUrl ? [{
+        type: 'web_search_call',
+        status: 'completed',
+        action: { type: 'open_page', url: openedUrl },
+      }] : []),
       ...(citedUrl ? [{
         type: 'message',
         content: [{
@@ -81,11 +87,17 @@ function environment() {
   }
 }
 
-function agentFetcher(status: string | null = 'completed') {
+function agentFetcher(status: string | null = 'completed', openedUrl?: string) {
   const providerResponses = [
     providerToolCall('read_market_metrics', { symbols: ['NVDA'] }, undefined, status),
     providerToolCall('get_recent_coverage', { daysAgo: 14, tickers: ['NVDA'] }, undefined, status),
-    providerToolCall('submit_daily_report', submission(), CITED_URL, status),
+    providerToolCall(
+      'submit_daily_report',
+      submission(),
+      openedUrl ? undefined : CITED_URL,
+      status,
+      openedUrl,
+    ),
   ]
   const bodies: JsonObject[] = []
   const fetcher = vi.fn<typeof fetch>(async (input, init) => {
@@ -197,6 +209,20 @@ describe('daily research Pi agent boundary', () => {
 
     await expect(runDailyResearchAgent(environment(), { now: NOW, runId: 'daily-run' }, fetcher))
       .resolves.toEqual(expect.objectContaining({ submission: expect.any(Object) }))
+  })
+
+  it('accepts a completed native page-open as source provenance', async () => {
+    const broker = stubBroker()
+    broker.tastyRequest.mockResolvedValue({ data: { items: [{ symbol: 'NVDA' }] } })
+    setBrokerApi(broker)
+    const { fetcher } = agentFetcher('completed', CITED_URL)
+
+    const result = await runDailyResearchAgent(environment(), {
+      now: NOW,
+      runId: 'daily-run',
+    }, fetcher)
+
+    expect(result.citations).toEqual(new Set([CITED_URL]))
   })
 
   it('fails immediately when a research tool fails', async () => {
