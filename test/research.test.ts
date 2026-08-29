@@ -321,6 +321,8 @@ describe('daily intelligence pipeline', () => {
     })
     const { brief } = await runDailyBrief()
     expect(brief.ideas).toEqual([])
+    expect(brief.title).toBe('Options read for 2026-08-14')
+    expect(brief.regimeDetail).toBe('Only independently supported setups survived.')
   })
 
   it('feeds only fresh local Codex evidence to the agent', async () => {
@@ -505,7 +507,7 @@ describe('daily intelligence pipeline', () => {
     }))
   })
 
-  it('requires newer evidence and an explanation when a repeated symbol changes thesis', () => {
+  it('requires an explanation when a repeated symbol changes thesis', () => {
     const base = { ...generatedResearch().ideas[0]!, direction: 'bullish' as const }
     const evidence = [{
       publishedAt: '2026-08-14T12:00:00.000Z', source: 'Independent wire', symbols: ['NVDA'],
@@ -528,9 +530,9 @@ describe('daily intelligence pipeline', () => {
 
     expect(publicIdeasForDate([base], '2026-08-14', evidence, ['NVDA'], recentCoverage))
       .toEqual([expect.objectContaining({ headline: base.headline })])
-    expect(publicIdeasForDate([changed], '2026-08-14', [
-      { ...evidence[0], publishedAt: '2026-08-11T12:00:00.000Z' },
-    ], ['NVDA'], recentCoverage)).toEqual([])
+    expect(publicIdeasForDate([
+      { ...base, direction: 'bearish', thesisChange: '' },
+    ], '2026-08-14', evidence, ['NVDA'], recentCoverage)).toEqual([])
     expect(publicIdeasForDate([changed], '2026-08-14', evidence, ['NVDA'], recentCoverage))
       .toEqual([expect.objectContaining({
         description: changed.description,

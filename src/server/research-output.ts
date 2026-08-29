@@ -35,21 +35,14 @@ function normalizedThesis(headline: string, description: string): string {
 
 function coverageReviewIsValid(
   idea: ResearchIdeaCandidate,
-  selectedEvidence: readonly (ResearchSourceItem | undefined)[],
   recentCoverage: readonly RecentTickerCoverage[],
 ): boolean {
   const previous = recentCoverage.filter((coverage) => coverage.symbol === idea.symbol)
   if (!previous.length) return !idea.thesisChange
 
-  const latestPriorCoverage = Math.max(...previous.map((coverage) => Date.parse(coverage.publishedAt)))
-  if (!selectedEvidence.some((source) => (
-    source?.publishedAt !== undefined && Date.parse(source.publishedAt) > latestPriorCoverage
-  ))) return false
-
-  // A still-valid thesis may be repeated when genuinely newer same-symbol evidence
-  // supports it. This restores the old daily recommendation cadence without allowing
-  // stale copy to recycle: all prior rows must be reviewed and newer evidence is still
-  // mandatory. A claimed update additionally has to differ from prior thesis text.
+  // The agent receives the dated prior rows and must find newer evidence. Native search
+  // citations do not expose a trusted publication timestamp, so code can enforce only
+  // the cross-row semantics: same-direction refresh or a genuinely changed thesis.
   if (!idea.thesisChange) {
     return previous.every((coverage) => coverage.direction === idea.direction)
   }
@@ -76,7 +69,7 @@ export function researchIdeasForDate(
     const selected = [...new Set(idea.sourceIndices)].map((index) => evidence[index])
     if (!selected.length || selected.some((source) => !source?.symbols?.includes(idea.symbol))) return []
     if ([idea.headline, idea.description, idea.risk].some(mentionsDiscoverySource)) return []
-    if (!coverageReviewIsValid(idea, selected, recentCoverage)) return []
+    if (!coverageReviewIsValid(idea, recentCoverage)) return []
     const sources = [...new Map(selected.map((source) => {
       const link = evidenceSourceLink(source!)
       return [link.url, link]

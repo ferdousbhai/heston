@@ -329,6 +329,10 @@ function boundResearchSummary(
   return `${ideas.length} evidence-linked setup${ideas.length === 1 ? '' : 's'} survived validation: ${headlines}.`
 }
 
+function completeEditorialFrame(candidateCount: number, ideas: ResearchBrief['ideas']): boolean {
+  return candidateCount > 0 && ideas.length === candidateCount
+}
+
 async function persistDailyResearch(
   env: AppEnv,
   brief: ResearchBrief,
@@ -464,11 +468,16 @@ export async function generateDailyResearch(
   // If deterministic validation removes an editor candidate, do not retain a
   // top-level summary that may still repeat the rejected thesis.
   const summary = boundResearchSummary(generated.summary, generated.ideas.length, ideas)
+  const completeFrame = completeEditorialFrame(generated.ideas.length, ideas)
   const brief = ResearchBriefSchema.parse({
-    title: mentionsDiscoverySource(generated.title) ? `Options read for ${today}` : generated.title,
+    title: completeFrame && !mentionsDiscoverySource(generated.title)
+      ? generated.title
+      : `Options read for ${today}`,
     summary,
     regime: mentionsDiscoverySource(generated.regime) ? 'Selective' : generated.regime,
-    regimeDetail: mentionsDiscoverySource(generated.regimeDetail) ? 'Only independently supported setups survived.' : generated.regimeDetail,
+    regimeDetail: completeFrame && !mentionsDiscoverySource(generated.regimeDetail)
+      ? generated.regimeDetail
+      : 'Only independently supported setups survived.',
     ideas,
     marketMovers,
     readingList,
