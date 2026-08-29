@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { type Ticker } from '../src/domain/market'
+import { MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
+import { D1_MAX_BOUND_PARAMETERS } from '../src/server/d1-limits'
 import {
   persistTastytradeMarketSnapshot,
   type TastytradeMarketRecords,
@@ -36,8 +38,6 @@ function sourceRecords(
       symbol: ticker.symbol,
     })),
     quotes: tickers.map((ticker) => ({
-      change: ticker.change,
-      changePercent: ticker.changePercent,
       previousClose: previousClose(ticker),
       price: ticker.price,
       providerUpdatedAt: ticker.updatedAt,
@@ -57,13 +57,9 @@ describe('source-specific tastytrade market storage', () => {
     )).rejects.toThrow('TastytradeMarketStore:unavailable')
   })
 
-  it('keeps a 100-symbol refresh below D1 query and bind limits', async () => {
+  it('keeps a full watchlist refresh below D1 query and bind limits', async () => {
     const boundParameterCounts: number[] = []
-    let batchStatementCount = 0
-    const batch = vi.fn(async (statements: D1PreparedStatement[]) => {
-      batchStatementCount = statements.length
-      return []
-    })
+    const batch = vi.fn(async () => [])
     const database: D1Database = {
       ...unsupportedDatabase(),
       batch,
@@ -71,13 +67,13 @@ describe('source-specific tastytrade market storage', () => {
         ...unsupportedStatement(),
         bind: (...values: unknown[]) => {
           boundParameterCounts.push(values.length)
-          if (values.length > 100) throw new Error('too many SQL variables')
+          if (values.length > D1_MAX_BOUND_PARAMETERS) throw new Error('too many SQL variables')
           return unsupportedStatement()
         },
       })),
     }
     const template = marketTickersFixture[0]!
-    const tickers = Array.from({ length: 100 }, (_, index) => ({
+    const tickers = Array.from({ length: MAX_WATCHLIST_SYMBOLS }, (_, index) => ({
       ...template,
       name: `Ticker ${index}`,
       symbol: `T${index}`,
@@ -86,8 +82,8 @@ describe('source-specific tastytrade market storage', () => {
     await persistTastytradeMarketSnapshot({ DB: database }, sourceRecords(tickers))
 
     expect(batch).toHaveBeenCalledOnce()
-    expect(batchStatementCount).toBe(27)
-    expect(Math.max(...boundParameterCounts)).toBe(100)
+    expect(boundParameterCounts.length).toBeGreaterThan(1)
+    expect(Math.max(...boundParameterCounts)).toBeLessThanOrEqual(D1_MAX_BOUND_PARAMETERS)
   })
 
   it('keeps metrics and quotes separate while exposing a typed public view', async () => {
@@ -128,9 +124,11 @@ describe('source-specific tastytrade market storage', () => {
       symbol: 'NVDA',
       volume: 128_400_000,
     })
-    expect(store.sqlite.prepare(
-      'SELECT symbol, instrument_name, iv_rank_percent, market_cap, price, volume FROM public_market_overview',
-    ).get()).toEqual({
+    const overview = store.sqlite.prepare(
+      `SELECT symbol, instrument_name, iv_rank_percent, market_cap, price,
+        change_amount, change_percent, volume FROM public_market_overview`,
+    ).get()
+    expect(overview).toMatchObject({
       instrument_name: 'NVIDIA Corporation',
       iv_rank_percent: 72,
       market_cap: 4_730_000_000_000,
@@ -138,9 +136,14 @@ describe('source-specific tastytrade market storage', () => {
       symbol: 'NVDA',
       volume: 128_400_000,
     })
+    expect(overview?.change_amount).toBeCloseTo(11.68)
+    expect(overview?.change_percent).toBeCloseTo(6.4888888889)
     expect(store.sqlite.prepare('PRAGMA table_info(tastytrade_market_metrics)').all().map((row) => row.name))
       .not.toContain('price')
-    expect(store.sqlite.prepare('PRAGMA table_info(tastytrade_market_quotes)').all().map((row) => row.name))
-      .not.toContain('iv_rank_percent')
+    const quoteColumns = store.sqlite.prepare('PRAGMA table_info(tastytrade_market_quotes)').all()
+      .map((row) => row.name)
+    expect(quoteColumns).not.toContain('iv_rank_percent')
+    expect(quoteColumns).not.toContain('change_amount')
+    expect(quoteColumns).not.toContain('change_percent')
   })
 })

@@ -435,11 +435,10 @@ function normalizeLiveTicker(
       ?? quote['prev-day-close'],
     'previous-close',
   )
-  const change = numeric(quote.change, `change:${symbol}`)
-  const changePercent = numeric(
-    quote['change-percent'] ?? quote.changePercent,
-    `change-percent:${symbol}`,
-  )
+  // tastytrade reports mark and previous close, not day-change fields. Day move
+  // is therefore a read-model projection, never a synthesized source record.
+  const change = price - previousClose
+  const changePercent = (change / previousClose) * 100
   const ivIndex = percentagePoints(metrics['implied-volatility-index'], 'implied-volatility-index')
   if (ivIndex < 0) throw new Error('TastytradeSnapshot:invalid-implied-volatility-index')
   const ivRank = requiredPercentageRank(
@@ -495,8 +494,6 @@ function normalizeLiveTicker(
     symbol,
   }
   const quoteRecord: TastytradeMarketQuoteRecord = {
-    change,
-    changePercent,
     previousClose,
     price,
     providerUpdatedAt: updatedAt,

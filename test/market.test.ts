@@ -190,7 +190,6 @@ describe('tastytrade normalization', () => {
       'liquidity-rating': '5',
     }, {
       symbol: 'BE', mark: '700', 'previous-close': '695',
-      change: '5', 'change-percent': '0.7194244604',
       'updated-at': '2026-08-13T13:31:00.000Z',
     }, false)
 
@@ -208,7 +207,6 @@ describe('tastytrade normalization', () => {
         'liquidity-rating': '5',
       }, {
         symbol: 'BE', mark: '700', 'previous-close': '695',
-        change: '5', 'change-percent': '0.7194244604',
         'updated-at': '2026-08-13T13:31:00.000Z',
       }, false).borrowRate
     }
@@ -229,7 +227,6 @@ describe('tastytrade normalization', () => {
       ],
     }, {
       symbol: 'BE', mark: '700', 'previous-close': '695',
-      change: '5', 'change-percent': '0.7194244604',
       'updated-at': '2026-08-13T13:31:00.000Z',
     }, false)
 
@@ -239,7 +236,6 @@ describe('tastytrade normalization', () => {
   it('rejects incomplete live ticker facts instead of filling estimates', () => {
     const quote = {
       symbol: 'SPY', mark: '700', 'previous-close': '695',
-      change: '5', 'change-percent': '0.7194244604',
       volume: '12345678',
       'updated-at': '2026-08-13T13:31:00.000Z',
     }
@@ -262,17 +258,15 @@ describe('tastytrade normalization', () => {
       symbol: 'SPCX', description: 'SpaceX Corporation', 'is-etf': false, 'is-index': false,
     }).assetType).toBe('stock')
     expect(liveTickerFromRecords('SPY', metrics, {
-      symbol: 'SPY', mark: '700', prevDayClose: '695', change: '5', changePercent: '0.7194244604',
+      symbol: 'SPY', mark: '700', prevDayClose: '695',
       updatedAt: '2026-08-13T13:31:00.000Z',
     }, false).change).toBe(5)
     expect(() => liveTickerFromRecords('SPY', undefined, quote, false)).toThrow('missing-metrics')
     expect(() => liveTickerFromRecords('SPY', metrics, { ...quote, 'updated-at': undefined }, false))
       .toThrow('invalid-updated-at')
-    expect(() => liveTickerFromRecords('SPY', metrics, {
-      ...quote,
-      change: undefined,
-      'change-percent': undefined,
-    }, false)).toThrow('invalid-change:SPY')
+    const projected = liveTickerFromRecords('SPY', metrics, quote, false)
+    expect(projected.change).toBe(5)
+    expect(projected.changePercent).toBeCloseTo(0.7194244604)
     expect(() => liveTickerFromRecords('SPY', metrics, { ...quote, volume: 'many' }, false))
       .toThrow('invalid-volume')
   })
@@ -293,7 +287,6 @@ describe('tastytrade normalization', () => {
       ],
     }, {
       symbol: 'SPY', mark: '700', 'previous-close': '695',
-      change: '5', 'change-percent': '0.7194244604',
       'updated-at': '2026-08-13T13:31:00.000Z',
       'year-high-price': '710', 'year-low-price': '480',
     }, false, {

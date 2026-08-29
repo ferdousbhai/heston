@@ -2,7 +2,7 @@ import { type AppEnv } from './env'
 import { rowsPerD1Statement } from './d1-limits'
 
 const METRIC_BOUND_PARAMETERS_PER_ROW = 15
-const QUOTE_BOUND_PARAMETERS_PER_ROW = 10
+const QUOTE_BOUND_PARAMETERS_PER_ROW = 8
 const METRIC_ROWS_PER_STATEMENT = rowsPerD1Statement(METRIC_BOUND_PARAMETERS_PER_ROW)
 const QUOTE_ROWS_PER_STATEMENT = rowsPerD1Statement(QUOTE_BOUND_PARAMETERS_PER_ROW)
 
@@ -26,8 +26,6 @@ export type TastytradeMarketMetricRecord = {
 }
 
 export type TastytradeMarketQuoteRecord = {
-  change: number
-  changePercent: number
   previousClose: number
   price: number
   providerUpdatedAt: string
@@ -94,23 +92,20 @@ export async function persistTastytradeMarketSnapshot(
     const chunk = records.quotes.slice(start, start + QUOTE_ROWS_PER_STATEMENT)
     statements.push(env.DB.prepare(
         `INSERT INTO tastytrade_market_quotes (
-          symbol, price, previous_close, change_amount, change_percent, volume,
-          year_low, year_high, provider_updated_at, observed_at
-        ) VALUES ${chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ')}
+          symbol, price, previous_close, volume, year_low, year_high,
+          provider_updated_at, observed_at
+        ) VALUES ${chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(', ')}
         ON CONFLICT(symbol) DO UPDATE SET
           price = excluded.price,
           previous_close = excluded.previous_close,
-          change_amount = excluded.change_amount,
-          change_percent = excluded.change_percent,
           volume = excluded.volume,
           year_low = excluded.year_low,
           year_high = excluded.year_high,
           provider_updated_at = excluded.provider_updated_at,
           observed_at = excluded.observed_at`,
       ).bind(...chunk.flatMap((quote) => [
-        quote.symbol, quote.price, quote.previousClose, quote.change, quote.changePercent,
-        quote.volume ?? null, quote.yearLow ?? null, quote.yearHigh ?? null,
-        quote.providerUpdatedAt, timestamp,
+        quote.symbol, quote.price, quote.previousClose, quote.volume ?? null,
+        quote.yearLow ?? null, quote.yearHigh ?? null, quote.providerUpdatedAt, timestamp,
       ])))
   }
   await env.DB.batch(statements)
