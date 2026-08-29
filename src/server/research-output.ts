@@ -6,6 +6,7 @@ import {
   type ResearchBrief,
 } from '../domain/market'
 import { type DailyResearchSubmission } from './research-agent'
+import { type EquityOptionTuple } from './option-contract'
 import { type RecentTickerCoverage } from './research-coverage'
 import { addDays, type ResearchSourceItem } from './research-contracts'
 import { REDDIT_RESEARCH_SOURCE } from './research-reddit'
@@ -17,81 +18,15 @@ type RedditCatalystCandidate = Omit<DailyResearchSubmission['redditCatalysts'][n
   sourceIndex: number
 }
 
-/**
- * Exchange holidays that land on a Friday, so the week's options expire the Thursday
- * before instead. Only Good Friday and holidays whose observed date lands on a Friday
- * can appear here; every other US market holiday falls on a Monday or a Thursday and
- * leaves that week's Friday expiration intact.
- *
- * Plays are bounded to a 90-day horizon, so this list only has to stay a year ahead;
- * extend it before its last entry falls inside that horizon. Past the listed years the
- * rule still accepts Fridays and rejects Thursdays, which is right for every ordinary
- * week and merely conservative in a holiday one.
- */
-const EXCHANGE_HOLIDAY_FRIDAYS: ReadonlySet<string> = new Set([
-  '2026-04-03', // Good Friday
-  '2026-06-19', // Juneteenth National Independence Day
-  '2026-07-03', // Independence Day observed
-  '2026-12-25', // Christmas Day
-  '2027-01-01', // New Year's Day
-  '2027-03-26', // Good Friday
-  '2027-06-18', // Juneteenth observed
-  '2027-12-24', // Christmas Day observed
-  '2028-04-14', // Good Friday
-  '2029-03-30', // Good Friday
-])
-
-/**
- * US equity options expire on a Friday, or on the Thursday before when that Friday is an
- * exchange holiday. A model can emit a well-formed date that no option chain lists — a
- * production brief shipped two plays expiring Sunday 2026-09-20 — so the expiration
- * weekday is decided here rather than trusted from model prose.
- */
-function isOptionExpirationDate(isoDate: string): boolean {
-  const weekday = new Date(`${isoDate}T00:00:00.000Z`).getUTCDay()
-  if (weekday === 5) return !EXCHANGE_HOLIDAY_FRIDAYS.has(isoDate)
-  return weekday === 4 && EXCHANGE_HOLIDAY_FRIDAYS.has(addDays(isoDate, 1))
+export interface BoundResearchIdea {
+  contract: EquityOptionTuple | null
+  idea: ResearchBrief['ideas'][number]
 }
 
-function playExpiryDate(play: string, today: string): string | undefined {
-  const rawMonthDay = play.split(' ').at(-1)
-  const [month, day] = (rawMonthDay ?? '').split('/').map(Number)
-  const year = Number(today.slice(0, 4))
-  if (!month || !day || !Number.isSafeInteger(year)) return undefined
-  for (const candidateYear of [year, year + 1]) {
-    const date = new Date(Date.UTC(candidateYear, month - 1, day))
-    if (date.getUTCFullYear() !== candidateYear || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) continue
-    const isoDate = date.toISOString().slice(0, 10)
-    if (isoDate >= today) return isoDate
-  }
-  return undefined
-}
-
-/**
- * The chain-resolver tuple for a `TICKER STRIKE(c/p) M/D` play. It is declared here rather
- * than imported so this module keeps no broker dependency; it is structurally the
- * `EquityOptionTuple` that `option-contract` resolves against a live chain.
- */
-export interface ResearchPlayTuple {
-  expiry: string
-  optionType: 'C' | 'P'
-  strike: number
-  underlying: string
-}
-
-/**
- * The exact contract an editor play names. The weekday rule above only proves the date
- * *could* be an expiration; resolving this tuple against the current chain is what proves
- * the contract is actually listed.
- */
-export function researchPlayTuple(play: string, today: string): ResearchPlayTuple | undefined {
-  const [underlying, contract] = play.split(' ')
-  const expiry = playExpiryDate(play, today)
-  if (!underlying || !contract || expiry === undefined) return undefined
-  const optionType = contract.endsWith('c') ? 'C' : contract.endsWith('p') ? 'P' : undefined
-  const strike = Number(contract.slice(0, -1))
-  if (!optionType || !Number.isFinite(strike) || strike <= 0) return undefined
-  return { expiry, optionType, strike, underlying }
+function playLabel(play: EquityOptionTuple): string {
+  const [, month, day] = play.expiry.split('-').map(Number)
+  const optionType = play.optionType === 'C' ? 'c' : 'p'
+  return `${play.underlying} ${play.strike}${optionType} ${month}/${day}`
 }
 
 function normalizedThesis(headline: string, description: string): string {
@@ -103,17 +38,10 @@ function coverageReviewIsValid(
   selectedEvidence: readonly (ResearchSourceItem | undefined)[],
   recentCoverage: readonly RecentTickerCoverage[],
 ): boolean {
-  const expectedIndices = recentCoverage.flatMap((coverage, index) => (
-    coverage.symbol === idea.symbol ? [index] : []
-  ))
-  const reviewedIndices = [...new Set(idea.recentCoverageIndices)]
-  if (!expectedIndices.length) return !reviewedIndices.length && !idea.thesisChange
-  if (reviewedIndices.length !== expectedIndices.length
-    || reviewedIndices.some((index) => !expectedIndices.includes(index))) return false
+  const previous = recentCoverage.filter((coverage) => coverage.symbol === idea.symbol)
+  if (!previous.length) return !idea.thesisChange
 
-  const latestPriorCoverage = Math.max(...expectedIndices.map((index) => (
-    Date.parse(recentCoverage[index]!.publishedAt)
-  )))
+  const latestPriorCoverage = Math.max(...previous.map((coverage) => Date.parse(coverage.publishedAt)))
   if (!selectedEvidence.some((source) => (
     source?.publishedAt !== undefined && Date.parse(source.publishedAt) > latestPriorCoverage
   ))) return false
@@ -123,26 +51,23 @@ function coverageReviewIsValid(
   // stale copy to recycle: all prior rows must be reviewed and newer evidence is still
   // mandatory. A claimed update additionally has to differ from prior thesis text.
   if (!idea.thesisChange) {
-    return expectedIndices.every((index) => recentCoverage[index]!.direction === idea.direction)
+    return previous.every((coverage) => coverage.direction === idea.direction)
   }
   const currentThesis = normalizedThesis(idea.headline, idea.description)
-  return expectedIndices.every((index) => normalizedThesis(
-    recentCoverage[index]!.headline,
-    recentCoverage[index]!.description,
+  return previous.every((coverage) => normalizedThesis(
+    coverage.headline,
+    coverage.description,
   ) !== currentThesis)
 }
 
-/**
- * Enforce the prompt's expiry horizon in code; a valid-looking model date can still be
- * impossible, stale, or a calendar day on which no option expires.
- */
+/** Bind cross-field evidence and coverage semantics, then leave contract existence to the chain. */
 export function researchIdeasForDate(
   ideas: readonly ResearchIdeaCandidate[],
   today: string,
   evidence: readonly ResearchSourceItem[],
   allowedSymbols: readonly string[],
   recentCoverage: readonly RecentTickerCoverage[] = [],
-): ResearchBrief['ideas'] {
+): BoundResearchIdea[] {
   const minimum = addDays(today, 21)
   const maximum = addDays(today, 90)
   const symbols = new Set(allowedSymbols)
@@ -157,20 +82,32 @@ export function researchIdeasForDate(
       return [link.url, link]
     })).values()].slice(0, 3)
     const {
-      recentCoverageIndices: _recentCoverageIndices,
       sourceIndices: _sourceIndices,
       thesisChange: _thesisChange,
       ...publicIdea
     } = idea
-    const expiry = idea.play === null ? undefined : playExpiryDate(idea.play, today)
-    const play = idea.play !== null && expiry !== undefined && expiry >= minimum && expiry <= maximum
-      && isOptionExpirationDate(expiry) ? idea.play : null
-    return [ResearchIdeaSchema.parse({ ...publicIdea, play, sources })]
+    const contract = idea.play !== null && isValidIsoDate(idea.play.expiration)
+      && idea.play.expiration >= minimum
+      && idea.play.expiration <= maximum
+      ? {
+          expiry: idea.play.expiration,
+          optionType: idea.play.optionType === 'call' ? 'C' as const : 'P' as const,
+          strike: idea.play.strike,
+          underlying: idea.symbol,
+        }
+      : null
+    return [{ contract, idea: ResearchIdeaSchema.parse({
+      ...publicIdea,
+      play: contract ? playLabel(contract) : null,
+      sources,
+    }) }]
   })
-  const bySymbol = new Map<string, ResearchBrief['ideas'][number]>()
-  for (const idea of bound) {
-    const current = bySymbol.get(idea.symbol)
-    if (!current || (current.play === null && idea.play !== null)) bySymbol.set(idea.symbol, idea)
+  const bySymbol = new Map<string, BoundResearchIdea>()
+  for (const candidate of bound) {
+    const current = bySymbol.get(candidate.idea.symbol)
+    if (!current || (current.contract === null && candidate.contract !== null)) {
+      bySymbol.set(candidate.idea.symbol, candidate)
+    }
   }
   return [...bySymbol.values()]
 }

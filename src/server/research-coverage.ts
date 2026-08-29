@@ -3,11 +3,12 @@ import { z } from 'zod'
 import { marketDate } from '../domain/catalyst'
 import { EquitySymbolSchema } from '../domain/instrument'
 import { type AppEnv } from './env'
-import { MAX_DAILY_RESEARCH_SYMBOLS, researchBriefId } from './research-contracts'
+import { MAX_MAINTAINED_ITEMS } from './internal-watchlist'
+import { researchBriefId } from './research-contracts'
 
 const RECENT_COVERAGE_DAYS = 14
 const MAX_COVERAGE_PER_SYMBOL = 3
-const MAX_COVERAGE_ROWS = MAX_COVERAGE_PER_SYMBOL * MAX_DAILY_RESEARCH_SYMBOLS
+const MAX_COVERAGE_ROWS = MAX_COVERAGE_PER_SYMBOL * MAX_MAINTAINED_ITEMS
 
 const RecentCoverageRowSchema = z.object({
   description: z.string().trim().min(1).max(360).nullable(),
@@ -35,9 +36,9 @@ function coverageCutoff(now: Date): string {
 }
 
 /**
- * Search only the requested ticker rows inside recent stored briefs. Returning the
- * latest three per symbol keeps repetition review bounded without exposing entire
- * historical briefs or relying on the model to infer tickers from prose.
+ * Read the small recent-brief window once, then retain only requested tickers and the
+ * latest three rows per symbol. This avoids dynamic SQL and keeps repetition review
+ * bounded without exposing entire historical briefs to the model.
  *
  * The current market date's own brief is excluded. A rerun replaces that row, so
  * without this a second run of the same day reads the morning's brief as prior
@@ -49,9 +50,7 @@ export async function searchRecentTickerCoverage(
   now = new Date(),
 ): Promise<RecentTickerCoverage[]> {
   if (!env.DB || symbols.length === 0) return []
-  const requested = z.array(EquitySymbolSchema).max(MAX_DAILY_RESEARCH_SYMBOLS)
-    .parse([...new Set(symbols)])
-  const placeholders = requested.map(() => '?').join(', ')
+  const requested = new Set(symbols.map((symbol) => EquitySymbolSchema.parse(symbol)))
   const rows = await env.DB.prepare(
     `SELECT
        brief.published_at,
@@ -67,20 +66,19 @@ export async function searchRecentTickerCoverage(
      WHERE brief.published_at >= ?
        AND brief.published_at < ?
        AND brief.id <> ?
-       AND json_extract(idea.value, '$.symbol') IN (${placeholders})
      ORDER BY brief.published_at DESC
      LIMIT ${MAX_COVERAGE_ROWS}`,
   ).bind(
     coverageCutoff(now),
     now.toISOString(),
     researchBriefId(marketDate(now)),
-    ...requested,
   ).all()
 
   const perSymbol = new Map<string, number>()
   return rows.results.flatMap((value) => {
     const row = RecentCoverageRowSchema.safeParse(value).data
-    if (!row || (perSymbol.get(row.symbol) ?? 0) >= MAX_COVERAGE_PER_SYMBOL) return []
+    if (!row || !requested.has(row.symbol)
+      || (perSymbol.get(row.symbol) ?? 0) >= MAX_COVERAGE_PER_SYMBOL) return []
     const headline = row.headline ?? row.setup
     const description = row.description ?? (row.thesis && row.horizon
       ? `${row.thesis} Horizon: ${row.horizon}.`.slice(0, 360)

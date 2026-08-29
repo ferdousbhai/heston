@@ -31,8 +31,7 @@ function submission(): DailyResearchSubmission {
       description: 'The signed agreement improves visibility while option premium remains usable.',
       direction: 'bullish',
       headline: 'Signed supply terms improve demand visibility',
-      play: 'NVDA 225c 10/16',
-      recentCoverageIndices: [],
+      play: { expiration: '2026-10-16', optionType: 'call', strike: 225 },
       risk: 'Delivery timing slips or contracted volume fails to convert to revenue.',
       sourceIndices: [0],
       symbol: 'NVDA',
@@ -45,7 +44,6 @@ function submission(): DailyResearchSubmission {
 
 function request(): DailyResearchAgentRequest {
   return {
-    candidateSymbols: ['NVDA'],
     detectedMovers: [],
     evidence: [{
       context: 'NVIDIA signed a supply agreement.',
@@ -62,7 +60,6 @@ function request(): DailyResearchAgentRequest {
     recentCoverage: [],
     redditEvidence: [],
     runId: 'daily-run',
-    symbols: ['NVDA'],
   }
 }
 
@@ -124,7 +121,8 @@ describe('daily research Pi agent boundary', () => {
         }),
       ])
       expect(JSON.stringify(body.input)).toContain('NVIDIA signed a supply agreement')
-      expect(JSON.stringify(body.input)).toContain('Use native X Search to check every maintained symbol')
+      expect(JSON.stringify(body.input)).toContain('instead of sweeping or spending equal effort on every ticker')
+      expect(JSON.stringify(body.input)).not.toContain('Maintained symbols:')
       const headers = new Headers(init?.headers)
       expect(headers.get('authorization')).toBe('Bearer xai-key')
       expect(headers.get('cf-aig-collect-log-payload')).toBe('true')
@@ -159,7 +157,7 @@ describe('daily research Pi agent boundary', () => {
       .rejects.toThrow('DailyResearchAgentResponse:missing-submission')
   })
 
-  it('fails closed unless Grok used both native research tools', async () => {
+  it('requires the scheduled X research but lets Grok decide whether web search adds value', async () => {
     const noWeb = vi.fn<typeof fetch>(async () => Response.json(providerResponse(
       submission(),
       { web_search_calls: 0, x_search_calls: 4 },
@@ -170,7 +168,7 @@ describe('daily research Pi agent boundary', () => {
     )))
 
     await expect(runDailyResearchAgent(environment(), request(), noWeb))
-      .rejects.toThrow('DailyResearchAgentMissingWebSearch')
+      .resolves.toMatchObject({ webSearches: 0, xSearches: 4 })
     await expect(runDailyResearchAgent(environment(), request(), noX))
       .rejects.toThrow('DailyResearchAgentMissingXSearch')
   })

@@ -4,7 +4,7 @@ import { searchRecentTickerCoverage } from '../src/server/research-coverage'
 import { unsupportedDatabase, unsupportedStatement } from './fake-d1'
 
 describe('recent ticker coverage search', () => {
-  it('queries exact requested tickers and keeps only the latest three rows per symbol', async () => {
+  it('keeps only requested tickers and the latest three rows per symbol', async () => {
     const results = [
       ...Array.from({ length: 4 }, (_, index) => ({
         description: `Current description ${index}`,
@@ -37,13 +37,11 @@ describe('recent ticker coverage search', () => {
 
     const coverage = await searchRecentTickerCoverage({ DB }, ['NVDA', 'NVDA', 'META'], now)
 
-    expect(prepare).toHaveBeenCalledWith(expect.stringContaining("json_extract(idea.value, '$.symbol') IN (?, ?)"))
+    expect(prepare).toHaveBeenCalledWith(expect.not.stringContaining(' IN ('))
     expect(bind).toHaveBeenCalledWith(
       '2026-08-13T13:30:00.000Z',
       '2026-08-27T13:30:00.000Z',
       'brief-2026-08-27',
-      'NVDA',
-      'META',
     )
     expect(coverage.filter((item) => item.symbol === 'NVDA')).toHaveLength(3)
     expect(coverage).toContainEqual(expect.objectContaining({
@@ -66,7 +64,6 @@ describe('recent ticker coverage search', () => {
       '2026-08-14T01:00:00.000Z',
       '2026-08-28T01:00:00.000Z',
       'brief-2026-08-27',
-      'NVDA',
     )
   })
 

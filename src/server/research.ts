@@ -10,8 +10,6 @@ import { ResearchBriefSchema, type ResearchBrief, type Ticker } from '../domain/
 import { persistResearchedCatalysts } from './catalysts'
 import { type AppEnv } from './env'
 import {
-  MAX_DAILY_RESEARCH_LEADS,
-  MAX_DAILY_RESEARCH_SYMBOLS,
   addDays,
   researchBriefId,
   type ResearchSourceItem,
@@ -25,7 +23,7 @@ import {
   redditCatalystsFromCandidates,
   readingListFromCandidates,
   researchIdeasForDate,
-  researchPlayTuple,
+  type BoundResearchIdea,
   UNCONFIRMED_MOVER_HEADLINE,
 } from './research-output'
 import { equityOptionContractFromChainTuple } from './option-contract'
@@ -92,7 +90,6 @@ function researchSymbols(watchlists: readonly { kind: string; symbols: readonly 
   return [...new Set(watchlists
     .filter((watchlist) => watchlist.kind === 'private')
     .flatMap((watchlist) => watchlist.symbols.map((symbol) => symbol.toUpperCase())))]
-    .slice(0, MAX_DAILY_RESEARCH_SYMBOLS)
 }
 
 /**
@@ -137,42 +134,6 @@ function discussionLinkEvidence(evidence: readonly ResearchSourceItem[]): Resear
   })
 }
 
-/**
- * Keep ask-dan's discussion-led discovery while reserving room for each stronger Spice
- * channel. Up to six discussion names establish the baseline; local Codex, movers, and
- * official sources then contribute round-robin before any remaining discussion name.
- * Grok's native X research still sees all maintained symbols in the single agent turn.
- */
-function researchCandidateSymbols(
-  discussion: readonly ResearchSourceItem[],
-  codexCatalysts: readonly ResearchSourceItem[],
-  movers: readonly ResearchSourceItem[],
-  official: readonly ResearchSourceItem[],
-  allowed: ReadonlySet<string>,
-): string[] {
-  const sourceSymbols = (items: readonly ResearchSourceItem[]) => [...new Set(
-    items.flatMap((item) => item.symbols ?? []).filter((symbol) => allowed.has(symbol)),
-  )]
-  const discussionSymbols = sourceSymbols(discussion)
-  const accepted = new Set(discussionSymbols.slice(0, 6))
-  const spiceGroups = [codexCatalysts, movers, official].map(sourceSymbols)
-  const longestGroup = Math.max(0, ...spiceGroups.map((group) => group.length))
-  for (let index = 0; index < longestGroup && accepted.size < MAX_DAILY_RESEARCH_LEADS; index += 1) {
-    for (const group of spiceGroups) {
-      const symbol = group[index]
-      if (symbol !== undefined && !accepted.has(symbol)) {
-        accepted.add(symbol)
-        if (accepted.size === MAX_DAILY_RESEARCH_LEADS) break
-      }
-    }
-  }
-  for (const symbol of discussionSymbols.slice(6)) {
-    if (accepted.size === MAX_DAILY_RESEARCH_LEADS) break
-    accepted.add(symbol)
-  }
-  return [...accepted]
-}
-
 export interface GenerateDailyResearchOptions {
   persist?: boolean
   requireMarketOpen?: boolean
@@ -205,15 +166,13 @@ function bindSubmissionSources(
   const evidence = [...baseEvidence]
   const searched = new Map<string, number>()
   const indices = sources.map((candidate) => {
-    const sourceUrl = safeHttpsUrl(candidate.sourceUrl)
-    if (!sourceUrl || !allowedSymbols.has(candidate.symbol)) return undefined
     if (candidate.evidenceIndex !== null) {
       const source = baseEvidence[candidate.evidenceIndex]
       if (!source?.symbols?.includes(candidate.symbol)) return undefined
-      const ownedUrls = [source.url, source.outbound?.url]
-        .flatMap((url) => url ? [safeHttpsUrl(url)] : [])
-      return ownedUrls.includes(sourceUrl) ? candidate.evidenceIndex : undefined
+      return allowedSymbols.has(candidate.symbol) ? candidate.evidenceIndex : undefined
     }
+    const sourceUrl = safeHttpsUrl(candidate.sourceUrl)
+    if (!sourceUrl || !allowedSymbols.has(candidate.symbol)) return undefined
     if (!citations.has(sourceUrl)) return undefined
     const key = `${candidate.symbol}:${sourceUrl}`
     const existing = searched.get(key)
@@ -271,7 +230,7 @@ function xCatalystsFromSubmission(
   const accepted = new Map<string, Catalyst>()
   for (const candidate of submission.xCatalysts) {
     const source = submission.sources[candidate.sourceIndex]
-    const sourceUrl = source && canonicalXPostUrl(source.sourceUrl)
+    const sourceUrl = source?.evidenceIndex === null ? canonicalXPostUrl(source.sourceUrl) : undefined
     if (!source || source.symbol !== candidate.symbol || !allowedSymbols.has(candidate.symbol)
       || !sourceUrl || !citations.has(sourceUrl) || !isValidIsoDate(candidate.date)
       || candidate.date < today || candidate.date > horizon) continue
@@ -307,8 +266,7 @@ function xCatalystsFromSubmission(
  */
 async function chainVerifiedIdeas(
   env: AppEnv,
-  ideas: ResearchBrief['ideas'],
-  today: string,
+  ideas: readonly BoundResearchIdea[],
   runId: string,
 ): Promise<ResearchBrief['ideas']> {
   const chains = new Map<string, JsonValue | undefined>()
@@ -316,9 +274,9 @@ async function chainVerifiedIdeas(
   let chainUnavailable = 0
   let checked = 0
   let structureCleared = 0
-  for (const idea of ideas) {
-    // A stored idea may carry no play at all; there is then no contract to verify.
-    if (idea.play === null) {
+  for (const { contract, idea } of ideas) {
+    // A thesis may carry no proposed contract; there is then no chain lookup to make.
+    if (contract === null) {
       verified.push(idea)
       continue
     }
@@ -335,16 +293,10 @@ async function chainVerifiedIdeas(
       verified.push({ ...idea, play: null })
       continue
     }
-    const tuple = researchPlayTuple(idea.play, today)
-    if (!tuple) {
-      structureCleared += 1
-      verified.push({ ...idea, play: null })
-      continue
-    }
     try {
       // A malformed or incomplete chain payload throws here too, so it counts as a
       // contract the chain does not list; only a failed fetch is an outage.
-      equityOptionContractFromChainTuple(chain, tuple)
+      equityOptionContractFromChainTuple(chain, contract)
       verified.push(idea)
     } catch {
       structureCleared += 1
@@ -437,38 +389,26 @@ export async function generateDailyResearch(
     marketMoverResearch().collect(now),
   ])
   const discussionEvidence = bindEvidenceSymbols(redditEvidence, compactMarket)
-  const moverDiscoveryEvidence = bindEvidenceSymbols(marketMoverEvidence, compactMarket)
-  const officialDiscoveryEvidence = bindEvidenceSymbols(officialEvidence, compactMarket)
-  const allowedCandidates = new Set(compactMarket.map((ticker) => ticker.symbol))
-  const candidateSymbols = researchCandidateSymbols(
-    discussionEvidence,
-    codexEvidence,
-    moverDiscoveryEvidence,
-    officialDiscoveryEvidence,
-    allowedCandidates,
-  )
-  const [tickerEvidence, recentCoverage] = await Promise.all([
-    sources.collectTickerSources(candidateSymbols, now),
-    searchRecentTickerCoverage(env, [...allowedCandidates], now),
-  ])
   const baseEvidence = bindEvidenceSymbols([
     ...officialEvidence,
-    ...tickerEvidence,
     ...discussionLinkEvidence(discussionEvidence),
     ...codexEvidence,
     ...marketMoverEvidence,
   ], compactMarket)
+  const signalSymbols = new Set([...discussionEvidence, ...baseEvidence]
+    .flatMap((item) => item.symbols ?? []))
+  const marketMetrics = compactMarket.filter((ticker) => signalSymbols.has(ticker.symbol))
+  const allowedCandidates = new Set(marketMetrics.map((ticker) => ticker.symbol))
+  const recentCoverage = await searchRecentTickerCoverage(env, [...allowedCandidates], now)
   const detectedMovers = marketMoverPacket(baseEvidence)
   const agent = await dailyResearchAgent().run(env, {
-    candidateSymbols,
     detectedMovers,
     evidence: baseEvidence,
-    marketMetrics: compactMarket,
+    marketMetrics,
     now,
     recentCoverage,
     redditEvidence: discussionEvidence,
     runId: gatewayRunId,
-    symbols,
   })
   const boundSources = bindSubmissionSources(
     agent.submission.sources,
@@ -510,8 +450,8 @@ export async function generateDailyResearch(
   // the exact metrics packet supplied to the editor, not the wider source universe.
   const boundIdeas = researchIdeasForDate(generated.ideas, today, evidence, [...allowedCandidates], recentCoverage)
   // Only a bound idea is worth a chain request: binding has already proved the symbol
-  // and citations, and normalized an invalid or uncertain expression to no play.
-  const ideas = await chainVerifiedIdeas(env, boundIdeas, today, gatewayRunId)
+  // and citations, and normalized an out-of-horizon expression to no play.
+  const ideas = await chainVerifiedIdeas(env, boundIdeas, gatewayRunId)
   // A zero-idea brief is otherwise silent about whether the editor surfaced nothing or
   // every thesis failed symbol, coverage, citation, or discovery-provider validation.
   console.info(JSON.stringify({

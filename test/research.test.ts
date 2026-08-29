@@ -23,7 +23,6 @@ import {
   readingListFromCandidates,
   redditCatalystsFromCandidates,
   researchIdeasForDate,
-  researchPlayTuple,
   UNCONFIRMED_MOVER_HEADLINE,
 } from '../src/server/research-output'
 import {
@@ -44,7 +43,6 @@ import { marketSnapshotFixture } from './fixtures/market'
 const sources = {
   collectOfficialSources: vi.fn<ResearchSources['collectOfficialSources']>(async () => []),
   collectRedditSources: vi.fn<ResearchSources['collectRedditSources']>(async () => []),
-  collectTickerSources: vi.fn<ResearchSources['collectTickerSources']>(async () => []),
 } satisfies ResearchSources
 const collectMarketMovers = vi.fn<MarketMoverResearch['collect']>(async () => [])
 const marketMovers = { collect: collectMarketMovers } satisfies MarketMoverResearch
@@ -57,6 +55,14 @@ const internalWatchlist = { ensureSymbols: vi.fn() } satisfies InternalWatchlist
 type GeneratedResearch = Pick<DailyResearchSubmission,
   'ideas' | 'marketMovers' | 'readingList' | 'regime' | 'regimeDetail' | 'summary' | 'title'>
 
+function proposedPlay(expiration: string, strike = 225, optionType: 'call' | 'put' = 'call') {
+  return { expiration, optionType, strike }
+}
+
+function publicIdeasForDate(...args: Parameters<typeof researchIdeasForDate>) {
+  return researchIdeasForDate(...args).map((candidate) => candidate.idea)
+}
+
 function generatedResearch(): GeneratedResearch {
   return {
     title: 'Daily brief',
@@ -68,9 +74,8 @@ function generatedResearch(): GeneratedResearch {
       direction: 'bullish',
       headline: 'Breadth keeps improving',
       description: 'Participation is broadening. Cheap index premium keeps convexity accessible.',
-      play: 'NVDA 225c 10/16',
+      play: proposedPlay('2026-10-16'),
       risk: 'Breadth reverses while the index stalls.',
-      recentCoverageIndices: [],
       sourceIndices: [0],
       thesisChange: '',
     }],
@@ -87,11 +92,8 @@ function submissionFor(
     const symbol = item.symbols?.[0]
     if (!symbol) return []
     return [{
-      context: item.context ?? item.title,
       evidenceIndex,
-      sourceUrl: item.outbound?.url ?? item.url,
       symbol,
-      title: item.title,
     }]
   })
   const sourceIndex = (symbol: string) => Math.max(
@@ -150,14 +152,6 @@ function nvdaEvidence() {
     symbols: ['NVDA'],
     title: 'NVDA demand discussion',
     url: 'https://www.reddit.com/r/wallstreetbets/comments/abc123/nvda_discussion/',
-  }])
-  sources.collectTickerSources.mockResolvedValueOnce([{
-    context: 'Reuters reports a new NVIDIA supply agreement.',
-    publishedAt: '2026-08-14T12:00:00.000Z',
-    source: 'Yahoo Finance ticker research',
-    symbols: ['NVDA'],
-    title: 'NVDA · NVIDIA supply agreement',
-    url: 'https://finance.yahoo.com/quote/NVDA',
   }])
 }
 
@@ -263,6 +257,9 @@ describe('daily intelligence pipeline', () => {
     expect(redditPacket).toContain('Top comments')
     expect(redditPacket).toContain('Supply is the key debate')
     expect(redditPacket).toContain('https://www.reuters.com/technology/nvidia-supply')
+    expect(request?.marketMetrics.map((ticker) => ticker.symbol)).toEqual(['NVDA'])
+    expect(request).not.toHaveProperty('symbols')
+    expect(request).not.toHaveProperty('candidateSymbols')
     expect(runResearchAgent).toHaveBeenCalledOnce()
     expect(brief.sources.some((source) => source.url.includes('reddit.com'))).toBe(false)
   })
@@ -288,6 +285,7 @@ describe('daily intelligence pipeline', () => {
   })
 
   it('accepts native-search evidence only when the provider cited its URL', async () => {
+    nvdaEvidence()
     const cited = 'https://example.com/nvda-primary'
     runResearchAgent.mockImplementationOnce(async (_env, request) => {
       const submission = submissionFor(request)
@@ -353,17 +351,6 @@ describe('daily intelligence pipeline', () => {
     expect(logged).toContainEqual(expect.objectContaining({
       event: 'DailyResearchModelCompleted', codexWebCatalysts: 1,
     }))
-  })
-
-  it('reads the exact contract an editor play names', () => {
-    expect(researchPlayTuple('NVDA 225c 10/16', '2026-08-14')).toEqual({
-      expiry: '2026-10-16', optionType: 'C', strike: 225, underlying: 'NVDA',
-    })
-    expect(researchPlayTuple('SPY 725.5p 1/15', '2026-12-01')).toEqual({
-      expiry: '2027-01-15', optionType: 'P', strike: 725.5, underlying: 'SPY',
-    })
-    expect(researchPlayTuple('NVDA 225x 10/16', '2026-08-14')).toBeUndefined()
-    expect(researchPlayTuple('NVDA 225c 2/30', '2026-08-14')).toBeUndefined()
   })
 
   it('binds Reddit catalyst candidates to watched symbols and exact post provenance', () => {
@@ -471,7 +458,7 @@ describe('daily intelligence pipeline', () => {
     expect(crossed.find((mover) => mover.symbol === 'OKTA')?.headline).toBe(UNCONFIRMED_MOVER_HEADLINE)
   })
 
-  it('rejects impossible and out-of-horizon model play dates in deterministic code', () => {
+  it('drops out-of-horizon proposed contracts before a chain lookup', () => {
     const idea = {
       ...generatedResearch().ideas[0]!,
       direction: 'bullish' as const,
@@ -480,44 +467,45 @@ describe('daily intelligence pipeline', () => {
       source: 'Example', symbols: ['NVDA'], title: 'NVIDIA update', url: 'https://example.com/nvda',
     }]
     const {
-      recentCoverageIndices: _recentCoverageIndices,
+      play: _play,
       sourceIndices: _sourceIndices,
       thesisChange: _thesisChange,
       ...ideaWithoutIndices
     } = idea
-    const accepted = { ...ideaWithoutIndices, sources: [{ label: 'Example · NVIDIA update', url: 'https://example.com/nvda' }] }
-    expect(researchIdeasForDate([
-      { ...idea, play: 'NVDA 225c 2/30' },
-      { ...idea, play: 'NVDA 225c 8/20' },
-      { ...idea, play: 'NVDA 225c 12/31' },
+    const accepted = {
+      ...ideaWithoutIndices,
+      play: 'NVDA 225c 10/16',
+      sources: [{ label: 'Example · NVIDIA update', url: 'https://example.com/nvda' }],
+    }
+    expect(publicIdeasForDate([
+      { ...idea, play: proposedPlay('2026-02-30') },
+      { ...idea, play: proposedPlay('2026-08-20') },
+      { ...idea, play: proposedPlay('2026-12-31') },
       idea,
     ], '2026-08-14', evidence, ['NVDA'])).toEqual([accepted])
 
-    expect(researchIdeasForDate([{ ...idea, play: 'NVDA 225c 1/15' }], '2026-12-01', evidence, ['NVDA']))
+    expect(publicIdeasForDate([{ ...idea, play: proposedPlay('2027-01-15') }], '2026-12-01', evidence, ['NVDA']))
       .toEqual([{ ...accepted, play: 'NVDA 225c 1/15' }])
-    expect(researchIdeasForDate([idea], '2026-08-14', [{ ...evidence[0], symbols: ['SPCX'] }], ['NVDA']))
+    expect(publicIdeasForDate([idea], '2026-08-14', [{ ...evidence[0], symbols: ['SPCX'] }], ['NVDA']))
       .toEqual([])
   })
 
-  it('accepts a play only when its date can be an option expiration', () => {
+  it('carries the structured contract through to live chain verification', () => {
     const idea = { ...generatedResearch().ideas[0]!, direction: 'bullish' as const }
     const evidence = [{
       source: 'Example', symbols: ['NVDA'], title: 'NVIDIA update', url: 'https://example.com/nvda',
     }]
-    const acceptedPlays = (today: string, ...plays: string[]) => researchIdeasForDate(
-      plays.map((play) => ({ ...idea, play })), today, evidence, ['NVDA'],
-    ).map((accepted) => accepted.play)
+    const [bound] = researchIdeasForDate([
+      { ...idea, play: proposedPlay('2026-09-20', 225, 'put') },
+    ], '2026-08-14', evidence, ['NVDA'])
 
-    expect(acceptedPlays('2026-08-14', 'NVDA 225c 9/20')).toEqual([null])
-    expect(acceptedPlays('2026-08-14', 'NVDA 225c 9/19')).toEqual([null])
-    expect(acceptedPlays('2026-08-14', 'NVDA 225c 9/17')).toEqual([null])
-    expect(acceptedPlays('2026-08-14', 'NVDA 225c 9/18')).toEqual(['NVDA 225c 9/18'])
-    expect(acceptedPlays('2026-08-14', 'NVDA 225c 10/16')).toEqual(['NVDA 225c 10/16'])
-    expect(acceptedPlays('2026-10-20', 'NVDA 225c 12/25')).toEqual([null])
-    expect(acceptedPlays('2026-10-20', 'NVDA 225c 12/24')).toEqual(['NVDA 225c 12/24'])
+    expect(bound).toEqual(expect.objectContaining({
+      contract: { expiry: '2026-09-20', optionType: 'P', strike: 225, underlying: 'NVDA' },
+      idea: expect.objectContaining({ play: 'NVDA 225p 9/20' }),
+    }))
   })
 
-  it('requires every recent same-symbol coverage row and newer evidence for a changed thesis', () => {
+  it('requires newer evidence and an explanation when a repeated symbol changes thesis', () => {
     const base = { ...generatedResearch().ideas[0]!, direction: 'bullish' as const }
     const evidence = [{
       publishedAt: '2026-08-14T12:00:00.000Z', source: 'Independent wire', symbols: ['NVDA'],
@@ -535,18 +523,15 @@ describe('daily intelligence pipeline', () => {
       ...base,
       description: 'A signed supply agreement improves near-term visibility. The contracted volume changes the demand evidence.',
       headline: 'Signed supply agreement changes demand visibility',
-      recentCoverageIndices: [0],
       thesisChange: 'The prior thesis relied on breadth; a signed supply agreement now adds company-specific demand evidence.',
     }
 
-    expect(researchIdeasForDate([base], '2026-08-14', evidence, ['NVDA'], recentCoverage)).toEqual([])
-    expect(researchIdeasForDate([
-      { ...changed, recentCoverageIndices: [] },
-    ], '2026-08-14', evidence, ['NVDA'], recentCoverage)).toEqual([])
-    expect(researchIdeasForDate([changed], '2026-08-14', [
+    expect(publicIdeasForDate([base], '2026-08-14', evidence, ['NVDA'], recentCoverage))
+      .toEqual([expect.objectContaining({ headline: base.headline })])
+    expect(publicIdeasForDate([changed], '2026-08-14', [
       { ...evidence[0], publishedAt: '2026-08-11T12:00:00.000Z' },
     ], ['NVDA'], recentCoverage)).toEqual([])
-    expect(researchIdeasForDate([changed], '2026-08-14', evidence, ['NVDA'], recentCoverage))
+    expect(publicIdeasForDate([changed], '2026-08-14', evidence, ['NVDA'], recentCoverage))
       .toEqual([expect.objectContaining({
         description: changed.description,
         headline: changed.headline,
@@ -595,7 +580,7 @@ describe('daily intelligence pipeline', () => {
     const evidence = [{
       source: 'Independent wire', symbols: ['NVDA'], title: 'NVIDIA update', url: 'https://example.com/nvda',
     }]
-    expect(researchIdeasForDate([idea], '2026-08-14', evidence, ['NVDA'])).toEqual([])
+    expect(publicIdeasForDate([idea], '2026-08-14', evidence, ['NVDA'])).toEqual([])
   })
 
   it('cites the fetched article that supplied an idea instead of its aggregator page', () => {
@@ -606,7 +591,7 @@ describe('daily intelligence pipeline', () => {
       outbound: { label: 'Reuters · NVIDIA supply update', url: 'https://www.reuters.com/technology/nvidia-supply' },
     }]
 
-    expect(researchIdeasForDate([idea], '2026-08-14', evidence, ['NVDA'])[0]?.sources).toEqual([
+    expect(publicIdeasForDate([idea], '2026-08-14', evidence, ['NVDA'])[0]?.sources).toEqual([
       evidence[0]!.outbound,
     ])
   })
