@@ -10,15 +10,17 @@ import {
   type JsonValue,
 } from '../domain/json-payload'
 import { EquitySymbolSchema } from '../domain/instrument'
+import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 import { type AppEnv } from './env'
+import { MAX_INSTRUMENT_CATALOG_ITEMS } from './instrument-catalog'
 import { publishInternalWatchlistUniverse } from './public-market-universe'
 import { defineSeam, type SeamValue } from './seam'
 
+// The seed import is a one-time parse of untrusted provider collections. These ceilings are
+// isolate-memory and D1-write budgets; they do not constrain the finalized 100-symbol product list.
 const MAX_SOURCE_LISTS_PER_KIND = 100
 const MAX_ENTRIES_PER_SOURCE = 5_000
 const MAX_TOTAL_SEED_ENTRIES = 50_000
-const MAX_INTERNAL_ITEMS = 10_000
-export const MAX_MAINTAINED_ITEMS = 100
 
 /**
  * One definition of an eligible High Options Volume seed member. Pruning uses
@@ -36,13 +38,17 @@ const HIGH_OPTIONS_VOLUME_SOURCE = `
          AND coalesce(c.is_etf, 0) = 0 AND coalesce(c.is_index, 0) = 0
          AND coalesce(c.is_illiquid, 0) = 0 AND coalesce(c.is_closing_only, 0) = 0
          AND coalesce(c.is_options_closing_only, 0) = 0`
-const MAX_CATALOG_CANDIDATES = MAX_INTERNAL_ITEMS
+const MAX_CATALOG_CANDIDATES = MAX_INSTRUMENT_CATALOG_ITEMS
 const MAX_SOURCE_METADATA_BYTES = 256_000
 const MAX_ENTRY_METADATA_BYTES = 64_000
+// A crashed one-time importer may be retried after this lease-like stale window.
 const SEED_STALE_AFTER_MS = 10 * 60_000
+// Split D1 batch calls and JSON-table payloads before request or statement allocation grows large.
 const WRITE_BATCH_SIZE = 75
 const SEED_JSON_CHUNK_BYTES = 512_000
+// Reject a seed whose chunked write would consume an unexpectedly large part of one invocation.
 const MAX_SEED_WRITE_STATEMENTS = 200
+const MAX_SEED_MEMBERSHIPS_PER_SYMBOL = 2 * MAX_SOURCE_LISTS_PER_KIND
 
 const SymbolSchema = EquitySymbolSchema
 const InternalWatchlistOriginSchema = z.enum([
@@ -294,7 +300,7 @@ async function persistSeed(
   attemptId: string,
   now: Date,
 ): Promise<void> {
-  if (seed.items.length > MAX_INTERNAL_ITEMS) {
+  if (seed.items.length > MAX_INSTRUMENT_CATALOG_ITEMS) {
     throw new Error(`InternalWatchlist:too-many-items:${seed.items.length}`)
   }
   // A retry clears only broker-seeded rows. Owner/agent/research additions and the
@@ -446,8 +452,8 @@ function pruneStatement(
   prioritySymbols: readonly string[],
   onlyWhileUnfinalized = false,
 ): D1PreparedStatement {
-  const boundedLimit = Math.min(MAX_MAINTAINED_ITEMS, Math.max(1, Math.trunc(limit)))
-  const priority = normalizedSymbols(prioritySymbols).slice(0, MAX_MAINTAINED_ITEMS)
+  const boundedLimit = Math.min(MAX_WATCHLIST_SYMBOLS, Math.max(1, Math.trunc(limit)))
+  const priority = normalizedSymbols(prioritySymbols).slice(0, MAX_WATCHLIST_SYMBOLS)
   const dynamicPriority = priority.length
     ? `WHEN symbol IN (${priority.map(() => '?').join(', ')}) THEN 0`
     : ''
@@ -526,7 +532,7 @@ function upsertSymbolsStatement(
            sum(needs_slot) OVER (ORDER BY input_index ASC) AS slot_number
          FROM ranked_input
        )
-       WHERE needs_slot = 0 OR slot_number <= max(0, ${MAX_MAINTAINED_ITEMS} - (
+       WHERE needs_slot = 0 OR slot_number <= max(0, ${MAX_WATCHLIST_SYMBOLS} - (
          SELECT count(*) FROM internal_watchlist_items WHERE origin <> 'tastytrade-seed'
        ))
      )
@@ -570,7 +576,7 @@ export async function finalizeInternalWatchlist(
   const db = requiredDatabase(env)
   await requireImportedSeed(db)
   const positions = normalizedSymbols(positionSymbols)
-  if (positions.length > MAX_MAINTAINED_ITEMS) {
+  if (positions.length > MAX_WATCHLIST_SYMBOLS) {
     throw new Error('InternalWatchlist:too-many-position-symbols')
   }
   const timestamp = now.toISOString()
@@ -587,11 +593,11 @@ export async function finalizeInternalWatchlist(
     ...(positions.length ? [
       upsertSymbolsStatement(db, positions, 'position-sync', timestamp, true),
     ] : []),
-    pruneStatement(db, MAX_MAINTAINED_ITEMS, positions, true),
+    pruneStatement(db, MAX_WATCHLIST_SYMBOLS, positions, true),
     db.prepare(
       `UPDATE internal_watchlist_seed SET finalized_at = ?
        WHERE id = 'primary' AND status = 'ready' AND finalized_at IS NULL
-         AND (SELECT count(*) FROM internal_watchlist_items) <= ${MAX_MAINTAINED_ITEMS}`,
+         AND (SELECT count(*) FROM internal_watchlist_items) <= ${MAX_WATCHLIST_SYMBOLS}`,
     ).bind(timestamp),
   ]
   const results = await db.batch(statements)
@@ -603,7 +609,7 @@ export async function finalizeInternalWatchlist(
   await publishInternalWatchlistUniverse(env, now)
   return {
     finalized,
-    kept: await readInternalWatchlistFocus(env, positions, MAX_MAINTAINED_ITEMS),
+    kept: await readInternalWatchlistFocus(env, positions, MAX_WATCHLIST_SYMBOLS),
   }
 }
 
@@ -618,7 +624,7 @@ export async function ensureInternalWatchlistSymbols(
   await requireFinalizedSeed(db)
   const normalized = normalizedSymbols(symbols)
   if (!normalized.length) return []
-  if (normalized.length > MAX_MAINTAINED_ITEMS) throw new Error('InternalWatchlist:too-many-symbols')
+  if (normalized.length > MAX_WATCHLIST_SYMBOLS) throw new Error('InternalWatchlist:too-many-symbols')
   const timestamp = now.toISOString()
   const parsedOrigin = InternalWatchlistMutationOriginSchema.parse(origin)
   // D1 batch executes transactionally. Ranking inside the same batch prevents
@@ -627,9 +633,9 @@ export async function ensureInternalWatchlistSymbols(
   // the only automatic eviction target remains a retained broker-seed row.
   await db.batch([
     upsertSymbolsStatement(db, normalized, parsedOrigin, timestamp),
-    pruneStatement(db, MAX_MAINTAINED_ITEMS, []),
+    pruneStatement(db, MAX_WATCHLIST_SYMBOLS, []),
   ])
-  const kept = await focusFromStore(db, [], MAX_MAINTAINED_ITEMS)
+  const kept = await focusFromStore(db, [], MAX_WATCHLIST_SYMBOLS)
   await publishInternalWatchlistUniverse(env, now)
   const retained = new Set(kept)
   return normalized.filter((symbol) => retained.has(symbol))
@@ -640,7 +646,7 @@ export async function removeInternalWatchlistSymbols(env: AppEnv, symbols: reado
   await requireFinalizedSeed(db)
   const normalized = normalizedSymbols(symbols)
   if (!normalized.length) return []
-  if (normalized.length > MAX_MAINTAINED_ITEMS) throw new Error('InternalWatchlist:too-many-symbols')
+  if (normalized.length > MAX_WATCHLIST_SYMBOLS) throw new Error('InternalWatchlist:too-many-symbols')
   const results = await db.batch(normalized.map((symbol) => (
     db.prepare('DELETE FROM internal_watchlist_items WHERE symbol = ?').bind(symbol)
   )))
@@ -663,7 +669,9 @@ const StoredItemSchema = z.object({
 export async function readInternalWatchlist(env: AppEnv): Promise<InternalWatchlistItem[]> {
   const db = requiredDatabase(env)
   await requireFinalizedSeed(db)
-  return readItems(db)
+  const items = await readItems(db)
+  if (items.length > MAX_WATCHLIST_SYMBOLS) throw new Error('InternalWatchlist:invalid-store')
+  return items
 }
 
 /**
@@ -674,9 +682,9 @@ export async function readInternalWatchlist(env: AppEnv): Promise<InternalWatchl
 async function readItems(db: D1Database): Promise<InternalWatchlistItem[]> {
   const result = await db.prepare(
     `SELECT symbol, instrument_type, origin, metadata_json, created_at, updated_at
-     FROM internal_watchlist_items ORDER BY symbol ASC LIMIT ${MAX_INTERNAL_ITEMS + 1}`,
+     FROM internal_watchlist_items ORDER BY symbol ASC LIMIT ${MAX_INSTRUMENT_CATALOG_ITEMS + 1}`,
   ).all()
-  if (!Array.isArray(result.results) || result.results.length > MAX_INTERNAL_ITEMS) {
+  if (!Array.isArray(result.results) || result.results.length > MAX_INSTRUMENT_CATALOG_ITEMS) {
     throw new Error('InternalWatchlist:invalid-store')
   }
   return result.results.map((row) => {
@@ -706,7 +714,7 @@ function hasPrivateSeedMembership(item: InternalWatchlistItem): boolean {
 export function selectInternalWatchlistFocus(
   items: readonly InternalWatchlistItem[],
   positionSymbols: readonly string[],
-  limit = 100,
+  limit = MAX_WATCHLIST_SYMBOLS,
   highOptionsVolumeSymbols: readonly string[] = [],
 ): string[] {
   const positions = new Set(normalizedSymbols(positionSymbols))
@@ -739,7 +747,7 @@ export function selectInternalWatchlistFocus(
 export async function readInternalWatchlistFocus(
   env: AppEnv,
   positionSymbols: readonly string[],
-  limit = 100,
+  limit = MAX_WATCHLIST_SYMBOLS,
 ): Promise<string[]> {
   const db = requiredDatabase(env)
   await requireFinalizedSeed(db)
@@ -756,12 +764,13 @@ async function focusFromStore(
     db.prepare(
       `SELECT upper(e.broker_symbol) AS symbol
        ${HIGH_OPTIONS_VOLUME_SOURCE}
-       ORDER BY e.entry_index ASC
-       LIMIT 500`,
+       GROUP BY upper(e.broker_symbol)
+       ORDER BY min(e.entry_index) ASC
+       LIMIT ${MAX_WATCHLIST_SYMBOLS}`,
     ).all<{ symbol: string }>(),
   ])
   const highOptionsVolumeSymbols = z.array(z.object({ symbol: SymbolSchema }))
-    .max(500)
+    .max(MAX_WATCHLIST_SYMBOLS)
     .parse(result.results)
     .map((row) => row.symbol)
   return selectInternalWatchlistFocus(items, positionSymbols, limit, highOptionsVolumeSymbols)
@@ -773,7 +782,7 @@ async function focusFromStore(
  */
 export async function pruneInternalWatchlistToFocus(
   env: AppEnv,
-  limit = MAX_MAINTAINED_ITEMS,
+  limit = MAX_WATCHLIST_SYMBOLS,
 ): Promise<{ kept: string[]; removedCount: number }> {
   const db = requiredDatabase(env)
   await requireFinalizedSeed(db)
@@ -798,9 +807,9 @@ export async function readInternalWatchlistSymbolDetails(
      JOIN internal_watchlist_seed_sources s ON s.id = e.source_id
      WHERE upper(e.broker_symbol) = ? AND e.instrument_type = 'Equity'
      ORDER BY s.source_kind ASC, s.source_index ASC, e.entry_index ASC
-     LIMIT 101`,
+     LIMIT ${MAX_SEED_MEMBERSHIPS_PER_SYMBOL + 1}`,
   ).bind(symbol).all()
-  if (!Array.isArray(result.results) || result.results.length > 100) {
+  if (!Array.isArray(result.results) || result.results.length > MAX_SEED_MEMBERSHIPS_PER_SYMBOL) {
     throw new Error('InternalWatchlist:invalid-provenance')
   }
   const seedMemberships = result.results.map((row) => {

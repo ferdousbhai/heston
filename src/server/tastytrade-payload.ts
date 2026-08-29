@@ -1,4 +1,6 @@
 import {
+  envelopeRows,
+  envelopeTotalItems,
   JsonArraySchema,
   jsonLooseText,
   jsonNumber,
@@ -7,6 +9,10 @@ import {
   type JsonObject,
   type JsonValue,
 } from '../domain/json-payload'
+
+// Account reads request one large broker page. completeAccountRows rejects a reported
+// larger total or a full page without a total, so this is a completeness boundary.
+export const BROKER_ACCOUNT_PAGE_SIZE = 200
 
 export interface AccountBalances {
   availableTradingFunds: number
@@ -39,6 +45,32 @@ export interface WorkingOrder {
   symbol: string
   timeInForce?: string
   type: string
+}
+
+/** Parse one complete account page; malformed or ambiguous pagination fails closed. */
+export function completeAccountRows(payload: JsonValue, label: string): JsonObject[] {
+  const candidate = envelopeRows(payload)
+  if (!candidate) throw new Error(`TastytradeAccount:invalid-${label}-collection`)
+  const rows = candidate.map((item) => {
+    const row = jsonObject(item)
+    if (!row) throw new Error(`TastytradeAccount:invalid-${label}-collection`)
+    return row
+  })
+  const total = envelopeTotalItems(payload)
+  const body = jsonObject(payload)
+  const data = jsonObject(body?.data)
+  const rawPagination = body?.pagination ?? data?.pagination
+  if (rawPagination !== undefined && rawPagination !== null) {
+    const pagination = jsonObject(rawPagination)
+    if (!pagination || (Object.hasOwn(pagination, 'total-items') && total === undefined)) {
+      throw new Error(`TastytradeAccount:invalid-${label}-pagination`)
+    }
+  }
+  if ((total !== undefined && total !== rows.length)
+    || (total === undefined && rows.length >= BROKER_ACCOUNT_PAGE_SIZE)) {
+    throw new Error(`TastytradeAccount:incomplete-${label}`)
+  }
+  return rows
 }
 
 function matchesAccount(row: JsonObject, accountNumber: string): boolean {
@@ -80,22 +112,31 @@ function requiredNumber(row: JsonObject, field: string): number {
   return parsed
 }
 
-export function accountBalancesFromPayload(payload: JsonValue, accountNumber: string): AccountBalances | undefined {
+function optionalNumber(row: JsonObject, field: string): number | undefined {
+  if (row[field] === undefined || row[field] === null) return undefined
+  return requiredNumber(row, field)
+}
+
+function optionalText(row: JsonObject, field: string): string | undefined {
+  if (row[field] === undefined || row[field] === null) return undefined
+  const parsed = jsonText(row[field])
+  if (!parsed) throw new Error(`TastytradePayload:invalid-${field}`)
+  return parsed
+}
+
+export function accountBalancesFromPayload(payload: JsonValue, accountNumber: string): AccountBalances {
   const row = accountBalanceRecord(payload, accountNumber)
-  if (!row) return undefined
-  try {
-    return {
-      availableTradingFunds: requiredNumber(row, 'available-trading-funds'),
-      cashAvailableToWithdraw: requiredNumber(row, 'cash-available-to-withdraw'),
-      cashBalance: requiredNumber(row, 'cash-balance'),
-      dayTradingBuyingPower: requiredNumber(row, 'day-trading-buying-power'),
-      derivativeBuyingPower: requiredNumber(row, 'derivative-buying-power'),
-      equityBuyingPower: requiredNumber(row, 'equity-buying-power'),
-      netLiquidatingValue: jsonNumber(row['net-liquidating-value'])
-        ?? requiredNumber(row, 'net-liquidating-value-snapshot'),
-    }
-  } catch {
-    return undefined
+  if (!row) throw new Error('TastytradePayload:invalid-account-balance-record')
+  return {
+    availableTradingFunds: requiredNumber(row, 'available-trading-funds'),
+    cashAvailableToWithdraw: requiredNumber(row, 'cash-available-to-withdraw'),
+    cashBalance: requiredNumber(row, 'cash-balance'),
+    dayTradingBuyingPower: requiredNumber(row, 'day-trading-buying-power'),
+    derivativeBuyingPower: requiredNumber(row, 'derivative-buying-power'),
+    equityBuyingPower: requiredNumber(row, 'equity-buying-power'),
+    netLiquidatingValue: row['net-liquidating-value'] === undefined || row['net-liquidating-value'] === null
+      ? requiredNumber(row, 'net-liquidating-value-snapshot')
+      : requiredNumber(row, 'net-liquidating-value'),
   }
 }
 
@@ -120,9 +161,9 @@ function workingOrder(row: JsonObject, complexOrderId?: string): WorkingOrder {
     throw new Error('TastytradePayload:invalid-working-order')
   }
   const legs = rawLegs.map(workingOrderLeg)
-  const price = jsonNumber(row.price)
-  const priceEffect = jsonText(row['price-effect'])
-  const timeInForce = jsonText(row['time-in-force'])
+  const price = optionalNumber(row, 'price')
+  const priceEffect = optionalText(row, 'price-effect')
+  const timeInForce = optionalText(row, 'time-in-force')
   const order: WorkingOrder = { id: orderId, legs, status, symbol: legs[0]!.symbol, type }
   if (complexOrderId) order.complexOrderId = complexOrderId
   if (price !== undefined) order.price = price

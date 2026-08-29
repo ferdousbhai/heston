@@ -5,15 +5,19 @@ import { EQUITY_SYMBOL_PATTERN, EQUITY_SYMBOL_REGEX } from '../domain/instrument
 export type HistoryKind = 'orders' | 'transactions'
 export type TransactionType = 'Money Movement' | 'Trade'
 
-export const MAX_HISTORY_DAYS = 365
+// These are model-context budgets, not brokerage or trading policy. Read tools expose
+// pagination/truncation so the agent can make another narrow call instead of receiving
+// an unbounded account, search, or option-chain payload in one turn.
 export const MAX_HISTORY_ITEMS = 50
-export const MAX_HISTORY_OFFSET = 1_000
 export const MAX_MARKET_SYMBOLS = 20
 export const MAX_SEARCH_RESULTS = 20
-export const MAX_SEARCH_ROWS = 200
-export const MAX_CHAIN_ROWS = 50_000
 export const MAX_OPTION_EXPIRATIONS = 12
 export const MAX_OPTION_CONTRACTS = 60
+export const MAX_QUOTE_INSTRUMENTS = 10
+// Provider-envelope ceilings are substantially wider than returned context. They reject
+// anomalous upstream fan-out before normalization allocates or processes arbitrary rows.
+export const MAX_SEARCH_ROWS = 200
+export const MAX_CHAIN_ROWS = 50_000
 export const EQUITY_SYMBOL = EQUITY_SYMBOL_REGEX
 /**
  * Deliberately wider than an equity symbol: broker history may be filtered by a futures
@@ -26,7 +30,6 @@ export const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 export const AccountHistoryReadParameters = Type.Object({
   days: Type.Optional(Type.Integer({
     description: 'Calendar-day lookback. Defaults to 90 for transactions and 7 for orders.',
-    maximum: MAX_HISTORY_DAYS,
     minimum: 0,
   })),
   limit: Type.Optional(Type.Integer({
@@ -36,7 +39,6 @@ export const AccountHistoryReadParameters = Type.Object({
   })),
   pageOffset: Type.Optional(Type.Integer({
     description: 'Zero-based broker page offset. Defaults to 0.',
-    maximum: MAX_HISTORY_OFFSET,
     minimum: 0,
   })),
   transactionType: Type.Optional(Type.Union([
@@ -45,7 +47,6 @@ export const AccountHistoryReadParameters = Type.Object({
   ], { description: 'Transactions only: optionally restrict to trades or cash movements.' })),
   type: Type.Union([Type.Literal('transactions'), Type.Literal('orders')]),
   underlyingSymbol: Type.Optional(Type.String({
-    description: 'Exact underlying equity or futures symbol.',
     maxLength: 32,
     pattern: '^\\/?[A-Z0-9.]{1,31}$',
   })),
@@ -53,13 +54,10 @@ export const AccountHistoryReadParameters = Type.Object({
 
 export const MarketMetricsReadParameters = Type.Object({
   symbols: Type.Array(Type.String({ pattern: EQUITY_SYMBOL_PATTERN }), {
-    description: 'One to twenty exact equity ticker symbols.',
     maxItems: MAX_MARKET_SYMBOLS,
     minItems: 1,
   }),
 }, { additionalProperties: false })
-
-export const MarketStatusReadParameters = Type.Object({}, { additionalProperties: false })
 
 export const SymbolSearchParameters = Type.Object({
   limit: Type.Optional(Type.Integer({ maximum: MAX_SEARCH_RESULTS, minimum: 1 })),
@@ -73,28 +71,26 @@ export const SymbolSearchParameters = Type.Object({
 
 export const OptionContractFindParameters = Type.Object({
   expiry: Type.Optional(Type.String({
-    description: 'Exact expiration date in YYYY-MM-DD form.',
     pattern: '^\\d{4}-\\d{2}-\\d{2}$',
   })),
   nearStrike: Type.Optional(Type.Number({
-    description: 'Return listed contracts nearest this target strike without requiring an exact match.',
+    description: 'Target strike; returns the nearest listed contracts.',
     exclusiveMinimum: 0,
-    maximum: 1_000_000,
   })),
   optionType: Type.Optional(Type.Union([Type.Literal('C'), Type.Literal('P')])),
-  strike: Type.Optional(Type.Number({ exclusiveMinimum: 0, maximum: 1_000_000 })),
-  underlying: Type.String({ description: 'Exact equity ticker.', pattern: EQUITY_SYMBOL_PATTERN }),
+  strike: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
+  underlying: Type.String({ pattern: EQUITY_SYMBOL_PATTERN }),
 }, { additionalProperties: false })
 
 export const InstrumentQuoteReadParameters = Type.Object({
   contracts: Type.Optional(Type.Array(Type.Object({
     expiry: Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }),
     optionType: Type.Union([Type.Literal('C'), Type.Literal('P')]),
-    strike: Type.Number({ exclusiveMinimum: 0, maximum: 1_000_000 }),
+    strike: Type.Number({ exclusiveMinimum: 0 }),
     underlying: Type.String({ pattern: EQUITY_SYMBOL_PATTERN }),
-  }, { additionalProperties: false }), { maxItems: 10, minItems: 1 })),
+  }, { additionalProperties: false }), { maxItems: MAX_QUOTE_INSTRUMENTS, minItems: 1 })),
   symbols: Type.Optional(Type.Array(Type.String({ pattern: EQUITY_SYMBOL_PATTERN }), {
-    maxItems: 10,
+    maxItems: MAX_QUOTE_INSTRUMENTS,
     minItems: 1,
   })),
 }, { additionalProperties: false })
@@ -141,14 +137,10 @@ export type CompactOrder = {
 
 export type AccountHistoryReadResult = {
   asOf: string
-  days: number
   items: CompactOrder[] | CompactTransaction[]
-  limit: number
   pageOffset: number
-  returnedItemCount: number
   totalItemCount?: number
   truncated: boolean
-  type: HistoryKind
   source: 'tastytrade'
 }
 
@@ -177,8 +169,6 @@ export type MarketMetricsReadResult = {
   asOf: string
   metrics: CompactMarketMetric[]
   missingSymbols: string[]
-  requestedSymbols: string[]
-  truncated: false
   source: 'tastytrade'
   volatilityUnit: 'percentage_points'
 }
@@ -193,7 +183,6 @@ export type MarketStatusReadResult = {
   previousCloseAt?: string
   startsAt?: string
   state: string
-  truncated: false
   source: 'tastytrade'
 }
 
@@ -207,9 +196,7 @@ export type SymbolSearchItem = {
 
 export type SymbolSearchResult = {
   asOf: string
-  query: string
   results: SymbolSearchItem[]
-  returnedResultCount: number
   totalResultCount: number
   truncated: boolean
   source: 'tastytrade'
@@ -225,20 +212,15 @@ export type CompactOptionContract = {
   symbol: string
 }
 
-export type OptionContractFindResult = {
+type OptionContractFindBase = {
   asOf: string
-  contracts: CompactOptionContract[]
-  expirationDates: string[]
-  filters: { expiry?: string; nearStrike?: number; optionType?: 'C' | 'P'; strike?: number }
-  returnedContractCount: number
-  returnedExpirationCount: number
-  totalContractCount: number
-  totalExpirationCount: number
-  truncated: boolean
-  underlying: string
   source: 'tastytrade'
-  mode: 'contracts' | 'expirations'
 }
+
+export type OptionContractFindResult = OptionContractFindBase & (
+  | { contracts: CompactOptionContract[]; mode: 'contracts'; truncated: boolean }
+  | { expirationDates: string[]; mode: 'expirations'; truncated: boolean }
+)
 
 export type InstrumentQuoteReadResult = {
   asOf: string

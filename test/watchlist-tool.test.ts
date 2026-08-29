@@ -13,7 +13,19 @@ let store: SqliteD1Store
 beforeEach(async () => {
   setBrokerApi(tastytrade)
   tastytrade.resolveAccountNumber.mockReset().mockResolvedValue('TEST123')
-  tastytrade.tastyRequest.mockReset().mockResolvedValue({ data: { items: [] } })
+  tastytrade.tastyRequest.mockReset().mockImplementation((_env, path: string) => Promise.resolve(
+    path.endsWith('/balances')
+      ? { data: {
+          'available-trading-funds': '64000',
+          'cash-available-to-withdraw': '65000',
+          'cash-balance': '65000',
+          'day-trading-buying-power': '256000',
+          'derivative-buying-power': '64000',
+          'equity-buying-power': '128000',
+          'net-liquidating-value': '100000',
+        } }
+      : { data: { items: [] } },
+  ))
   store = await migrationStore()
   const env = { DB: store.database }
   await ensureInternalWatchlistSeeded(env, async () => ({
@@ -42,7 +54,7 @@ describe('watchlist context boundary', () => {
   it('does not fetch or serialize watchlists during the default brokerage load', async () => {
     const account = await loadBrokerageContext({})
     const paths = tastytrade.tastyRequest.mock.calls.map(([, path]) => path)
-    const runtimeContext = buildAgentRuntimeContext(account, [])
+    const runtimeContext = buildAgentRuntimeContext(account)
 
     expect(paths).not.toContain('/watchlists')
     expect(runtimeContext).not.toHaveProperty('watchlists')

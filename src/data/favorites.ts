@@ -9,12 +9,16 @@ import {
   MAX_FAVORITE_SYMBOLS,
   type FavoriteMutation,
 } from '../domain/favorites'
-import { EquitySymbolSchema } from '../domain/instrument'
+import { EquitySymbolSchema, MAX_EQUITY_SYMBOL_LENGTH } from '../domain/instrument'
 import { preferenceCollection, type Preference } from './collections'
 
 const FavoriteRowSchema = z.strictObject({ symbol: EquitySymbolSchema })
+// The longest marker is the legacy JSON array of every valid favorite symbol.
+const MAX_FAVORITE_STAGE_ID_LENGTH = 'legacy:'.length
+  + 2
+  + MAX_FAVORITE_SYMBOLS * (MAX_EQUITY_SYMBOL_LENGTH + 3)
 const FavoriteStageMarkerSchema = z.strictObject({
-  consumedStageId: z.string().max(4_096),
+  consumedStageId: z.string().max(MAX_FAVORITE_STAGE_ID_LENGTH),
   id: z.literal('primary'),
 })
 
@@ -90,12 +94,15 @@ async function toggleAnonymousFavorite(symbol: string): Promise<void> {
     favoriteStageMarkerCollection.preload(),
   ])
   const current = preferenceCollection.get('primary')
-  if (!current) return
+  if (!current) throw new Error('Favorite preferences are unavailable')
   const marker = favoriteStageMarkerCollection.get('primary')
   const pinnedSymbols = stagedFavoriteSymbols(current, marker)
+  if (!pinnedSymbols.includes(symbol) && pinnedSymbols.length === MAX_FAVORITE_SYMBOLS) {
+    throw new Error(`Favorites are limited to ${MAX_FAVORITE_SYMBOLS} symbols`)
+  }
   const nextSymbols = pinnedSymbols.includes(symbol)
     ? pinnedSymbols.filter((candidate) => candidate !== symbol)
-    : [...pinnedSymbols, symbol].slice(-MAX_FAVORITE_SYMBOLS)
+    : [...pinnedSymbols, symbol]
   const mutation = preferenceCollection.update('primary', (draft) => {
     draft.favoriteStageVersion = crypto.randomUUID()
     delete draft.favoriteUserId
@@ -133,7 +140,7 @@ export function createFavoriteSync(userId: string) {
       refetchOnMount: 'always',
       refetchOnReconnect: 'always',
       refetchOnWindowFocus: 'always',
-      retry: 2,
+      retry: false,
       queryFn: async ({ signal }) => {
         await Promise.all([
           preferenceCollection.preload(),
@@ -146,17 +153,30 @@ export function createFavoriteSync(userId: string) {
         const symbols = pendingStage?.symbols.length
           ? await requestFavoriteSymbols({ kind: 'merge', symbols: pendingStage.symbols }, signal)
           : await requestFavoriteSymbols(undefined, signal)
+        if (pendingStage && pendingStage.symbols.some((symbol) => !symbols.includes(symbol))) {
+          throw new Error('Favorite merge returned an incomplete result')
+        }
         if (signal.aborted) throw new DOMException('Favorite sync was superseded', 'AbortError')
         if (pendingStage) await markAnonymousStageConsumed(pendingStage.id)
         return favoriteRows(symbols)
       },
       onInsert: async ({ transaction }) => {
         const symbols = transaction.mutations.map((mutation) => mutation.modified.symbol)
-        await enqueueMutation(() => requestFavoriteSymbols({ kind: 'merge', symbols }))
+        await enqueueMutation(async () => {
+          const merged = await requestFavoriteSymbols({ kind: 'merge', symbols })
+          if (symbols.some((symbol) => !merged.includes(symbol))) {
+            throw new Error('Favorite merge returned an incomplete result')
+          }
+        })
       },
       onDelete: async ({ transaction }) => {
         const symbols = transaction.mutations.map((mutation) => mutation.original.symbol)
-        await enqueueMutation(() => requestFavoriteSymbols({ kind: 'remove', symbols }))
+        await enqueueMutation(async () => {
+          const retained = await requestFavoriteSymbols({ kind: 'remove', symbols })
+          if (symbols.some((symbol) => retained.includes(symbol))) {
+            throw new Error('Favorite removal returned an incomplete result')
+          }
+        })
       },
     }),
   )
@@ -170,13 +190,12 @@ export async function toggleFavoriteSymbol(
   symbol: string,
   favoriteSync: FavoriteSync | undefined,
 ): Promise<void> {
-  const parsed = EquitySymbolSchema.safeParse(symbol)
-  if (!parsed.success) return
-  if (!favoriteSync) return toggleAnonymousFavorite(parsed.data)
+  const parsed = EquitySymbolSchema.parse(symbol)
+  if (!favoriteSync) return toggleAnonymousFavorite(parsed)
 
   await favoriteSync.collection.preload()
-  const transaction = favoriteSync.collection.get(parsed.data)
-    ? favoriteSync.collection.delete(parsed.data)
-    : favoriteSync.collection.insert({ symbol: parsed.data })
+  const transaction = favoriteSync.collection.get(parsed)
+    ? favoriteSync.collection.delete(parsed)
+    : favoriteSync.collection.insert({ symbol: parsed })
   await transaction.isPersisted.promise
 }

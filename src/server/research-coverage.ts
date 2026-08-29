@@ -5,6 +5,10 @@ import { EquitySymbolSchema } from '../domain/instrument'
 import { type AppEnv } from './env'
 import { researchBriefId } from './research-contracts'
 
+// Prior daily briefs are a deduplication aid, not an archive-search tool; one year bounds
+// the D1 scan and agent context while covering every seasonal comparison available to a daily run.
+export const MAX_RESEARCH_LOOKBACK_DAYS = 365
+
 const CoverageRowFields = {
   direction: z.enum(['bullish', 'bearish', 'neutral']),
   published_at: z.string().datetime(),
@@ -12,30 +16,11 @@ const CoverageRowFields = {
   symbol: EquitySymbolSchema,
 }
 
-const CurrentCoverageRowSchema = z.object({
+const RecentCoverageRowSchema = z.object({
   ...CoverageRowFields,
   description: z.string().min(1),
   headline: z.string().min(1),
-  horizon: z.null(),
-  setup: z.null(),
-  thesis: z.null(),
 }).transform((row) => ({ ...row, publishedAt: row.published_at }))
-
-const LegacyCoverageRowSchema = z.object({
-  ...CoverageRowFields,
-  description: z.null(),
-  headline: z.null(),
-  horizon: z.string().min(1),
-  setup: z.string().min(1),
-  thesis: z.string().min(1),
-}).transform((row) => ({
-  ...row,
-  description: `${row.thesis} Horizon: ${row.horizon}.`,
-  headline: row.setup,
-  publishedAt: row.published_at,
-}))
-
-const RecentCoverageRowSchema = z.union([CurrentCoverageRowSchema, LegacyCoverageRowSchema])
 
 export interface RecentTickerCoverage {
   description: string
@@ -66,7 +51,7 @@ export async function searchRecentTickerCoverage(
 ): Promise<RecentTickerCoverage[]> {
   if (symbols.length === 0) return []
   if (!env.DB) throw new Error('RecentCoverageUnavailable')
-  if (!Number.isSafeInteger(daysAgo) || daysAgo < 1 || daysAgo > 365) {
+  if (!Number.isSafeInteger(daysAgo) || daysAgo < 1 || daysAgo > MAX_RESEARCH_LOOKBACK_DAYS) {
     throw new Error('Recent coverage lookback is invalid.')
   }
   const requested = new Set(symbols.map((symbol) => EquitySymbolSchema.parse(symbol)))
@@ -77,10 +62,7 @@ export async function searchRecentTickerCoverage(
        json_extract(idea.value, '$.direction') AS direction,
        json_extract(idea.value, '$.headline') AS headline,
        json_extract(idea.value, '$.description') AS description,
-       json_extract(idea.value, '$.risk') AS risk,
-       json_extract(idea.value, '$.setup') AS setup,
-       json_extract(idea.value, '$.thesis') AS thesis,
-       json_extract(idea.value, '$.horizon') AS horizon
+       json_extract(idea.value, '$.risk') AS risk
      FROM research_briefs AS brief, json_each(brief.payload_json, '$.ideas') AS idea
      WHERE brief.published_at >= ?
        AND brief.published_at < ?

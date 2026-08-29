@@ -44,8 +44,13 @@ type FeedType = keyof typeof FIELDS
 
 const FEED_TYPES = ['Quote', 'Trade', 'Candle', 'Greeks'] as const satisfies readonly FeedType[]
 
+// These bound one interactive read/setup attempt; the persistent relay reconnects separately.
 const OPTION_GREEKS_TIMEOUT_MS = 10_000
 const UPSTREAM_SETUP_TIMEOUT_MS = 15_000
+// Durable alarms provide bounded exponential reconnects while any client or Greeks read remains.
+const RECONNECT_BASE_DELAY_SECONDS = 1
+const RECONNECT_MAX_DELAY_SECONDS = 60
+const RECONNECT_MAX_EXPONENT = 6
 
 class FeedProtocolError extends Error {}
 
@@ -553,7 +558,10 @@ export class MarketFeedCore {
   }
 
   private async scheduleReconnect(): Promise<void> {
-    const delay = Math.min(60, 2 ** Math.min(this.reconnectAttempt++, 6))
+    const delay = Math.min(
+      RECONNECT_MAX_DELAY_SECONDS,
+      RECONNECT_BASE_DELAY_SECONDS * 2 ** Math.min(this.reconnectAttempt++, RECONNECT_MAX_EXPONENT),
+    )
     await this.ctx.storage.setAlarm(Date.now() + delay * 1_000)
   }
 

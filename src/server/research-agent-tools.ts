@@ -4,7 +4,11 @@ import { type AgentTool } from '@earendil-works/pi-agent-core'
 import { EQUITY_SYMBOL_PATTERN } from '../domain/instrument'
 import { textResult } from './agent-tool-result'
 import { type AppEnv } from './env'
-import { searchRecentTickerCoverage, type RecentTickerCoverage } from './research-coverage'
+import {
+  MAX_RESEARCH_LOOKBACK_DAYS,
+  searchRecentTickerCoverage,
+  type RecentTickerCoverage,
+} from './research-coverage'
 import { collectRedditSources, type RedditDiscussion } from './research-reddit'
 import { readStoredSecret } from './secrets'
 import {
@@ -16,13 +20,11 @@ import {
 const RedditSearchParameters = Type.Object({}, { additionalProperties: false })
 const RecentCoverageParameters = Type.Object({
   daysAgo: Type.Integer({
-    description: 'Calendar-day lookback for prior Spice recommendations.',
-    maximum: 365,
+    description: 'Calendar days before this run.',
+    maximum: MAX_RESEARCH_LOOKBACK_DAYS,
     minimum: 1,
   }),
   tickers: Type.Array(Type.String({ pattern: EQUITY_SYMBOL_PATTERN }), {
-    description: 'Exact equity tickers to check for prior coverage.',
-    maxItems: 20,
     minItems: 1,
   }),
 }, { additionalProperties: false })
@@ -66,57 +68,40 @@ export function createResearchAgentTools(
   const runRead = <T>(name: string, task: () => Promise<T>): Promise<T> => (
     options.runStep ? options.runStep(name, task) : task()
   )
+  const withRunStep = (tool: AgentTool): AgentTool => {
+    const execute = tool.execute
+    return {
+      ...tool,
+      execute: (toolCallId, params, signal, onUpdate) => runRead(
+        tool.name,
+        () => execute(toolCallId, params, signal, onUpdate),
+      ),
+    }
+  }
   const reddit: AgentTool<typeof RedditSearchParameters, RedditResearchResult> = {
-    description: 'Read the current high-signal WallStreetBets discovery packet: ranked posts and useful comments.',
-    execute: async () => {
-      const result = await runRead(
-        'search_reddit',
-        () => searchRedditResearch(
-          env,
-          now,
-          options.fetcher,
-        ),
-      )
-      return textResult(result)
-    },
-    executionMode: 'sequential',
+    description: 'WallStreetBets hot posts with post text and top comments.',
+    execute: async () => textResult(await searchRedditResearch(env, now, options.fetcher)),
     label: 'Searching Reddit',
     name: 'search_reddit',
     parameters: RedditSearchParameters,
   }
   const coverage: AgentTool<typeof RecentCoverageParameters, RecentTickerCoverage[]> = {
-    description: 'Read prior Spice recommendations for exact tickers over a chosen calendar-day lookback. Use this before repeating or updating a thesis.',
-    execute: async (_toolCallId, params) => {
-      const result = await runRead(
-        'get_recent_coverage',
-        () => searchRecentTickerCoverage(
-          env,
-          params.tickers,
-          params.daysAgo,
-          now,
-        ),
-      )
-      return textResult(result)
-    },
-    executionMode: 'sequential',
+    description: 'Prior Spice ideas for these tickers within daysAgo; today is excluded.',
+    execute: async (_toolCallId, params) => textResult(await searchRecentTickerCoverage(
+      env,
+      params.tickers,
+      params.daysAgo,
+      now,
+    )),
     label: 'Reading recent coverage',
     name: 'get_recent_coverage',
     parameters: RecentCoverageParameters,
   }
-  const metrics = createMarketMetricsReadTool(env)
-  const readMetrics = metrics.execute
-  metrics.execute = (...args) => runRead(metrics.name, () => readMetrics(...args))
-  const optionContracts = createOptionContractFindTool(env)
-  const findOptionContracts = optionContracts.execute
-  optionContracts.execute = (...args) => runRead(optionContracts.name, () => findOptionContracts(...args))
-  const quotes = createInstrumentQuoteReadTool(env)
-  const readQuotes = quotes.execute
-  quotes.execute = (...args) => runRead(quotes.name, () => readQuotes(...args))
   return [
     ...(options.includeReddit === false ? [] : [reddit]),
     coverage,
-    metrics,
-    optionContracts,
-    quotes,
-  ]
+    createMarketMetricsReadTool(env),
+    createOptionContractFindTool(env),
+    createInstrumentQuoteReadTool(env),
+  ].map(withRunStep)
 }

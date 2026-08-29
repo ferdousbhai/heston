@@ -4,12 +4,15 @@ import { CatalystKindSchema, CatalystSchema, CODEX_WEB_CATALYST_ID_PREFIX, isVal
 import { toError } from '../domain/failure'
 import { EquitySymbolSchema, instrumentDisplayName, type InstrumentCatalogItem } from '../domain/instrument'
 import { type JsonValue } from '../domain/json-payload'
+import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 import { persistResearchedCatalysts } from './catalysts'
 import { canonicalCodexSourceUrl, openedPageUrlsFromCodexTranscripts } from './codex-transcript-evidence'
 import { type AppEnv } from './env'
 import { readInstrumentCatalog } from './instrument-catalog'
-import { MAX_MAINTAINED_ITEMS, readInternalWatchlistFocus } from './internal-watchlist'
+import { readInternalWatchlistFocus } from './internal-watchlist'
 
+// Local Codex output is untrusted. Text widths and transcript cardinality bound the validated
+// artifact before its exact-page-open evidence is considered; they do not establish provenance.
 const FindingSchema = z.object({
   date: z.string(),
   description: z.string().min(1).max(500),
@@ -25,9 +28,9 @@ const ArtifactEnvelopeSchema = z.object({
   codexVersion: z.string().regex(/^codex-cli \d+\.\d+\.\d+$/),
   findings: z.array(z.custom<JsonValue>()),
   model: z.string().min(1).max(160),
-  openPageTranscripts: z.array(z.string().max(1_000_000)).min(1).max(MAX_MAINTAINED_ITEMS),
+  openPageTranscripts: z.array(z.string().max(1_000_000)).min(1).max(MAX_WATCHLIST_SYMBOLS),
   reasoningEffort: z.string().min(1).max(40),
-  researchedSymbols: z.array(EquitySymbolSchema).min(1).max(MAX_MAINTAINED_ITEMS),
+  researchedSymbols: z.array(EquitySymbolSchema).min(1).max(MAX_WATCHLIST_SYMBOLS),
   runId: z.string().uuid(),
 })
 
@@ -96,7 +99,7 @@ function catalystFromFinding(
 export async function readCatalystBootstrapInstruments(env: AppEnv): Promise<CatalystBootstrapInstrument[]> {
   // This packet is private ops input, but still contains no source category or
   // provenance. It uses the same bounded focus as the live product.
-  const orderedSymbols = await readInternalWatchlistFocus(env, [], MAX_MAINTAINED_ITEMS)
+  const orderedSymbols = await readInternalWatchlistFocus(env, [], MAX_WATCHLIST_SYMBOLS)
   const catalog = await readInstrumentCatalog(env, orderedSymbols)
   const missing = orderedSymbols.filter((symbol) => !catalog.has(symbol))
   if (missing.length) throw new Error(`CatalystBootstrap:catalog-incomplete:${missing.length}`)

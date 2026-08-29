@@ -8,10 +8,8 @@ import { Empty, EmptyDescription, EmptyHeader } from '#/components/ui/empty'
 import { Skeleton } from '#/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import {
-  applyWatchlistMutation,
   offlineSnapshotCollection,
   preferenceCollection,
-  requestPersistentLocalStorage,
   restoreOfflineSnapshot,
   selectTicker,
   selectLiveMarketSymbols,
@@ -67,16 +65,20 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
     () => viewerId ? createFavoriteSync(viewerId) : undefined,
     [viewerId],
   )
-  const { data: storedTickers = [] } = useLiveQuery((query) => query.from({ ticker: tickerCollection }))
-  const { data: storedSnapshots = [] } = useLiveQuery((query) => query.from({ snapshot: offlineSnapshotCollection }))
-  const { data: preferences = [] } = useLiveQuery((query) => query.from({ preference: preferenceCollection }))
-  const { data: favoriteStageMarkers = [] } = useLiveQuery(
+  const tickerQuery = useLiveQuery((query) => query.from({ ticker: tickerCollection }))
+  const snapshotQuery = useLiveQuery((query) => query.from({ snapshot: offlineSnapshotCollection }))
+  const preferenceQuery = useLiveQuery((query) => query.from({ preference: preferenceCollection }))
+  const favoriteStageQuery = useLiveQuery(
     (query) => query.from({ favoriteStageMarker: favoriteStageMarkerCollection }),
   )
-  const { data: syncedFavorites } = useLiveQuery(
+  const favoriteQuery = useLiveQuery(
     () => favoriteSync?.collection,
     [favoriteSync],
   )
+  const storedTickers = tickerQuery.data ?? []
+  const storedSnapshots = snapshotQuery.data ?? []
+  const preferences = preferenceQuery.data ?? []
+  const favoriteStageMarkers = favoriteStageQuery.data ?? []
   const storedSnapshot = storedSnapshots.find((candidate) => candidate.id === 'snapshot')
   const snapshot = storedSnapshot?.audience === audience ? storedSnapshot.snapshot : undefined
   const snapshotReady = Boolean(snapshot)
@@ -87,7 +89,7 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
   const preference = preferences[0]
   const favoriteStageMarker = favoriteStageMarkers[0]
   const pinnedSymbols = favoriteSync
-    ? (syncedFavorites ?? []).map((favorite) => favorite.symbol)
+    ? (favoriteQuery.data ?? []).map((favorite) => favorite.symbol)
     : stagedFavoriteSymbols(preference, favoriteStageMarker)
   const [tab, setTab] = useState<Tab>('market')
   const [watchlistEditorOpen, setWatchlistEditorOpen] = useState(false)
@@ -107,7 +109,21 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
     ?? tickers.find((ticker) => ticker.symbol === fallbackSymbol)
   const loadedSymbols = new Set(tickers.map((ticker) => ticker.symbol))
   const streamSymbols = selectLiveMarketSymbols(selected?.symbol, activeWatchlist?.symbols ?? [], loadedSymbols)
-  useLiveMarket(streamSymbols, snapshotReady && owner)
+  const liveMarket = useLiveMarket(streamSymbols, snapshotReady && owner)
+  const collectionFailed = tickerQuery.isError || snapshotQuery.isError || preferenceQuery.isError
+    || favoriteStageQuery.isError
+  const liveWarning = liveMarket.state === 'connecting' || liveMarket.state === 'degraded'
+      || liveMarket.state === 'reconnecting'
+    ? liveMarket.detail ?? `Live market feed is ${liveMarket.state}.`
+    : undefined
+  const visibleSnapshotWarning = [
+    collectionFailed ? 'Browser market storage failed. Reload to inspect the current state.' : undefined,
+    snapshotWarning,
+    liveWarning,
+  ].filter((warning): warning is string => Boolean(warning)).join(' ') || undefined
+  const visibleFavoriteError = favoriteSync && favoriteQuery.isError
+    ? 'Favorite synchronization failed.'
+    : favoriteError
 
   const synchronize = useCallback(async (signal?: AbortSignal, force = false): Promise<void> => {
     if (!navigator.onLine) throw new Error('Market synchronization is unavailable while offline')
@@ -156,7 +172,6 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
           setSnapshotWarning('Saved market data could not be restored. Trying the network instead.')
         }
       }
-      void requestPersistentLocalStorage()
       if (!controller.signal.aborted) await synchronizeWithWarning(controller.signal)
       if (!controller.signal.aborted) setBootstrappedAudience(audience)
     })()
@@ -183,9 +198,11 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
   // Stable row callbacks keep the memoized market rows from re-rendering on every
   // workspace render.
   const chooseSymbol = useCallback((symbol: string) => {
-    selectTicker(symbol)
+    void selectTicker(symbol).catch((cause: unknown) => {
+      setSnapshotWarning(toError(cause)?.message ?? 'The market selection could not be saved')
+    })
     setTab('market')
-  }, [setTab])
+  }, [setSnapshotWarning, setTab])
   const togglePinned = useCallback((symbol: string) => {
     setFavoriteError(undefined)
     void toggleFavoriteSymbol(symbol, favoriteSync).catch((cause: unknown) => {
@@ -199,7 +216,12 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify(action),
     })
-    const payload = await response.json().catch(() => ({}))
+    let payload: unknown
+    try {
+      payload = await response.json()
+    } catch {
+      throw new Error(`Watchlist update returned invalid JSON (${response.status})`)
+    }
     const result = WatchlistMutationResultSchema.safeParse(payload).data
     const apiError = ApiErrorSchema.safeParse(payload).data
     if (!response.ok) {
@@ -219,7 +241,7 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
       }
       throw new Error(result?.detail ?? apiError?.error ?? 'The watchlist could not be updated')
     }
-    await applyWatchlistMutation(action)
+    WatchlistMutationResultSchema.parse(payload)
     if (snapshotReady) {
       try {
         await synchronize(undefined, true)
@@ -254,16 +276,16 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
         )}
         <TabsContent value={tab}>
           <main id="main-content" className={ownerAgentOpen ? 'main-content agent-main' : 'main-content'}>
-            {snapshotWarning && (
+            {visibleSnapshotWarning && (
               <Alert>
                 <AlertTitle>Market data may be stale</AlertTitle>
-                <AlertDescription>{snapshotWarning}</AlertDescription>
+                <AlertDescription>{visibleSnapshotWarning}</AlertDescription>
               </Alert>
             )}
-            {tab === 'market' && favoriteError && (
+            {tab === 'market' && visibleFavoriteError && (
               <Alert variant="destructive">
                 <AlertTitle>Favorite update failed</AlertTitle>
-                <AlertDescription>{favoriteError}</AlertDescription>
+                <AlertDescription>{visibleFavoriteError}</AlertDescription>
               </Alert>
             )}
             {tab === 'agent' && !owner && <OwnerAccessScreen authError={authError} signedIn={Boolean(viewer)} />}

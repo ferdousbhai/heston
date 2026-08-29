@@ -27,7 +27,6 @@ describe('Reddit research source', () => {
     expect(sources[1]).toMatchObject({
       commentCount: 18,
       score: 200,
-      source: 'Reddit · r/wallstreetbets',
       url: 'https://www.reddit.com/r/wallstreetbets/comments/two/test/',
     })
     expect(sources[1]?.context).toContain('Detailed thesis')

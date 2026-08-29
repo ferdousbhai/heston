@@ -19,6 +19,16 @@ function highWaterDb(value: number): D1Database {
   return { ...unsupportedDatabase(), prepare: vi.fn(() => statement) }
 }
 
+const balances = {
+  'available-trading-funds': '64000',
+  'cash-available-to-withdraw': '65000',
+  'cash-balance': '65000',
+  'day-trading-buying-power': '256000',
+  'derivative-buying-power': '64000',
+  'equity-buying-power': '128000',
+  'net-liquidating-value': '100000',
+}
+
 afterEach(() => vi.unstubAllGlobals())
 
 describe('brokerage dispatch portfolio guard', () => {
@@ -34,10 +44,7 @@ describe('brokerage dispatch portfolio guard', () => {
         symbol: 'SPY   260918C00700000', 'instrument-type': 'Equity Option',
         'quantity-direction': 'Short', quantity: '1',
       }] } })
-      if (url.includes('/balances')) return Response.json({ data: {
-        'net-liquidating-value': '100000', 'cash-balance': '65000',
-        'cash-available-to-withdraw': '65000',
-      } })
+      if (url.includes('/balances')) return Response.json({ data: balances })
       if (url.includes('/complex-orders/live')) return Response.json({ data: { items: [] } })
       if (url.includes('/orders/live')) return Response.json({ data: { items: [] } })
       if (url.includes('/option-chains/')) return Response.json({ data: { items: [{
@@ -75,10 +82,7 @@ describe('brokerage dispatch portfolio guard', () => {
       if (url.endsWith('/oauth/token')) return Response.json({ access_token: 'token', expires_in: 900 })
       if (url.endsWith('/customers/me/accounts')) return Response.json({ data: { items: [{ account: { 'account-number': 'TEST123' } }] } })
       if (url.includes('/positions')) return Response.json({ data: { items: [] } })
-      if (url.includes('/balances')) return Response.json({ data: {
-        'net-liquidating-value': '100000', 'cash-balance': '65000',
-        'cash-available-to-withdraw': '65000',
-      } })
+      if (url.includes('/balances')) return Response.json({ data: balances })
       if (url.includes('/complex-orders/live')) return Response.json({ data: { items: [] } })
       if (url.includes('/orders/live')) {
         return Response.json({ data: { items: [] }, pagination: { 'total-items': 1 } })
@@ -115,10 +119,7 @@ describe('brokerage dispatch portfolio guard', () => {
           symbol: 'SPY', 'instrument-type': 'Equity', 'quantity-direction': 'Long', quantity: '1',
         }] }, pagination: { 'total-items': 2 } })
       }
-      if (url.includes('/balances')) return Response.json({ data: {
-        'net-liquidating-value': '100000', 'cash-balance': '65000',
-        'cash-available-to-withdraw': '65000',
-      } })
+      if (url.includes('/balances')) return Response.json({ data: balances })
       if (url.includes('/complex-orders/live')) return Response.json({ data: { items: [] } })
       if (url.includes('/orders/live')) return Response.json({ data: { items: [] } })
       throw new Error(`Unexpected request: ${method} ${url}`)

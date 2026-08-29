@@ -149,7 +149,7 @@ describe('typed tastytrade instrument catalog', () => {
     })
   })
 
-  it('uses bounded multi-row writes and rejects an oversized persistence invocation', async () => {
+  it('uses D1-sized multi-row writes across persistence chunks', async () => {
     const env = { DB: store.database }
     const symbols = ['A', 'B', 'C', 'D']
     const items = instrumentCatalogFromPayload(symbols.map(providerRow), symbols)
@@ -157,9 +157,14 @@ describe('typed tastytrade instrument catalog', () => {
     await persistInstrumentCatalog(env, items)
 
     expect((await readInstrumentCatalog(env, symbols)).size).toBe(4)
-    await expect(persistInstrumentCatalog(env, Array.from(
+    const additionalSymbols = Array.from(
       { length: 101 },
-      (_, index) => unresolvedInstrumentCatalogItem(`Z${index}`.replace(/\d/g, 'A').slice(0, 8)),
-    ))).rejects.toThrow('persist-chunk-too-large')
+      (_, index) => `Z${index.toString(36).toUpperCase()}`,
+    )
+    await expect(persistInstrumentCatalog(
+      env,
+      additionalSymbols.map((symbol) => unresolvedInstrumentCatalogItem(symbol)),
+    )).resolves.toBeUndefined()
+    expect((await readInstrumentCatalog(env, additionalSymbols)).size).toBe(101)
   })
 })

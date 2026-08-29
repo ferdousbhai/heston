@@ -3,6 +3,16 @@ export type StudyInput =
   | { kind: 'BBANDS'; period?: number; standardDeviations?: number }
   | { fastPeriod?: number; kind: 'MACD'; signalPeriod?: number; slowPeriod?: number }
 
+/**
+ * Provider rows are the allocation boundary; returned rows and study count are
+ * smaller model-context budgets. Study periods share the provider-row ceiling so
+ * they cannot create sparse arrays larger than any accepted input series.
+ */
+export const MAX_PRICE_HISTORY_PROVIDER_ROWS = 4_000
+export const MAX_PRICE_HISTORY_RETURNED_ROWS = 250
+export const MAX_PRICE_STUDIES = 5
+export const MAX_PRICE_STUDY_PERIOD = MAX_PRICE_HISTORY_PROVIDER_ROWS
+
 export type PriceHistoryReadInput = {
   endDate?: string
   interval?: '1d' | '1mo' | '1wk'
@@ -59,12 +69,9 @@ export type PriceHistoryReadResult = {
   name?: string
   prices: PriceHistoryRow[]
   requestedRange: { endDate: string; startDate: string }
-  returnedRowCount: number
   skippedRowCount: number
   provider: string
-  source: string
   sourceUrl: string
-  stale: false
   studies: PriceStudyResult[]
   studyPriceField: 'adjustedClose'
   symbol: string

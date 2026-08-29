@@ -6,12 +6,11 @@ import {
   EQUITY_SYMBOL,
   InstrumentQuoteReadParameters,
   MAX_CHAIN_ROWS,
-  MAX_HISTORY_DAYS,
   MAX_HISTORY_ITEMS,
-  MAX_HISTORY_OFFSET,
   MAX_MARKET_SYMBOLS,
   MAX_OPTION_CONTRACTS,
   MAX_OPTION_EXPIRATIONS,
+  MAX_QUOTE_INSTRUMENTS,
   MAX_SEARCH_RESULTS,
   MAX_SEARCH_ROWS,
   MarketMetricsReadParameters,
@@ -67,11 +66,14 @@ export type {
 function dateDaysAgo(now: Date, days: number): string {
   const result = new Date(now)
   result.setUTCDate(result.getUTCDate() - days)
+  if (!Number.isFinite(result.getTime())) throw new Error('Account history days is invalid.')
   return result.toISOString().slice(0, 10)
 }
 
-function assertInteger(value: number, minimum: number, maximum: number, label: string): number {
-  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) throw new Error(`${label} is invalid.`)
+function assertInteger(value: number, minimum: number, maximum: number | undefined, label: string): number {
+  if (!Number.isSafeInteger(value) || value < minimum || maximum !== undefined && value > maximum) {
+    throw new Error(`${label} is invalid.`)
+  }
   return value
 }
 
@@ -160,9 +162,9 @@ export async function readAccountHistory(
     throw new Error('transactionType is valid only for transaction history.')
   }
   const defaultDays = input.type === 'transactions' ? 90 : 7
-  const days = assertInteger(input.days ?? defaultDays, 0, MAX_HISTORY_DAYS, 'Account history days')
+  const days = assertInteger(input.days ?? defaultDays, 0, undefined, 'Account history days')
   const limit = assertInteger(input.limit ?? 25, 1, MAX_HISTORY_ITEMS, 'Account history limit')
-  const pageOffset = assertInteger(input.pageOffset ?? 0, 0, MAX_HISTORY_OFFSET, 'Account history page offset')
+  const pageOffset = assertInteger(input.pageOffset ?? 0, 0, undefined, 'Account history page offset')
   const underlyingSymbol = input.underlyingSymbol?.trim().toUpperCase()
   if (underlyingSymbol && !UNDERLYING_SYMBOL.test(underlyingSymbol)) throw new Error('Account history underlying symbol is invalid.')
   if (input.transactionType !== undefined && input.transactionType !== 'Trade' && input.transactionType !== 'Money Movement') {
@@ -201,13 +203,9 @@ export async function readAccountHistory(
     || (envelope.totalItems === undefined ? envelope.rows.length === limit : consumed < envelope.totalItems)
   const result: AccountHistoryReadResult = {
     asOf: now.toISOString(),
-    days,
     items,
-    limit,
     pageOffset,
-    returnedItemCount: items.length,
     truncated,
-    type: input.type,
     source: 'tastytrade',
   }
   if (envelope.totalItems !== undefined) result.totalItemCount = envelope.totalItems
@@ -268,8 +266,6 @@ export async function readMarketMetrics(
     asOf: now.toISOString(),
     metrics: symbols.flatMap((symbol) => bySymbol.has(symbol) ? [bySymbol.get(symbol)!] : []),
     missingSymbols: symbols.filter((symbol) => !bySymbol.has(symbol)),
-    requestedSymbols: symbols,
-    truncated: false,
     source: 'tastytrade',
     volatilityUnit: 'percentage_points',
   }
@@ -294,7 +290,6 @@ export async function readMarketStatus(env: AppEnv, now = new Date()): Promise<M
     previousCloseAt: previous ? optionalTimestamp(previous, ['close-at'], label) : undefined,
     startsAt: optionalTimestamp(session, ['start-at'], label),
     state: requiredText(session, ['state'], label, 32),
-    truncated: false,
     source: 'tastytrade',
   }
 }
@@ -354,14 +349,13 @@ export async function readInstrumentQuotes(
   const symbols = [...new Set((input.symbols ?? []).map((symbol) => symbol.trim().toUpperCase()))]
   const contracts = input.contracts ?? []
   if ((!symbols.length && !contracts.length)
-    || symbols.length + contracts.length > 10
+    || symbols.length + contracts.length > MAX_QUOTE_INSTRUMENTS
     || symbols.some((symbol) => !EQUITY_SYMBOL.test(symbol))
     || contracts.some((contract) => !EQUITY_SYMBOL.test(contract.underlying)
       || !validDate(contract.expiry)
       || (contract.optionType !== 'C' && contract.optionType !== 'P')
       || !Number.isFinite(contract.strike)
-      || contract.strike <= 0
-      || contract.strike > 1_000_000)) {
+      || contract.strike <= 0)) {
     throw new Error('Quote instruments are invalid.')
   }
   const resolvedContracts = await resolveEquityOptionTuples(env, contracts)
@@ -372,7 +366,7 @@ export async function readInstrumentQuotes(
   const envelope = itemEnvelope(
     await brokerApi().tastyRequest(env, `/market-data/by-type?${query}`),
     'Tastytrade market quote',
-    10,
+    MAX_QUOTE_INSTRUMENTS,
   )
   const bySymbol = new Map(envelope.rows.map((row) => [requiredText(row, ['symbol'], 'Tastytrade market quote', 128), row]))
   const requested = [
@@ -413,9 +407,7 @@ export async function searchSymbols(
   const results = rows.slice(0, limit)
   return {
     asOf: now.toISOString(),
-    query,
     results,
-    returnedResultCount: results.length,
     totalResultCount: rows.length,
     truncated: rows.length > results.length,
     source: 'tastytrade',
@@ -477,7 +469,7 @@ export async function findOptionContracts(
     throw new Error('Option type is invalid.')
   }
   if ([input.nearStrike, input.strike].some((strike) => (
-    strike !== undefined && (!Number.isFinite(strike) || strike <= 0 || strike > 1_000_000)
+    strike !== undefined && (!Number.isFinite(strike) || strike <= 0)
   ))) {
     throw new Error('Option strike is invalid.')
   }
@@ -508,35 +500,25 @@ export async function findOptionContracts(
   const mode = input.expiry === undefined && input.nearStrike === undefined && input.strike === undefined
     ? 'expirations'
     : 'contracts'
-  const contracts = mode === 'contracts' ? matching.slice(0, MAX_OPTION_CONTRACTS) : []
-  const filters: OptionContractFindResult['filters'] = {}
-  if (input.expiry !== undefined) filters.expiry = input.expiry
-  if (input.nearStrike !== undefined) filters.nearStrike = input.nearStrike
-  if (input.optionType !== undefined) filters.optionType = input.optionType
-  if (input.strike !== undefined) filters.strike = input.strike
-  return {
-    asOf: now.toISOString(),
-    contracts,
-    expirationDates,
-    filters,
-    returnedContractCount: contracts.length,
-    returnedExpirationCount: expirationDates.length,
-    totalContractCount: matching.length,
-    totalExpirationCount: allExpirationDates.length,
-    truncated: mode === 'expirations' || contracts.length < matching.length || expirationDates.length < allExpirationDates.length,
-    underlying,
-    source: 'tastytrade',
-    mode,
+  const base = { asOf: now.toISOString(), source: 'tastytrade' as const }
+  if (mode === 'expirations') {
+    return {
+      ...base,
+      expirationDates,
+      mode,
+      truncated: expirationDates.length < allExpirationDates.length,
+    }
   }
+  const contracts = matching.slice(0, MAX_OPTION_CONTRACTS)
+  return { ...base, contracts, mode, truncated: contracts.length < matching.length }
 }
 
 function createAccountHistoryReadTool(
   env: AppEnv,
 ): AgentTool<typeof AccountHistoryReadParameters, AccountHistoryReadResult> {
   return {
-    description: 'Read a bounded page of tastytrade transaction or order history. This tool is read-only; call it when recent trades, cash movements, or filtered history matter.',
+    description: 'Broker trades, cash movements, or orders.',
     execute: async (_toolCallId, params) => textResult(await readAccountHistory(env, params)),
-    executionMode: 'sequential',
     label: 'Reading account history',
     name: 'read_account_history',
     parameters: AccountHistoryReadParameters,
@@ -547,9 +529,8 @@ export function createMarketMetricsReadTool(
   env: AppEnv,
 ): AgentTool<typeof MarketMetricsReadParameters, MarketMetricsReadResult> {
   return {
-    description: 'Read compact tastytrade volatility, liquidity, beta, valuation, and earnings metrics for up to 20 exact equity symbols. This tool is read-only.',
+    description: 'IV, liquidity, beta, valuation, and earnings metrics; IV is percentage points.',
     execute: async (_toolCallId, params) => textResult(await readMarketMetrics(env, params.symbols)),
-    executionMode: 'sequential',
     label: 'Reading market metrics',
     name: 'read_market_metrics',
     parameters: MarketMetricsReadParameters,
@@ -560,9 +541,8 @@ function createSymbolSearchTool(
   env: AppEnv,
 ): AgentTool<typeof SymbolSearchParameters, SymbolSearchResult> {
   return {
-    description: 'Search tastytrade by ticker or company name and return bounded instrument matches. This tool is read-only.',
+    description: 'Broker ticker or company-name lookup.',
     execute: async (_toolCallId, params) => textResult(await searchSymbols(env, params.query, params.limit)),
-    executionMode: 'sequential',
     label: 'Searching symbols',
     name: 'search_symbols',
     parameters: SymbolSearchParameters,
@@ -573,9 +553,8 @@ export function createOptionContractFindTool(
   env: AppEnv,
 ): AgentTool<typeof OptionContractFindParameters, OptionContractFindResult> {
   return {
-    description: 'Find active, standard tastytrade equity option contracts. Call with the underlying first to list expirations, then call again with an expiry and optional C/P plus nearStrike to inspect real contracts. Use strike only for an exact match. This tool never places an order.',
+    description: 'Without expiry, lists expirations; with expiry, returns active standard contracts nearest nearStrike or matching strike.',
     execute: async (_toolCallId, params) => textResult(await findOptionContracts(env, params)),
-    executionMode: 'sequential',
     label: 'Finding option contracts',
     name: 'find_option_contracts',
     parameters: OptionContractFindParameters,
@@ -586,9 +565,8 @@ export function createInstrumentQuoteReadTool(
   env: AppEnv,
 ): AgentTool<typeof InstrumentQuoteReadParameters, InstrumentQuoteReadResult> {
   return {
-    description: 'Read exact current bid/ask/mid for up to ten equities or equity options. Supply human option tuples; the server resolves exact broker symbols. This read-only REST quote is for analysis, not automatic repricing.',
+    description: 'Current broker bid/ask/mid for equities or option tuples.',
     execute: async (_toolCallId, params) => textResult(await readInstrumentQuotes(env, params)),
-    executionMode: 'sequential',
     label: 'Reading instrument quotes',
     name: 'read_instrument_quotes',
     parameters: InstrumentQuoteReadParameters,

@@ -4,16 +4,18 @@ import { type BrokerageContext } from './brokerage-context'
 import { type AppEnv } from './env'
 import { resolveEquityOptionContract, type EquityOptionContract } from './option-contract'
 import {
-  JsonArraySchema,
   jsonNumber,
-  JsonObjectArraySchema,
-  jsonObjectOrEmpty,
   jsonTextOrEmpty,
   type JsonObject,
   type JsonValue,
 } from '../domain/json-payload'
 import { brokerApi } from './tastytrade'
-import { accountBalanceRecord, isWorkingOrderRecord } from './tastytrade-payload'
+import {
+  accountBalancesFromPayload,
+  BROKER_ACCOUNT_PAGE_SIZE,
+  completeAccountRows,
+  isWorkingOrderRecord,
+} from './tastytrade-payload'
 
 interface RiskPosition {
   direction: 'Long' | 'Short'
@@ -38,13 +40,13 @@ export interface PortfolioActionAssessment {
 }
 
 export interface PortfolioPolicyContext {
-  availableNewRisk?: number
-  cash?: number
-  cashPercent?: number
-  modeledFloor?: number
-  highWaterValue?: number
+  availableNewRisk: number
+  cash: number
+  cashPercent: number
+  modeledFloor: number
+  highWaterValue: number
   maxDrawdownPercent: typeof PORTFOLIO_POLICY.maxDrawdownPercent
-  status: 'approximate-new-risk-budget' | 'risk-increasing-actions-blocked' | 'unavailable'
+  status: 'approximate-new-risk-budget' | 'risk-increasing-actions-blocked'
 }
 
 export class PortfolioRiskError extends Error {
@@ -54,39 +56,17 @@ export class PortfolioRiskError extends Error {
   }
 }
 
-function strictItems(value: JsonValue, label: string): JsonObject[] {
-  const body = jsonObjectOrEmpty(value)
-  const data = jsonObjectOrEmpty(body.data)
-  const candidate = JsonArraySchema.safeParse(value).data
-    ?? JsonArraySchema.safeParse(data.items ?? body.items).data
-  const rows = candidate && JsonObjectArraySchema.safeParse(candidate).data
-  if (!rows) throw new PortfolioRiskError(`Dan's portfolio guard could not verify ${label}.`)
-  return rows
-}
-
-function paginationTotal(value: JsonValue): number | undefined {
-  const body = jsonObjectOrEmpty(value)
-  const data = jsonObjectOrEmpty(body.data)
-  const pagination = jsonObjectOrEmpty(body.pagination ?? data.pagination)
-  const total = jsonNumber(pagination['total-items'])
-  return total !== undefined && Number.isSafeInteger(total) && total >= 0 ? total : undefined
-}
-
-function completeOrderRows(value: JsonValue, label: string, pageLimit: number): JsonObject[] {
-  const rows = strictItems(value, label)
-  const total = paginationTotal(value)
-  if ((total !== undefined && total > rows.length) || (total === undefined && rows.length >= pageLimit)) {
-    throw new PortfolioRiskError(`Dan's portfolio guard could not verify ${label}.`)
+function completeRiskRows(value: JsonValue, label: string): JsonObject[] {
+  try {
+    return completeAccountRows(value, label)
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : 'UnknownError'
+    throw new PortfolioRiskError(`Dan's portfolio guard could not verify ${label}: ${detail}.`)
   }
-  return rows
-}
-
-function balanceValue(balances: JsonObject, names: string[]): number | undefined {
-  return names.map((name) => jsonNumber(balances[name])).find((value) => value !== undefined)
 }
 
 function positionRows(payload: JsonValue): RiskPosition[] {
-  return completeOrderRows(payload, 'every open position', 200).flatMap((row) => {
+  return completeRiskRows(payload, 'every open position').flatMap((row) => {
     const symbol = jsonTextOrEmpty(row.symbol)
     const instrumentType = jsonTextOrEmpty(row['instrument-type'])
     const direction = row['quantity-direction']
@@ -105,33 +85,36 @@ async function loadRiskAccount(env: AppEnv, accountNumber: string, ignoredOrderI
   let complexOrderPayload: JsonValue
   try {
     [positionPayload, balancePayload, orderPayload, complexOrderPayload] = await Promise.all([
-      brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/positions?per-page=200`),
+      brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/positions?per-page=${BROKER_ACCOUNT_PAGE_SIZE}`),
       brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/balances`),
-      brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/orders/live?per-page=200`),
-      brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/complex-orders/live?per-page=200`),
+      brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/orders/live?per-page=${BROKER_ACCOUNT_PAGE_SIZE}`),
+      brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/complex-orders/live?per-page=${BROKER_ACCOUNT_PAGE_SIZE}`),
     ])
   } catch {
     throw new PortfolioRiskError("Dan's portfolio guard could not refresh the complete tastytrade account.")
   }
-  const balances = accountBalanceRecord(balancePayload, accountNumber)
-  if (!balances) throw new PortfolioRiskError("Dan's portfolio guard could not verify one account balance record.")
-  const netLiquidatingValue = balanceValue(balances, ['net-liquidating-value', 'net-liquidating-value-snapshot'])
-  const cashBalance = balanceValue(balances, ['cash-balance'])
-  const withdrawableCash = balanceValue(balances, ['cash-available-to-withdraw'])
-  if (netLiquidatingValue === undefined || netLiquidatingValue <= 0
-    || cashBalance === undefined || withdrawableCash === undefined) {
+  let balances
+  try {
+    balances = accountBalancesFromPayload(balancePayload, accountNumber)
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : 'UnknownError'
+    throw new PortfolioRiskError(`Dan's portfolio guard could not verify balances: ${detail}.`)
+  }
+  const { netLiquidatingValue, cashBalance, cashAvailableToWithdraw } = balances
+  if (netLiquidatingValue <= 0) {
     throw new PortfolioRiskError("Dan's portfolio guard could not verify net liquidation value and unencumbered cash.")
   }
-  const cash = Math.min(cashBalance, withdrawableCash)
+  const cash = Math.min(cashBalance, cashAvailableToWithdraw)
   if (cash < 0) throw new PortfolioRiskError("Dan's portfolio guard found a negative cash reserve.")
   return {
     netLiquidatingValue,
     cash,
     positions: positionRows(positionPayload),
-    liveOrderCount: completeOrderRows(orderPayload, 'every ordinary live order', 200)
+    liveOrderCount: completeRiskRows(orderPayload, 'every ordinary live order')
       .filter((row) => String(row.id ?? '') !== ignoredOrderId)
       .filter(isWorkingOrderRecord).length
-      + completeOrderRows(complexOrderPayload, 'every complex live order', 200).filter(isWorkingOrderRecord).length,
+      + completeRiskRows(complexOrderPayload, 'every complex live order')
+        .filter(isWorkingOrderRecord).length,
   }
 }
 
@@ -247,30 +230,21 @@ export async function buildPortfolioPolicyContext(env: AppEnv, account: Brokerag
   const netLiquidatingValue = account.balances.netLiquidatingValue
   const cashBalance = account.balances.cashBalance
   const withdrawableCash = account.balances.cashAvailableToWithdraw
-  if (!account.availability.balances || netLiquidatingValue === undefined
-    || cashBalance === undefined || withdrawableCash === undefined || netLiquidatingValue <= 0) {
-    return { maxDrawdownPercent: PORTFOLIO_POLICY.maxDrawdownPercent, status: 'unavailable' }
-  }
+  if (netLiquidatingValue <= 0) throw new PortfolioRiskError("Dan's portfolio context has an invalid net liquidation value.")
   const cash = Math.min(cashBalance, withdrawableCash)
-  try {
-    const highWaterValue = await recordPortfolioHighWater(env, account.accountNumber, netLiquidatingValue)
-    const budget = survivalBudget(highWaterValue, cash)
-    const supported = budget.allowed
-      && account.availability.positions
-      && account.availability.orders
-      && account.orders.length === 0
-      && account.positions.every((position) => position.direction === 'Long'
-        && (position.instrumentType === 'Equity' || position.instrumentType === 'Equity Option'))
-    return {
-      maxDrawdownPercent: PORTFOLIO_POLICY.maxDrawdownPercent,
-      status: supported ? 'approximate-new-risk-budget' : 'risk-increasing-actions-blocked',
-      highWaterValue,
-      modeledFloor: budget.floor,
-      cash,
-      cashPercent: (cash / netLiquidatingValue) * 100,
-      availableNewRisk: supported ? budget.remainingLossBudget : 0,
-    }
-  } catch {
-    return { maxDrawdownPercent: PORTFOLIO_POLICY.maxDrawdownPercent, status: 'unavailable' }
+  const highWaterValue = await recordPortfolioHighWater(env, account.accountNumber, netLiquidatingValue)
+  const budget = survivalBudget(highWaterValue, cash)
+  const supported = budget.allowed
+    && account.orders.length === 0
+    && account.positions.every((position) => position.direction === 'Long'
+      && (position.instrumentType === 'Equity' || position.instrumentType === 'Equity Option'))
+  return {
+    maxDrawdownPercent: PORTFOLIO_POLICY.maxDrawdownPercent,
+    status: supported ? 'approximate-new-risk-budget' : 'risk-increasing-actions-blocked',
+    highWaterValue,
+    modeledFloor: budget.floor,
+    cash,
+    cashPercent: (cash / netLiquidatingValue) * 100,
+    availableNewRisk: supported ? budget.remainingLossBudget : 0,
   }
 }

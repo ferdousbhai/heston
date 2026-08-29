@@ -77,7 +77,7 @@ const ResearchSourceLinkSchema = z.object({
 export const ResearchIdeaSchema = z.object({
   ...ResearchIdeaFields,
   play: PotentialPlaySchema.nullable(),
-  sources: z.array(ResearchSourceLinkSchema).max(3),
+  sources: z.array(ResearchSourceLinkSchema),
 })
 
 export const ResearchReadingLinkSchema = z.object({
@@ -93,8 +93,8 @@ export const ResearchBriefSchema = z.object({
   summary: z.string(),
   regime: z.string(),
   regimeDetail: z.string(),
-  ideas: z.array(ResearchIdeaSchema).max(5),
-  readingList: z.array(ResearchReadingLinkSchema).max(10),
+  ideas: z.array(ResearchIdeaSchema),
+  readingList: z.array(ResearchReadingLinkSchema),
   sources: z.array(ResearchSourceLinkSchema),
 })
 

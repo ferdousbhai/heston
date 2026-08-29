@@ -1,11 +1,11 @@
 import { JsonObjectSchema } from '../domain/json-payload'
 import {
+  MAX_PRICE_STUDIES,
+  MAX_PRICE_STUDY_PERIOD,
   type PriceHistoryRow,
   type PriceStudyResult,
   type StudyInput,
 } from './market-research-contracts'
-
-const MAX_STUDIES = 5
 
 type NormalizedStudy =
   | { kind: 'SMA' | 'EMA' | 'RSI'; period: number }
@@ -87,7 +87,12 @@ function bollingerBands(values: number[], period: number, deviations: number) {
     const window = values.slice(index - period + 1, index + 1)
     const variance = window.reduce((sum, value) => sum + (value - mean) ** 2, 0) / period
     const width = Math.sqrt(variance) * deviations
-    return { lower: mean - width, middle: mean, upper: mean + width }
+    const lower = mean - width
+    const upper = mean + width
+    if (![lower, mean, upper].every(Number.isFinite)) {
+      throw new Error('Bollinger study produced a non-finite result.')
+    }
+    return { lower, middle: mean, upper }
   })
 }
 
@@ -122,7 +127,7 @@ function movingAverageConvergenceDivergence(
 
 export function normalizeStudies(inputs: StudyInput[] | undefined): NormalizedStudy[] {
   if (!inputs) return []
-  if (!Array.isArray(inputs) || inputs.length > MAX_STUDIES) throw new Error('Price studies are invalid.')
+  if (!Array.isArray(inputs) || inputs.length > MAX_PRICE_STUDIES) throw new Error('Price studies are invalid.')
   const seen = new Set<string>()
   const remember = (key: string) => {
     if (seen.has(key)) throw new Error('Duplicate price studies are not allowed.')
@@ -131,14 +136,14 @@ export function normalizeStudies(inputs: StudyInput[] | undefined): NormalizedSt
   return inputs.map((input) => {
     if (!JsonObjectSchema.safeParse(input).success) throw new Error('Price studies are invalid.')
     if (input.kind === 'SMA' || input.kind === 'EMA' || input.kind === 'RSI') {
-      const period = boundedInteger(input.period, 14, 2, 200, `${input.kind} period`)
+      const period = boundedInteger(input.period, 14, 2, MAX_PRICE_STUDY_PERIOD, `${input.kind} period`)
       remember(`${input.kind}:${period}`)
       return { kind: input.kind, period }
     }
     if (input.kind === 'BBANDS') {
-      const period = boundedInteger(input.period, 14, 2, 200, 'Bollinger period')
+      const period = boundedInteger(input.period, 14, 2, MAX_PRICE_STUDY_PERIOD, 'Bollinger period')
       const standardDeviations = input.standardDeviations ?? 2
-      if (!Number.isFinite(standardDeviations) || standardDeviations < 0.1 || standardDeviations > 5) {
+      if (!Number.isFinite(standardDeviations) || standardDeviations <= 0) {
         throw new Error('Bollinger deviations are invalid.')
       }
       remember(`${input.kind}:${period}:${standardDeviations}`)
@@ -146,9 +151,9 @@ export function normalizeStudies(inputs: StudyInput[] | undefined): NormalizedSt
     }
     // Reachable: `inputs` is untrusted model output, not yet a closed union.
     if (input.kind !== 'MACD') throw new Error('Price studies are invalid.')
-    const fastPeriod = boundedInteger(input.fastPeriod, 12, 2, 100, 'MACD fast period')
-    const slowPeriod = boundedInteger(input.slowPeriod, 26, 3, 200, 'MACD slow period')
-    const signalPeriod = boundedInteger(input.signalPeriod, 9, 2, 100, 'MACD signal period')
+    const fastPeriod = boundedInteger(input.fastPeriod, 12, 2, MAX_PRICE_STUDY_PERIOD, 'MACD fast period')
+    const slowPeriod = boundedInteger(input.slowPeriod, 26, 3, MAX_PRICE_STUDY_PERIOD, 'MACD slow period')
+    const signalPeriod = boundedInteger(input.signalPeriod, 9, 2, MAX_PRICE_STUDY_PERIOD, 'MACD signal period')
     if (fastPeriod >= slowPeriod) throw new Error('MACD fast period must be less than slow period.')
     remember(`${input.kind}:${fastPeriod}:${slowPeriod}:${signalPeriod}`)
     return { fastPeriod, kind: input.kind, signalPeriod, slowPeriod }

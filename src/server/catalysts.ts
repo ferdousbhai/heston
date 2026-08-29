@@ -4,11 +4,12 @@ import { CatalystSchema, isValidIsoDate, marketDate, type Catalyst } from '../do
 import { EquitySymbolSchema } from '../domain/instrument'
 import { type AppEnv } from './env'
 import { jsonObject, jsonText, type JsonObject, type JsonValue } from '../domain/json-payload'
+import { D1_MAX_BOUND_PARAMETERS, rowsPerD1Statement } from './d1-limits'
 
 const TASTYTRADE_METRICS_URL = 'https://developer.tastytrade.com/open-api-spec/market-metrics/'
-const D1_MAX_BOUND_PARAMETERS = 100
 const DELETE_SYMBOL_CHUNK_SIZE = D1_MAX_BOUND_PARAMETERS
-const CATALYST_ROWS_PER_STATEMENT = 8
+const CATALYST_BOUND_PARAMETERS_PER_ROW = 12
+const CATALYST_ROWS_PER_STATEMENT = rowsPerD1Statement(CATALYST_BOUND_PARAMETERS_PER_ROW)
 
 export type ResearchCatalystSource = 'codex-web' | 'reddit' | 'x'
 

@@ -96,8 +96,6 @@ describe('market research tools', () => {
       dataAsOf: '2026-07-30',
       delay: 'end-of-day',
       provider: 'test-provider',
-      returnedRowCount: 5,
-      stale: false,
       studyPriceField: 'adjustedClose',
       totalValidRowCount: 30,
       truncated: true,
@@ -132,6 +130,20 @@ describe('market research tools', () => {
     }))
   })
 
+  it('leaves calendar range breadth to the bounded provider-row envelope', async () => {
+    const provider = priceProvider(historyRows(1))
+
+    await expect(readPriceHistory({
+      endDate: '2026-07-30',
+      startDate: '2000-01-01',
+      symbol: 'AAPL',
+    }, provider, now)).resolves.toMatchObject({ prices: [expect.any(Object)] })
+    expect(provider.readDaily).toHaveBeenCalledWith('AAPL', {
+      endDate: '2026-07-30',
+      startDate: '2000-01-01',
+    })
+  })
+
   it('fails before fetching on invalid ranges and duplicate or invalid studies', async () => {
     const provider = priceProvider(historyRows(1))
     await expect(readPriceHistory({
@@ -152,6 +164,26 @@ describe('market research tools', () => {
       symbol: 'AAPL',
     }, provider, now)).rejects.toThrow('fast period')
     expect(provider.readDaily).not.toHaveBeenCalled()
+  })
+
+  it('allows study parameters up to the accepted provider allocation boundary', async () => {
+    await expect(readPriceHistory({
+      studies: [{ kind: 'SMA', period: 201 }, { kind: 'BBANDS', standardDeviations: 5.1 }],
+      symbol: 'AAPL',
+    }, priceProvider(historyRows(1)), now)).resolves.toMatchObject({
+      studies: [{ kind: 'SMA', period: 201 }, { kind: 'BBANDS', standardDeviations: 5.1 }],
+    })
+    await expect(readPriceHistory({
+      studies: [{ kind: 'SMA', period: 4_001 }],
+      symbol: 'AAPL',
+    }, priceProvider(historyRows(1)), now)).rejects.toThrow('SMA period')
+    await expect(readPriceHistory({
+      studies: [{ kind: 'BBANDS', period: 2, standardDeviations: Number.MAX_VALUE }],
+      symbol: 'AAPL',
+    }, priceProvider(historyRows(2).map((row, index) => ({
+      ...row,
+      adjustedClose: index === 0 ? 1 : 5,
+    }))), now)).rejects.toThrow('non-finite result')
   })
 
   it('aggregates weekly and monthly bars locally without changing adjusted-close semantics', async () => {

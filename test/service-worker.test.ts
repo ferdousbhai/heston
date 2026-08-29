@@ -49,7 +49,7 @@ describe('legacy service-worker retirement', () => {
     expect(handlers.has('fetch')).toBe(false)
   })
 
-  it('clears only Spice-owned caches, claims open clients, and unregisters itself', async () => {
+  it('unregisters itself while the page owns legacy cache clearing', async () => {
     const { cacheStorage, handlers, worker } = loadWorker([
       'spice-public-shell-v1',
       'spice-public-shell-v2',
@@ -58,11 +58,9 @@ describe('legacy service-worker retirement', () => {
 
     await dispatch(handlers.get('activate')!)
 
-    expect(cacheStorage.delete.mock.calls.map(([name]) => name)).toEqual([
-      'spice-public-shell-v1',
-      'spice-public-shell-v2',
-    ])
-    expect(worker.clients.claim).toHaveBeenCalledOnce()
+    expect(cacheStorage.keys).not.toHaveBeenCalled()
+    expect(cacheStorage.delete).not.toHaveBeenCalled()
+    expect(worker.clients.claim).not.toHaveBeenCalled()
     expect(worker.registration.unregister).toHaveBeenCalledOnce()
   })
 })

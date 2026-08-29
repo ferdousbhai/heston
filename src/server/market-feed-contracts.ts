@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { CandlePointSchema, MAX_INTRADAY_CANDLES } from '../domain/candle'
 import { EquitySymbolSchema } from '../domain/instrument'
 import { jsonNumber, type JsonObject } from '../domain/json-payload'
+import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 
 export const DXLINK_TX_PENDING = 0x1
 export const DXLINK_REMOVE_EVENT = 0x2
@@ -12,11 +13,9 @@ export const DXLINK_SNAPSHOT_SNIP = 0x10
 
 const MarketSymbolSchema = EquitySymbolSchema
 
-export const MAX_MARKET_FEED_SYMBOLS = 100
-
 export const MarketFeedSymbolsSchema = z.array(MarketSymbolSchema)
   .min(1)
-  .max(MAX_MARKET_FEED_SYMBOLS)
+  .max(MAX_WATCHLIST_SYMBOLS)
 
 export const LiveMarketEventSchema = z.object({
   type: z.literal('market'),
@@ -48,7 +47,9 @@ export const MarketFeedStatusSchema = z.object({
 
 export type MarketFeedStatus = z.infer<typeof MarketFeedStatusSchema>
 
-const MAX_OPTION_GREEKS_SYMBOLS = 10
+// One interactive Greeks RPC may briefly subscribe and wait for every requested contract;
+// bounding that fan-out keeps its timeout and returned model context predictable.
+export const MAX_OPTION_GREEKS_CONTRACTS = 10
 
 export const OptionStreamerSymbolSchema = z.string()
   .trim()
@@ -74,7 +75,7 @@ export type OptionGreeksEvent = z.infer<typeof OptionGreeksEventSchema>
 
 export const OptionGreeksReadResultSchema = z.object({
   asOf: z.string().datetime(),
-  greeks: z.array(OptionGreeksEventSchema).max(MAX_OPTION_GREEKS_SYMBOLS),
+  greeks: z.array(OptionGreeksEventSchema).max(MAX_OPTION_GREEKS_CONTRACTS),
   impliedVolatilityUnit: z.literal('decimal_ratio'),
   source: z.literal('tastytrade-dxlink'),
 })
@@ -85,7 +86,7 @@ export type OptionGreeksReadResult = z.infer<typeof OptionGreeksReadResultSchema
 export function parseOptionStreamerSymbols(value: readonly string[]): string[] {
   const parsed = z.array(OptionStreamerSymbolSchema)
     .min(1)
-    .max(MAX_OPTION_GREEKS_SYMBOLS)
+    .max(MAX_OPTION_GREEKS_CONTRACTS)
     .parse(value)
   return [...new Set(parsed)]
 }

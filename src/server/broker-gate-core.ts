@@ -1,8 +1,11 @@
 import { z } from 'zod'
 
+// One account is deliberately serialized to at most two broker requests per second. The
+// mutation lease is a crash-recovery backstop; normal callers renew/release it explicitly.
 const PERMIT_INTERVAL_MS = 500
 const NEXT_PERMIT_KEY = 'next-permit-at'
 const MUTATION_LEASE_KEY = 'active-mutation-lease'
+// This outlives normal broker request timeouts but eventually releases an evicted caller's lock.
 const MUTATION_LEASE_MS = 2 * 60_000
 const MUTATION_LEASE_POLL_MS = 500
 

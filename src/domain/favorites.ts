@@ -1,8 +1,11 @@
 import { z } from 'zod'
 
 import { EquitySymbolSchema } from './instrument'
+import { MAX_WATCHLIST_SYMBOLS } from './watchlist'
 
-export const MAX_FAVORITE_SYMBOLS = 100
+// Favorites are selected from the bounded market surface, so member storage uses
+// the same cardinality instead of introducing a second product limit.
+export const MAX_FAVORITE_SYMBOLS = MAX_WATCHLIST_SYMBOLS
 
 export const FavoriteSymbolsSchema = z.array(EquitySymbolSchema).max(MAX_FAVORITE_SYMBOLS)
 

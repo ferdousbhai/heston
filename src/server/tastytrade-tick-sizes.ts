@@ -6,6 +6,8 @@ import {
   type JsonValue,
 } from '../domain/json-payload'
 
+// A real tick schedule has only a handful of tiers; this wider ceiling rejects anomalous
+// provider fan-out before the values become authoritative order-price validation data.
 const MAX_TICK_TIERS_PER_KIND = 50
 
 export type TastytradeTickSize = {

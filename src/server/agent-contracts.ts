@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { Type } from '@earendil-works/pi-ai'
 
 import { EquitySymbolSchema } from '../domain/instrument'
 
@@ -12,6 +13,9 @@ const OrderIdSchema = z.string().regex(/^\d{1,40}$/)
 const ExpiryDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 /** Limit prices are whole cents; the broker rejects finer increments. */
 const LimitPriceSchema = z.number().positive().multipleOf(0.01)
+// Quantity has no independent product ceiling. Fresh account state, contract
+// multipliers, closing inventory, and the portfolio-loss budget decide what is safe.
+const QuantitySchema = z.number().int().positive()
 
 const OptionActionSchema = z.object({
   kind: z.literal('place_option_order'),
@@ -20,7 +24,7 @@ const OptionActionSchema = z.object({
   strike: z.number().positive(),
   expiry: ExpiryDateSchema,
   action: OrderActionSchema,
-  quantity: z.number().int().min(1).max(100),
+  quantity: QuantitySchema,
   limitPrice: LimitPriceSchema,
   priceEffect: z.enum(['Debit', 'Credit']),
 })
@@ -29,7 +33,7 @@ const EquityActionSchema = z.object({
   kind: z.literal('place_equity_order'),
   symbol: EquitySymbolSchema,
   action: OrderActionSchema,
-  quantity: z.number().int().min(1).max(10_000),
+  quantity: QuantitySchema,
   limitPrice: LimitPriceSchema,
   priceEffect: z.enum(['Debit', 'Credit']),
 })
@@ -41,7 +45,7 @@ const VerticalSpreadActionSchema = z.object({
   expiry: ExpiryDateSchema,
   longStrike: z.number().positive(),
   shortStrike: z.number().positive(),
-  quantity: z.number().int().min(1).max(100),
+  quantity: QuantitySchema,
   limitPrice: LimitPriceSchema,
   priceEffect: z.literal('Debit'),
 }).superRefine((action, context) => {
@@ -86,6 +90,16 @@ export const FreshOrderPlacementSchema = z.discriminatedUnion('kind', [
 
 export const OrderPlacementSchema = z.union([FreshOrderPlacementSchema, ReplaceOrderActionSchema])
 
+function modelParameters<T extends z.ZodType>(schema: T) {
+  const jsonSchema = { ...z.toJSONSchema(schema) }
+  Reflect.deleteProperty(jsonSchema, '$schema')
+  Reflect.deleteProperty(jsonSchema, '~standard')
+  return Type.Unsafe<z.infer<T>>(jsonSchema)
+}
+
+/** The model and security boundary share one order contract; Zod refinements run again before storage. */
+export const OrderPlacementParameters = modelParameters(OrderPlacementSchema)
+
 export const StoredOrderPlacementSchema = z.union([
   FreshOrderPlacementSchema,
   ReplaceOrderActionSchema.extend({ replacementOrder: FreshOrderPlacementSchema }),
@@ -97,6 +111,8 @@ export const DirectAccountActionSchema = z.discriminatedUnion('kind', [
   RemoveWatchlistSymbolsSchema,
 ])
 
+// These are request-envelope abuse bounds: chat is one model turn and the confirmation token is
+// an opaque digest input, not domain data. They do not authorize or constrain trade size.
 export const ChatRequestSchema = z.object({
   message: z.string().trim().min(1).max(4_000),
   selectedSymbol: EquitySymbolSchema.optional(),

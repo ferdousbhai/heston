@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { JsonObjectSchema } from '../src/domain/json-payload'
+import { MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
 import { resetResponsesApi, setResponsesApi, type ResponsesApi } from '../src/server/pi-runtime'
 import {
   ChatRequestSchema,
@@ -36,6 +37,18 @@ describe('brokerage input boundary', () => {
       expiry: '2026-09-18', action: 'Buy to Open', quantity: 1, limitPrice: 5.2,
       priceEffect: 'Debit',
     }).kind).toBe('place_option_order')
+  })
+
+  it('leaves quantity authorization to the fresh portfolio guard', () => {
+    expect(OrderPlacementSchema.safeParse({
+      kind: 'place_option_order', underlying: 'SPY', optionType: 'C', strike: 700,
+      expiry: '2026-09-18', action: 'Buy to Open', quantity: 101, limitPrice: 5.2,
+      priceEffect: 'Debit',
+    }).success).toBe(true)
+    expect(OrderPlacementSchema.safeParse({
+      kind: 'place_equity_order', symbol: 'SPY', action: 'Buy to Open', quantity: 10_001,
+      limitPrice: 1, priceEffect: 'Debit',
+    }).success).toBe(true)
   })
 
   it('accepts only bounded debit verticals and price-only replacements', () => {
@@ -121,9 +134,16 @@ describe('brokerage input boundary', () => {
   })
 
   it('accepts only bounded mutations for the single internal watchlist', () => {
+    const symbols = Array.from({ length: MAX_WATCHLIST_SYMBOLS }, (_, index) => `T${index}`)
     expect(DirectAccountActionSchema.parse({
       kind: 'add_watchlist_symbols', symbols: ['NVDA', 'SPY'],
     }).kind).toBe('add_watchlist_symbols')
+    expect(DirectAccountActionSchema.safeParse({
+      kind: 'add_watchlist_symbols', symbols,
+    }).success).toBe(true)
+    expect(DirectAccountActionSchema.safeParse({
+      kind: 'add_watchlist_symbols', symbols: [...symbols, 'OVER'],
+    }).success).toBe(false)
     expect(DirectAccountActionSchema.safeParse({
       kind: 'remove_watchlist_symbols', watchlistName: '../private', symbols: ['NVDA'],
     }).success).toBe(false)

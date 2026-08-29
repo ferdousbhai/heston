@@ -70,10 +70,8 @@ describe('brokerage read tools', () => {
     )
     expect(result).toMatchObject({
       asOf: now.toISOString(),
-      returnedItemCount: 1,
       totalItemCount: 3,
       truncated: true,
-      type: 'transactions',
     })
     expect(result.items[0]).toEqual({
       action: 'Buy to Open',
@@ -101,6 +99,20 @@ describe('brokerage read tools', () => {
     } catch (error) {
       expect(String(error)).not.toContain('PRIVATE123')
     }
+  })
+
+  it('allows pagination to continue until the broker reports completion', async () => {
+    tastytrade.tastyRequest.mockResolvedValue({ data: { items: [] }, pagination: { 'total-items': 0 } })
+
+    await expect(readAccountHistory({}, {
+      days: 366,
+      pageOffset: 1_001,
+      type: 'orders',
+    }, now)).resolves.toMatchObject({ pageOffset: 1_001, truncated: false })
+    expect(tastytrade.tastyRequest).toHaveBeenCalledWith(
+      {},
+      '/accounts/PRIVATE123/orders?page-offset=1001&per-page=25&sort=Desc&start-date=2025-08-12',
+    )
   })
 
   it('rejects order-only transaction filters and malformed history envelopes', async () => {
@@ -144,8 +156,6 @@ describe('brokerage read tools', () => {
     expect(result).toMatchObject({
       asOf: now.toISOString(),
       missingSymbols: ['AAPL'],
-      requestedSymbols: ['NVDA', 'AAPL'],
-      truncated: false,
       volatilityUnit: 'percentage_points',
     })
     expect(result.metrics).toEqual([expect.objectContaining({
@@ -189,7 +199,6 @@ describe('brokerage read tools', () => {
       source: 'tastytrade',
       startsAt: undefined,
       state: 'Open',
-      truncated: false,
     })
   })
 
@@ -202,7 +211,7 @@ describe('brokerage read tools', () => {
     const result = await searchSymbols({}, 'Apple', 1, now)
 
     expect(tastytrade.tastyRequest).toHaveBeenCalledWith({}, '/symbols/search/Apple')
-    expect(result).toMatchObject({ returnedResultCount: 1, totalResultCount: 2, truncated: true })
+    expect(result).toMatchObject({ totalResultCount: 2, truncated: true })
     expect(result.results).toEqual([{
       description: 'Apple Inc.',
       hasOptions: true,
@@ -260,11 +269,10 @@ describe('brokerage read tools', () => {
 
     expect(tastytrade.tastyRequest).toHaveBeenCalledWith({}, '/option-chains/AAPL')
     expect(result).toMatchObject({
-      returnedContractCount: 1,
-      totalContractCount: 1,
+      mode: 'contracts',
       truncated: false,
-      underlying: 'AAPL',
     })
+    if (result.mode !== 'contracts') throw new Error('Expected contract mode')
     expect(result.contracts).toEqual([{
       expirationDate: '2026-09-18',
       isClosingOnly: false,
@@ -294,8 +302,8 @@ describe('brokerage read tools', () => {
       expiry: '2026-09-18', nearStrike: 205, optionType: 'C', underlying: 'AAPL',
     }, now)
 
+    if (result.mode !== 'contracts') throw new Error('Expected contract mode')
     expect(result.contracts.map((contract) => contract.strikePrice)).toEqual([200, 220, 180])
-    expect(result.filters).toEqual({ expiry: '2026-09-18', nearStrike: 205, optionType: 'C' })
   })
 
   it('rejects malformed option rows instead of silently returning an empty chain', async () => {

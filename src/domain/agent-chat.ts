@@ -19,7 +19,6 @@ type AgentUsage = {
 }
 
 export type AgentToolCall = {
-  durationMs?: number
   error?: string
   id: string
   input: JsonObject
@@ -52,26 +51,19 @@ export type DanAgentState = {
 }
 
 export type DanAgentEvent =
-  | { type: 'dan:agent_end' }
   | { type: 'dan:error'; message: string }
   | { type: 'dan:reasoning_delta'; delta: string }
   | { type: 'dan:text_delta'; delta: string }
-  | { type: 'dan:tool_call_delta'; delta: string; toolCallId: string }
-  | { type: 'dan:tool_call_start'; toolCallId: string; toolName: string }
-  | { type: 'dan:tool_execution_end'; durationMs: number; error?: string; output?: string; toolCallId: string; toolName: string }
-  | { type: 'dan:tool_execution_start'; input: JsonObject; toolCallId: string; toolName: string }
+  | { type: 'dan:tool_execution_end'; error?: string; output?: string; toolCallId: string; toolName: string }
+  | { type: 'dan:tool_execution_start'; input: JsonObject; label: string; toolCallId: string; toolName: string }
   | { type: 'dan:turn_end' }
   | { type: 'dan:turn_start' }
 
 const DanAgentEventSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('dan:agent_end') }),
   z.object({ message: z.string(), type: z.literal('dan:error') }),
   z.object({ delta: z.string(), type: z.literal('dan:reasoning_delta') }),
   z.object({ delta: z.string(), type: z.literal('dan:text_delta') }),
-  z.object({ delta: z.string(), toolCallId: z.string(), type: z.literal('dan:tool_call_delta') }),
-  z.object({ toolCallId: z.string(), toolName: z.string(), type: z.literal('dan:tool_call_start') }),
   z.object({
-    durationMs: z.number().finite().nonnegative(),
     error: z.string().optional(),
     output: z.string().optional(),
     toolCallId: z.string(),
@@ -80,6 +72,7 @@ const DanAgentEventSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     input: JsonObjectSchema,
+    label: z.string(),
     toolCallId: z.string(),
     toolName: z.string(),
     type: z.literal('dan:tool_execution_start'),

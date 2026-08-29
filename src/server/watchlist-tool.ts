@@ -11,7 +11,6 @@ import {
   type InternalWatchlistSymbolDetails,
 } from './internal-watchlist'
 
-const MAX_RETURNED_ITEMS = 100
 type WatchlistItemSummary = Pick<InternalWatchlistItem, 'instrumentType' | 'origin' | 'symbol'>
 
 export type WatchlistReadResult =
@@ -21,8 +20,6 @@ export type WatchlistReadResult =
     mode: 'index'
     source: 'spice'
     status: 'ok'
-    totalItemCount: number
-    truncated: boolean
   }
   | {
     fetchedAt: string
@@ -41,7 +38,7 @@ export type WatchlistReadResult =
 
 export const WatchlistReadParameters = Type.Object({
   symbol: Type.Optional(Type.String({
-    description: 'Exact equity symbol. Omit to read the consolidated internal watchlist.',
+    description: 'Omit for the index; provide for retained provenance.',
     pattern: EQUITY_SYMBOL_PATTERN,
   })),
 }, { additionalProperties: false })
@@ -50,7 +47,7 @@ async function readWatchlist(env: AppEnv, symbol?: string): Promise<WatchlistRea
   const fetchedAt = new Date().toISOString()
   if (!symbol) {
     const allItems = await readInternalWatchlist(env)
-    const items = allItems.slice(0, MAX_RETURNED_ITEMS).map((item) => ({
+    const items = allItems.map((item) => ({
       instrumentType: item.instrumentType,
       origin: item.origin,
       symbol: item.symbol,
@@ -61,8 +58,6 @@ async function readWatchlist(env: AppEnv, symbol?: string): Promise<WatchlistRea
       mode: 'index',
       source: 'spice',
       status: 'ok',
-      totalItemCount: allItems.length,
-      truncated: allItems.length > items.length,
     }
   }
   const details = await readInternalWatchlistSymbolDetails(env, symbol)
@@ -73,9 +68,8 @@ async function readWatchlist(env: AppEnv, symbol?: string): Promise<WatchlistRea
 
 export function createWatchlistReadTool(env: AppEnv): AgentTool<typeof WatchlistReadParameters, WatchlistReadResult> {
   return {
-    description: "Read Spice's consolidated internal private watchlist. Omit symbol for the list; provide one exact symbol for its retained one-time tastytrade seed provenance. This tool never reads tastytrade watchlist endpoints.",
+    description: 'Private watchlist; optional symbol returns retained provenance.',
     execute: async (_toolCallId, params) => textResult(await readWatchlist(env, params.symbol)),
-    executionMode: 'sequential',
     label: 'Reading watchlist',
     name: 'read_watchlists',
     parameters: WatchlistReadParameters,

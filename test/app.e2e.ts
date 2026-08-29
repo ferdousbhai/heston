@@ -212,6 +212,9 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   rejectNextSnapshot = true
   await watchlistEditor.getByRole('button', { name: 'Add symbol' }).click()
   await expect(watchlistEditor.getByText('Snapshot sync failed (503)')).toBeVisible()
+  await expect(watchlistEditor.locator('.watchlist-member', { hasText: 'PLTR' })).toHaveCount(0)
+  await expect(watchlistEditor.getByLabel('Add a symbol')).toHaveValue('PLTR')
+  await watchlistEditor.getByRole('button', { name: 'Add symbol' }).click()
   await expect(watchlistEditor.locator('.watchlist-member', { hasText: 'PLTR' })).toBeVisible()
   await watchlistEditor.getByRole('button', { name: 'Remove PLTR from Watchlist' }).click()
   await expect(watchlistEditor.locator('.watchlist-member', { hasText: 'PLTR' })).toHaveCount(0)
@@ -268,7 +271,7 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   await page.evaluate(() => window.dispatchEvent(new Event('offline')))
   await page.getByRole('tab', { name: 'Watch', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('Market data may be stale')
-  await expect(page.getByRole('alert')).toContainText('Live market updates are paused while offline')
+  await expect(page.getByRole('alert')).toContainText('The live feed disconnected')
   await expect(selectedSymbol).toHaveText('INTC')
 
   rejectSnapshots = true
@@ -277,7 +280,8 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   await expect(page.getByRole('alert')).toContainText('Latest market data could not be synchronized')
   rejectSnapshots = false
   await page.evaluate(() => window.dispatchEvent(new Event('online')))
-  await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect(page.getByRole('alert')).not.toContainText('Latest market data could not be synchronized')
+  await expect(page.getByRole('alert')).toContainText('The live feed disconnected')
 })
 
 test('authenticated favorites consume only unchanged anonymous staging across tabs', async ({ context, page }) => {

@@ -6,6 +6,7 @@ import {
 import { readBoundedJson } from '../../src/server/bounded-response'
 import { type OpsEnv, serveOpsRequest } from '../shared/worker-auth'
 
+// The temporary Worker buffers and validates this untrusted local-run artifact in memory.
 const MAX_ARTIFACT_BYTES = 8_000_000
 const CATALYST_PATHS = ['/input', '/validate', '/apply']
 

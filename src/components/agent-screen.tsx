@@ -38,7 +38,7 @@ import { Spinner } from '#/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#/components/ui/tooltip'
 import { cn } from '#/lib/utils'
 import { toError } from '../domain/failure'
-import { jsonObject, JsonObjectSchema, type JsonValue } from '../domain/json-payload'
+import { jsonObject, type JsonValue } from '../domain/json-payload'
 import {
   isDanAgentEvent,
   type AgentChatMessage,
@@ -69,19 +69,13 @@ export function actionResponseResult(
   return { detail: payload.detail }
 }
 
-type ProvisionalTool = AgentToolCall & { rawInput: string }
-type ProvisionalTurn = { reasoning: string; text: string; tools: ProvisionalTool[] }
+type ProvisionalTurn = { reasoning: string; text: string; tools: AgentToolCall[] }
 
 function formatTokens(value: number): string {
   if (value < 1_000) return String(value)
   if (value < 10_000) return `${(value / 1_000).toFixed(1)}k`
   if (value < 1_000_000) return `${Math.round(value / 1_000)}k`
   return `${(value / 1_000_000).toFixed(1)}m`
-}
-
-function formatDuration(value: number | undefined): string | undefined {
-  if (value === undefined) return undefined
-  return value < 1_000 ? `${value}ms` : `${(value / 1_000).toFixed(1)}s`
 }
 
 function InlineText({ text }: { text: string }) {
@@ -137,13 +131,11 @@ function ReasoningTrace({ defaultOpen = false, text }: { defaultOpen?: boolean; 
 
 function ToolCallRow({ tool }: { tool: AgentToolCall }) {
   const [open, setOpen] = useState(false)
-  const duration = formatDuration(tool.durationMs)
   return (
     <Collapsible className={cn('tool-call', tool.status)} onOpenChange={setOpen} open={open}>
       <CollapsibleTrigger render={<Button aria-expanded={open} type="button" variant="ghost" />}>
         <span className="tool-call-icon"><Wrench aria-hidden="true" /></span>
         <span className="tool-call-label">{tool.label}</span>
-        {duration && <span className="tool-call-duration">{duration}</span>}
         <span className="tool-call-status" aria-label={tool.status}>
           {tool.status === 'running' ? <Spinner /> : tool.status === 'error' ? <X /> : <Check />}
         </span>
@@ -340,24 +332,17 @@ export function AgentScreen({
       setProvisional((current) => ({ reasoning: current?.reasoning ?? '', text: `${current?.text ?? ''}${event.delta}`, tools: current?.tools ?? [] }))
     } else if (event.type === 'dan:reasoning_delta') {
       setProvisional((current) => ({ reasoning: `${current?.reasoning ?? ''}${event.delta}`, text: current?.text ?? '', tools: current?.tools ?? [] }))
-    } else if (event.type === 'dan:tool_call_start') {
+    } else if (event.type === 'dan:tool_execution_start') {
       setProvisional((current) => ({
         reasoning: current?.reasoning ?? '', text: current?.text ?? '',
-        tools: [...(current?.tools ?? []), { id: event.toolCallId, input: {}, label: event.toolName === 'prepare_brokerage_action' ? 'Preparing order' : event.toolName, name: event.toolName, rawInput: '', status: 'running' }],
+        tools: [...(current?.tools ?? []), {
+          id: event.toolCallId,
+          input: event.input,
+          label: event.label,
+          name: event.toolName,
+          status: 'running',
+        }],
       }))
-    } else if (event.type === 'dan:tool_call_delta') {
-      setProvisional((current) => current ? {
-        ...current,
-        tools: current.tools.map((tool) => {
-          if (tool.id !== event.toolCallId) return tool
-          const rawInput = `${tool.rawInput}${event.delta}`
-          let parsed = tool.input
-          try { parsed = JsonObjectSchema.parse(JSON.parse(rawInput)) } catch { /* partial JSON */ }
-          return { ...tool, input: parsed, rawInput }
-        }),
-      } : current)
-    } else if (event.type === 'dan:tool_execution_start') {
-      setProvisional((current) => current ? { ...current, tools: current.tools.map((tool) => tool.id === event.toolCallId ? { ...tool, input: event.input } : tool) } : current)
     } else if (event.type === 'dan:tool_execution_end') {
       if (!event.error && (
         event.toolName === 'apply_direct_account_action'
@@ -366,8 +351,8 @@ export function AgentScreen({
       )) {
         void refreshAccount()
       }
-      setProvisional((current) => current ? { ...current, tools: current.tools.map((tool) => tool.id === event.toolCallId ? { ...tool, durationMs: event.durationMs, error: event.error, output: event.output, status: event.error ? 'error' : 'complete' } : tool) } : current)
-    } else if (event.type === 'dan:turn_end' || event.type === 'dan:agent_end') {
+      setProvisional((current) => current ? { ...current, tools: current.tools.map((tool) => tool.id === event.toolCallId ? { ...tool, error: event.error, output: event.output, status: event.error ? 'error' : 'complete' } : tool) } : current)
+    } else if (event.type === 'dan:turn_end') {
       setProvisional(null)
     }
   }, [refreshAccount])
@@ -416,7 +401,7 @@ export function AgentScreen({
     <div className="agent-screen">
       <header className="agent-header">
         <Avatar className="dan-avatar" size="lg"><AvatarFallback><Bot aria-hidden="true" /></AvatarFallback></Avatar>
-        <div><h1>Dan</h1><Badge variant={connected ? 'cheap' : 'secondary'}>{connected ? `${state?.model ?? 'pi'} runtime` : 'Reconnecting…'}</Badge></div>
+        <div><h1>Dan</h1><Badge variant={connected ? 'cheap' : 'secondary'}>{connected ? state?.model ? `${state.model} runtime` : 'Runtime unavailable' : 'Reconnecting…'}</Badge></div>
         <Tooltip>
           <TooltipTrigger render={<Button className="icon-button" disabled={running} onClick={() => agent.send(JSON.stringify({ type: 'clear' }))} size="icon-lg" type="button" variant="outline" />}>
             <Trash2 />

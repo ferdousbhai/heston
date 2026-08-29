@@ -40,7 +40,8 @@ describe('tastytrade balance payloads', () => {
       equityBuyingPower: 128_000,
       netLiquidatingValue: 100_000,
     })
-    expect(accountBalancesFromPayload({ data: { ...balance, 'available-trading-funds': 'NaN' } }, 'A1')).toBeUndefined()
+    expect(() => accountBalancesFromPayload({ data: { ...balance, 'available-trading-funds': 'NaN' } }, 'A1'))
+      .toThrow('invalid-available-trading-funds')
   })
 })
 

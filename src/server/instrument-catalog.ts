@@ -5,6 +5,7 @@ import {
   InstrumentCatalogItemSchema,
   type InstrumentCatalogItem,
 } from '../domain/instrument'
+import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 import {
   envelopeRows,
   jsonNumber,
@@ -13,12 +14,15 @@ import {
   type JsonValue,
 } from '../domain/json-payload'
 import { type AppEnv } from './env'
+import { D1_MAX_BOUND_PARAMETERS, rowsPerD1Statement } from './d1-limits'
 
-const PROVIDER_CHUNK_SIZE = 100
-const SQL_SYMBOL_CHUNK_SIZE = 90
-const MAX_CATALOG_ITEMS = 10_000
-const MAX_PERSIST_ITEMS = 100
-const CATALOG_ROWS_PER_STATEMENT = 3
+const CATALOG_REFRESH_CHUNK_SIZE = MAX_WATCHLIST_SYMBOLS
+const SQL_SYMBOL_CHUNK_SIZE = D1_MAX_BOUND_PARAMETERS
+// The one-time seed can retain far more provenance than the live 100-name list;
+// this rejects an unexpected provider fan-out before it consumes a Worker isolate.
+export const MAX_INSTRUMENT_CATALOG_ITEMS = 10_000
+const CATALOG_BOUND_PARAMETERS_PER_ROW = 32
+const CATALOG_ROWS_PER_STATEMENT = rowsPerD1Statement(CATALOG_BOUND_PARAMETERS_PER_ROW)
 
 export type InstrumentCatalogRefresh = {
   missingSymbols: string[]
@@ -28,6 +32,8 @@ export type InstrumentCatalogRefresh = {
 
 export type InstrumentCatalogLoader = (symbols: readonly string[]) => Promise<JsonValue>
 
+// This persisted provider contract repeats the domain display-field widths and bounds the
+// additional raw catalog labels before they enter D1; none is used to authorize a trade.
 const InstrumentCatalogRecordSchema = InstrumentCatalogItemSchema.extend({
   active: z.boolean().nullable(),
   bypassManualReview: z.boolean().nullable(),
@@ -220,17 +226,18 @@ function catalogUpserts(
 
 export async function persistInstrumentCatalog(env: AppEnv, items: readonly InstrumentCatalogRecord[]): Promise<void> {
   if (!env.DB) throw new Error('InstrumentCatalog:store-unavailable')
-  if (items.length > MAX_PERSIST_ITEMS) throw new Error('InstrumentCatalog:persist-chunk-too-large')
   if (!items.length) return
-  const resolved = items.filter((item) => item.resolutionStatus === 'resolved')
-  const unresolved = items.filter((item) => item.resolutionStatus === 'unresolved')
-  // A missing provider row is evidence only that this refresh could not resolve
-  // the symbol. It must never erase a previously resolved identity or tick table.
-  const statements = [
-    ...catalogUpserts(env.DB, resolved, resolvedConflictClause),
-    ...catalogUpserts(env.DB, unresolved, 'ON CONFLICT(symbol) DO NOTHING'),
-  ]
-  await env.DB.batch(statements)
+  for (let start = 0; start < items.length; start += CATALOG_REFRESH_CHUNK_SIZE) {
+    const chunk = items.slice(start, start + CATALOG_REFRESH_CHUNK_SIZE)
+    const resolved = chunk.filter((item) => item.resolutionStatus === 'resolved')
+    const unresolved = chunk.filter((item) => item.resolutionStatus === 'unresolved')
+    // A missing provider row is evidence only that this refresh could not resolve
+    // the symbol. It must never erase a previously resolved identity or tick table.
+    await env.DB.batch([
+      ...catalogUpserts(env.DB, resolved, resolvedConflictClause),
+      ...catalogUpserts(env.DB, unresolved, 'ON CONFLICT(symbol) DO NOTHING'),
+    ])
+  }
 }
 
 const StoredCatalogRowSchema = z.object({
@@ -278,7 +285,7 @@ export async function readInstrumentCatalog(
 ): Promise<Map<string, InstrumentCatalogItem>> {
   if (!env.DB) throw new Error('InstrumentCatalog:store-unavailable')
   const symbols = [...new Set(requestedSymbols.map((symbol) => EquitySymbolSchema.parse(symbol)))]
-  if (symbols.length > MAX_CATALOG_ITEMS) throw new Error('InstrumentCatalog:too-many-symbols')
+  if (symbols.length > MAX_INSTRUMENT_CATALOG_ITEMS) throw new Error('InstrumentCatalog:too-many-symbols')
   if (!symbols.length) return new Map()
   const catalogRows: z.infer<typeof StoredCatalogRowSchema>[] = []
   for (let start = 0; start < symbols.length; start += SQL_SYMBOL_CHUNK_SIZE) {
@@ -323,11 +330,11 @@ export async function loadInstrumentCatalog(
   now = new Date(),
 ): Promise<{ items: InstrumentCatalogRecord[]; missingSymbols: string[]; requestedCount: number }> {
   const symbols = [...new Set(requestedSymbols.map((symbol) => EquitySymbolSchema.parse(symbol)))]
-  if (symbols.length > MAX_CATALOG_ITEMS) throw new Error('InstrumentCatalog:too-many-symbols')
+  if (symbols.length > MAX_INSTRUMENT_CATALOG_ITEMS) throw new Error('InstrumentCatalog:too-many-symbols')
   if (!symbols.length) return { items: [], missingSymbols: [], requestedCount: 0 }
   const received: InstrumentCatalogRecord[] = []
-  for (let start = 0; start < symbols.length; start += PROVIDER_CHUNK_SIZE) {
-    const chunk = symbols.slice(start, start + PROVIDER_CHUNK_SIZE)
+  for (let start = 0; start < symbols.length; start += CATALOG_REFRESH_CHUNK_SIZE) {
+    const chunk = symbols.slice(start, start + CATALOG_REFRESH_CHUNK_SIZE)
     received.push(...instrumentCatalogFromPayload(await load(chunk), chunk, now))
   }
   const receivedSymbols = new Set(received.map((item) => item.symbol))

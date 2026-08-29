@@ -55,10 +55,12 @@ export function BriefScreen({
                 <CardTitle>{idea.headline}</CardTitle>
                 <CardDescription>{idea.description}</CardDescription>
               </CardHeader>
-              <CardContent className="play-line">
-                <span>Potential play</span>
-                <strong>{idea.play ?? 'Fresh structure pending'}</strong>
-              </CardContent>
+              {idea.play && (
+                <CardContent className="play-line">
+                  <span>Potential play</span>
+                  <strong>{idea.play}</strong>
+                </CardContent>
+              )}
               <CardFooter className="risk-line">
                 <Alert>
                   <ShieldCheck aria-hidden="true" />

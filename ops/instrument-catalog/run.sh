@@ -35,7 +35,7 @@ if [[ -z "$ops_url" ]]; then
 fi
 
 catalog_offset=0
-for _ in $(seq 1 100); do
+while true; do
   catalog_result="$(node ops/shared/call-worker.mjs "$ops_secret" "$ops_url" "$ops_mode?offset=$catalog_offset")"
   printf '%s\n' "$catalog_result"
   catalog_complete="$(node -e '
@@ -50,12 +50,14 @@ for _ in $(seq 1 100); do
     fi
     exit 0
   fi
-  catalog_offset="$(node -e '
+  next_catalog_offset="$(node -e '
     let input = "";
     process.stdin.on("data", (chunk) => { input += chunk; });
     process.stdin.on("end", () => process.stdout.write(String(JSON.parse(input).result.nextOffset)));
   ' <<<"$catalog_result")"
+  if [[ ! "$next_catalog_offset" =~ ^[0-9]+$ ]] || (( next_catalog_offset <= catalog_offset )); then
+    echo 'Instrument catalog returned a non-advancing offset.' >&2
+    exit 1
+  fi
+  catalog_offset="$next_catalog_offset"
 done
-
-echo 'Instrument catalog did not complete within 100 chunks.' >&2
-exit 1

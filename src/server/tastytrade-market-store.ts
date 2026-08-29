@@ -1,7 +1,10 @@
 import { type AppEnv } from './env'
+import { rowsPerD1Statement } from './d1-limits'
 
-const METRIC_ROWS_PER_STATEMENT = 6
-const QUOTE_ROWS_PER_STATEMENT = 10
+const METRIC_BOUND_PARAMETERS_PER_ROW = 15
+const QUOTE_BOUND_PARAMETERS_PER_ROW = 10
+const METRIC_ROWS_PER_STATEMENT = rowsPerD1Statement(METRIC_BOUND_PARAMETERS_PER_ROW)
+const QUOTE_ROWS_PER_STATEMENT = rowsPerD1Statement(QUOTE_BOUND_PARAMETERS_PER_ROW)
 
 export type TastytradeMarketMetricRecord = {
   earningsDate: string | null

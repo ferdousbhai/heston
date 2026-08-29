@@ -72,6 +72,6 @@ describe('public errors', () => {
 describe('public responses', () => {
   it('allows only a short shared cache window for account-free market data', () => {
     const response = jsonPublic({ status: 'ok' })
-    expect(response.headers.get('cache-control')).toBe('public, max-age=30, s-maxage=60, stale-while-revalidate=120')
+    expect(response.headers.get('cache-control')).toBe('public, max-age=30, s-maxage=60')
   })
 })

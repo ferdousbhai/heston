@@ -22,13 +22,14 @@ export type RedditDiscussion = {
   context: string
   publishedAt: string
   score: number
-  source: typeof REDDIT_RESEARCH_SOURCE
   title: string
   url: string
 }
 
 const USER_AGENT = 'SpiceMustFlow/0.2 personal-options-research'
 export const REDDIT_RESEARCH_SOURCE = 'Reddit · r/wallstreetbets'
+// Reddit is untrusted and then embedded in one mandatory research packet. These caps bound
+// upstream requests, Worker memory, and model context; no post or comment is authoritative.
 const MAX_POSTS_REVIEWED = 20
 const MAX_COMMENTS_PER_POST = 10
 const MAX_POST_TEXT = 4_000
@@ -81,7 +82,7 @@ function redditUrl(value: string): string | undefined {
 function compactText(value: string | undefined, maxLength: number): string | undefined {
   const compact = value?.replace(/\s+/g, ' ').trim()
   if (!compact || compact === '[deleted]' || compact === '[removed]') return undefined
-  return compact.slice(0, maxLength)
+  return compact.length > maxLength ? `${compact.slice(0, maxLength - 1)}…` : compact
 }
 
 function commentBodies(payload: JsonValue): string[] {
@@ -125,12 +126,14 @@ function listingPosts(payload: JsonValue): RedditPost[] {
       if (!url) throw new Error('Reddit listing returned an invalid permalink')
       const published = new Date(post.created_utc * 1_000)
       if (Number.isNaN(published.valueOf())) throw new Error('Reddit listing returned an invalid timestamp')
+      const title = compactText(post.title, 240)
+      if (!title) throw new Error('Reddit listing returned an invalid title')
       return {
         numComments: post.num_comments,
         publishedAt: published.toISOString(),
         score: post.score,
         selfText: compactText(post.selftext, MAX_POST_TEXT),
-        title: post.title.replace(/\s+/g, ' ').trim().slice(0, 240),
+        title,
         url,
       }
     })
@@ -151,7 +154,6 @@ async function enrichPost(
     context: evidence.join('\n'),
     publishedAt: post.publishedAt,
     score: post.score,
-    source: REDDIT_RESEARCH_SOURCE,
     title: post.title,
     url: post.url,
   }

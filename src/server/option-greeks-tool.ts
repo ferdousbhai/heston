@@ -4,24 +4,25 @@ import { z } from 'zod'
 
 import { EQUITY_SYMBOL_PATTERN, EquitySymbolSchema } from '../domain/instrument'
 import { type AppEnv } from './env'
-import { OptionGreeksReadResultSchema, OptionStreamerSymbolSchema } from './market-feed-contracts'
+import {
+  MAX_OPTION_GREEKS_CONTRACTS,
+  OptionGreeksReadResultSchema,
+  OptionStreamerSymbolSchema,
+} from './market-feed-contracts'
 import { textResult } from './agent-tool-result'
 import {
   type EquityOptionTuple,
   resolveEquityOptionTuples,
 } from './option-contract'
 
-const MAX_GREEKS_CONTRACTS = 10
-
 export const ExactOptionGreeksReadParameters = Type.Object({
   contracts: Type.Array(Type.Object({
     expiry: Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }),
     optionType: Type.Union([Type.Literal('C'), Type.Literal('P')]),
-    strike: Type.Number({ exclusiveMinimum: 0, maximum: 1_000_000 }),
+    strike: Type.Number({ exclusiveMinimum: 0 }),
     underlying: Type.String({ pattern: EQUITY_SYMBOL_PATTERN }),
   }, { additionalProperties: false }), {
-    description: 'One to ten exact human-readable equity option tuples.',
-    maxItems: MAX_GREEKS_CONTRACTS,
+    maxItems: MAX_OPTION_GREEKS_CONTRACTS,
     minItems: 1,
   }),
 }, { additionalProperties: false })
@@ -35,9 +36,9 @@ const ExactOptionGreeksInputSchema = z.object({
   contracts: z.array(z.object({
     expiry: IsoDateSchema,
     optionType: z.enum(['C', 'P']),
-    strike: z.number().finite().positive().max(1_000_000),
+    strike: z.number().finite().positive(),
     underlying: EquitySymbolSchema,
-  }).strict()).min(1).max(MAX_GREEKS_CONTRACTS),
+  }).strict()).min(1).max(MAX_OPTION_GREEKS_CONTRACTS),
 }).strict()
 
 export type ExactOptionGreeksReadInput = {
@@ -121,9 +122,8 @@ export function createExactOptionGreeksReadTool(
   env: AppEnv,
 ): AgentTool<typeof ExactOptionGreeksReadParameters, ExactOptionGreeksReadResult> {
   return {
-    description: 'Read live option price, implied volatility, and Greeks for up to ten exact equity option tuples. Supply underlying, expiry, C/P, and strike; the server resolves the active standard broker contract. This tool is read-only.',
+    description: 'Live broker IV and Greeks for exact option tuples.',
     execute: async (_toolCallId, params) => textResult(await readExactOptionGreeks(env, params)),
-    executionMode: 'sequential',
     label: 'Reading option Greeks',
     name: 'read_option_greeks',
     parameters: ExactOptionGreeksReadParameters,

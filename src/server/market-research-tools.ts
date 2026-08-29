@@ -6,6 +6,10 @@ import chart, { type ChartResultArray } from 'yahoo-finance2/modules/chart'
 import { marketDate } from '../domain/catalyst'
 import { EQUITY_SYMBOL_PATTERN, EQUITY_SYMBOL_REGEX } from '../domain/instrument'
 import {
+  MAX_PRICE_HISTORY_PROVIDER_ROWS,
+  MAX_PRICE_HISTORY_RETURNED_ROWS,
+  MAX_PRICE_STUDIES,
+  MAX_PRICE_STUDY_PERIOD,
   type PriceHistoryProvider,
   type PriceHistoryReadInput,
   type PriceHistoryReadResult,
@@ -19,11 +23,6 @@ import { boundedYahooFetch } from './yahoo-finance-transport'
 export type { PriceHistoryProvider, PriceHistoryRow } from './market-research-contracts'
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
-const MAX_HISTORY_DAYS = 10 * 366
-const MAX_HISTORY_ROWS = 250
-const MAX_RAW_HISTORY_ROWS = 4_000
-const MAX_STUDIES = 5
-
 /**
  * Yahoo is intentionally a credential-free, delayed secondary context source.
  * It never supplies executable quotes or contracts; tastytrade remains the order
@@ -41,20 +40,20 @@ type ResearchYahooClient = {
 
 const ScalarStudyParameters = Type.Object({
   kind: Type.Union([Type.Literal('SMA'), Type.Literal('EMA'), Type.Literal('RSI')]),
-  period: Type.Optional(Type.Integer({ maximum: 200, minimum: 2 })),
+  period: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 2 })),
 }, { additionalProperties: false })
 
 const BollingerStudyParameters = Type.Object({
   kind: Type.Literal('BBANDS'),
-  period: Type.Optional(Type.Integer({ maximum: 200, minimum: 2 })),
-  standardDeviations: Type.Optional(Type.Number({ maximum: 5, minimum: 0.1 })),
+  period: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 2 })),
+  standardDeviations: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
 }, { additionalProperties: false })
 
 const MacdStudyParameters = Type.Object({
-  fastPeriod: Type.Optional(Type.Integer({ maximum: 100, minimum: 2 })),
+  fastPeriod: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 2 })),
   kind: Type.Literal('MACD'),
-  signalPeriod: Type.Optional(Type.Integer({ maximum: 100, minimum: 2 })),
-  slowPeriod: Type.Optional(Type.Integer({ maximum: 200, minimum: 3 })),
+  signalPeriod: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 2 })),
+  slowPeriod: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 3 })),
 }, { additionalProperties: false })
 
 const PriceHistoryReadParameters = Type.Object({
@@ -67,7 +66,7 @@ const PriceHistoryReadParameters = Type.Object({
   ], { description: 'Daily by default.' })),
   limit: Type.Optional(Type.Integer({
     description: 'Most recent rows to return. Defaults to 120.',
-    maximum: MAX_HISTORY_ROWS,
+    maximum: MAX_PRICE_HISTORY_RETURNED_ROWS,
     minimum: 1,
   })),
   startDate: Type.Optional(Type.String({
@@ -78,7 +77,7 @@ const PriceHistoryReadParameters = Type.Object({
     ScalarStudyParameters, BollingerStudyParameters, MacdStudyParameters,
   ]), {
     description: 'Optional studies calculated from adjusted closes. Defaults: period 14; MACD 12/26/9; Bollinger deviations 2.',
-    maxItems: MAX_STUDIES,
+    maxItems: MAX_PRICE_STUDIES,
   })),
   symbol: Type.String({ pattern: EQUITY_SYMBOL_PATTERN }),
 }, { additionalProperties: false })
@@ -177,7 +176,7 @@ export function createYahooPriceHistoryProvider(
         throw new ResearchProviderError('unavailable', 'yahoo')
       }
       const quotes = raw.quotes
-      if (!Array.isArray(quotes) || quotes.length > MAX_RAW_HISTORY_ROWS) return invalidHistory()
+      if (!Array.isArray(quotes) || quotes.length > MAX_PRICE_HISTORY_PROVIDER_ROWS) return invalidHistory()
       if (raw.meta?.symbol && raw.meta.symbol.toUpperCase() !== providerSymbol) return invalidHistory()
       const currency = raw.meta?.currency
       const exchange = raw.meta?.exchangeName
@@ -218,9 +217,7 @@ function requestedHistoryRange(input: PriceHistoryReadInput, now: Date) {
   if (!validDate(startDate)) throw new Error('Price history start date is invalid.')
   const start = Date.parse(`${startDate}T00:00:00.000Z`)
   const end = Date.parse(`${endDate}T00:00:00.000Z`)
-  if (start > end || (end - start) / 86_400_000 > MAX_HISTORY_DAYS) {
-    throw new Error('Price history range is invalid or exceeds ten years.')
-  }
+  if (start > end) throw new Error('Price history range is invalid.')
   return { endDate, startDate }
 }
 
@@ -265,11 +262,11 @@ export async function readPriceHistory(
   const symbol = normalizeSymbol(input.symbol)
   const interval = input.interval ?? '1d'
   if (interval !== '1d' && interval !== '1wk' && interval !== '1mo') throw new Error('Price history interval is invalid.')
-  const limit = boundedInteger(input.limit, 120, 1, MAX_HISTORY_ROWS, 'Price history limit')
+  const limit = boundedInteger(input.limit, 120, 1, MAX_PRICE_HISTORY_RETURNED_ROWS, 'Price history limit')
   const requestedRange = requestedHistoryRange(input, now)
   const studyInputs = normalizeStudies(input.studies)
   const providerResult = await provider.readDaily(symbol, requestedRange)
-  if (providerResult.symbol !== symbol || providerResult.prices.length > MAX_RAW_HISTORY_ROWS) {
+  if (providerResult.symbol !== symbol || providerResult.prices.length > MAX_PRICE_HISTORY_PROVIDER_ROWS) {
     throw new Error('Price history provider returned a mismatched or oversized response.')
   }
   const daily = [...providerResult.prices].sort((left, right) => left.date.localeCompare(right.date))
@@ -292,11 +289,8 @@ export async function readPriceHistory(
     prices,
     provider: providerResult.provider,
     requestedRange,
-    returnedRowCount: prices.length,
     skippedRowCount: providerResult.skippedRowCount,
-    source: providerResult.provider,
     sourceUrl: providerResult.sourceUrl,
-    stale: false,
     studies: calculateStudies(normalized, studyInputs, returnedStart),
     studyPriceField: 'adjustedClose',
     symbol,
@@ -312,9 +306,8 @@ function createPriceHistoryReadTool(
   PriceHistoryReadResult
 > {
   return {
-    description: 'Read bounded dividend-adjusted daily, weekly, or monthly equity price history from a documented authenticated source, with optional SMA, EMA, RSI, MACD, or Bollinger studies calculated locally from adjusted closes. Historical and technical context is not a current executable quote or standalone edge.',
+    description: 'Dividend-adjusted Yahoo history with optional local SMA, EMA, RSI, MACD, or Bollinger studies; not a current quote.',
     execute: async (_toolCallId, params) => textResult(await readPriceHistory(params, provider)),
-    executionMode: 'sequential',
     label: 'Reading price history',
     name: 'read_price_history',
     parameters: PriceHistoryReadParameters,

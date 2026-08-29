@@ -15,6 +15,7 @@ import {
 } from '../domain/json-payload'
 import { resolveStoredOrderFingerprint } from './order-intent'
 import { brokerApi } from './tastytrade'
+import { textResult } from './agent-tool-result'
 
 type StoredUnknownAction = {
   error_code: string | null
@@ -33,7 +34,10 @@ export type ReconciliationResult = {
 }
 
 const ReconcileParameters = Type.Object({}, { additionalProperties: false })
+// A recent absence is not proof that an ambiguous broker mutation failed; wait through the
+// provider's order-history propagation window before allowing a deterministic absence result.
 const FINAL_ABSENCE_DELAY_MS = 15 * 60_000
+const RECONCILIATION_HISTORY_PAGE_SIZE = 100
 
 /** Whether the broker claimed a total at all, as opposed to one we could not read. */
 function declaresTotalItems(payload: JsonValue): boolean {
@@ -44,7 +48,9 @@ function declaresTotalItems(payload: JsonValue): boolean {
 
 function orderRows(payload: JsonValue): OrderHistoryPage {
   const candidate = envelopeRows(payload)
-  if (!candidate || candidate.length > 100) throw new Error('TastytradeReconciliation:invalid-history')
+  if (!candidate || candidate.length > RECONCILIATION_HISTORY_PAGE_SIZE) {
+    throw new Error('TastytradeReconciliation:invalid-history')
+  }
   const rows = candidate.map((value) => {
     const row = jsonObject(value)
     if (!row) throw new Error('TastytradeReconciliation:invalid-history')
@@ -57,7 +63,7 @@ function orderRows(payload: JsonValue): OrderHistoryPage {
   const total = envelopeTotalItems(payload)
   const complete = total !== undefined
     ? total <= rows.length
-    : !declaresTotalItems(payload) && rows.length < 100
+    : !declaresTotalItems(payload) && rows.length < RECONCILIATION_HISTORY_PAGE_SIZE
   return { complete, rows }
 }
 
@@ -123,7 +129,7 @@ export async function reconcileUnknownBrokerageAction(
   const startDate = new Date(submittedAt.getTime() - 24 * 60 * 60_000).toISOString().slice(0, 10)
   const history = orderRows(await brokerApi().tastyRequest(
     env,
-    `/accounts/${encodeURIComponent(account)}/orders?per-page=100&sort=Desc&start-date=${startDate}`,
+    `/accounts/${encodeURIComponent(account)}/orders?per-page=${RECONCILIATION_HISTORY_PAGE_SIZE}&sort=Desc&start-date=${startDate}`,
   ))
   const matches = history.rows.filter((row) => matchesSubmittedOrder(row, intended, submittedAt, now, replacedOrderId))
   if (matches.length !== 1) {
@@ -161,11 +167,9 @@ export async function reconcileUnknownBrokerageAction(
 
 export function createBrokerageReconciliationTool(env: AppEnv): AgentTool<typeof ReconcileParameters, ReconciliationResult> {
   return {
-    description: 'Reconcile a quarantined, ambiguous Spice order submission against recent tastytrade history. This never submits or retries an order.',
-    execute: async () => {
-      const result = await reconcileUnknownBrokerageAction(env)
-      return { content: [{ text: JSON.stringify(result), type: 'text' }], details: result }
-    },
+    description: 'Resolve one quarantined submission against broker order history.',
+    execute: async () => textResult(await reconcileUnknownBrokerageAction(env)),
+    executionMode: 'sequential',
     label: 'Reconciling order',
     name: 'reconcile_brokerage_action',
     parameters: ReconcileParameters,

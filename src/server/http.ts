@@ -9,7 +9,7 @@ import { type AppEnv } from './env'
 
 const CANONICAL_ORIGIN = 'https://tryspice.xyz'
 const NON_CANONICAL_HOSTS = new Set(['www.tryspice.xyz'])
-export const PUBLIC_RESPONSE_CACHE_CONTROL = 'public, max-age=30, s-maxage=60, stale-while-revalidate=120'
+export const PUBLIC_RESPONSE_CACHE_CONTROL = 'public, max-age=30, s-maxage=60'
 
 export function canonicalHostRedirect(request: Request): Response | undefined {
   const url = new URL(request.url)

@@ -50,17 +50,8 @@ function storedSnapshot(age: number, label: string): Response {
   })
 }
 
-/** Holds the broker build open so a background refresh can be observed before it completes. */
-function pendingSnapshotBuild(): () => void {
-  let finish: ((snapshot: MarketSnapshot) => void) | undefined
-  broker.loadPublicMarketSnapshot.mockReturnValue(new Promise<MarketSnapshot>((resolve) => {
-    finish = resolve
-  }))
-  return () => finish?.(publicSnapshot())
-}
-
-function serve(cache: PublicSnapshotCache, scheduled: Promise<void>[]): Promise<Response> {
-  return servePublicSnapshot(new Request(SNAPSHOT_URL), {}, cache, (task) => scheduled.push(task), NOW)
+function serve(cache: PublicSnapshotCache): Promise<Response> {
+  return servePublicSnapshot(new Request(SNAPSHOT_URL), {}, cache, NOW)
 }
 
 beforeEach(() => {
@@ -76,60 +67,35 @@ afterEach(() => {
 describe('public snapshot route cache', () => {
   it('serves a fresh retained copy without rebuilding it', async () => {
     const cache = new MemoryPublicSnapshotCache(storedSnapshot(30_000, 'fresh'))
-    const scheduled: Promise<void>[] = []
 
-    const response = await serve(cache, scheduled)
+    const response = await serve(cache)
 
     await expect(response.json()).resolves.toEqual({ label: 'fresh' })
     expect(response.headers.get('Cache-Control')).toBe(PUBLIC_RESPONSE_CACHE_CONTROL)
     expect(broker.loadPublicMarketSnapshot).not.toHaveBeenCalled()
-    expect(scheduled).toHaveLength(0)
     expect(cache.putCalls).toBe(0)
   })
 
-  it('serves a stale copy before its one scheduled background refresh finishes', async () => {
-    const finishBuild = pendingSnapshotBuild()
+  it('rebuilds a copy as soon as it is stale', async () => {
     const cache = new MemoryPublicSnapshotCache(storedSnapshot(61_000, 'stale'))
-    const scheduled: Promise<void>[] = []
 
-    const response = await serve(cache, scheduled)
+    const response = await serve(cache)
 
-    await expect(response.json()).resolves.toEqual({ label: 'stale' })
-    expect(scheduled).toHaveLength(1)
-    expect(cache.putCalls).toBe(0)
-    finishBuild()
-    await Promise.all(scheduled)
-    expect(cache.putCalls).toBe(1)
-  })
-
-  it('coalesces concurrent stale requests into one background build', async () => {
-    const finishBuild = pendingSnapshotBuild()
-    const cache = new MemoryPublicSnapshotCache(storedSnapshot(90_000, 'stale'))
-    const scheduled: Promise<void>[] = []
-
-    const responses = await Promise.all([serve(cache, scheduled), serve(cache, scheduled)])
-    const bodies = await Promise.all(responses.map((response) => response.json()))
-
-    finishBuild()
-    await Promise.all(scheduled)
-    expect(bodies).toEqual([{ label: 'stale' }, { label: 'stale' }])
+    await expect(response.json()).resolves.toMatchObject({ source: 'tastytrade' })
     expect(broker.loadPublicMarketSnapshot).toHaveBeenCalledTimes(1)
-    expect(scheduled).toHaveLength(1)
     expect(cache.putCalls).toBe(1)
   })
 
-  it('waits for a synchronous build when the retained copy exceeds the staleness cap', async () => {
+  it('stores rebuilt snapshots with the same one-minute freshness bound', async () => {
     const cache = new MemoryPublicSnapshotCache(storedSnapshot(10 * 60 * 1_000 + 1, 'too-stale'))
-    const scheduled: Promise<void>[] = []
 
-    const response = await serve(cache, scheduled)
+    const response = await serve(cache)
 
     await expect(response.json()).resolves.toMatchObject({ source: 'tastytrade' })
     expect(response.headers.get('Cache-Control')).toBe(PUBLIC_RESPONSE_CACHE_CONTROL)
     expect(response.headers.get(SNAPSHOT_GENERATED_AT_HEADER)).not.toBeNull()
     expect(broker.loadPublicMarketSnapshot).toHaveBeenCalledTimes(1)
-    expect(scheduled).toHaveLength(0)
     expect(cache.putCalls).toBe(1)
-    expect(cache.current()?.headers.get('Cache-Control')).toBe('public, max-age=900')
+    expect(cache.current()?.headers.get('Cache-Control')).toBe('public, max-age=60')
   })
 })

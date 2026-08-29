@@ -20,12 +20,11 @@ import {
   type MarketSnapshot,
   type Ticker,
 } from '../domain/market'
-import { type WatchlistMutation } from '../domain/watchlist'
+import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 
 // One versioned row now commits the audience and complete server snapshot together.
 // Earlier versions spread one snapshot across five independently persisted collections.
 export const OFFLINE_SNAPSHOT_VERSION = 7 as const
-export const MAX_LIVE_MARKET_SYMBOLS = 100
 export type SnapshotAudience = 'owner' | 'public'
 
 const PreferenceSchema = z.object({
@@ -34,7 +33,7 @@ const PreferenceSchema = z.object({
   favoriteStageVersion: z.string().uuid().optional(),
   favoriteUserId: z.string().min(1).max(256).optional(),
   id: z.literal('primary'),
-  pinnedSymbols: z.array(EquitySymbolSchema).max(MAX_LIVE_MARKET_SYMBOLS).default([]),
+  pinnedSymbols: z.array(EquitySymbolSchema).max(MAX_WATCHLIST_SYMBOLS),
   selectedByUser: z.boolean().optional(),
   selectedSymbol: z.string(),
   selectedWatchlistId: z.string(),
@@ -97,9 +96,10 @@ export function selectLiveMarketSymbols(
   loadedSymbols: Iterable<string>,
 ): string[] {
   const loaded = new Set(loadedSymbols)
-  return [...new Set([...(selectedSymbol ? [selectedSymbol] : []), ...watchlistSymbols])]
+  const symbols = [...new Set([...(selectedSymbol ? [selectedSymbol] : []), ...watchlistSymbols])]
     .filter((symbol) => loaded.has(symbol))
-    .slice(0, MAX_LIVE_MARKET_SYMBOLS)
+  if (symbols.length > MAX_WATCHLIST_SYMBOLS) throw new Error('LiveMarket:too-many-symbols')
+  return symbols
 }
 
 async function replaceLiveTickers(
@@ -254,17 +254,6 @@ export function restoreOfflineSnapshot(audience: SnapshotAudience = 'owner'): Pr
   return queueSnapshotOperation(() => restoreOfflineSnapshotImmediately(audience))
 }
 
-/** Best-effort protection against browser storage eviction; denial does not block offline use. */
-export async function requestPersistentLocalStorage(): Promise<boolean> {
-  const hasNavigator = 'navigator' in globalThis
-  if (!hasNavigator || !navigator.storage?.persist) return false
-  try {
-    return await navigator.storage.persist()
-  } catch {
-    return false
-  }
-}
-
 export async function syncFromCloud(
   signal?: AbortSignal,
   isCurrent: () => boolean = () => true,
@@ -282,28 +271,12 @@ export async function syncFromCloud(
   return snapshot
 }
 
-export function selectTicker(symbol: string) {
+export async function selectTicker(symbol: string): Promise<void> {
   const current = preferenceCollection.get('primary')
-  if (!current) return
-  preferenceCollection.update('primary', (draft) => {
+  if (!current) throw new Error('Market preference is unavailable')
+  const mutation = preferenceCollection.update('primary', (draft) => {
     draft.selectedByUser = true
     draft.selectedSymbol = symbol
-  })
-}
-
-export async function applyWatchlistMutation(action: WatchlistMutation): Promise<void> {
-  const record = offlineSnapshotCollection.get('snapshot')
-  const watchlist = record?.audience === 'owner'
-    ? record.snapshot.watchlists.find((candidate) => candidate.kind === 'private')
-    : undefined
-  if (!watchlist) throw new Error('Owner watchlist snapshot is unavailable')
-  const mutation = offlineSnapshotCollection.update('snapshot', (draft) => {
-    const privateWatchlist = draft.snapshot.watchlists.find((candidate) => candidate.kind === 'private')
-    if (!privateWatchlist) throw new Error('Owner watchlist snapshot is unavailable')
-    const requested = new Set(action.symbols)
-    privateWatchlist.symbols = action.kind === 'add_watchlist_symbols'
-      ? [...new Set([...privateWatchlist.symbols, ...action.symbols])]
-      : privateWatchlist.symbols.filter((symbol) => !requested.has(symbol))
   })
   await mutation.isPersisted.promise
 }
@@ -315,9 +288,8 @@ export function applyLiveMarketEvent(untrusted: JsonValue): void {
   // A closing owner stream may still deliver a queued frame after the public snapshot
   // has replaced it. Never apply that private in-memory overlay outside the owner audience.
   if (offlineSnapshotCollection.get('snapshot')?.audience !== 'owner') return
-  const parsed = LiveMarketEventSchema.safeParse(untrusted)
-  if (!parsed.success || !tickerCollection.get(parsed.data.symbol)) return
-  const event: LiveMarketEvent = parsed.data
+  const event: LiveMarketEvent = LiveMarketEventSchema.parse(untrusted)
+  if (!tickerCollection.get(event.symbol)) throw new Error(`LiveMarketEvent:unknown-symbol:${event.symbol}`)
   tickerCollection.update(event.symbol, (ticker) => {
     const eventAt = Date.parse(event.timestamp)
     const tickerAt = Date.parse(ticker.updatedAt)

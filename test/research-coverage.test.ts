@@ -6,30 +6,14 @@ import { sqliteD1 } from './sqlite-d1'
 
 describe('recent ticker coverage search', () => {
   it('keeps all requested coverage in the model-selected lookback', async () => {
-    const results = [
-      ...Array.from({ length: 4 }, (_, index) => ({
-        description: `Current description ${index}`,
-        direction: 'bullish',
-        headline: `Current headline ${index}`,
-        horizon: null,
-        published_at: `2026-08-${String(26 - index).padStart(2, '0')}T13:30:00.000Z`,
-        risk: `Current risk ${index}`,
-        setup: null,
-        symbol: 'NVDA',
-        thesis: null,
-      })),
-      {
-        description: null,
-        direction: 'bearish',
-        headline: null,
-        horizon: 'Two months',
-        published_at: '2026-08-25T13:30:00.000Z',
-        risk: 'Legacy risk',
-        setup: 'Legacy setup',
-        symbol: 'META',
-        thesis: 'Legacy thesis',
-      },
-    ]
+    const results = Array.from({ length: 4 }, (_, index) => ({
+      description: `Current description ${index}`,
+      direction: 'bullish',
+      headline: `Current headline ${index}`,
+      published_at: `2026-08-${String(26 - index).padStart(2, '0')}T13:30:00.000Z`,
+      risk: `Current risk ${index}`,
+      symbol: 'NVDA',
+    }))
     const all = vi.fn().mockResolvedValue({ results })
     const bind = vi.fn(() => ({ ...unsupportedStatement(), all }))
     const prepare = vi.fn(() => ({ ...unsupportedStatement(), bind }))
@@ -48,11 +32,7 @@ describe('recent ticker coverage search', () => {
       '["NVDA","META"]',
     )
     expect(coverage.filter((item) => item.symbol === 'NVDA')).toHaveLength(4)
-    expect(coverage).toContainEqual(expect.objectContaining({
-      description: 'Legacy thesis Horizon: Two months.',
-      headline: 'Legacy setup',
-      symbol: 'META',
-    }))
+    expect(coverage).toHaveLength(4)
   })
 
   it('excludes the current market date so a rerun does not read its own brief as coverage', async () => {
@@ -123,6 +103,25 @@ describe('recent ticker coverage search', () => {
     }
 
     await expect(searchRecentTickerCoverage({ DB }, ['NVDA']))
+      .rejects.toThrow()
+  })
+
+  it('fails visibly for the retired legacy idea shape', async () => {
+    const all = vi.fn().mockResolvedValue({ results: [{
+      description: null,
+      direction: 'bearish',
+      headline: null,
+      published_at: '2026-08-25T13:30:00.000Z',
+      risk: 'Legacy risk',
+      symbol: 'META',
+    }] })
+    const bind = vi.fn(() => ({ ...unsupportedStatement(), all }))
+    const DB: D1Database = {
+      ...unsupportedDatabase(),
+      prepare: () => ({ ...unsupportedStatement(), bind }),
+    }
+
+    await expect(searchRecentTickerCoverage({ DB }, ['META']))
       .rejects.toThrow()
   })
 })

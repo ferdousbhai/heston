@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 import { isValidIsoDate } from '../domain/catalyst'
 import { EquitySymbolSchema, type InstrumentCatalogItem } from '../domain/instrument'
+import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 import {
   MarketSnapshotSchema,
   parseStoredResearchBrief,
@@ -14,7 +15,6 @@ import { readBoundedJson } from './bounded-response'
 import { catalystsFromMarketMetrics, earningsDateFromMetric, persistAndLoadCatalysts } from './catalysts'
 import {
   ensureInternalWatchlistSeeded,
-  MAX_MAINTAINED_ITEMS,
   previewInternalWatchlistSeed,
   pruneInternalWatchlistToFocus,
   readInternalWatchlist,
@@ -38,7 +38,6 @@ import {
   loadInstrumentCatalog,
   persistInstrumentCatalog,
   readInstrumentCatalog,
-  type InstrumentCatalogRecord,
   type InstrumentCatalogRefresh,
   unresolvedInstrumentCatalogItem,
 } from './instrument-catalog'
@@ -49,13 +48,11 @@ import {
   type TastytradeMarketQuoteRecord,
 } from './tastytrade-market-store'
 import { defineSeam, type SeamValue } from './seam'
-import {
-  loadStoredPublicMarketUniverse,
-  MAX_PUBLIC_MARKET_SYMBOLS,
-  publishInternalWatchlistUniverse,
-} from './public-market-universe'
+import { loadStoredPublicMarketUniverse, publishInternalWatchlistUniverse } from './public-market-universe'
 
 const USER_AGENT = 'Spice/0.1'
+// Provider JSON is buffered for strict parsing; stay within the Worker isolate memory budget
+// while allowing the catalog endpoints, which are substantially larger than normal reads.
 const MAX_TASTYTRADE_RESPONSE_BYTES = 16 * 1024 * 1024
 let cachedAccess: { expiresAt: number; token: string } | undefined
 
@@ -337,10 +334,13 @@ export async function tastyRequest(
 
 async function resolveAccountNumber(env: AppEnv): Promise<string> {
   const payload = await tastyRequest(env, '/customers/me/accounts')
-  const accounts = envelopeRows(payload) ?? []
+  const accounts = envelopeRows(payload)
+  if (!accounts) throw new Error('TastytradeAccount:invalid-accounts')
   if (accounts.length !== 1) throw new Error('TastytradeAccount:explicit-account-required')
-  const row = jsonObjectOrEmpty(accounts[0])
-  const account = jsonObjectOrEmpty(row.account ?? row)
+  const row = jsonObject(accounts[0])
+  if (!row) throw new Error('TastytradeAccount:invalid-account')
+  const account = jsonObject(row.account ?? row)
+  if (!account) throw new Error('TastytradeAccount:invalid-account')
   const accountNumber = jsonText(account['account-number'])
   if (!accountNumber) throw new Error('TastytradeAccount:not-found')
   return accountNumber
@@ -359,13 +359,24 @@ export function equityCandleFromTime(payload: JsonValue, now = Date.now()): numb
   const body = jsonObject(payload)
   const session = jsonObject(body?.data ?? payload)
   if (!session) throw new Error('TastytradeCandleSession:invalid-response')
-  const currentOpen = Date.parse(jsonText(session['open-at']) ?? '')
-  if (!Number.isFinite(currentOpen)) throw new Error('TastytradeCandleSession:invalid-current-open')
-  if (currentOpen <= now) return currentOpen
+  const currentValue = session['open-at']
+  const currentOpen = currentValue === undefined || currentValue === null
+    ? undefined
+    : Date.parse(jsonText(currentValue) ?? '')
+  if (currentOpen !== undefined && !Number.isFinite(currentOpen)) {
+    throw new Error('TastytradeCandleSession:invalid-current-open')
+  }
+  if (currentOpen !== undefined && currentOpen <= now) return currentOpen
   const previous = jsonObject(session['previous-session'])
   if (!previous) throw new Error('TastytradeCandleSession:invalid-previous-session')
-  const previousOpen = Date.parse(jsonText(previous['open-at']) ?? '')
-  if (Number.isFinite(previousOpen) && previousOpen <= now) return previousOpen
+  const previousValue = previous['open-at']
+  const previousOpen = previousValue === undefined || previousValue === null
+    ? undefined
+    : Date.parse(jsonText(previousValue) ?? '')
+  if (previousOpen !== undefined && !Number.isFinite(previousOpen)) {
+    throw new Error('TastytradeCandleSession:invalid-previous-open')
+  }
+  if (previousOpen !== undefined && previousOpen <= now) return previousOpen
   throw new Error('TastytradeCandleSession:no-open-session')
 }
 
@@ -424,8 +435,11 @@ function normalizeLiveTicker(
       ?? quote['prev-day-close'],
     'previous-close',
   )
-  const change = numeric(quote.change, 'change')
-  const changePercent = numeric(quote['change-percent'] ?? quote.changePercent, 'change-percent')
+  const change = numeric(quote.change, `change:${symbol}`)
+  const changePercent = numeric(
+    quote['change-percent'] ?? quote.changePercent,
+    `change-percent:${symbol}`,
+  )
   const ivIndex = percentagePoints(metrics['implied-volatility-index'], 'implied-volatility-index')
   if (ivIndex < 0) throw new Error('TastytradeSnapshot:invalid-implied-volatility-index')
   const ivRank = requiredPercentageRank(
@@ -625,7 +639,7 @@ export function selectSnapshotSymbols(
     ...positionSymbols,
     ...internalWatchlistSymbols,
   ].map((symbol) => EquitySymbolSchema.parse(symbol)))]
-  if (symbols.length > MAX_PUBLIC_MARKET_SYMBOLS) throw new Error('TastytradeSnapshot:too-many-symbols')
+  if (symbols.length > MAX_WATCHLIST_SYMBOLS) throw new Error('TastytradeSnapshot:too-many-symbols')
   return symbols
 }
 
@@ -639,32 +653,11 @@ async function loadTastytradeInstrumentCatalog(
   symbols: readonly string[],
   now: Date,
 ) {
-  const bulk = await loadInstrumentCatalog(
+  return loadInstrumentCatalog(
     symbols,
     (chunk) => tastyRequest(env, equityInstrumentPath(chunk)),
     now,
   )
-  const recovered: InstrumentCatalogRecord[] = []
-  for (const symbol of bulk.missingSymbols) {
-    try {
-      const single = await loadInstrumentCatalog(
-        [symbol],
-        () => tastyRequest(env, `/instruments/equities/${encodeURIComponent(symbol)}`),
-        now,
-      )
-      recovered.push(...single.items)
-    } catch (cause) {
-      if (!(cause instanceof Error && cause.message.startsWith('TastytradeApi:404:'))) throw cause
-      // A definitive 404 is the only transport result that means the provider has no Equity identity.
-    }
-  }
-  const items = [...bulk.items, ...recovered]
-  const received = new Set(items.map((item) => item.symbol))
-  return {
-    items,
-    missingSymbols: symbols.filter((symbol) => !received.has(symbol)),
-    requestedCount: bulk.requestedCount,
-  }
 }
 
 export async function refreshTastytradeInstrumentCatalog(
@@ -707,7 +700,7 @@ async function internalInstrumentCatalogChunk(
   if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('InstrumentCatalog:invalid-offset')
   const symbols = await readInternalWatchlistCatalogCandidates(env)
   if (offset > symbols.length) throw new Error('InstrumentCatalog:invalid-offset')
-  const chunk = symbols.slice(offset, offset + MAX_PUBLIC_MARKET_SYMBOLS)
+  const chunk = symbols.slice(offset, offset + MAX_WATCHLIST_SYMBOLS)
   const loaded = await loadTastytradeInstrumentCatalog(env, chunk, now)
   if (persist) {
     await persistInstrumentCatalog(env, [
@@ -805,7 +798,7 @@ async function loadMarketSnapshot(
   // reduces the one-time seed to the cap and republishes the public universe.
   // Pruning already returns the retained list, so reading it back would repeat
   // the same three queries against a table nothing has touched in between.
-  const { kept: focusSymbols } = await pruneInternalWatchlistToFocus(env, MAX_MAINTAINED_ITEMS)
+  const { kept: focusSymbols } = await pruneInternalWatchlistToFocus(env, MAX_WATCHLIST_SYMBOLS)
   const privateWatchlist: Watchlist = {
     id: 'watchlist',
     kind: 'private',

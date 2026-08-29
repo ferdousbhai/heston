@@ -1,5 +1,5 @@
 import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { TooltipProvider } from '#/components/ui/tooltip'
 import appCss from '../styles.css?url'
@@ -92,22 +92,27 @@ async function clearLegacySpiceCaches(): Promise<void> {
 }
 
 async function retireLegacyServiceWorker(): Promise<void> {
+  await clearLegacySpiceCaches()
   const registration = await navigator.serviceWorker.getRegistration('/')
   if (registration) {
     // Registering the same URL updates the installed offline-shell worker to the
     // recovery-only worker, which clears its caches and unregisters itself.
     await navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' })
-    return
   }
-  await clearLegacySpiceCaches()
 }
 
 function LegacyServiceWorkerRetirement() {
+  const [failed, setFailed] = useState(false)
   useEffect(() => {
     if (!import.meta.env.PROD || !('serviceWorker' in navigator)) return
     void retireLegacyServiceWorker().catch((cause: unknown) => {
       console.error('LegacyServiceWorkerRetirementFailed', cause)
+      setFailed(true)
     })
   }, [])
-  return null
+  return failed ? (
+    <aside className="service-worker-error" role="alert">
+      Spice could not clear an obsolete offline copy. Clear this site's browser data, then reload.
+    </aside>
+  ) : null
 }

@@ -58,7 +58,7 @@ describe('always-on brokerage context', () => {
 
   it('loads accurately named balances and compact account state without exposing account identity', async () => {
     const context = await loadBrokerageContext({})
-    const runtime = buildAgentRuntimeContext(context, [])
+    const runtime = buildAgentRuntimeContext(context)
 
     expect(context.balances).toMatchObject({
       cashBalance: 70_000,
@@ -76,20 +76,16 @@ describe('always-on brokerage context', () => {
     expect(context.orders[0]?.legs).toHaveLength(2)
     expect(context.asOf).toMatch(/^\d{4}-\d{2}-\d{2}T/)
     expect(context.source).toBe('tastytrade')
-    expect(context.completeness).toEqual({
-      ordersTruncated: false, positionsTruncated: false,
-    })
     expect(JSON.stringify(runtime)).not.toContain('A1')
     expect(runtime).toMatchObject({
       source: 'tastytrade',
-      completeness: { ordersTruncated: false, positionsTruncated: false },
       balances: { availableTradingFunds: 61_000, cashBalance: 70_000 },
       orders: [{ id: '101', legs: [{ symbol: 'SPY call' }, { symbol: 'SPY call short' }] }],
     })
     expect(tastytrade.tastyRequest).toHaveBeenCalledTimes(4)
   })
 
-  it('marks fulfilled malformed collections unavailable instead of treating them as empty', async () => {
+  it('rejects malformed account collections instead of treating them as empty', async () => {
     tastytrade.tastyRequest.mockImplementation((_env, path: string) => {
       if (path.includes('/positions') || path.includes('/orders/live')) {
         return Promise.resolve({ data: { unexpected: [] } })
@@ -97,13 +93,7 @@ describe('always-on brokerage context', () => {
       return Promise.resolve(payloadFor(path))
     })
 
-    const context = await loadBrokerageContext({})
-    expect(context.availability).toMatchObject({ positions: false, orders: false })
-    expect(context.positions).toEqual([])
-    expect(context.orders).toEqual([])
-    expect(buildAgentRuntimeContext(context, [])).toMatchObject({
-      unavailable: expect.arrayContaining(['positions', 'orders']),
-    })
+    await expect(loadBrokerageContext({})).rejects.toThrow('invalid-positions-collection')
   })
 
   it('fails working-order completeness closed when the broker reports another page', async () => {
@@ -115,10 +105,7 @@ describe('always-on brokerage context', () => {
       return Promise.resolve(payloadFor(path))
     })
 
-    const context = await loadBrokerageContext({})
-    expect(context.availability.orders).toBe(false)
-    expect(context.completeness.ordersTruncated).toBe(true)
-    expect(context.orders).toEqual([])
+    await expect(loadBrokerageContext({})).rejects.toThrow('incomplete-orders')
   })
 
   it('fails position completeness closed when the broker reports another page', async () => {
@@ -130,10 +117,7 @@ describe('always-on brokerage context', () => {
       return Promise.resolve(payloadFor(path))
     })
 
-    const context = await loadBrokerageContext({})
-    expect(context.availability.positions).toBe(false)
-    expect(context.completeness.positionsTruncated).toBe(true)
-    expect(context.positions).toEqual([])
+    await expect(loadBrokerageContext({})).rejects.toThrow('incomplete-positions')
   })
 
   it('fails position completeness closed on a full page without pagination metadata', async () => {
@@ -147,10 +131,7 @@ describe('always-on brokerage context', () => {
       return Promise.resolve(payloadFor(path))
     })
 
-    const context = await loadBrokerageContext({})
-    expect(context.availability.positions).toBe(false)
-    expect(context.completeness.positionsTruncated).toBe(true)
-    expect(context.positions).toEqual([])
+    await expect(loadBrokerageContext({})).rejects.toThrow('incomplete-positions')
   })
 
   it('fails working-order completeness closed on a full page without pagination metadata', async () => {
@@ -163,9 +144,28 @@ describe('always-on brokerage context', () => {
       return Promise.resolve(payloadFor(path))
     })
 
-    const context = await loadBrokerageContext({})
-    expect(context.availability.orders).toBe(false)
-    expect(context.completeness.ordersTruncated).toBe(true)
-    expect(context.orders).toEqual([])
+    await expect(loadBrokerageContext({})).rejects.toThrow('incomplete-orders')
+  })
+
+  it('rejects a malformed declared pagination total', async () => {
+    tastytrade.tastyRequest.mockImplementation((_env, path: string) => {
+      if (path.includes('/positions')) {
+        return Promise.resolve({ ...pageFor(path), pagination: { 'total-items': 'unknown' } })
+      }
+      return Promise.resolve(payloadFor(path))
+    })
+
+    await expect(loadBrokerageContext({})).rejects.toThrow('invalid-positions-pagination')
+  })
+
+  it('rejects a declared total smaller than the returned page', async () => {
+    tastytrade.tastyRequest.mockImplementation((_env, path: string) => {
+      if (path.includes('/positions')) {
+        return Promise.resolve({ ...pageFor(path), pagination: { 'total-items': 0 } })
+      }
+      return Promise.resolve(payloadFor(path))
+    })
+
+    await expect(loadBrokerageContext({})).rejects.toThrow('incomplete-positions')
   })
 })

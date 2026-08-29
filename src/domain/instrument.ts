@@ -37,6 +37,8 @@ export const POTENTIAL_PLAY_REGEX = new RegExp(POTENTIAL_PLAY_PATTERN)
 
 const OptionalBoolean = z.boolean().nullable()
 
+// Provider description fields are untrusted storage input. These generous text widths bound
+// D1 rows and UI strings without classifying or shortening any valid symbol or trading field.
 export const InstrumentCatalogItemSchema = z.object({
   borrowRate: z.number().finite().nullable(),
   countryOfIncorporation: z.string().trim().min(1).max(128).nullable(),

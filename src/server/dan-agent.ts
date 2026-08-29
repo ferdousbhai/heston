@@ -1,6 +1,4 @@
 import {
-  Type,
-  type AssistantMessage,
   type Message,
   type Model,
   type ToolResultMessage,
@@ -22,12 +20,11 @@ import {
   type DanAgentState,
   type PendingAction,
 } from '../domain/agent-chat'
-import { EQUITY_SYMBOL_PATTERN } from '../domain/instrument'
 import { toError } from '../domain/failure'
-import { jsonObject, jsonObjectOrEmpty, type JsonValue } from '../domain/json-payload'
+import { jsonObject, type JsonValue } from '../domain/json-payload'
 import { newYorkClock } from '../domain/market-clock'
 import { preparePendingAction } from './agent'
-import { ChatRequestSchema, OrderPlacementSchema } from './agent-contracts'
+import { ChatRequestSchema, OrderPlacementParameters } from './agent-contracts'
 import {
   createDirectAccountActionTool,
   createRememberTradeSymbolsTool,
@@ -50,56 +47,11 @@ import { createExactOptionGreeksReadTool } from './option-greeks-tool'
 /** The chat relay delivers text frames; binary frames are not part of the client protocol. */
 const ClientFrameSchema = z.string()
 
-const ActionResolvedSchema = z.looseObject({ messageId: z.string(), status: z.string() })
-
-// Model-facing JSON Schema only; OrderPlacementSchema.parse stays the sole validator.
-const OrderActionType = Type.Union([
-  Type.Literal('Buy to Open'), Type.Literal('Sell to Open'),
-  Type.Literal('Buy to Close'), Type.Literal('Sell to Close'),
-])
-const ExpiryDateType = Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' })
-const PositivePriceType = Type.Number({ exclusiveMinimum: 0 })
-const OptionTypeType = Type.Union([Type.Literal('C'), Type.Literal('P')])
-const PriceEffectType = Type.Union([Type.Literal('Debit'), Type.Literal('Credit')])
-const UnderlyingSymbolType = Type.String({ pattern: EQUITY_SYMBOL_PATTERN })
-
-const OrderPlacementParameters = Type.Union([
-  Type.Object({
-    action: OrderActionType,
-    expiry: ExpiryDateType,
-    kind: Type.Literal('place_option_order'),
-    limitPrice: PositivePriceType,
-    optionType: OptionTypeType,
-    priceEffect: PriceEffectType,
-    quantity: Type.Integer({ maximum: 100, minimum: 1 }),
-    strike: PositivePriceType,
-    underlying: UnderlyingSymbolType,
-  }),
-  Type.Object({
-    action: OrderActionType,
-    kind: Type.Literal('place_equity_order'),
-    limitPrice: PositivePriceType,
-    priceEffect: PriceEffectType,
-    quantity: Type.Integer({ maximum: 10_000, minimum: 1 }),
-    symbol: UnderlyingSymbolType,
-  }),
-  Type.Object({
-    expiry: ExpiryDateType,
-    kind: Type.Literal('place_vertical_spread_order'),
-    limitPrice: PositivePriceType,
-    longStrike: PositivePriceType,
-    optionType: OptionTypeType,
-    priceEffect: Type.Literal('Debit'),
-    quantity: Type.Integer({ maximum: 100, minimum: 1 }),
-    shortStrike: PositivePriceType,
-    underlying: UnderlyingSymbolType,
-  }),
-  Type.Object({
-    kind: Type.Literal('replace_order'),
-    limitPrice: PositivePriceType,
-    orderId: Type.String({ pattern: '^\\d{1,40}$' }),
-  }),
-])
+const ActionResolvedSchema = z.strictObject({
+  messageId: z.string(),
+  status: z.string().min(1).max(240),
+  type: z.literal('action_resolved'),
+})
 
 function welcomeMessage(): AgentChatMessage {
   return {
@@ -107,17 +59,6 @@ function welcomeMessage(): AgentChatMessage {
     id: 'welcome',
     role: 'assistant',
     text: 'Ask me about option premium, account state, watchlists, or a defined-risk order. I can inspect and reason freely; only order placement stops at a confirmation boundary.',
-  }
-}
-
-function emptyUsage(): Usage {
-  return {
-    cacheRead: 0,
-    cacheWrite: 0,
-    cost: { cacheRead: 0, cacheWrite: 0, input: 0, output: 0, total: 0 },
-    input: 0,
-    output: 0,
-    totalTokens: 0,
   }
 }
 
@@ -147,47 +88,37 @@ function replayTranscript(messages: AgentChatMessage[], model: Model<any>): Mess
   for (const message of messages) {
     if (message.id === 'welcome') continue
     const timestamp = Date.parse(message.createdAt)
+    if (!Number.isFinite(timestamp)) throw new Error(`DanTranscript:invalid-timestamp:${message.id}`)
     if (message.role === 'user') {
       replay.push({ content: message.text, role: 'user', timestamp })
       continue
     }
-    const content: AssistantMessage['content'] = []
-    if (message.text) content.push({ text: message.text, type: 'text' })
-    for (const tool of message.toolCalls ?? []) {
-      content.push({ arguments: tool.input, id: tool.id, name: tool.name, type: 'toolCall' })
+    // Tool traces stay in the owner UI/audit log. Cross-turn model context keeps only
+    // completed prose; fresh tools must re-read any market or account fact.
+    if (message.stopReason === 'toolUse') continue
+    if (message.stopReason !== 'stop') {
+      throw new Error(`DanTranscript:invalid-stop-reason:${message.stopReason ?? 'missing'}`)
     }
-    if (content.length === 0) continue
+    if (!message.text || !message.model || !message.usage) {
+      throw new Error(`DanTranscript:incomplete-assistant-message:${message.id}`)
+    }
     replay.push({
       api: model.api,
-      content,
-      model: message.model ?? model.id,
+      content: [{ text: message.text, type: 'text' }],
+      model: message.model,
       provider: model.provider,
       role: 'assistant',
-      stopReason: (message.stopReason === 'toolUse' ? 'toolUse' : 'stop'),
+      stopReason: 'stop',
       timestamp,
-      usage: message.usage ? {
+      usage: {
         cacheRead: message.usage.cacheRead,
         cacheWrite: message.usage.cacheWrite,
         cost: { cacheRead: 0, cacheWrite: 0, input: 0, output: 0, total: message.usage.cost },
         input: message.usage.input,
         output: message.usage.output,
         totalTokens: message.usage.totalTokens,
-      } : emptyUsage(),
+      },
     })
-    for (const tool of message.toolCalls ?? []) {
-      const missing = tool.error === undefined && tool.output === undefined
-      replay.push({
-        content: [{
-          text: tool.error ?? tool.output ?? 'Tool result unavailable: the run ended before completion.',
-          type: 'text',
-        }],
-        isError: missing || Boolean(tool.error),
-        role: 'toolResult',
-        timestamp,
-        toolCallId: tool.id,
-        toolName: tool.name,
-      })
-    }
   }
   return replay
 }
@@ -239,11 +170,10 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
     if (command.type === 'action_resolved') {
       const resolved = ActionResolvedSchema.safeParse(command).data
       if (!resolved) return
-      const status = resolved.status.slice(0, 240)
       this.setState({
         ...this.state,
         messages: this.state.messages.map((message) => message.id === resolved.messageId
-          ? { ...message, actionStatus: status, pendingAction: undefined }
+          ? { ...message, actionStatus: resolved.status, pendingAction: undefined }
           : message),
       })
       return
@@ -288,39 +218,22 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
     try {
       const [account, liveMarketSession] = await Promise.all([
         loadBrokerageContext(this.env),
-        readMarketStatus(this.env).catch((cause: unknown) => {
-          const error = toError(cause)
-          console.warn('DanMarketStatusUnavailable', error ? error.message.slice(0, 200) : 'UnknownError')
-          return {
-            asOf: new Date().toISOString(),
-            source: 'tastytrade' as const,
-            state: 'Unavailable',
-            truncated: false as const,
-          }
-        }),
+        readMarketStatus(this.env),
       ])
       const portfolioPolicy = await buildPortfolioPolicyContext(this.env, account)
-      let apiKey: string
-      let gatewayToken: string
-      let gatewayBaseUrl: string
-      try {
-        [apiKey, gatewayToken, gatewayBaseUrl] = await Promise.all([
-          readStoredSecret(this.env.XAI_API_KEY, 'XAI_API_KEY'),
-          readStoredSecret(this.env.AI_GATEWAY_TOKEN, 'AI_GATEWAY_TOKEN'),
-          grokGatewayBaseUrl(this.env),
-        ])
-      } catch {
-        throw new Error("Dan's model credential is unavailable.")
-      }
+      const [apiKey, gatewayToken, gatewayBaseUrl] = await Promise.all([
+        readStoredSecret(this.env.XAI_API_KEY, 'XAI_API_KEY'),
+        readStoredSecret(this.env.AI_GATEWAY_TOKEN, 'AI_GATEWAY_TOKEN'),
+        grokGatewayBaseUrl(this.env),
+      ])
       const runtime = createPiRuntime(apiKey, gatewayToken, gatewayBaseUrl, runId)
       this.setState({ ...this.state, contextWindow: runtime.model.contextWindow, model: `pi · ${runtime.model.id}` })
 
       const pendingActions = new Map<string, PendingAction>()
       const brokerageActionTool: AgentTool<typeof OrderPlacementParameters, { pendingAction: PendingAction }> = {
-        description: 'Prepare one tastytrade equity, single option, two-leg debit vertical, or price-only order replacement. This never places or replaces the order; it creates a short-lived draft that the user must explicitly confirm.',
+        description: 'Draft an equity, option, debit vertical, or price replacement.',
         execute: async (toolCallId, params) => {
-          const action = OrderPlacementSchema.parse(params)
-          const pendingAction = await preparePendingAction(this.env, action)
+          const pendingAction = await preparePendingAction(this.env, params)
           pendingActions.set(toolCallId, pendingAction)
           return {
             content: [{
@@ -334,6 +247,7 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
             details: { pendingAction },
           }
         },
+        executionMode: 'sequential',
         label: 'Preparing order',
         name: 'prepare_brokerage_action',
         parameters: OrderPlacementParameters,
@@ -361,13 +275,11 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
         systemPrompt: `${DAN_SYSTEM_PROMPT}\n\n<runtime_context>${runtimeContext}</runtime_context>`,
         tools,
       }
-      const toolStartedAt = new Map<string, number>()
       let turnTools = new Map<string, AgentToolCall>()
 
       const emit = async (event: AgentEvent) => {
         switch (event.type) {
           case 'agent_end':
-            this.sendEvent({ type: 'dan:agent_end' })
             break
           case 'turn_start':
             turnTools = new Map()
@@ -379,33 +291,23 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
               this.sendEvent({ delta: update.delta, type: 'dan:text_delta' })
             } else if (update.type === 'thinking_delta') {
               this.sendEvent({ delta: update.delta, type: 'dan:reasoning_delta' })
-            } else if (update.type === 'toolcall_start') {
-              const block = update.partial.content[update.contentIndex]
-              if (block?.type !== 'toolCall') break
-              turnTools.set(block.id, {
-                id: block.id,
-                input: block.arguments,
-                label: toolLabel.get(block.name) ?? block.name,
-                name: block.name,
-                status: 'running',
-              })
-              this.sendEvent({ toolCallId: block.id, toolName: block.name, type: 'dan:tool_call_start' })
-            } else if (update.type === 'toolcall_delta') {
-              const block = update.partial.content[update.contentIndex]
-              if (block?.type !== 'toolCall') break
-              const existing = turnTools.get(block.id)
-              if (existing) existing.input = block.arguments
-              this.sendEvent({ delta: update.delta, toolCallId: block.id, type: 'dan:tool_call_delta' })
             }
             break
           }
           case 'tool_execution_start': {
-            toolStartedAt.set(event.toolCallId, Date.now())
-            const existing = turnTools.get(event.toolCallId)
-            const toolInput = jsonObjectOrEmpty(event.args)
-            if (existing) existing.input = toolInput
+            const toolInput = jsonObject(event.args)
+            if (!toolInput) throw new Error(`DanAgent:invalid-tool-input:${event.toolCallId}`)
+            const label = toolLabel.get(event.toolName) ?? event.toolName
+            turnTools.set(event.toolCallId, {
+              id: event.toolCallId,
+              input: toolInput,
+              label,
+              name: event.toolName,
+              status: 'running',
+            })
             this.sendEvent({
               input: toolInput,
+              label,
               toolCallId: event.toolCallId,
               toolName: event.toolName,
               type: 'dan:tool_execution_start',
@@ -413,15 +315,11 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
             break
           }
           case 'tool_execution_end': {
-            const durationMs = Date.now() - (toolStartedAt.get(event.toolCallId) ?? Date.now())
             const output = contentText(event.result.content)
             const existing = turnTools.get(event.toolCallId)
-            if (existing) {
-              existing.durationMs = durationMs
-              applyToolOutcome(existing, output, event.isError)
-            }
+            if (!existing) throw new Error(`DanAgent:missing-tool-start:${event.toolCallId}`)
+            applyToolOutcome(existing, output, event.isError)
             this.sendEvent({
-              durationMs,
               error: event.isError ? output : undefined,
               output: event.isError ? undefined : output,
               toolCallId: event.toolCallId,
@@ -437,22 +335,18 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
               turnFailure = message.errorMessage ?? 'The model request failed.'
               break
             }
+            if (message.stopReason !== 'stop' && message.stopReason !== 'toolUse') {
+              turnFailure = `The model ended with ${message.stopReason}.`
+              break
+            }
             const toolResults = new Map(event.toolResults.map((result) => [result.toolCallId, result]))
             for (const block of message.content) {
               if (block.type !== 'toolCall') continue
-              const stored: AgentToolCall = turnTools.get(block.id) ?? {
-                id: block.id,
-                input: block.arguments,
-                label: toolLabel.get(block.name) ?? block.name,
-                name: block.name,
-                status: 'running' as const,
-              }
+              const stored = turnTools.get(block.id)
+              if (!stored) throw new Error(`DanAgent:missing-tool-start:${block.id}`)
               const result = toolResults.get(block.id)
-              if (result) {
-                applyToolOutcome(stored, contentText(result.content), result.isError)
-              } else {
-                applyToolOutcome(stored, 'Tool execution result was not observed.', true)
-              }
+              if (!result) throw new Error(`DanAgent:missing-tool-result:${block.id}`)
+              applyToolOutcome(stored, contentText(result.content), result.isError)
               turnTools.set(block.id, stored)
             }
             const toolCalls = [...turnTools.values()]
@@ -487,7 +381,7 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
         convertToLlm: (messages) => messages as Message[],
         model: runtime.model,
         shouldStopAfterTurn: () => controller.signal.aborted,
-        toolExecution: 'sequential',
+        toolExecution: 'parallel',
       }, emit, controller.signal, runtime.stream)
       if (controller.signal.aborted) turnFailure = 'Operation aborted'
     } catch (error) {

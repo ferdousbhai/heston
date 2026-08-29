@@ -11,6 +11,8 @@ import {
 import { brokerApi } from './tastytrade'
 
 type OptionAction = Extract<OrderPlacement, { kind: 'place_option_order' }>
+// Error details show enough alternatives to correct a tuple without echoing a full option chain.
+const MAX_RESOLUTION_SUGGESTIONS = 8
 
 function chainRows(payload: JsonValue): JsonObject[] {
   const data = jsonObjectOrEmpty(jsonObjectOrEmpty(payload).data)
@@ -25,7 +27,7 @@ function unavailable(detail: string): Error {
 
 function shortList(values: string[]): string {
   const unique = [...new Set(values)].sort()
-  return unique.length ? unique.slice(0, 8).join(', ') : 'none'
+  return unique.length ? unique.slice(0, MAX_RESOLUTION_SUGGESTIONS).join(', ') : 'none'
 }
 
 function nearestStrikes(rows: JsonObject[], requestedStrike: number): string {
@@ -35,7 +37,7 @@ function nearestStrikes(rows: JsonObject[], requestedStrike: number): string {
   }))]
   return strikes
     .sort((left, right) => Math.abs(left - requestedStrike) - Math.abs(right - requestedStrike))
-    .slice(0, 8)
+    .slice(0, MAX_RESOLUTION_SUGGESTIONS)
     .sort((left, right) => left - right)
     .join(', ') || 'none'
 }

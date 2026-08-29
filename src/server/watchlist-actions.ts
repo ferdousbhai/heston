@@ -1,4 +1,8 @@
-import { type WatchlistMutation, type WatchlistMutationResult } from '../domain/watchlist'
+import {
+  MAX_WATCHLIST_SYMBOLS,
+  type WatchlistMutation,
+  type WatchlistMutationResult,
+} from '../domain/watchlist'
 import { type AppEnv } from './env'
 import {
   ensureInternalWatchlistSymbols,
@@ -31,7 +35,7 @@ export async function executeWatchlistAction(
   return {
     appliedSymbols: retained,
     detail: discarded.length
-      ? `${discarded.join(', ')} could not be retained within the 100-symbol Watchlist`
+      ? `${discarded.join(', ')} could not be retained within the ${MAX_WATCHLIST_SYMBOLS}-symbol Watchlist`
       : added.length
       ? `${added.join(', ')} added to Watchlist`
       : `${symbols.join(', ')} already in Watchlist; priority refreshed`,

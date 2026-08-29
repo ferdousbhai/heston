@@ -112,14 +112,14 @@ describe('public market boundary', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('does not persist an unresolved catalog row for a provider transport failure', async () => {
+  it('does not hide a missing bulk symbol behind an individual-endpoint retry', async () => {
     vi.resetModules()
     const store = await migrationStore()
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
       if (url.endsWith('/oauth/token')) return Response.json({ access_token: 'catalog-token', expires_in: 900 })
       if (url.includes('/instruments/equities?')) return Response.json({ data: { items: [] } })
-      if (url.includes('/instruments/equities/SPCX')) return new Response('', { status: 500 })
+      if (url.includes('/instruments/equities/SPCX')) throw new Error('Unexpected individual fallback')
       return new Response('', { status: 404 })
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -131,8 +131,11 @@ describe('public market boundary', () => {
       DB: store.database,
       TASTYTRADE_CLIENT_SECRET: secret,
       TASTYTRADE_REFRESH_TOKEN: secret,
-    }, ['SPCX'])).rejects.toThrow('TastytradeApi:500')
-    expect(store.sqlite.prepare('SELECT count(*) AS count FROM instrument_catalog').get()).toEqual({ count: 0 })
+    }, ['SPCX'])).resolves.toMatchObject({ missingSymbols: ['SPCX'], receivedCount: 0 })
+    expect(fetchMock.mock.calls.map(([input]) => String(input)))
+      .not.toContain(expect.stringContaining('/instruments/equities/SPCX'))
+    expect(store.sqlite.prepare('SELECT resolution_status FROM instrument_catalog WHERE symbol = ?').get('SPCX'))
+      .toEqual({ resolution_status: 'unresolved' })
     store.close()
   })
 

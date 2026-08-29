@@ -1,6 +1,5 @@
 import {
   FreshOrderPlacementSchema,
-  OrderPlacementSchema,
   StoredOrderPlacementSchema,
   type FreshOrderPlacement,
   type OrderPlacement,
@@ -132,10 +131,9 @@ async function expandReplacement(
 
 export async function resolveOrderIntent(
   env: AppEnv,
-  untrustedAction: JsonValue,
+  action: OrderPlacement,
   accountNumber: string,
 ): Promise<ResolvedOrderIntent> {
-  const action = OrderPlacementSchema.parse(untrustedAction)
   if (action.kind === 'replace_order') return expandReplacement(env, action, accountNumber)
   const resolved = await resolveFreshOrder(env, action)
   return { effectiveAction: action, ...resolved, storedAction: action }

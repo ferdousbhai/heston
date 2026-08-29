@@ -1,15 +1,11 @@
 import { z } from 'zod'
 
 import { EquitySymbolSchema } from '../domain/instrument'
+import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 import { type AppEnv } from './env'
 
-// One invariant, stated twice because this module is imported by the one that
-// owns the private cap: this must stay equal to MAX_MAINTAINED_ITEMS, since the
-// public universe is a bounded projection of that list.
-export const MAX_PUBLIC_MARKET_SYMBOLS = 100
-
 const PublicMarketUniverseSchema = z.strictObject({
-  symbols: z.array(EquitySymbolSchema).max(MAX_PUBLIC_MARKET_SYMBOLS),
+  symbols: z.array(EquitySymbolSchema).max(MAX_WATCHLIST_SYMBOLS),
 })
 const PublicMarketUniverseRowSchema = z.strictObject({ symbol: EquitySymbolSchema })
 const StoredPublicMarketUniverseRowSchema = z.strictObject({ payload_json: z.string() })

@@ -268,8 +268,11 @@ describe('tastytrade normalization', () => {
     expect(() => liveTickerFromRecords('SPY', undefined, quote, false)).toThrow('missing-metrics')
     expect(() => liveTickerFromRecords('SPY', metrics, { ...quote, 'updated-at': undefined }, false))
       .toThrow('invalid-updated-at')
-    expect(() => liveTickerFromRecords('SPY', metrics, { ...quote, change: undefined }, false))
-      .toThrow('invalid-change')
+    expect(() => liveTickerFromRecords('SPY', metrics, {
+      ...quote,
+      change: undefined,
+      'change-percent': undefined,
+    }, false)).toThrow('invalid-change:SPY')
     expect(() => liveTickerFromRecords('SPY', metrics, { ...quote, volume: 'many' }, false))
       .toThrow('invalid-volume')
   })
@@ -336,8 +339,20 @@ describe('tastytrade normalization', () => {
         'previous-session': { 'open-at': '2026-08-12T13:30:00.000Z' },
       },
     }, now)).toBe(Date.parse('2026-08-12T13:30:00.000Z'))
+    expect(equityCandleFromTime({
+      data: {
+        state: 'Closed',
+        'previous-session': { 'open-at': '2026-08-12T13:30:00.000Z' },
+      },
+    }, now)).toBe(Date.parse('2026-08-12T13:30:00.000Z'))
+    expect(() => equityCandleFromTime({
+      data: {
+        'open-at': 'not-a-date',
+        'previous-session': { 'open-at': '2026-08-12T13:30:00.000Z' },
+      },
+    }, now)).toThrow('invalid-current-open')
     expect(() => equityCandleFromTime({ data: { state: 'Closed' } }, now))
-      .toThrow('invalid-current-open')
+      .toThrow('invalid-previous-session')
     expect(() => equityCandleFromTime({
       data: { 'open-at': '2026-08-14T13:30:00.000Z', 'previous-session': {} },
     }, now)).toThrow('no-open-session')

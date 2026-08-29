@@ -1,6 +1,8 @@
 import { z } from 'zod'
 
-export const MAX_INTRADAY_CANDLES = 78
+// A regular US equity session contains 78 five-minute candles; older sessions are not live state.
+export const MAX_INTRADAY_CANDLES = (6 * 60 + 30) / 5
+// Gaps this large cannot occur within the regular session and therefore start a new series.
 const INTRADAY_SESSION_GAP = 4 * 60 * 60 * 1_000
 
 export const CandlePointSchema = z.object({

@@ -69,6 +69,31 @@ function providerToolCall(
   return status === null ? response : { ...response, status }
 }
 
+function providerReport(
+  citedUrl?: string,
+  status: string | null = 'completed',
+  openedUrl?: string,
+) {
+  const response = {
+    output: [
+      ...(openedUrl ? [{
+        type: 'web_search_call',
+        status: 'completed',
+        action: { type: 'open_page', url: openedUrl },
+      }] : []),
+      {
+        type: 'message',
+        content: [{
+          type: 'output_text',
+          text: JSON.stringify(submission()),
+          annotations: citedUrl ? [{ type: 'url_citation', url: citedUrl }] : [],
+        }],
+      },
+    ],
+  }
+  return status === null ? response : { ...response, status }
+}
+
 function environment() {
   const secret = (value: string): SecretsStoreSecret => ({ get: async () => value })
   const all = async () => d1Result([])
@@ -91,13 +116,7 @@ function agentFetcher(status: string | null = 'completed', openedUrl?: string) {
   const providerResponses = [
     providerToolCall('read_market_metrics', { symbols: ['NVDA'] }, undefined, status),
     providerToolCall('get_recent_coverage', { daysAgo: 14, tickers: ['NVDA'] }, undefined, status),
-    providerToolCall(
-      'submit_daily_report',
-      submission(),
-      openedUrl ? undefined : CITED_URL,
-      status,
-      openedUrl,
-    ),
+    providerReport(openedUrl ? undefined : CITED_URL, status, openedUrl),
   ]
   const bodies: JsonObject[] = []
   const fetcher = vi.fn<typeof fetch>(async (input, init) => {
@@ -150,8 +169,14 @@ describe('daily research Pi agent boundary', () => {
       expect.objectContaining({ name: 'get_recent_coverage', type: 'function' }),
       expect.objectContaining({ name: 'find_option_contracts', type: 'function' }),
       expect.objectContaining({ name: 'read_instrument_quotes', type: 'function' }),
+    ]))
+    expect(bodies[0]?.tools).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ name: 'submit_daily_report', type: 'function' }),
     ]))
+    expect(bodies[0]?.text).toEqual(expect.objectContaining({
+      format: expect.objectContaining({ name: 'daily_research_report', type: 'json_schema' }),
+    }))
+    expect(bodies[0]?.tool_choice).toBe('auto')
     expect(bodies[0]?.tools).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ name: 'search_reddit', type: 'function' }),
     ]))

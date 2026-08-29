@@ -22,10 +22,13 @@ export default {
         return Response.json({ mode: 'sync', sync: await summarizeOwnerMarketSync(env) })
       }
       const offsetValue = new URL(request.url).searchParams.get('offset') ?? '0'
-      if (!/^\d{1,5}$/.test(offsetValue)) throw new Error('InstrumentCatalog:invalid-offset')
+      const offset = Number(offsetValue)
+      if (!/^\d+$/.test(offsetValue) || !Number.isSafeInteger(offset)) {
+        throw new Error('InstrumentCatalog:invalid-offset')
+      }
       const result = path === '/preview'
-        ? await previewInternalInstrumentCatalogChunkFromTastytrade(env, Number(offsetValue))
-        : await refreshInternalInstrumentCatalogChunkFromTastytrade(env, Number(offsetValue))
+        ? await previewInternalInstrumentCatalogChunkFromTastytrade(env, offset)
+        : await refreshInternalInstrumentCatalogChunkFromTastytrade(env, offset)
       return Response.json({
         mode: path.slice(1),
         result,

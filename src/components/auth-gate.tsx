@@ -41,11 +41,6 @@ export function useViewer(): AuthState {
       setState({ phase: 'ready', user: result.user })
     }).catch((cause: unknown) => {
       if (controller.signal.aborted) return
-      const hasNavigator = 'navigator' in globalThis
-      if (hasNavigator && !navigator.onLine) {
-        setState({ phase: 'ready', user: null })
-        return
-      }
       const error = toError(cause)
       setState({ message: error ? error.message : 'Authentication failed', phase: 'error' })
     })

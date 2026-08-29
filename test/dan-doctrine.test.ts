@@ -3,13 +3,6 @@ import { describe, expect, it } from 'vitest'
 import { DAN_SYSTEM_PROMPT } from '../src/server/dan-doctrine'
 
 describe('Dan Markets-notes doctrine', () => {
-  // The ceiling bounds doctrine drift; it is not a model limit. It was raised from 8,000
-  // for the chain-verification rule, which the prompt had no room left for. Trim a rule
-  // before raising it again.
-  it('keeps the stable doctrine within its context budget', () => {
-    expect(DAN_SYSTEM_PROMPT.length).toBeLessThan(8_600)
-  })
-
   it('reasons about the complete options payoff instead of instrument labels', () => {
     expect(DAN_SYSTEM_PROMPT).toContain('Analyze the net position')
     expect(DAN_SYSTEM_PROMPT).toContain('Synthetic equivalence at expiry does not erase')

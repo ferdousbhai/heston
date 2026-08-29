@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  applyWatchlistMutation,
   applyLiveMarketEvent,
   hydrateCollections,
-  MAX_LIVE_MARKET_SYMBOLS,
   offlineSnapshotCollection,
   OFFLINE_SNAPSHOT_VERSION,
   restoreOfflineSnapshot,
@@ -12,6 +10,7 @@ import {
   tickerCollection,
 } from '../src/data/collections'
 import { mostActiveSymbol } from '../src/domain/market'
+import { MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
 import { marketSnapshotFixture } from './fixtures/market'
 
 describe('default market focus', () => {
@@ -142,26 +141,21 @@ describe('offline snapshot boundary', () => {
     expect(tickerCollection.get(privateTicker.symbol)).toBeUndefined()
   })
 
-  it('applies an owner watchlist change to the same atomic record', async () => {
-    const snapshot = marketSnapshotFixture()
-    await hydrateCollections(snapshot, 'owner')
-
-    await applyWatchlistMutation({ kind: 'add_watchlist_symbols', symbols: ['PLTR'] })
-
-    const watchlist = offlineSnapshotCollection.get('snapshot')?.snapshot.watchlists
-      .find((candidate) => candidate.kind === 'private')
-    expect(watchlist?.symbols).toContain('PLTR')
-  })
 })
 
 describe('live market subscriptions', () => {
-  it('keeps the selected loaded symbol first, drops unloaded symbols, deduplicates, and bounds the relay', () => {
-    const loaded = Array.from({ length: MAX_LIVE_MARKET_SYMBOLS + 20 }, (_, index) => `S${index}`)
-    const symbols = selectLiveMarketSymbols('S110', ['S1', 'MISSING', 'S110', ...loaded], loaded)
+  it('keeps the selected loaded symbol first, drops unloaded symbols, and deduplicates', () => {
+    const loaded = Array.from({ length: MAX_WATCHLIST_SYMBOLS }, (_, index) => `S${index}`)
+    const symbols = selectLiveMarketSymbols('S10', ['S1', 'MISSING', 'S10', ...loaded], loaded)
 
-    expect(symbols).toHaveLength(MAX_LIVE_MARKET_SYMBOLS)
-    expect(symbols.slice(0, 3)).toEqual(['S110', 'S1', 'S0'])
+    expect(symbols).toHaveLength(MAX_WATCHLIST_SYMBOLS)
+    expect(symbols.slice(0, 3)).toEqual(['S10', 'S1', 'S0'])
     expect(symbols).not.toContain('MISSING')
+  })
+
+  it('rejects a live subscription overflow instead of dropping symbols', () => {
+    const loaded = Array.from({ length: MAX_WATCHLIST_SYMBOLS + 1 }, (_, index) => `S${index}`)
+    expect(() => selectLiveMarketSymbols(undefined, loaded, loaded)).toThrow('too-many-symbols')
   })
 
   it('keeps the newest quote and recomputes the daily move from the prior close', async () => {

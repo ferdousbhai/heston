@@ -2,6 +2,7 @@ import { Type } from '@earendil-works/pi-ai'
 import { type AgentTool } from '@earendil-works/pi-agent-core'
 
 import { EQUITY_SYMBOL_PATTERN, EquitySymbolSchema } from '../domain/instrument'
+import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 import { DirectAccountActionSchema } from './agent-contracts'
 import { type AppEnv } from './env'
 import { brokerApi } from './tastytrade'
@@ -12,20 +13,20 @@ import { internalWatchlistWriter } from './internal-watchlist'
 const DirectAccountActionParameters = Type.Union([
   Type.Object({
     kind: Type.Literal('cancel_order'),
-    orderId: Type.String({ description: 'Exact tastytrade working-order ID.', pattern: '^\\d{1,40}$' }),
+    orderId: Type.String({ pattern: '^\\d{1,40}$' }),
   }, { additionalProperties: false }),
   Type.Object({
     kind: Type.Literal('add_watchlist_symbols'),
-    symbols: Type.Array(Type.String({ pattern: EQUITY_SYMBOL_PATTERN }), { maxItems: 50, minItems: 1 }),
+    symbols: Type.Array(Type.String({ pattern: EQUITY_SYMBOL_PATTERN }), { maxItems: MAX_WATCHLIST_SYMBOLS, minItems: 1 }),
   }, { additionalProperties: false }),
   Type.Object({
     kind: Type.Literal('remove_watchlist_symbols'),
-    symbols: Type.Array(Type.String({ pattern: EQUITY_SYMBOL_PATTERN }), { maxItems: 50, minItems: 1 }),
+    symbols: Type.Array(Type.String({ pattern: EQUITY_SYMBOL_PATTERN }), { maxItems: MAX_WATCHLIST_SYMBOLS, minItems: 1 }),
   }, { additionalProperties: false }),
 ])
 
 const RememberTradeSymbolsParameters = Type.Object({
-  symbols: Type.Array(Type.String({ pattern: EQUITY_SYMBOL_PATTERN }), { maxItems: 10, minItems: 1 }),
+  symbols: Type.Array(Type.String({ pattern: EQUITY_SYMBOL_PATTERN }), { maxItems: MAX_WATCHLIST_SYMBOLS, minItems: 1 }),
 }, { additionalProperties: false })
 
 function commandText(message: string): string {
@@ -92,7 +93,7 @@ export function createDirectAccountActionTool(
 > {
   let attempted = false
   return {
-    description: "Apply one explicitly requested direct account action: cancel an exact working tastytrade order, or add/remove exact equity symbols in Spice's private watchlist. This does not require a confirmation step, but must exactly match the current user message.",
+    description: 'Cancel an order or add/remove private-watchlist symbols; executes immediately.',
     execute: async (_toolCallId, params) => {
       const parsed = DirectAccountActionSchema.parse(params)
       const authorized = parsed.kind === 'cancel_order'
@@ -136,7 +137,7 @@ export function createRememberTradeSymbolsTool(
   env: AppEnv,
 ): AgentTool<typeof RememberTradeSymbolsParameters, { remembered: string[] }> {
   return {
-    description: "Remember symbols in Spice's internal watchlist when this conversation substantively discusses a trade, thesis, or potential play for a symbol that may not already be watched. This is idempotent and does not place a trade. Do not use it for incidental ticker mentions.",
+    description: 'Add trade-thesis tickers to the private watchlist.',
     execute: async (_toolCallId, params) => {
       const remembered = await internalWatchlistWriter().ensureSymbols(env, params.symbols, 'agent-discussion')
       return textResult({ remembered })

@@ -140,13 +140,11 @@ describe('Dan doctrine', () => {
     expect(DAN_SYSTEM_PROMPT).toContain('does not prove that long volatility has positive expectancy')
   })
 
-  it('builds compact model context with balances and market metrics for open-position tickers', () => {
+  it('builds compact model context without exposing account identity', () => {
     const account: BrokerageContext = {
       accountNumber: 'SECRET123',
       asOf: '2026-08-13T12:00:00.000Z',
       source: 'tastytrade',
-      completeness: { ordersTruncated: false, positionsTruncated: false },
-      availability: { balances: true, orders: true, positions: true },
       balances: {
         netLiquidatingValue: 100_000,
         cashBalance: 70_000, cashAvailableToWithdraw: 65_000, availableTradingFunds: 62_000,
@@ -158,18 +156,11 @@ describe('Dan doctrine', () => {
       }],
       orders: [],
     }
-    const context = buildAgentRuntimeContext(account, [{
-      symbol: 'SPY', price: 700, changePercent: 1.2, ivIndex: 18,
-      ivRank: 25, ivPercentile: 30, liquidity: 5, earningsDate: null,
-    }], {
-      symbol: 'NVDA', price: 180, changePercent: -0.5, ivIndex: 40,
-      ivRank: 60, ivPercentile: 65, liquidity: 4, earningsDate: '2026-08-26',
-    })
+    const context = buildAgentRuntimeContext(account)
 
     expect(context).toMatchObject({
       asOf: '2026-08-13T12:00:00.000Z',
       source: 'tastytrade',
-      completeness: { ordersTruncated: false, positionsTruncated: false },
       balances: {
         availableTradingFunds: 62_000,
         cashAvailableToWithdraw: 65_000,
@@ -179,10 +170,6 @@ describe('Dan doctrine', () => {
         equityBuyingPower: 160_000,
         netLiquidatingValue: 100_000,
       },
-      marketMetrics: {
-        SPY: { price: 700, ivIndex: 18, ivRank: 25, ivPercentile: 30, liquidity: 5 },
-        NVDA: { price: 180, ivIndex: 40, ivRank: 60, ivPercentile: 65, liquidity: 4 },
-      },
       orders: [],
     })
     expect(JSON.stringify(context)).not.toContain('SECRET123')
@@ -191,13 +178,4 @@ describe('Dan doctrine', () => {
     expect(JSON.stringify(context)).not.toContain('"buyingPower":')
   })
 
-  it('keeps selected-symbol metrics available without brokerage data', () => {
-    expect(buildAgentRuntimeContext(undefined, [], {
-      symbol: 'SPY', price: 700, changePercent: 1.2, ivIndex: 18,
-      ivRank: 25, ivPercentile: 30, liquidity: 5, earningsDate: null,
-    })).toMatchObject({
-      selectedSymbol: 'SPY',
-      marketMetrics: { SPY: { price: 700, ivRank: 25 } },
-    })
-  })
 })

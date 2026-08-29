@@ -17,12 +17,18 @@ export type OrderResponseReceipt = { id?: string; warnings: string[] }
 export type PlacedOrderReceipt = { id: string; warnings: string[] }
 export type ReplacementReceipt = { id: string }
 
-/** Echoed legs that are not objects carry no comparable fields, so they drop out of the check. */
+// Broker messages are untrusted presentation text. Preserve a small diagnostic packet without
+// allowing a rejection body to dominate logs, stored errors, or the agent response.
+const MAX_BROKER_MESSAGE_LENGTH = 160
+const MAX_BROKER_MESSAGES_PER_KIND = 5
+
 function rows(value: JsonValue): JsonObject[] {
-  const items = JsonArraySchema.safeParse(value).data ?? []
-  return items.flatMap((row) => {
+  const items = JsonArraySchema.safeParse(value).data
+  if (!items) throw new Error('TastytradeOrderResponse:invalid-order-legs')
+  return items.map((row) => {
     const parsed = jsonObject(row)
-    return parsed ? [parsed] : []
+    if (!parsed) throw new Error('TastytradeOrderResponse:invalid-order-leg')
+    return parsed
   })
 }
 
@@ -36,18 +42,26 @@ function messageRows(value: JsonValue): JsonObject[] {
 function messageText(row: JsonObject): string {
   const value = jsonText(row.message ?? row.code)
   if (value === undefined) throw new Error('TastytradeOrderResponse:invalid-message')
-  return value.slice(0, 160)
+  return value.length > MAX_BROKER_MESSAGE_LENGTH
+    ? `${value.slice(0, MAX_BROKER_MESSAGE_LENGTH - 1)}…`
+    : value
+}
+
+function messagePacket(value: JsonValue, kind: string): string[] {
+  const messages = messageRows(value)
+  const selected = messages.slice(0, MAX_BROKER_MESSAGES_PER_KIND).map(messageText)
+  const omitted = messages.length - selected.length
+  return omitted ? [...selected, `${omitted} more broker ${kind} omitted`] : selected
 }
 
 export function validateOrderResponse(payload: JsonValue, intended: OrderPayload): OrderResponseReceipt {
   const body = jsonObjectOrEmpty(payload)
   const data = jsonObjectOrEmpty(body.data ?? body)
-  const errors = messageRows(data.errors ?? body.errors).slice(0, 5)
+  const errors = messagePacket(data.errors ?? body.errors, 'errors')
   if (errors.length) {
-    const message = errors.map(messageText).join('; ')
-    throw new TastytradeOrderRejectedError(message.slice(0, 160))
+    throw new TastytradeOrderRejectedError(errors.join('; '))
   }
-  const warnings = messageRows(data.warnings ?? body.warnings).slice(0, 5).map(messageText)
+  const warnings = messagePacket(data.warnings ?? body.warnings, 'warnings')
   const order = jsonObjectOrEmpty(data.order ?? body.order)
   const buyingPower = jsonObjectOrEmpty(data['buying-power-effect'] ?? body['buying-power-effect'])
   if (!Object.keys(order).length || !Object.keys(buyingPower).length) {

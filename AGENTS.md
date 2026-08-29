@@ -34,6 +34,8 @@ Single-owner options application on Cloudflare with a public market surface, mem
 ## Working rules
 
 - Domain schemas and pure logic live in `src/domain/`, Cloudflare/provider code in `src/server/`, thin HTTP adapters in `src/routes/api.*`, reactive persistence in `src/data/`, product surfaces in `src/components/`.
+- Do not introduce magic numbers or duplicate limits. Every bound must come from an explicit product or risk policy, a documented platform/provider constraint, or a named resource/context budget; define it at the authoritative boundary, derive downstream values from it, and record why it exists and what happens when it is exceeded. Remove a cap when no such reason exists.
+- Do not silently coerce, synthesize, truncate, repair, fall back, or substitute data in a way that turns missing, malformed, stale, incomplete, or ambiguous state into apparent success. Defaults apply only to omitted optional input, never to invalid provided input. Fail visibly at the trust boundary unless the product contract explicitly defines best-effort degradation; then make the degraded, unavailable, stale, or truncated state observable and test the failure path.
 - Record a non-obvious privacy, trust, persistence, concurrency, or execution decision in an adjacent comment when it changes; do not write parallel prose documentation.
 - Preserve unrelated dirty-worktree changes. Use `rg` for discovery.
 - Production auto-deploys from `main` through Cloudflare Workers Builds; do not add a deploy workflow. Apply D1 migrations (`wrangler d1 migrations apply spice-production --remote`) before pushing code that reads new columns, and only when asked.
