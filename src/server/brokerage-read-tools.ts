@@ -535,7 +535,7 @@ function createAccountHistoryReadTool(
   }
 }
 
-function createMarketMetricsReadTool(
+export function createMarketMetricsReadTool(
   env: AppEnv,
 ): AgentTool<typeof MarketMetricsReadParameters, MarketMetricsReadResult> {
   return {

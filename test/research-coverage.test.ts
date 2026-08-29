@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { searchRecentTickerCoverage } from '../src/server/research-coverage'
 import { unsupportedDatabase, unsupportedStatement } from './fake-d1'
+import { sqliteD1 } from './sqlite-d1'
 
 describe('recent ticker coverage search', () => {
   it('keeps only requested tickers and the latest three rows per symbol', async () => {
@@ -35,13 +36,16 @@ describe('recent ticker coverage search', () => {
     const DB: D1Database = { ...unsupportedDatabase(), prepare }
     const now = new Date('2026-08-27T13:30:00.000Z')
 
-    const coverage = await searchRecentTickerCoverage({ DB }, ['NVDA', 'NVDA', 'META'], now)
+    const coverage = await searchRecentTickerCoverage({ DB }, ['NVDA', 'NVDA', 'META'], 14, now)
 
-    expect(prepare).toHaveBeenCalledWith(expect.not.stringContaining(' IN ('))
+    expect(prepare).toHaveBeenCalledWith(expect.stringContaining(
+      "IN (SELECT value FROM json_each(?))",
+    ))
     expect(bind).toHaveBeenCalledWith(
       '2026-08-13T13:30:00.000Z',
       '2026-08-27T13:30:00.000Z',
       'brief-2026-08-27',
+      '["NVDA","META"]',
     )
     expect(coverage.filter((item) => item.symbol === 'NVDA')).toHaveLength(3)
     expect(coverage).toContainEqual(expect.objectContaining({
@@ -57,14 +61,45 @@ describe('recent ticker coverage search', () => {
     const prepare = vi.fn(() => ({ ...unsupportedStatement(), bind }))
     const DB: D1Database = { ...unsupportedDatabase(), prepare }
 
-    await searchRecentTickerCoverage({ DB }, ['NVDA'], new Date('2026-08-28T01:00:00.000Z'))
+    await searchRecentTickerCoverage({ DB }, ['NVDA'], 14, new Date('2026-08-28T01:00:00.000Z'))
 
     expect(prepare).toHaveBeenCalledWith(expect.stringContaining('brief.id <> ?'))
     expect(bind).toHaveBeenCalledWith(
       '2026-08-14T01:00:00.000Z',
       '2026-08-28T01:00:00.000Z',
       'brief-2026-08-27',
+      '["NVDA"]',
     )
+  })
+
+  it('does not let unrelated rows consume the bounded result window', async () => {
+    const store = sqliteD1([
+      'CREATE TABLE research_briefs (id TEXT PRIMARY KEY, published_at TEXT, payload_json TEXT)',
+    ])
+    const now = new Date('2026-08-27T13:30:00.000Z')
+    const insert = store.sqlite.prepare(
+      'INSERT INTO research_briefs (id, published_at, payload_json) VALUES (?, ?, ?)',
+    )
+    const idea = (symbol: string) => JSON.stringify({
+      ideas: [{
+        description: `${symbol} description`,
+        direction: 'bullish',
+        headline: `${symbol} headline`,
+        risk: `${symbol} risk`,
+        symbol,
+      }],
+    })
+    try {
+      for (let index = 0; index < 60; index += 1) {
+        insert.run(`meta-${index}`, new Date(now.getTime() - index * 60_000).toISOString(), idea('META'))
+      }
+      insert.run('nvda', '2026-08-26T13:30:00.000Z', idea('NVDA'))
+
+      await expect(searchRecentTickerCoverage({ DB: store.database }, ['NVDA'], 14, now))
+        .resolves.toEqual([expect.objectContaining({ symbol: 'NVDA' })])
+    } finally {
+      store.close()
+    }
   })
 
   it('does not query D1 when there is no bounded ticker scope', async () => {

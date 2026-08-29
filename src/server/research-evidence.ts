@@ -1,4 +1,3 @@
-import { type Ticker } from '../domain/market'
 import { type ResearchSourceItem } from './research-contracts'
 
 const COMPANY_WORDS_IGNORED = new Set([
@@ -27,7 +26,8 @@ function distinctiveNameWords(name: string, symbol: string): string[] {
     .slice(0, 2)
 }
 
-function hasInstrumentName(text: string, ticker: Pick<Ticker, 'name' | 'symbol'>): boolean {
+function hasInstrumentName(text: string, ticker: { name?: string; symbol: string }): boolean {
+  if (!ticker.name) return false
   return distinctiveNameWords(ticker.name, ticker.symbol).some((word) => (
     new RegExp(`(?:^|[^A-Za-z0-9])${escaped(word)}(?=$|[^A-Za-z0-9])`, 'i').test(text)
   ))
@@ -40,7 +40,7 @@ function hasInstrumentName(text: string, ticker: Pick<Ticker, 'name' | 'symbol'>
  */
 export function bindEvidenceSymbols(
   items: readonly ResearchSourceItem[],
-  tickers: readonly Pick<Ticker, 'name' | 'symbol'>[],
+  tickers: readonly { name?: string; symbol: string }[],
 ): ResearchSourceItem[] {
   return items.map((item) => {
     const symbols = new Set(item.symbols ?? (item.marketMover ? [item.marketMover.symbol] : []))

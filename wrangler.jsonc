@@ -29,6 +29,13 @@
     { "tag": "v3", "new_sqlite_classes": ["BrokerGate"] }
   ],
   "ai": { "binding": "AI" },
+  "workflows": [
+    {
+      "binding": "DAILY_RESEARCH_WORKFLOW",
+      "name": "spice-daily-research",
+      "class_name": "DailyResearchWorkflow"
+    }
+  ],
   "secrets_store_secrets": [
     {
       "binding": "REDDIT_CLIENT_ID",
@@ -70,7 +77,7 @@
     }
   ],
   "triggers": {
-    "crons": ["0 12 * * *", "30,40,50 13,14 * * 1-5"]
+    "crons": ["0 12 * * *", "30 13,14 * * 1-5"]
   },
   "vars": {
     "AUTH_BASE_URL": "https://tryspice.xyz",

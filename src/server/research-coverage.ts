@@ -3,12 +3,11 @@ import { z } from 'zod'
 import { marketDate } from '../domain/catalyst'
 import { EquitySymbolSchema } from '../domain/instrument'
 import { type AppEnv } from './env'
-import { MAX_MAINTAINED_ITEMS } from './internal-watchlist'
 import { researchBriefId } from './research-contracts'
 
-const RECENT_COVERAGE_DAYS = 14
 const MAX_COVERAGE_PER_SYMBOL = 3
-const MAX_COVERAGE_ROWS = MAX_COVERAGE_PER_SYMBOL * MAX_MAINTAINED_ITEMS
+const MAX_COVERAGE_SYMBOLS = 20
+const MAX_COVERAGE_ROWS = MAX_COVERAGE_PER_SYMBOL * MAX_COVERAGE_SYMBOLS
 
 const RecentCoverageRowSchema = z.object({
   description: z.string().trim().min(1).max(360).nullable(),
@@ -31,14 +30,14 @@ export interface RecentTickerCoverage {
   symbol: string
 }
 
-function coverageCutoff(now: Date): string {
-  return new Date(now.getTime() - RECENT_COVERAGE_DAYS * 24 * 60 * 60_000).toISOString()
+function coverageCutoff(now: Date, daysAgo: number): string {
+  return new Date(now.getTime() - daysAgo * 24 * 60 * 60_000).toISOString()
 }
 
 /**
- * Read the small recent-brief window once, then retain only requested tickers and the
- * latest three rows per symbol. This avoids dynamic SQL and keeps repetition review
- * bounded without exposing entire historical briefs to the model.
+ * Read only requested tickers from the recent-brief window, then retain the latest
+ * three rows per symbol. The ticker list is one JSON-bound value, so the query stays
+ * static and bounded without exposing entire historical briefs to the model.
  *
  * The current market date's own brief is excluded. A rerun replaces that row, so
  * without this a second run of the same day reads the morning's brief as prior
@@ -47,31 +46,46 @@ function coverageCutoff(now: Date): string {
 export async function searchRecentTickerCoverage(
   env: AppEnv,
   symbols: readonly string[],
+  daysAgo = 14,
   now = new Date(),
 ): Promise<RecentTickerCoverage[]> {
   if (!env.DB || symbols.length === 0) return []
+  if (!Number.isSafeInteger(daysAgo) || daysAgo < 1 || daysAgo > 365) {
+    throw new Error('Recent coverage lookback is invalid.')
+  }
   const requested = new Set(symbols.map((symbol) => EquitySymbolSchema.parse(symbol)))
   const rows = await env.DB.prepare(
-    `SELECT
-       brief.published_at,
-       json_extract(idea.value, '$.symbol') AS symbol,
-       json_extract(idea.value, '$.direction') AS direction,
-       json_extract(idea.value, '$.headline') AS headline,
-       json_extract(idea.value, '$.description') AS description,
-       json_extract(idea.value, '$.risk') AS risk,
-       json_extract(idea.value, '$.setup') AS setup,
-       json_extract(idea.value, '$.thesis') AS thesis,
-       json_extract(idea.value, '$.horizon') AS horizon
-     FROM research_briefs AS brief, json_each(brief.payload_json, '$.ideas') AS idea
-     WHERE brief.published_at >= ?
-       AND brief.published_at < ?
-       AND brief.id <> ?
-     ORDER BY brief.published_at DESC
+    `WITH coverage AS (
+       SELECT
+         brief.published_at,
+         json_extract(idea.value, '$.symbol') AS symbol,
+         json_extract(idea.value, '$.direction') AS direction,
+         json_extract(idea.value, '$.headline') AS headline,
+         json_extract(idea.value, '$.description') AS description,
+         json_extract(idea.value, '$.risk') AS risk,
+         json_extract(idea.value, '$.setup') AS setup,
+         json_extract(idea.value, '$.thesis') AS thesis,
+         json_extract(idea.value, '$.horizon') AS horizon,
+         row_number() OVER (
+           PARTITION BY json_extract(idea.value, '$.symbol')
+           ORDER BY brief.published_at DESC
+         ) AS symbol_rank
+       FROM research_briefs AS brief, json_each(brief.payload_json, '$.ideas') AS idea
+       WHERE brief.published_at >= ?
+         AND brief.published_at < ?
+         AND brief.id <> ?
+         AND json_extract(idea.value, '$.symbol') IN (SELECT value FROM json_each(?))
+     )
+     SELECT published_at, symbol, direction, headline, description, risk, setup, thesis, horizon
+     FROM coverage
+     WHERE symbol_rank <= ${MAX_COVERAGE_PER_SYMBOL}
+     ORDER BY published_at DESC
      LIMIT ${MAX_COVERAGE_ROWS}`,
   ).bind(
-    coverageCutoff(now),
+    coverageCutoff(now, daysAgo),
     now.toISOString(),
     researchBriefId(marketDate(now)),
+    JSON.stringify([...requested]),
   ).all()
 
   const perSymbol = new Map<string, number>()

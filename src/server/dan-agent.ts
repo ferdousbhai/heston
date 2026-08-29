@@ -45,6 +45,7 @@ import { readStoredSecret } from './secrets'
 import { buildPortfolioPolicyContext } from './portfolio-risk'
 import { createMarketResearchTools } from './market-research-tools'
 import { createResearchReadTools } from './research-read-tools'
+import { createResearchAgentTools } from './research-agent-tools'
 import { createWatchlistReadTool } from './watchlist-tool'
 import { createExactOptionGreeksReadTool } from './option-greeks-tool'
 
@@ -357,6 +358,7 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
         createExactOptionGreeksReadTool(this.env),
         ...createBrokerageReadTools(this.env),
         ...createMarketResearchTools(),
+        ...createResearchAgentTools(this.env),
         ...createResearchReadTools(this.env),
       ]
       const toolLabel = new Map(tools.map((tool) => [tool.name, tool.label] as const))

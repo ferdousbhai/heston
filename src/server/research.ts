@@ -1,42 +1,19 @@
-import {
-  CatalystSchema,
-  isValidIsoDate,
-  marketDate,
-  recentCodexWebCatalysts,
-  type Catalyst,
-} from '../domain/catalyst'
+import { marketDate } from '../domain/catalyst'
 import { type JsonValue } from '../domain/json-payload'
-import { ResearchBriefSchema, type ResearchBrief, type Ticker } from '../domain/market'
-import { persistResearchedCatalysts } from './catalysts'
+import { ResearchBriefSchema, type ResearchBrief } from '../domain/market'
+import { readMarketStatus } from './brokerage-read-tools'
 import { type AppEnv } from './env'
-import {
-  addDays,
-  researchBriefId,
-  type ResearchSourceItem,
-} from './research-contracts'
+import { researchBriefId, type ResearchSourceItem } from './research-contracts'
 import { bindEvidenceSymbols } from './research-evidence'
-import { marketMoverResearch } from './research-market-movers'
 import {
-  marketMoverInsightsFromCandidates,
-  marketMoverPacket,
   mentionsDiscoverySource,
-  redditCatalystsFromCandidates,
   readingListFromCandidates,
   researchIdeasForDate,
   type BoundResearchIdea,
-  UNCONFIRMED_MOVER_HEADLINE,
 } from './research-output'
 import { equityOptionContractFromChainTuple } from './option-contract'
-import { searchRecentTickerCoverage } from './research-coverage'
-import {
-  dailyResearchAgent,
-  type DailyResearchSubmission,
-  type ResearchMarketMetrics,
-} from './research-agent'
-import { researchSources } from './research-sources'
-import { readStoredSecret } from './secrets'
+import { dailyResearchAgent, type DailyResearchSubmission } from './research-agent'
 import { brokerApi } from './tastytrade'
-import { internalWatchlistWriter } from './internal-watchlist'
 import { canonicalXPostUrl } from './x-url'
 
 function newYorkParts(date: Date) {
@@ -49,47 +26,7 @@ function newYorkParts(date: Date) {
 export function shouldRunDailyResearch(date: Date): boolean {
   const parts = newYorkParts(date)
   return parts.weekday !== 'Sat' && parts.weekday !== 'Sun' && parts.hour === '09'
-    && ['30', '40', '50'].includes(parts.minute)
-}
-
-function catalystEvidence(catalysts: readonly Catalyst[]): ResearchSourceItem[] {
-  return catalysts.map((catalyst) => ({
-    source: catalyst.source,
-    title: catalyst.title,
-    url: catalyst.sourceUrl,
-    publishedAt: catalyst.updatedAt,
-    context: `Scheduled ${catalyst.kind} on ${catalyst.date} (${catalyst.timing}, ${catalyst.confidence}). ${catalyst.description ?? catalyst.title}`,
-    symbols: [catalyst.symbol],
-  }))
-}
-
-function compactMarketMetrics(
-  tickers: readonly Ticker[],
-  focusSymbols: ReadonlySet<string>,
-): ResearchMarketMetrics[] {
-  return tickers.filter((ticker) => focusSymbols.has(ticker.symbol)).map((ticker) => {
-    const compact: ResearchMarketMetrics = {
-      symbol: ticker.symbol,
-      name: ticker.name,
-      price: ticker.price,
-      ivRank: ticker.ivRank,
-      ivPercentile: ticker.ivPercentile,
-      ivIndex: ticker.ivIndex,
-      liquidity: ticker.liquidity,
-      earningsDate: ticker.earningsDate,
-    }
-    if (ticker.marketCap !== undefined) compact.marketCap = ticker.marketCap
-    if (ticker.volume !== undefined) compact.volume = ticker.volume
-    return compact
-  })
-}
-
-// Research only the bounded private list; public projections and brokerage positions
-// never widen the agent's scope.
-function researchSymbols(watchlists: readonly { kind: string; symbols: readonly string[] }[]): string[] {
-  return [...new Set(watchlists
-    .filter((watchlist) => watchlist.kind === 'private')
-    .flatMap((watchlist) => watchlist.symbols.map((symbol) => symbol.toUpperCase())))]
+    && parts.minute === '30'
 }
 
 /**
@@ -110,33 +47,10 @@ function researchSourceLinks(evidence: readonly ResearchSourceItem[]): ResearchB
   return [...new Map(links.map((link) => [link.url, link])).values()]
 }
 
-/**
- * ask-dan published useful links surfaced by public discussion, but discussion itself is
- * not evidence in Spice. Only a page the collector actually fetched crosses this seam;
- * post text, scores, comments, and discovery provenance stay private.
- */
-function discussionLinkEvidence(evidence: readonly ResearchSourceItem[]): ResearchSourceItem[] {
-  return evidence.flatMap((item) => {
-    const linkedPages = item.linkedPages
-      ?? (item.outbound?.excerpt ? [{
-        ...item.outbound,
-        excerpt: item.outbound.excerpt,
-        title: item.outbound.title ?? item.outbound.label,
-      }] : [])
-    return linkedPages.map((link) => ({
-      context: link.excerpt,
-      publishedAt: item.publishedAt,
-      source: `Linked-page discovery · ${link.label}`,
-      symbols: item.symbols,
-      title: link.title,
-      url: link.url,
-    }))
-  })
-}
-
 export interface GenerateDailyResearchOptions {
   persist?: boolean
   requireMarketOpen?: boolean
+  runStep?: <T>(name: string, task: () => Promise<T>) => Promise<T>
 }
 
 function safeHttpsUrl(value: string): string | undefined {
@@ -208,46 +122,11 @@ function remapSubmissionSources(
       const mapped = remap(idea.sourceIndices)
       return mapped.length ? [{ ...idea, sourceIndices: mapped }] : []
     }),
-    marketMovers: submission.marketMovers.flatMap((mover) => {
-      const mapped = remap(mover.sourceIndices)
-      return mapped.length ? [{ ...mover, sourceIndices: mapped }] : []
-    }),
     readingList: submission.readingList.flatMap((item) => {
       const sourceIndex = sourceIndices[item.sourceIndex]
       return sourceIndex === undefined ? [] : [{ ...item, sourceIndex }]
     }),
   }
-}
-
-function xCatalystsFromSubmission(
-  submission: DailyResearchSubmission,
-  citations: ReadonlySet<string>,
-  allowedSymbols: ReadonlySet<string>,
-  now: Date,
-): Catalyst[] {
-  const today = marketDate(now)
-  const horizon = addDays(today, 180)
-  const accepted = new Map<string, Catalyst>()
-  for (const candidate of submission.xCatalysts) {
-    const source = submission.sources[candidate.sourceIndex]
-    const sourceUrl = source?.evidenceIndex === null ? canonicalXPostUrl(source.sourceUrl) : undefined
-    if (!source || source.symbol !== candidate.symbol || !allowedSymbols.has(candidate.symbol)
-      || !sourceUrl || !citations.has(sourceUrl) || !isValidIsoDate(candidate.date)
-      || candidate.date < today || candidate.date > horizon) continue
-    const id = `xai-x-search:${candidate.symbol}:${candidate.kind}:${candidate.date}`
-    const catalyst = CatalystSchema.parse({
-      ...candidate,
-      id,
-      source: 'Grok 4.6 X research',
-      sourceUrl,
-      updatedAt: now.toISOString(),
-    })
-    const current = accepted.get(id)
-    if (!current || (current.confidence === 'estimated' && catalyst.confidence === 'confirmed')) {
-      accepted.set(id, catalyst)
-    }
-  }
-  return [...accepted.values()]
 }
 
 /**
@@ -336,20 +215,7 @@ function completeEditorialFrame(candidateCount: number, ideas: ResearchBrief['id
 async function persistDailyResearch(
   env: AppEnv,
   brief: ResearchBrief,
-  redditCatalysts: readonly Catalyst[],
-  xCatalysts: readonly Catalyst[],
-  now: Date,
 ): Promise<void> {
-  await internalWatchlistWriter().ensureSymbols(
-    env,
-    [...brief.ideas.map((idea) => idea.symbol), ...brief.marketMovers.map((mover) => mover.symbol)],
-    'scheduled-research',
-    now,
-  )
-  await Promise.all([
-    persistResearchedCatalysts(env, 'reddit', redditCatalysts, now),
-    persistResearchedCatalysts(env, 'x', xCatalysts, now),
-  ])
   if (!env.DB) return
   await env.DB.prepare(
     `INSERT INTO research_briefs (id, published_at, payload_json)
@@ -358,62 +224,30 @@ async function persistDailyResearch(
   ).bind(brief.id, brief.publishedAt, JSON.stringify(brief)).run()
 }
 
-/**
- * Deterministic collectors prepare the ask-dan-style evidence packet, then one Pi turn
- * lets Grok use native X and web research before submitting the typed final report.
- * Local Codex catalysts remain complementary snapshot evidence; a missing laptop run
- * simply leaves that part of the packet empty.
- */
+/** One autonomous Pi agent discovers, researches, and submits the typed daily report. */
 export async function generateDailyResearch(
   env: AppEnv,
   now = new Date(),
   options: GenerateDailyResearchOptions = {},
 ): Promise<ResearchBrief> {
   const persist = options.persist ?? true
-  if (!env.REDDIT_CLIENT_ID || !env.REDDIT_CLIENT_SECRET) throw new Error('RedditResearchUnavailable')
-  const [redditClientId, redditClientSecret, snapshot] = await Promise.all([
-    readStoredSecret(env.REDDIT_CLIENT_ID, 'REDDIT_CLIENT_ID'),
-    readStoredSecret(env.REDDIT_CLIENT_SECRET, 'REDDIT_CLIENT_SECRET'),
-    brokerApi().loadMarketSnapshot(env),
-  ])
-  if (options.requireMarketOpen && snapshot.marketState !== 'open') {
-    throw new Error(`DailyResearchMarketNotOpen:${snapshot.marketState}`)
+  const runTask = <T>(name: string, task: () => Promise<T>): Promise<T> => (
+    options.runStep ? options.runStep(name, task) : task()
+  )
+  if (options.requireMarketOpen) {
+    const status = await runTask('market-status', () => readMarketStatus(env, now))
+    if (status.state !== 'open') throw new Error(`DailyResearchMarketNotOpen:${status.state}`)
   }
-  const symbols = researchSymbols(snapshot.watchlists)
   const today = marketDate(now)
-  const gatewayRunId = crypto.randomUUID()
-  const sources = researchSources()
-  const focusSymbols = new Set(symbols)
-  const compactMarket = compactMarketMetrics(snapshot.tickers, focusSymbols)
-  const codexWebCatalysts = recentCodexWebCatalysts(snapshot.catalysts, focusSymbols, now)
-  const codexEvidence = bindEvidenceSymbols(catalystEvidence(codexWebCatalysts), compactMarket)
-  const [officialEvidence, redditEvidence, marketMoverEvidence] = await Promise.all([
-    sources.collectOfficialSources(),
-    sources.collectRedditSources({ clientId: redditClientId, clientSecret: redditClientSecret }),
-    marketMoverResearch().collect(now),
-  ])
-  const discussionEvidence = bindEvidenceSymbols(redditEvidence, compactMarket)
-  const baseEvidence = bindEvidenceSymbols([
-    ...officialEvidence,
-    ...discussionLinkEvidence(discussionEvidence),
-    ...codexEvidence,
-    ...marketMoverEvidence,
-  ], compactMarket)
-  const signalSymbols = new Set([...discussionEvidence, ...baseEvidence]
-    .flatMap((item) => item.symbols ?? []))
-  const marketMetrics = compactMarket.filter((ticker) => signalSymbols.has(ticker.symbol))
-  const allowedCandidates = new Set(marketMetrics.map((ticker) => ticker.symbol))
-  const recentCoverage = await searchRecentTickerCoverage(env, [...allowedCandidates], now)
-  const detectedMovers = marketMoverPacket(baseEvidence)
+  // Workflow replay must keep one transcript identity for every provider turn.
+  const gatewayRunId = await runTask('run-id', async () => crypto.randomUUID())
   const agent = await dailyResearchAgent().run(env, {
-    detectedMovers,
-    evidence: baseEvidence,
-    marketMetrics,
     now,
-    recentCoverage,
-    redditEvidence: discussionEvidence,
     runId: gatewayRunId,
+    runStep: options.runStep,
   })
+  const baseEvidence = bindEvidenceSymbols(agent.evidence, agent.marketMetrics)
+  const allowedCandidates = new Set(agent.marketMetrics.map((ticker) => ticker.symbol))
   const boundSources = bindSubmissionSources(
     agent.submission.sources,
     baseEvidence,
@@ -422,40 +256,22 @@ export async function generateDailyResearch(
   )
   const evidence = boundSources.evidence
   const generated = remapSubmissionSources(agent.submission, boundSources.indices)
-  const redditCatalysts = redditCatalystsFromCandidates(
-    agent.submission.redditCatalysts.map(({ redditEvidenceIndex, ...candidate }) => ({
-      ...candidate,
-      sourceIndex: redditEvidenceIndex,
-    })),
-    discussionEvidence,
-    symbols,
-    now,
-  )
-  const xCatalysts = xCatalystsFromSubmission(agent.submission, agent.citations, allowedCandidates, now)
-  // The Codex count is the only trace of whether the laptop runner contributed:
-  // an empty packet from a closed laptop and one from a failed run look the same.
   console.info(JSON.stringify({
     event: 'DailyResearchModelCompleted',
-    codexWebCatalysts: codexWebCatalysts.length,
     runId: gatewayRunId,
   }))
-  const marketMovers = marketMoverInsightsFromCandidates(generated.marketMovers, evidence)
-  // No model output is retained, so without this counter a run where the editor
-  // returned no movers is indistinguishable from one where every candidate failed
-  // deterministic binding and fell back to the unconfirmed headline.
-  console.info(JSON.stringify({
-    event: 'DailyResearchMoversBound',
-    bound: marketMovers.filter((mover) => mover.headline !== UNCONFIRMED_MOVER_HEADLINE).length,
-    candidates: generated.marketMovers.length,
-    detected: marketMovers.length,
-    runId: gatewayRunId,
-  }))
-  // A watched symbol can lack a complete current tastytrade row. Bind ideas to
-  // the exact metrics packet supplied to the editor, not the wider source universe.
-  const boundIdeas = researchIdeasForDate(generated.ideas, today, evidence, [...allowedCandidates], recentCoverage)
+  const boundIdeas = researchIdeasForDate(
+    generated.ideas,
+    today,
+    evidence,
+    [...allowedCandidates],
+  )
   // Only a bound idea is worth a chain request: binding has already proved the symbol
   // and citations, and normalized an out-of-horizon expression to no play.
-  const ideas = await chainVerifiedIdeas(env, boundIdeas, gatewayRunId)
+  const ideas = await runTask(
+    'verify-option-chains',
+    () => chainVerifiedIdeas(env, boundIdeas, gatewayRunId),
+  )
   // A zero-idea brief is otherwise silent about whether the editor surfaced nothing or
   // every thesis failed symbol, coverage, citation, or discovery-provider validation.
   console.info(JSON.stringify({
@@ -469,6 +285,8 @@ export async function generateDailyResearch(
   // top-level summary that may still repeat the rejected thesis.
   const summary = boundResearchSummary(generated.summary, generated.ideas.length, ideas)
   const completeFrame = completeEditorialFrame(generated.ideas.length, ideas)
+  // Persist the completion time so replay cannot return a timestamp different from D1.
+  const publishedAt = await runTask('published-at', async () => new Date().toISOString())
   const brief = ResearchBriefSchema.parse({
     title: completeFrame && !mentionsDiscoverySource(generated.title)
       ? generated.title
@@ -479,16 +297,18 @@ export async function generateDailyResearch(
       ? generated.regimeDetail
       : 'Only independently supported setups survived.',
     ideas,
-    marketMovers,
+    marketMovers: [],
     readingList,
     id: researchBriefId(today),
     // Dated when the brief exists, not when the single agent run started.
-    publishedAt: new Date().toISOString(),
+    publishedAt,
     sources: researchSourceLinks(evidence),
   })
-  // Deterministic validation has now bound every surviving idea and mover to a
-  // trusted symbol. Scheduled discovery is therefore safe to remember without
-  // parsing arbitrary model prose for ticker-like words.
-  if (persist) await persistDailyResearch(env, brief, redditCatalysts, xCatalysts, now)
+  if (persist) {
+    await runTask('persist-report', async () => {
+      await persistDailyResearch(env, brief)
+      return true
+    })
+  }
   return brief
 }

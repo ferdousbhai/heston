@@ -7,12 +7,13 @@ import { shouldRunDailyResearch } from './server/research'
 import {
   INSTRUMENT_CATALOG_CRON,
   runDailyInstrumentCatalogRefresh,
-  runScheduledJobKind,
+  startScheduledJob,
 } from './server/scheduled-jobs'
 
 export { DanAgent } from './server/dan-agent'
 export { BrokerGate } from './server/broker-gate'
 export { MarketFeed } from './server/market-feed'
+export { DailyResearchWorkflow } from './server/daily-research-workflow'
 
 export default {
   async fetch(request: Request, env: AppEnv) {
@@ -33,7 +34,7 @@ export default {
       tasks.push(runDailyInstrumentCatalogRefresh(env, scheduledAt))
     }
     if (shouldRunDailyResearch(scheduledAt)) {
-      tasks.push(runScheduledJobKind(env, 'daily-research', scheduledAt))
+      tasks.push(startScheduledJob(env, 'daily-research', scheduledAt))
     }
     if (tasks.length) context.waitUntil(Promise.all(tasks).then(() => undefined))
   },
