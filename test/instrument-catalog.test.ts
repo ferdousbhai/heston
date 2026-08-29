@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import {
+  instrumentCatalogSymbolsNeedingResolution,
   instrumentCatalogFromPayload,
   persistInstrumentCatalog,
   readInstrumentCatalog,
@@ -83,7 +84,7 @@ describe('typed tastytrade instrument catalog', () => {
     expect(JSON.stringify(item)).not.toContain('unmodeled-provider-field')
   })
 
-  it('persists identity and daily status with stable creation time', async () => {
+  it('updates provider identity and status with stable creation time', async () => {
     const env = { DB: store.database }
     await refreshInstrumentCatalog(env, ['SPCX'], async () => ({ data: { items: [providerRow()] } }),
       new Date('2026-08-26T12:00:00.000Z'))
@@ -147,6 +148,17 @@ describe('typed tastytrade instrument catalog', () => {
       description: null,
       resolutionStatus: 'unresolved',
     })
+  })
+
+  it('selects only absent or unresolved identities for a later resolution attempt', async () => {
+    const env = { DB: store.database }
+    await persistInstrumentCatalog(env, [
+      instrumentCatalogFromPayload([providerRow('SPCX')], ['SPCX'])[0]!,
+      unresolvedInstrumentCatalogItem('VXD'),
+    ])
+
+    await expect(instrumentCatalogSymbolsNeedingResolution(env, ['SPCX', 'VXD', 'NVDA']))
+      .resolves.toEqual(['VXD', 'NVDA'])
   })
 
   it('uses D1-sized multi-row writes across persistence chunks', async () => {

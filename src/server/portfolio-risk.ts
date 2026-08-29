@@ -2,6 +2,7 @@ import { PORTFOLIO_POLICY, survivalBudget } from '../domain/portfolio-risk'
 import { type FreshOrderPlacement } from './agent-contracts'
 import { type BrokerageContext } from './brokerage-context'
 import { type AppEnv } from './env'
+import { OwnerVisibleError } from './owner-visible-error'
 import { resolveEquityOptionContract, type EquityOptionContract } from './option-contract'
 import {
   jsonNumber,
@@ -49,9 +50,9 @@ export interface PortfolioPolicyContext {
   status: 'approximate-new-risk-budget' | 'risk-increasing-actions-blocked'
 }
 
-export class PortfolioRiskError extends Error {
+export class PortfolioRiskError extends OwnerVisibleError {
   constructor(message: string) {
-    super(message)
+    super('portfolio-risk', message)
     this.name = 'PortfolioRiskError'
   }
 }

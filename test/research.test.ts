@@ -5,7 +5,7 @@ import {
   setDailyResearchAgent,
   type DailyResearchSubmission,
 } from '../src/server/research-agent'
-import { generateDailyResearch, shouldRunDailyResearch } from '../src/server/research'
+import { generateDailyResearch, shouldStartScheduledResearch } from '../src/server/research'
 import { readingListFromCandidates, researchIdeas } from '../src/server/research-output'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
@@ -42,17 +42,15 @@ function submission(sourceUrl = EVIDENCE_URL): DailyResearchSubmission {
   return report
 }
 
-function response(report = submission(), citations = new Set<string>([EVIDENCE_URL])) {
-  return Promise.resolve({
-    citations,
-    submission: report,
-  })
+function response(report = submission()) {
+  return Promise.resolve({ submission: report })
 }
 
 const broker = stubBroker()
 
 beforeEach(() => {
   broker.tastyRequest.mockReset()
+  broker.resolveResearchInstrumentCatalogFromTastytrade.mockClear()
   setBrokerApi(broker)
   setDailyResearchAgent({ run: () => response() })
 })
@@ -62,12 +60,12 @@ afterEach(() => {
   resetDailyResearchAgent()
 })
 
-describe('daily research schedule', () => {
+describe('market-session research schedule', () => {
   it('starts once at 09:30 New York on weekdays', () => {
-    expect(shouldRunDailyResearch(new Date('2026-08-13T13:30:00.000Z'))).toBe(true)
-    expect(shouldRunDailyResearch(new Date('2026-08-13T13:40:00.000Z'))).toBe(false)
-    expect(shouldRunDailyResearch(new Date('2026-12-14T14:30:00.000Z'))).toBe(true)
-    expect(shouldRunDailyResearch(new Date('2026-08-15T13:30:00.000Z'))).toBe(false)
+    expect(shouldStartScheduledResearch(new Date('2026-08-13T13:30:00.000Z'))).toBe(true)
+    expect(shouldStartScheduledResearch(new Date('2026-08-13T13:40:00.000Z'))).toBe(false)
+    expect(shouldStartScheduledResearch(new Date('2026-12-14T14:30:00.000Z'))).toBe(true)
+    expect(shouldStartScheduledResearch(new Date('2026-08-15T13:30:00.000Z'))).toBe(false)
   })
 })
 
@@ -150,31 +148,31 @@ describe('daily research final boundary', () => {
     })])
     expect(brief.readingList).toEqual([expect.objectContaining({ url: EVIDENCE_URL })])
     expect(brief.sources).toEqual([
-      { label: 'Grok research · reuters.com · NVIDIA supply agreement', url: EVIDENCE_URL },
+      { label: 'NVIDIA supply agreement', url: EVIDENCE_URL },
       { label: 'NVIDIA supply agreement', url: EVIDENCE_URL },
     ])
     expect(broker.tastyRequest).not.toHaveBeenCalled()
     expect(broker.loadMarketSnapshot).not.toHaveBeenCalled()
   })
 
-  it('accepts a native-search link only when it appears in provider citation metadata', async () => {
-    const nativeUrl = 'https://example.com/nvidia-primary'
+  it('maps the structured model source directly into the domain report', async () => {
+    const nativeUrl = 'https://example.com/nvidia-primary#agreement'
     setDailyResearchAgent({
-      run: () => response(submission(nativeUrl), new Set([nativeUrl])),
+      run: () => response(submission(nativeUrl)),
     })
 
     const brief = await generateDailyResearch({}, NOW, { persist: false })
     expect(brief.ideas[0]?.sources).toEqual([{
-      label: 'Grok research · example.com · NVIDIA supply agreement',
+      label: 'NVIDIA supply agreement',
       url: nativeUrl,
     }])
   })
 
-  it('fails when the model invents a native source URL', async () => {
-    setDailyResearchAgent({ run: () => response(submission(), new Set()) })
+  it('lets the report domain schema reject a non-HTTPS structured source', async () => {
+    setDailyResearchAgent({ run: () => response(submission('http://example.com/nvidia-primary')) })
 
     await expect(generateDailyResearch({}, NOW, { persist: false }))
-      .rejects.toThrow('DailyResearchOutput:uncited-native-source:0')
+      .rejects.toThrow('Use an HTTPS source URL')
   })
 
   it('uses the narrow market-status read for scheduled runs', async () => {
@@ -183,7 +181,30 @@ describe('daily research final boundary', () => {
     await expect(generateDailyResearch({}, NOW, { persist: false, requireMarketOpen: true }))
       .rejects.toThrow('DailyResearchMarketNotOpen:pre')
     expect(broker.tastyRequest).toHaveBeenCalledWith(expect.anything(), '/market-time/equities/sessions/current')
+    expect(broker.resolveResearchInstrumentCatalogFromTastytrade).not.toHaveBeenCalled()
     expect(broker.loadMarketSnapshot).not.toHaveBeenCalled()
+  })
+
+  it('retries only unresolved catalog identities after the market-open check', async () => {
+    broker.tastyRequest.mockResolvedValueOnce({ data: { state: 'open' } })
+    broker.resolveResearchInstrumentCatalogFromTastytrade.mockResolvedValueOnce({
+      missingSymbols: ['VXD'],
+      receivedCount: 1,
+      requestedCount: 2,
+    })
+
+    await generateDailyResearch({}, NOW, { persist: false, requireMarketOpen: true })
+
+    expect(broker.resolveResearchInstrumentCatalogFromTastytrade).toHaveBeenCalledWith({}, NOW)
+  })
+
+  it('keeps research available when catalog identity repair is unavailable', async () => {
+    broker.tastyRequest.mockResolvedValueOnce({ data: { state: 'open' } })
+    broker.resolveResearchInstrumentCatalogFromTastytrade
+      .mockRejectedValueOnce(new Error('TastytradeApi:503:/instruments/equities'))
+
+    await expect(generateDailyResearch({}, NOW, { persist: false, requireMarketOpen: true }))
+      .resolves.toMatchObject({ id: 'brief-2026-08-14' })
   })
 
   it('replays with one transcript identity and publication time', async () => {

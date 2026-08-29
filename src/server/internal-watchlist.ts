@@ -51,14 +51,15 @@ const MAX_SEED_WRITE_STATEMENTS = 200
 const MAX_SEED_MEMBERSHIPS_PER_SYMBOL = 2 * MAX_SOURCE_LISTS_PER_KIND
 
 const SymbolSchema = EquitySymbolSchema
-const InternalWatchlistOriginSchema = z.enum([
+const INTERNAL_WATCHLIST_ORIGINS = [
   'tastytrade-seed',
-  'owner',
-  'agent-discussion',
   'scheduled-research',
+  'agent-discussion',
   'position-sync',
   'trade-intent',
-])
+  'owner',
+] as const
+const InternalWatchlistOriginSchema = z.enum(INTERNAL_WATCHLIST_ORIGINS)
 const InternalWatchlistMutationOriginSchema = InternalWatchlistOriginSchema.exclude(['tastytrade-seed'])
 
 export type InternalWatchlistOrigin = z.infer<typeof InternalWatchlistOriginSchema>
@@ -498,14 +499,13 @@ function pruneStatement(
   ).bind(...priority)
 }
 
-const originPriority = {
-  'tastytrade-seed': 0,
-  'scheduled-research': 1,
-  'agent-discussion': 2,
-  'position-sync': 3,
-  'trade-intent': 4,
-  owner: 5,
-} satisfies Record<InternalWatchlistOrigin, number>
+function originPriority(origin: InternalWatchlistOrigin): number {
+  return INTERNAL_WATCHLIST_ORIGINS.indexOf(origin)
+}
+
+const storedOriginPrioritySql = `CASE internal_watchlist_items.origin ${INTERNAL_WATCHLIST_ORIGINS
+  .map((origin, priority) => `WHEN '${origin}' THEN ${priority}`)
+  .join(' ')} END`
 
 function upsertSymbolsStatement(
   db: D1Database,
@@ -514,7 +514,7 @@ function upsertSymbolsStatement(
   timestamp: string,
   onlyWhileUnfinalized = false,
 ): D1PreparedStatement {
-  const priority = originPriority[origin]
+  const priority = originPriority(origin)
   return db.prepare(
     `WITH input AS (
        SELECT CAST(key AS INTEGER) AS input_index, value AS symbol
@@ -544,22 +544,10 @@ function upsertSymbolsStatement(
        WHERE id = 'primary' AND status = 'ready' AND finalized_at IS NULL
      )` : 'true'}
      ON CONFLICT(symbol) DO UPDATE SET
-       origin = CASE WHEN ? > CASE internal_watchlist_items.origin
-         WHEN 'tastytrade-seed' THEN 0
-         WHEN 'scheduled-research' THEN 1
-         WHEN 'agent-discussion' THEN 2
-         WHEN 'position-sync' THEN 3
-         WHEN 'trade-intent' THEN 4
-         WHEN 'owner' THEN 5
-       END THEN excluded.origin ELSE internal_watchlist_items.origin END,
-       updated_at = CASE WHEN ? >= CASE internal_watchlist_items.origin
-         WHEN 'tastytrade-seed' THEN 0
-         WHEN 'scheduled-research' THEN 1
-         WHEN 'agent-discussion' THEN 2
-         WHEN 'position-sync' THEN 3
-         WHEN 'trade-intent' THEN 4
-         WHEN 'owner' THEN 5
-       END THEN excluded.updated_at ELSE internal_watchlist_items.updated_at END`,
+       origin = CASE WHEN ? > ${storedOriginPrioritySql}
+         THEN excluded.origin ELSE internal_watchlist_items.origin END,
+       updated_at = CASE WHEN ? >= ${storedOriginPrioritySql}
+         THEN excluded.updated_at ELSE internal_watchlist_items.updated_at END`,
   ).bind(JSON.stringify(symbols), origin, timestamp, timestamp, priority, priority)
 }
 

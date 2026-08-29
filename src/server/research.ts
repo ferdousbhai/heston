@@ -1,8 +1,11 @@
 import { marketDate } from '../domain/catalyst'
+import { toError } from '../domain/failure'
 import { ResearchBriefSchema, type ResearchBrief } from '../domain/market'
 import { readMarketStatus } from './brokerage-read-tools'
 import { type AppEnv } from './env'
 import { researchBriefId } from './research-contracts'
+import { upsertResearchBrief } from './research-brief-store'
+import { brokerApi } from './tastytrade'
 import {
   readingListFromCandidates,
   researchIdeas,
@@ -16,7 +19,7 @@ function newYorkParts(date: Date) {
   return Object.fromEntries(parts.map((part) => [part.type, part.value]))
 }
 
-export function shouldRunDailyResearch(date: Date): boolean {
+export function shouldStartScheduledResearch(date: Date): boolean {
   const parts = newYorkParts(date)
   return parts.weekday !== 'Sat' && parts.weekday !== 'Sun' && parts.hour === '09'
     && parts.minute === '30'
@@ -39,30 +42,38 @@ export interface GenerateDailyResearchOptions {
   runStep?: <T>(name: string, task: () => Promise<T>) => Promise<T>
 }
 
-function safeHttpsUrl(value: string): string | undefined {
-  try {
-    const url = new URL(value)
-    if (url.protocol !== 'https:' || url.username || url.password) return undefined
-    url.hash = ''
-    return url.toString()
-  } catch {
-    return undefined
-  }
-}
-
 function bindSubmissionSources(
   sources: readonly DailyResearchSubmission['sources'][number][],
-  citations: ReadonlySet<string>,
 ): ResearchBrief['sources'] {
-  return sources.map((candidate, candidateIndex) => {
-    const sourceUrl = safeHttpsUrl(candidate.sourceUrl)
-    if (!sourceUrl) throw new Error(`DailyResearchOutput:invalid-native-source-url:${candidateIndex}`)
-    if (!citations.has(sourceUrl)) throw new Error(`DailyResearchOutput:uncited-native-source:${candidateIndex}`)
-    return {
-      label: `Grok research · ${new URL(sourceUrl).hostname.replace(/^www\./, '')} · ${candidate.title}`,
-      url: sourceUrl,
+  return sources.map((candidate) => ({
+    label: candidate.title,
+    url: candidate.sourceUrl,
+  }))
+}
+
+async function resolveResearchInstrumentCatalog(env: AppEnv, now: Date) {
+  try {
+    const catalog = await brokerApi().resolveResearchInstrumentCatalogFromTastytrade(env, now)
+    const result = {
+      missingCount: catalog.missingSymbols.length,
+      receivedCount: catalog.receivedCount,
+      requestedCount: catalog.requestedCount,
+      status: 'resolved' as const,
     }
-  })
+    console.info(JSON.stringify({ event: 'ResearchInstrumentCatalogResolved', ...result }))
+    return result
+  } catch (cause) {
+    const error = toError(cause)
+    // Provider bodies and credentials never enter logs; these two labels are controlled
+    // by the application and Error constructor, and the durable step records the degraded result.
+    const result = {
+      errorCode: error?.message.match(/^[A-Za-z][A-Za-z0-9]*(?::\d{3})?/)?.[0] ?? 'UnknownError',
+      errorName: error?.name ?? 'Error',
+      status: 'unavailable' as const,
+    }
+    console.error(JSON.stringify({ event: 'ResearchInstrumentCatalogUnavailable', ...result }))
+    return result
+  }
 }
 
 async function persistDailyResearch(
@@ -70,11 +81,7 @@ async function persistDailyResearch(
   brief: ResearchBrief,
 ): Promise<void> {
   if (!env.DB) throw new Error('DailyResearchPersistenceUnavailable')
-  await env.DB.prepare(
-    `INSERT INTO research_briefs (id, published_at, payload_json)
-     VALUES (?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET published_at = excluded.published_at, payload_json = excluded.payload_json`,
-  ).bind(brief.id, brief.publishedAt, JSON.stringify(brief)).run()
+  await upsertResearchBrief(env.DB, brief)
 }
 
 /** One autonomous Pi agent discovers, researches, and submits the typed daily report. */
@@ -90,6 +97,10 @@ export async function generateDailyResearch(
   if (options.requireMarketOpen) {
     const status = await runTask('market-status', () => readMarketStatus(env, now))
     if (status.state !== 'open') throw new Error(`DailyResearchMarketNotOpen:${status.state}`)
+    await runTask(
+      'resolve-instrument-catalog',
+      () => resolveResearchInstrumentCatalog(env, now),
+    )
   }
   const today = marketDate(now)
   // Workflow replay must keep one transcript identity for every provider turn.
@@ -100,7 +111,7 @@ export async function generateDailyResearch(
     runStep: options.runStep,
   })
   const { submission } = agent
-  const sources = bindSubmissionSources(submission.sources, agent.citations)
+  const sources = bindSubmissionSources(submission.sources)
   console.info(JSON.stringify({
     event: 'DailyResearchModelCompleted',
     runId: gatewayRunId,

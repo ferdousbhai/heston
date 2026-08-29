@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { JsonObjectSchema, type JsonObject } from '../src/domain/json-payload'
 import {
   runDailyResearchAgent,
   type DailyResearchSubmission,
 } from '../src/server/research-agent'
+import { resetMarketMoverResearch, setMarketMoverResearch } from '../src/server/research-market-movers'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
@@ -44,25 +45,12 @@ function submission(): DailyResearchSubmission {
 function providerToolCall(
   name: string,
   args: JsonObject,
-  citedUrl?: string,
   status: string | null = 'completed',
-  openedUrl?: string,
+  xSearchStatus?: string | null,
 ) {
   const response = {
     output: [
-      ...(openedUrl ? [{
-        type: 'web_search_call',
-        status: 'completed',
-        action: { type: 'open_page', url: openedUrl },
-      }] : []),
-      ...(citedUrl ? [{
-        type: 'message',
-        content: [{
-          type: 'output_text',
-          text: 'Research complete.',
-          annotations: [{ type: 'url_citation', url: citedUrl }],
-        }],
-      }] : []),
+      ...(xSearchStatus ? [{ type: 'x_search_call', status: xSearchStatus }] : []),
       { type: 'function_call', call_id: `${name}-1`, name, arguments: JSON.stringify(args) },
     ],
   }
@@ -70,23 +58,15 @@ function providerToolCall(
 }
 
 function providerReport(
-  citedUrl?: string,
   status: string | null = 'completed',
-  openedUrl?: string,
 ) {
   const response = {
     output: [
-      ...(openedUrl ? [{
-        type: 'web_search_call',
-        status: 'completed',
-        action: { type: 'open_page', url: openedUrl },
-      }] : []),
       {
         type: 'message',
         content: [{
           type: 'output_text',
           text: JSON.stringify(submission()),
-          annotations: citedUrl ? [{ type: 'url_citation', url: citedUrl }] : [],
         }],
       },
     ],
@@ -112,11 +92,14 @@ function environment() {
   }
 }
 
-function agentFetcher(status: string | null = 'completed', openedUrl?: string) {
+function agentFetcher(
+  status: string | null = 'completed',
+  xSearchStatus: string | null = 'completed',
+) {
   const providerResponses = [
-    providerToolCall('read_market_metrics', { symbols: ['NVDA'] }, undefined, status),
-    providerToolCall('get_recent_coverage', { daysAgo: 14, tickers: ['NVDA'] }, undefined, status),
-    providerReport(openedUrl ? undefined : CITED_URL, status, openedUrl),
+    providerToolCall('read_market_metrics', { symbols: ['NVDA'] }, status, xSearchStatus),
+    providerToolCall('get_recent_coverage', { daysAgo: 14, tickers: ['NVDA'] }, status),
+    providerReport(status),
   ]
   const bodies: JsonObject[] = []
   const fetcher = vi.fn<typeof fetch>(async (input, init) => {
@@ -132,7 +115,22 @@ function agentFetcher(status: string | null = 'completed', openedUrl?: string) {
   return { bodies, fetcher }
 }
 
-afterEach(() => resetBrokerApi())
+beforeEach(() => {
+  setMarketMoverResearch({
+    collect: async (now = NOW) => ({
+      fetchedAt: now.toISOString(),
+      movers: [],
+      source: 'yahoo',
+      status: 'available',
+      unavailableCategories: [],
+    }),
+  })
+})
+
+afterEach(() => {
+  resetBrokerApi()
+  resetMarketMoverResearch()
+})
 
 describe('daily research Pi agent boundary', () => {
   it('gives Pi Reddit context before it chooses candidates and uses research tools', async () => {
@@ -160,7 +158,6 @@ describe('daily research Pi agent boundary', () => {
     }, fetcher)
 
     expect(result.submission.ideas[0]?.symbol).toBe('NVDA')
-    expect(result.citations).toContain(CITED_URL)
     expect(bodies).toHaveLength(3)
     expect(bodies[0]?.tools).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'web_search' }),
@@ -185,8 +182,10 @@ describe('daily research Pi agent boundary', () => {
     expect(JSON.stringify(bodies[0]?.input)).toContain('Every material factual claim')
     expect(JSON.stringify(bodies[0]?.input)).toContain('reopen every selected source page')
     expect(JSON.stringify(bodies[0]?.input)).toContain('reddit_discovery_packet')
+    expect(JSON.stringify(bodies[0]?.input)).toContain('yahoo_mover_packet')
+    expect(JSON.stringify(bodies[0]?.input)).toContain('codex_catalyst_packet')
     expect(steps).toEqual([
-      'reddit-context',
+      'reddit-context', 'yahoo-movers', 'codex-context',
       'model-1', 'tool-1-read_market_metrics',
       'model-2', 'tool-2-get_recent_coverage',
       'model-3',
@@ -220,7 +219,6 @@ describe('daily research Pi agent boundary', () => {
     )
 
     expect(replayed.submission.ideas[0]?.symbol).toBe('NVDA')
-    expect(replayed.citations).toContain(CITED_URL)
     expect(second.fetcher).not.toHaveBeenCalled()
     expect(broker.tastyRequest).toHaveBeenCalledTimes(1)
     expect([...cached.keys()]).not.toContain(expect.stringContaining('submit_daily_report'))
@@ -236,18 +234,35 @@ describe('daily research Pi agent boundary', () => {
       .resolves.toEqual(expect.objectContaining({ submission: expect.any(Object) }))
   })
 
-  it('accepts a completed native page-open as source provenance', async () => {
+  it('fails visibly when the model completes without running native X search', async () => {
     const broker = stubBroker()
     broker.tastyRequest.mockResolvedValue({ data: { items: [{ symbol: 'NVDA' }] } })
     setBrokerApi(broker)
-    const { fetcher } = agentFetcher('completed', CITED_URL)
+    const { fetcher } = agentFetcher('completed', null)
 
-    const result = await runDailyResearchAgent(environment(), {
-      now: NOW,
-      runId: 'daily-run',
-    }, fetcher)
+    await expect(runDailyResearchAgent(environment(), {
+      now: NOW, runId: 'daily-run',
+    }, fetcher)).rejects.toThrow('DailyResearchAgentMissingXSearch')
+  })
 
-    expect(result.citations).toEqual(new Set([CITED_URL]))
+  it('fails visibly when the native X call does not complete', async () => {
+    setBrokerApi(stubBroker())
+    const { fetcher } = agentFetcher('completed', 'failed')
+
+    await expect(runDailyResearchAgent(environment(), {
+      now: NOW, runId: 'daily-run',
+    }, fetcher)).rejects.toThrow('DailyResearchAgentXSearch:failed')
+  })
+
+  it('fails visibly when mandatory Reddit research is unavailable', async () => {
+    setBrokerApi(stubBroker())
+    const { bodies, fetcher } = agentFetcher()
+
+    await expect(runDailyResearchAgent({
+      ...environment(),
+      REDDIT_CLIENT_ID: undefined,
+    }, { now: NOW, runId: 'daily-run' }, fetcher)).rejects.toThrow('RedditResearchUnavailable')
+    expect(bodies).toHaveLength(0)
   })
 
   it('fails immediately when a research tool fails', async () => {

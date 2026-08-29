@@ -23,6 +23,11 @@ export function stubBroker() {
     loadMarketSnapshot: vi.fn(),
     loadPublicMarketSnapshot: vi.fn(),
     loadQuoteToken: vi.fn(),
+    resolveResearchInstrumentCatalogFromTastytrade: vi.fn<BrokerApi['resolveResearchInstrumentCatalogFromTastytrade']>(async () => ({
+      missingSymbols: [],
+      receivedCount: 0,
+      requestedCount: 0,
+    })),
     resolveAccountNumber: vi.fn(),
     renewBrokerMutationLease,
     tastyRequest: vi.fn(),

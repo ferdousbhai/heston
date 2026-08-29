@@ -12,6 +12,7 @@ import { resolveStoredOrderIntent } from './order-intent'
 import { replacementOrderPayload, type OrderPayload } from './order-payload'
 import { brokerApi } from './tastytrade'
 import { tradeGuards } from './trade-guards'
+import { OwnerVisibleError } from './owner-visible-error'
 
 export type OrderResponseReceipt = { id?: string; warnings: string[] }
 export type PlacedOrderReceipt = { id: string; warnings: string[] }
@@ -88,9 +89,9 @@ export function validateOrderResponse(payload: JsonValue, intended: OrderPayload
   return { id: id && /^\d{1,40}$/.test(id) ? id : undefined, warnings }
 }
 
-export class BrokerageSubmissionUnknownError extends Error {
+export class BrokerageSubmissionUnknownError extends OwnerVisibleError {
   constructor() {
-    super('Tastytrade may have received this order, but Spice could not verify the result. Reconciliation is required before another trade.')
+    super('ambiguous-brokerage', 'Tastytrade may have received this order, but Spice could not verify the result. Reconciliation is required before another trade.')
     this.name = 'BrokerageSubmissionUnknownError'
   }
 }
@@ -102,9 +103,9 @@ class TastytradeOrderRejectedError extends Error {
   }
 }
 
-class TastytradeOrderWarningError extends Error {
+export class TastytradeOrderWarningError extends OwnerVisibleError {
   constructor(warnings: readonly string[]) {
-    super(`Tastytrade returned a preflight warning, so the order was not submitted: ${warnings.join('; ')}`)
+    super('broker-warning', `Tastytrade returned a preflight warning, so the order was not submitted: ${warnings.join('; ')}`)
     this.name = 'TastytradeOrderWarningError'
   }
 }

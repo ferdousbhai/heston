@@ -7,6 +7,10 @@ const body = bodyPath ? await readFile(bodyPath) : undefined
 // Give a newly deployed temporary workers.dev route 30 seconds to propagate.
 const DEPLOYMENT_READY_ATTEMPTS = 30
 const DEPLOYMENT_RETRY_DELAY_MS = 1_000
+// A provider-backed ops call has its own 20-second upstream bound. This larger
+// envelope leaves room for D1 work while ensuring one hung request cannot hold a
+// secret-bearing temporary deployment open indefinitely.
+const TEMPORARY_WORKER_REQUEST_TIMEOUT_MS = 60_000
 
 for (let attempt = 0; attempt < DEPLOYMENT_READY_ATTEMPTS; attempt += 1) {
   const headers = new Headers({ Authorization: `Bearer ${token}` })
@@ -15,6 +19,7 @@ for (let attempt = 0; attempt < DEPLOYMENT_READY_ATTEMPTS; attempt += 1) {
     body,
     headers,
     method: 'POST',
+    signal: AbortSignal.timeout(TEMPORARY_WORKER_REQUEST_TIMEOUT_MS),
   })
   const text = await response.text()
   // The shared ops gate answers an unauthorized or unknown request with the same

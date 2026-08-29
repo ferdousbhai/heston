@@ -50,4 +50,13 @@ describe('Dan research read tools', () => {
     const broken = d1WithResults([{ payload_json: '{}' }])
     await expect(readLatestResearch(broken.env)).rejects.toThrow()
   })
+
+  it('reports an absent brief without manufacturing research', async () => {
+    const db = d1WithResults([])
+    await expect(readLatestResearch(db.env, new Date('2026-08-13T14:00:00.000Z'))).resolves.toEqual({
+      fetchedAt: '2026-08-13T14:00:00.000Z',
+      source: 'spice-research-store',
+      status: 'not_found',
+    })
+  })
 })

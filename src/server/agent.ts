@@ -16,9 +16,17 @@ import { orderMarketPreview } from './order-market'
 import { tradeGuards } from './trade-guards'
 import { brokerApi } from './tastytrade'
 import { internalWatchlistWriter } from './internal-watchlist'
+import { OwnerVisibleError } from './owner-visible-error'
 
 type CloudflareSubtleCrypto = SubtleCrypto & {
   timingSafeEqual(left: ArrayBuffer | ArrayBufferView, right: ArrayBuffer | ArrayBufferView): boolean
+}
+
+export class PendingActionStateError extends OwnerVisibleError {
+  constructor(readonly reason: 'expired' | 'not-pending') {
+    super('action-state', reason === 'expired' ? 'This confirmation has expired' : 'This action is no longer pending')
+    this.name = 'PendingActionStateError'
+  }
 }
 
 function base64Url(bytes: Uint8Array): string {
@@ -107,10 +115,10 @@ export async function resolvePendingAction(
   const row = await env.DB.prepare(
     'SELECT payload_json, token_digest, expires_at, status FROM brokerage_actions WHERE id = ?',
   ).bind(actionId).first<{ expires_at: string; payload_json: string; status: string; token_digest: string }>()
-  if (!row || row.status !== 'pending') throw new Error('This action is no longer pending')
+  if (!row || row.status !== 'pending') throw new PendingActionStateError('not-pending')
   if (Date.parse(row.expires_at) <= Date.now()) {
     await env.DB.prepare("UPDATE brokerage_actions SET status = 'expired' WHERE id = ? AND status = 'pending'").bind(actionId).run()
-    throw new Error('This confirmation has expired')
+    throw new PendingActionStateError('expired')
   }
   if (!await timingSafeDigestMatch(await digest(input.token), row.token_digest)) {
     throw new Error('Invalid confirmation token')
@@ -119,13 +127,13 @@ export async function resolvePendingAction(
     const result = await env.DB.prepare(
       "UPDATE brokerage_actions SET status = 'denied', resolved_at = ? WHERE id = ? AND status = 'pending'",
     ).bind(new Date().toISOString(), actionId).run()
-    if (result.meta.changes !== 1) throw new Error('This action was already resolved')
+    if (result.meta.changes !== 1) throw new PendingActionStateError('not-pending')
     return { status: 'denied', detail: 'Action draft discarded' }
   }
   const claimed = await env.DB.prepare(
     "UPDATE brokerage_actions SET status = 'executing', resolved_at = ? WHERE id = ? AND status = 'pending'",
   ).bind(new Date().toISOString(), actionId).run()
-  if (claimed.meta.changes !== 1) throw new Error('This action was already resolved')
+  if (claimed.meta.changes !== 1) throw new PendingActionStateError('not-pending')
   let receipt: Awaited<ReturnType<typeof executeOrderPlacement>>
   try {
     receipt = await executeOrderPlacement(env, JSON.parse(row.payload_json))

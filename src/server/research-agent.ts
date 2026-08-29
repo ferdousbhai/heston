@@ -29,16 +29,17 @@ import { aiGatewayHeaders, grokGatewayBaseUrl } from './ai-gateway'
 import { readBoundedJson } from './bounded-response'
 import { type AppEnv } from './env'
 import { grokNativeSearchTools } from './grok-native-tools'
+import { readCodexResearchContext, type CodexResearchContext } from './research-codex-context'
 import { addDays } from './research-contracts'
 import {
   createResearchAgentTools,
   searchRedditResearch,
   type RedditResearchResult,
 } from './research-agent-tools'
+import { marketMoverResearch, type YahooMarketMoverContext } from './research-market-movers'
 import { GROK_MODEL } from './pi-runtime'
 import { readStoredSecret } from './secrets'
 import { defineSeam, type SeamValue } from './seam'
-import { canonicalXPostUrl } from './x-url'
 
 // Workflow step results must remain below Cloudflare's durable 1 MiB output limit.
 const MAX_RESPONSE_BYTES = 900_000
@@ -99,20 +100,22 @@ export interface DailyResearchAgentRequest {
 }
 
 export interface DailyResearchAgentResponse {
-  citations: ReadonlySet<string>
   submission: DailyResearchSubmission
 }
 
 interface RunCapture {
   conversation?: JsonValue[]
-  payloads: JsonValue[]
+  providerTurns: number
   submission?: DailyResearchSubmission
   toolResults: Set<string>
+  xSearchCompleted: boolean
 }
 
 function dailyResearchPrompt(
   request: DailyResearchAgentRequest,
   reddit: RedditResearchResult,
+  yahoo: YahooMarketMoverContext,
+  codex: CodexResearchContext,
 ): string {
   const today = marketDate(request.now)
   return `Prepare the complete daily long-volatility read for ${request.now.toISOString()}.
@@ -121,7 +124,18 @@ The Workflow has already fetched the mandatory Reddit discovery packet below. It
 
 <reddit_discovery_packet>${JSON.stringify(reddit)}</reddit_discovery_packet>
 
-Infer which symbols deserve work; there is no supplied watchlist or candidate universe. Use native X Search for material scheduled events announced in posts published from ${addDays(today, -180)} through ${today}; events themselves must fall from ${today} through ${addDays(today, 180)}. Use native Web Search to verify leads, find primary reporting, and challenge a thesis. Open every page you may cite; a search result, snippet, or Not Found page is not evidence.
+Yahoo mover research is bounded secondary discovery. An unavailable or partial packet is expected
+degradation and must not be filled in from memory.
+
+<yahoo_mover_packet>${JSON.stringify(yahoo)}</yahoo_mover_packet>
+
+Local Codex catalysts are complementary, estimated discovery leads. Only rows re-verified within
+seven days are present. Missing local context is nonfatal; reopen its source with native Web Search
+before using it as evidence.
+
+<codex_catalyst_packet>${JSON.stringify(codex)}</codex_catalyst_packet>
+
+Infer which symbols deserve work; there is no supplied watchlist or candidate universe. You must complete native X Search for material scheduled events announced in posts published from ${addDays(today, -180)} through ${today}; events themselves must fall from ${today} through ${addDays(today, 180)}. Use native Web Search to verify leads, find primary reporting, and challenge a thesis. Open every page you may cite; a search result, snippet, or Not Found page is not evidence.
 
 Call read_market_metrics only for symbols you decide are plausible candidates, in one or more small batches. Before recommending a symbol, call get_recent_coverage for that ticker with the lookback you judge relevant; the default editorial comparison is 14 days. Do not recommend any symbol whose metrics you did not inspect. Choose your research path instead of sweeping or spending equal effort on every ticker.
 
@@ -147,21 +161,6 @@ function zeroUsage(): Usage {
   }
 }
 
-function safeHttpsUrl(value: JsonValue): string | undefined {
-  const raw = z.string().safeParse(value).data
-  if (!raw) return undefined
-  const xPostUrl = canonicalXPostUrl(raw)
-  if (xPostUrl) return xPostUrl
-  try {
-    const url = new URL(raw)
-    if (url.protocol !== 'https:' || url.username || url.password) return undefined
-    url.hash = ''
-    return url.toString()
-  } catch {
-    return undefined
-  }
-}
-
 function optionalArray(value: JsonValue | undefined, field: string): JsonValue[] {
   if (value === undefined) return []
   const parsed = JsonArraySchema.safeParse(value)
@@ -169,36 +168,16 @@ function optionalArray(value: JsonValue | undefined, field: string): JsonValue[]
   return parsed.data
 }
 
-function citationUrls(payload: JsonValue): ReadonlySet<string> {
+function recordNativeXSearch(payload: JsonValue, capture: RunCapture): void {
   const response = jsonObject(payload)
   if (!response) throw new Error('DailyResearchAgentResponse:invalid-payload')
-  const urls = new Set<string>()
-  const add = (value: JsonValue): void => {
-    const candidate = jsonObject(value)?.url ?? value
-    const url = safeHttpsUrl(candidate)
-    if (!url) throw new Error('DailyResearchAgentResponse:invalid-citation-url')
-    urls.add(url)
-  }
-  for (const citation of optionalArray(response.citations, 'citations')) add(citation)
   for (const item of optionalArray(response.output, 'output')) {
-    const message = jsonObject(item)
-    const action = jsonObject(message?.action)
-    if (message?.type === 'web_search_call'
-      && message.status === 'completed'
-      && action?.type === 'open_page') {
-      add(action.url)
-    }
-    if (message?.type !== 'message') continue
-    for (const block of optionalArray(message.content, 'message-content')) {
-      const content = jsonObject(block)
-      if (content?.type !== 'output_text') continue
-      for (const annotation of optionalArray(content.annotations, 'annotations')) {
-        const record = jsonObject(annotation)
-        if (record?.type === 'url_citation') add(annotation)
-      }
-    }
+    const call = jsonObject(item)
+    if (call?.type !== 'x_search_call') continue
+    const status = z.string().safeParse(call.status).data
+    if (status !== 'completed') throw new Error(`DailyResearchAgentXSearch:${status ?? 'missing'}`)
+    capture.xSearchCompleted = true
   }
-  return urls
 }
 
 function localToolCalls(
@@ -375,11 +354,12 @@ function grokStream(
           }
           return readBoundedJson(response, MAX_RESPONSE_BYTES, 'DailyResearchAgentProvider')
         }
-        const turn = capture.payloads.length + 1
+        const turn = capture.providerTurns + 1
         const payload = request.runStep
           ? await request.runStep(`model-${turn}`, invoke)
           : await invoke()
-        capture.payloads.push(payload)
+        capture.providerTurns += 1
+        recordNativeXSearch(payload, capture)
         const output = JsonArraySchema.parse(jsonObjectOrEmpty(payload).output)
         conversation.push(...output)
         const allowedNames = new Set((context.tools ?? []).map((tool) => tool.name))
@@ -405,15 +385,18 @@ export async function runDailyResearchAgent(
   request: DailyResearchAgentRequest,
   fetcher: typeof fetch = fetch,
 ): Promise<DailyResearchAgentResponse> {
-  const reddit = request.runStep
-    ? await request.runStep(
-        'reddit-context',
-        () => searchRedditResearch(env, request.now, fetcher),
-      )
-    : await searchRedditResearch(env, request.now, fetcher)
+  const runContext = <T>(name: string, task: () => Promise<T>): Promise<T> => (
+    request.runStep ? request.runStep(name, task) : task()
+  )
+  const [reddit, yahoo, codex] = await Promise.all([
+    runContext('reddit-context', () => searchRedditResearch(env, request.now, fetcher)),
+    runContext('yahoo-movers', () => marketMoverResearch().collect(request.now)),
+    runContext('codex-context', () => readCodexResearchContext(env, request.now)),
+  ])
   const capture: RunCapture = {
-    payloads: [],
+    providerTurns: 0,
     toolResults: new Set(),
+    xSearchCompleted: false,
   }
   let toolCall = 0
   const workflowStep = request.runStep
@@ -431,7 +414,11 @@ export async function runDailyResearchAgent(
   let failure: string | undefined
   await runAgentLoopContinue({
     systemPrompt: RESEARCH_AGENT_SYSTEM,
-    messages: [{ role: 'user', content: dailyResearchPrompt(request, reddit), timestamp: request.now.getTime() }],
+    messages: [{
+      role: 'user',
+      content: dailyResearchPrompt(request, reddit, yahoo, codex),
+      timestamp: request.now.getTime(),
+    }],
     tools,
   }, {
     model: GROK_MODEL,
@@ -455,18 +442,14 @@ export async function runDailyResearchAgent(
   undefined, grokStream(env, request, capture, fetcher))
 
   if (failure) throw new Error(failure)
-  if (!capture.payloads.length) throw new Error('DailyResearchAgentResponse:missing-payload')
+  if (!capture.providerTurns) throw new Error('DailyResearchAgentResponse:missing-payload')
   if (!capture.submission) throw new Error('DailyResearchAgentResponse:missing-submission')
-  const citations = new Set(capture.payloads.flatMap((payload) => [...citationUrls(payload)]))
+  if (!capture.xSearchCompleted) throw new Error('DailyResearchAgentMissingXSearch')
   console.info(JSON.stringify({
     event: 'DailyResearchAgentCompleted',
-    citations: citations.size,
     runId: request.runId,
   }))
-  return {
-    citations,
-    submission: capture.submission,
-  }
+  return { submission: capture.submission }
 }
 
 const dailyResearchAgentSeam = defineSeam(() => ({ run: runDailyResearchAgent }))

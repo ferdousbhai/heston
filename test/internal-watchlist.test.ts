@@ -279,6 +279,34 @@ describe('one-time tastytrade watchlist seed', () => {
     })
   })
 
+  it('applies the canonical origin order without allowing a downgrade', async () => {
+    const env = { DB: store.database }
+    await ensureInternalWatchlistSeeded(env, async () => payloads())
+    await finalizeInternalWatchlist(env, [])
+    const origins = [
+      'scheduled-research',
+      'agent-discussion',
+      'position-sync',
+      'trade-intent',
+      'owner',
+    ] as const
+
+    for (const [index, origin] of origins.entries()) {
+      await ensureInternalWatchlistSymbols(
+        env,
+        ['PLTR'],
+        origin,
+        new Date(`2026-08-27T10:0${index}:00.000Z`),
+      )
+      await expect(readInternalWatchlistSymbolDetails(env, 'PLTR')).resolves.toMatchObject({ origin })
+    }
+
+    for (const origin of [...origins].reverse()) {
+      await ensureInternalWatchlistSymbols(env, ['PLTR'], origin)
+      await expect(readInternalWatchlistSymbolDetails(env, 'PLTR')).resolves.toMatchObject({ origin: 'owner' })
+    }
+  })
+
   it('never downgrades owner provenance or publishes an addition discarded by the cap', async () => {
     const env = { DB: store.database }
     await ensureInternalWatchlistSeeded(env, async () => payloads())

@@ -1,9 +1,4 @@
-import {
-  type Message,
-  type Model,
-  type ToolResultMessage,
-  type Usage,
-} from '@earendil-works/pi-ai'
+import { type Message } from '@earendil-works/pi-ai'
 import {
   runAgentLoopContinue,
   type AgentContext,
@@ -43,6 +38,13 @@ import { createResearchReadTools } from './research-read-tools'
 import { createResearchAgentTools } from './research-agent-tools'
 import { createWatchlistReadTool } from './watchlist-tool'
 import { createExactOptionGreeksReadTool } from './option-greeks-tool'
+import {
+  completedToolCall,
+  projectTurnEnd,
+  replayTranscript,
+  toolResultText,
+  welcomeMessage,
+} from './dan-transcript'
 
 /** The chat relay delivers text frames; binary frames are not part of the client protocol. */
 const ClientFrameSchema = z.string()
@@ -52,76 +54,6 @@ const ActionResolvedSchema = z.strictObject({
   status: z.string().min(1).max(240),
   type: z.literal('action_resolved'),
 })
-
-function welcomeMessage(): AgentChatMessage {
-  return {
-    createdAt: new Date().toISOString(),
-    id: 'welcome',
-    role: 'assistant',
-    text: 'Ask me about option premium, account state, watchlists, or a defined-risk order. I can inspect and reason freely; only order placement stops at a confirmation boundary.',
-  }
-}
-
-function transcriptUsage(usage: Usage) {
-  return {
-    cacheRead: usage.cacheRead,
-    cacheWrite: usage.cacheWrite,
-    cost: usage.cost.total,
-    input: usage.input,
-    output: usage.output,
-    totalTokens: usage.totalTokens,
-  }
-}
-
-function contentText(content: ToolResultMessage['content']): string {
-  return content.filter((part) => part.type === 'text').map((part) => part.text).join('\n')
-}
-
-function applyToolOutcome(call: AgentToolCall, output: string, isError: boolean) {
-  call.error = isError ? output : undefined
-  call.output = isError ? undefined : output
-  call.status = isError ? 'error' : 'complete'
-}
-
-function replayTranscript(messages: AgentChatMessage[], model: Model<any>): Message[] {
-  const replay: Message[] = []
-  for (const message of messages) {
-    if (message.id === 'welcome') continue
-    const timestamp = Date.parse(message.createdAt)
-    if (!Number.isFinite(timestamp)) throw new Error(`DanTranscript:invalid-timestamp:${message.id}`)
-    if (message.role === 'user') {
-      replay.push({ content: message.text, role: 'user', timestamp })
-      continue
-    }
-    // Tool traces stay in the owner UI/audit log. Cross-turn model context keeps only
-    // completed prose; fresh tools must re-read any market or account fact.
-    if (message.stopReason === 'toolUse') continue
-    if (message.stopReason !== 'stop') {
-      throw new Error(`DanTranscript:invalid-stop-reason:${message.stopReason ?? 'missing'}`)
-    }
-    if (!message.text || !message.model || !message.usage) {
-      throw new Error(`DanTranscript:incomplete-assistant-message:${message.id}`)
-    }
-    replay.push({
-      api: model.api,
-      content: [{ text: message.text, type: 'text' }],
-      model: message.model,
-      provider: model.provider,
-      role: 'assistant',
-      stopReason: 'stop',
-      timestamp,
-      usage: {
-        cacheRead: message.usage.cacheRead,
-        cacheWrite: message.usage.cacheWrite,
-        cost: { cacheRead: 0, cacheWrite: 0, input: 0, output: 0, total: message.usage.cost },
-        input: message.usage.input,
-        output: message.usage.output,
-        totalTokens: message.usage.totalTokens,
-      },
-    })
-  }
-  return replay
-}
 
 export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
   initialState: DanAgentState = {
@@ -315,10 +247,10 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
             break
           }
           case 'tool_execution_end': {
-            const output = contentText(event.result.content)
+            const output = toolResultText(event.result.content)
             const existing = turnTools.get(event.toolCallId)
             if (!existing) throw new Error(`DanAgent:missing-tool-start:${event.toolCallId}`)
-            applyToolOutcome(existing, output, event.isError)
+            turnTools.set(event.toolCallId, completedToolCall(existing, output, event.isError))
             this.sendEvent({
               error: event.isError ? output : undefined,
               output: event.isError ? undefined : output,
@@ -329,43 +261,16 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
             break
           }
           case 'turn_end': {
-            const message = event.message
-            if (message.role !== 'assistant') break
-            if (message.stopReason === 'error' || message.stopReason === 'aborted') {
-              turnFailure = message.errorMessage ?? 'The model request failed.'
+            const projected = projectTurnEnd(event, turnTools, pendingActions, crypto.randomUUID())
+            if (projected.kind === 'ignored') break
+            if (projected.kind === 'failed') {
+              turnFailure = projected.message
               break
             }
-            if (message.stopReason !== 'stop' && message.stopReason !== 'toolUse') {
-              turnFailure = `The model ended with ${message.stopReason}.`
-              break
-            }
-            const toolResults = new Map(event.toolResults.map((result) => [result.toolCallId, result]))
-            for (const block of message.content) {
-              if (block.type !== 'toolCall') continue
-              const stored = turnTools.get(block.id)
-              if (!stored) throw new Error(`DanAgent:missing-tool-start:${block.id}`)
-              const result = toolResults.get(block.id)
-              if (!result) throw new Error(`DanAgent:missing-tool-result:${block.id}`)
-              applyToolOutcome(stored, contentText(result.content), result.isError)
-              turnTools.set(block.id, stored)
-            }
-            const toolCalls = [...turnTools.values()]
-            const pendingAction = toolCalls.map((call) => pendingActions.get(call.id)).find(Boolean)
-            const transcriptMessage: AgentChatMessage = {
-              createdAt: new Date(message.timestamp).toISOString(),
-              id: crypto.randomUUID(),
-              model: message.model,
-              pendingAction,
-              reasoning: message.content.flatMap((part) => part.type === 'thinking' && !part.redacted ? [part.thinking] : []).join('\n\n') || undefined,
-              role: 'assistant',
-              stopReason: message.stopReason,
-              text: message.content.filter((part) => part.type === 'text').map((part) => part.text).join(''),
-              toolCalls: toolCalls.length ? toolCalls : undefined,
-              usage: transcriptUsage(message.usage),
-            }
+            turnTools = projected.toolCalls
             this.setState({
               ...this.state,
-              messages: [...this.state.messages, transcriptMessage],
+              messages: [...this.state.messages, projected.message],
             })
             this.sendEvent({ type: 'dan:turn_end' })
             break

@@ -5,7 +5,7 @@ import { toError } from '../domain/failure'
 import { resolvePendingAction } from '../server/agent'
 import { ConfirmRequestSchema } from '../server/agent-contracts'
 import { appEnv } from '../server/worker-env'
-import { authorizePersonalRequest, jsonNoStore, publicError } from '../server/http'
+import { authorizePersonalRequest, jsonNoStore, ownerHttpFailure } from '../server/http'
 
 export const Route = createFileRoute('/api/actions/$actionId')({
   server: {
@@ -18,11 +18,10 @@ export const Route = createFileRoute('/api/actions/$actionId')({
         try {
           return jsonNoStore(await resolvePendingAction(appEnv, params.actionId, parsed.data))
         } catch (error) {
-          const cause = toError(error)
-          // An unknown broker submission is an upstream indeterminate result, not
-          // a confirmation-state conflict. Clients must not treat it like a fresh draft.
-          const status = cause?.name === 'BrokerageSubmissionUnknownError' ? 502 : 409
-          return jsonNoStore({ error: publicError(cause) }, { status })
+          // The boundary mapper preserves an ambiguous broker mutation as an upstream
+          // indeterminate result, so clients never treat it like a fresh draft conflict.
+          const failure = ownerHttpFailure(toError(error), 409)
+          return jsonNoStore({ error: failure.message }, { status: failure.status })
         }
       },
     },

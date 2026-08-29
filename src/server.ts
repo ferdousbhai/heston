@@ -3,12 +3,8 @@ import { routeAgentRequest } from 'agents'
 
 import { type AppEnv } from './server/env'
 import { authorizePersonalRequest, canonicalHostRedirect } from './server/http'
-import { shouldRunDailyResearch } from './server/research'
-import {
-  INSTRUMENT_CATALOG_CRON,
-  runDailyInstrumentCatalogRefresh,
-  startScheduledJob,
-} from './server/scheduled-jobs'
+import { shouldStartScheduledResearch } from './server/research'
+import { startScheduledJob } from './server/scheduled-jobs'
 
 export { DanAgent } from './server/dan-agent'
 export { BrokerGate } from './server/broker-gate'
@@ -29,13 +25,8 @@ export default {
   },
   scheduled(controller: ScheduledController, env: AppEnv, context: ExecutionContext) {
     const scheduledAt = new Date(controller.scheduledTime)
-    const tasks: Promise<unknown>[] = []
-    if (controller.cron === INSTRUMENT_CATALOG_CRON) {
-      tasks.push(runDailyInstrumentCatalogRefresh(env, scheduledAt))
+    if (shouldStartScheduledResearch(scheduledAt)) {
+      context.waitUntil(startScheduledJob(env, 'daily-research', scheduledAt).then(() => undefined))
     }
-    if (shouldRunDailyResearch(scheduledAt)) {
-      tasks.push(startScheduledJob(env, 'daily-research', scheduledAt))
-    }
-    if (tasks.length) context.waitUntil(Promise.all(tasks).then(() => undefined))
   },
 }

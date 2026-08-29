@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useLiveQuery } from '@tanstack/react-db'
+import { useCallback, useState } from 'react'
 import { Bot, Gauge, Newspaper } from 'lucide-react'
 import { z } from 'zod'
 
@@ -7,25 +6,13 @@ import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import { Empty, EmptyDescription, EmptyHeader } from '#/components/ui/empty'
 import { Skeleton } from '#/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
-import {
-  offlineSnapshotCollection,
-  preferenceCollection,
-  restoreOfflineSnapshot,
-  selectTicker,
-  selectLiveMarketSymbols,
-  syncFromCloud,
-  tickerCollection,
-} from '../data/collections'
-import {
-  createFavoriteSync,
-  favoriteStageMarkerCollection,
-  stagedFavoriteSymbols,
-  toggleFavoriteSymbol,
-} from '../data/favorites'
+import { selectLiveMarketSymbols } from '../data/collections'
 import { toError } from '../domain/failure'
 import { mostActiveSymbol } from '../domain/market'
 import { type WatchlistMutation, WatchlistMutationResultSchema } from '../domain/watchlist'
 import { useLiveMarket } from '../data/live-market'
+import { useAudienceMarket } from '../data/use-audience-market'
+import { useWorkspaceFavorites } from '../data/use-workspace-favorites'
 import { AgentScreen } from './agent-screen'
 import { OwnerAccessScreen, type Viewer, useViewer } from './auth-gate'
 import { BriefScreen } from './brief-screen'
@@ -37,12 +24,6 @@ const ApiErrorSchema = z.looseObject({ error: z.string().optional() })
 const TabSchema = z.enum(['market', 'brief', 'agent'])
 
 type Tab = z.infer<typeof TabSchema>
-type SnapshotSyncOperation = {
-  audience: 'owner' | 'public'
-  controller: AbortController
-  promise: Promise<void>
-}
-
 export function SpiceApp() {
   const auth = useViewer()
   // Boot the source-neutral public surface while the session check is in flight
@@ -61,43 +42,15 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
   const owner = viewer?.role === 'owner'
   const viewerId = viewer?.id
   const audience = owner ? 'owner' : 'public'
-  const favoriteSync = useMemo(
-    () => viewerId ? createFavoriteSync(viewerId) : undefined,
-    [viewerId],
-  )
-  const tickerQuery = useLiveQuery((query) => query.from({ ticker: tickerCollection }))
-  const snapshotQuery = useLiveQuery((query) => query.from({ snapshot: offlineSnapshotCollection }))
-  const preferenceQuery = useLiveQuery((query) => query.from({ preference: preferenceCollection }))
-  const favoriteStageQuery = useLiveQuery(
-    (query) => query.from({ favoriteStageMarker: favoriteStageMarkerCollection }),
-  )
-  const favoriteQuery = useLiveQuery(
-    () => favoriteSync?.collection,
-    [favoriteSync],
-  )
-  const storedTickers = tickerQuery.data ?? []
-  const storedSnapshots = snapshotQuery.data ?? []
-  const preferences = preferenceQuery.data ?? []
-  const favoriteStageMarkers = favoriteStageQuery.data ?? []
-  const storedSnapshot = storedSnapshots.find((candidate) => candidate.id === 'snapshot')
-  const snapshot = storedSnapshot?.audience === audience ? storedSnapshot.snapshot : undefined
+  const market = useAudienceMarket(audience)
+  const { chooseSymbol: saveSelectedSymbol, preference, snapshot, synchronize, tickers } = market
+  const favorites = useWorkspaceFavorites(viewerId, preference)
   const snapshotReady = Boolean(snapshot)
-  const tickers = snapshotReady ? storedTickers : []
   const catalysts = snapshot?.catalysts ?? []
   const watchlists = snapshot?.watchlists ?? []
   const research = snapshot?.research
-  const preference = preferences[0]
-  const favoriteStageMarker = favoriteStageMarkers[0]
-  const pinnedSymbols = favoriteSync
-    ? (favoriteQuery.data ?? []).map((favorite) => favorite.symbol)
-    : stagedFavoriteSymbols(preference, favoriteStageMarker)
   const [tab, setTab] = useState<Tab>('market')
   const [watchlistEditorOpen, setWatchlistEditorOpen] = useState(false)
-  const [bootstrappedAudience, setBootstrappedAudience] = useState<'owner' | 'public'>()
-  const [favoriteError, setFavoriteError] = useState<string>()
-  const [snapshotWarning, setSnapshotWarning] = useState<string>()
-  const bootstrapComplete = bootstrappedAudience === audience
-  const syncOperation = useRef<SnapshotSyncOperation | undefined>(undefined)
   const closeWatchlistEditor = useCallback(() => setWatchlistEditorOpen(false), [setWatchlistEditorOpen])
   const openWatchlistEditor = useCallback(() => setWatchlistEditorOpen(true), [setWatchlistEditorOpen])
   // One D1-backed watchlist reaches each audience; the preference only survives
@@ -110,105 +63,24 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
   const loadedSymbols = new Set(tickers.map((ticker) => ticker.symbol))
   const streamSymbols = selectLiveMarketSymbols(selected?.symbol, activeWatchlist?.symbols ?? [], loadedSymbols)
   const liveMarket = useLiveMarket(streamSymbols, snapshotReady && owner)
-  const collectionFailed = tickerQuery.isError || snapshotQuery.isError || preferenceQuery.isError
-    || favoriteStageQuery.isError
+  const collectionFailed = market.collectionFailed || favorites.collectionFailed
   const liveWarning = liveMarket.state === 'connecting' || liveMarket.state === 'degraded'
       || liveMarket.state === 'reconnecting'
     ? liveMarket.detail ?? `Live market feed is ${liveMarket.state}.`
     : undefined
   const visibleSnapshotWarning = [
     collectionFailed ? 'Browser market storage failed. Reload to inspect the current state.' : undefined,
-    snapshotWarning,
+    market.warning,
     liveWarning,
   ].filter((warning): warning is string => Boolean(warning)).join(' ') || undefined
-  const visibleFavoriteError = favoriteSync && favoriteQuery.isError
-    ? 'Favorite synchronization failed.'
-    : favoriteError
-
-  const synchronize = useCallback(async (signal?: AbortSignal, force = false): Promise<void> => {
-    if (!navigator.onLine) throw new Error('Market synchronization is unavailable while offline')
-    const active = syncOperation.current
-    if (active) {
-      if (!force && active.audience === audience) return active.promise
-      active.controller.abort()
-    }
-    const controller = new AbortController()
-    const taskSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
-    let operation!: SnapshotSyncOperation
-    const task = syncFromCloud(taskSignal, () => syncOperation.current === operation, audience).then(() => {
-      setSnapshotWarning(undefined)
-    })
-    operation = { audience, controller, promise: task }
-    syncOperation.current = operation
-    try {
-      await task
-    } finally {
-      if (syncOperation.current === operation) syncOperation.current = undefined
-    }
-  }, [audience])
-
-  const synchronizeWithWarning = useCallback(async (signal?: AbortSignal): Promise<void> => {
-    try {
-      await synchronize(signal)
-    } catch (cause: unknown) {
-      const failure = toError(cause)
-      if (signal?.aborted || failure?.name === 'AbortError') return
-      setSnapshotWarning(navigator.onLine
-        ? 'Latest market data could not be synchronized. Showing saved data when available.'
-        : 'Live market updates are paused while offline. Showing saved data when available.')
-    }
-  }, [setSnapshotWarning, synchronize])
-
-  useEffect(() => {
-    const controller = new AbortController()
-
-    void (async () => {
-      // Local storage is only one bootstrap source. A corrupt or unavailable offline
-      // snapshot must not prevent the independent network recovery path.
-      try {
-        await restoreOfflineSnapshot(audience)
-      } catch {
-        if (!controller.signal.aborted) {
-          setSnapshotWarning('Saved market data could not be restored. Trying the network instead.')
-        }
-      }
-      if (!controller.signal.aborted) await synchronizeWithWarning(controller.signal)
-      if (!controller.signal.aborted) setBootstrappedAudience(audience)
-    })()
-    const online = () => void synchronizeWithWarning(controller.signal)
-    const offline = () => {
-      setSnapshotWarning('Live market updates are paused while offline. Showing saved data when available.')
-    }
-    const refreshVisible = () => {
-      if (document.visibilityState === 'visible') void synchronizeWithWarning(controller.signal)
-    }
-    window.addEventListener('online', online)
-    window.addEventListener('offline', offline)
-    window.addEventListener('focus', refreshVisible)
-    document.addEventListener('visibilitychange', refreshVisible)
-    return () => {
-      controller.abort()
-      window.removeEventListener('online', online)
-      window.removeEventListener('offline', offline)
-      window.removeEventListener('focus', refreshVisible)
-      document.removeEventListener('visibilitychange', refreshVisible)
-    }
-  }, [audience, synchronizeWithWarning])
+  const visibleFavoriteError = favorites.error
 
   // Stable row callbacks keep the memoized market rows from re-rendering on every
   // workspace render.
   const chooseSymbol = useCallback((symbol: string) => {
-    void selectTicker(symbol).catch((cause: unknown) => {
-      setSnapshotWarning(toError(cause)?.message ?? 'The market selection could not be saved')
-    })
+    void saveSelectedSymbol(symbol)
     setTab('market')
-  }, [setSnapshotWarning, setTab])
-  const togglePinned = useCallback((symbol: string) => {
-    setFavoriteError(undefined)
-    void toggleFavoriteSymbol(symbol, favoriteSync).catch((cause: unknown) => {
-      setFavoriteError(toError(cause)?.message ?? 'The favorite could not be updated')
-    })
-  }, [favoriteSync, setFavoriteError])
+  }, [saveSelectedSymbol])
   const mutateWatchlist = async (action: WatchlistMutation) => {
     if (!owner) throw new Error('Owner authentication is required')
     const response = await fetch('/api/watchlists', {
@@ -290,7 +162,7 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
             )}
             {tab === 'agent' && !owner && <OwnerAccessScreen authError={authError} signedIn={Boolean(viewer)} />}
             {tab !== 'agent' && !snapshotReady && (
-              <MarketState loading={!bootstrapComplete} message={bootstrapComplete ? 'Market data is unavailable.' : 'Loading market data…'} />
+              <MarketState loading={!market.bootstrapComplete} message={market.bootstrapComplete ? 'Market data is unavailable.' : 'Loading market data…'} />
             )}
             {snapshotReady && tab === 'market' && selected && activeWatchlist && (
               <MarketScreen
@@ -298,8 +170,8 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
                 catalysts={catalysts}
                 onManageWatchlist={openWatchlistEditor}
                 onSelectTicker={chooseSymbol}
-                onTogglePinned={togglePinned}
-                pinnedSymbols={pinnedSymbols}
+                onTogglePinned={favorites.togglePinned}
+                pinnedSymbols={favorites.pinnedSymbols}
                 research={research}
                 selected={selected}
                 tickers={tickers}
@@ -313,7 +185,7 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
             )}
             {snapshotReady && tab === 'brief' && !research && <MarketState message="No research brief is available." />}
             {owner && !snapshotReady && tab === 'agent' && (
-              <MarketState loading={!bootstrapComplete} message={bootstrapComplete ? 'Account market data is unavailable.' : 'Loading account context…'} />
+              <MarketState loading={!market.bootstrapComplete} message={market.bootstrapComplete ? 'Account market data is unavailable.' : 'Loading account context…'} />
             )}
             {owner && snapshotReady && tab === 'agent' && selected && <AgentScreen onAccountMutation={() => synchronize(undefined, true)} selected={selected} />}
             {owner && snapshotReady && tab === 'agent' && !selected && <MarketState message="Dan needs a loaded market symbol." />}

@@ -1,42 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-seed_worker='spice-watchlist-bootstrap-20260826'
+source ops/shared/temporary-worker.sh
+
+seed_worker="$(temporary_worker_name 'spice-watchlist-bootstrap')"
 seed_mode="${SPICE_SEED_MODE:-bootstrap}"
-seed_log="$(mktemp)"
-seed_secret="$(mktemp)"
-seed_deployed='false'
 
 if [[ "$seed_mode" != 'preview' && "$seed_mode" != 'sync' && "$seed_mode" != 'bootstrap' ]]; then
   echo 'SPICE_SEED_MODE must be preview, sync, or bootstrap.' >&2
   exit 2
 fi
 
-cleanup() {
-  if [[ "$seed_deployed" == 'true' ]]; then
-    npx wrangler delete "$seed_worker" --force >/dev/null 2>&1 || true
-  fi
-  rm -f "$seed_log" "$seed_secret"
-}
-trap cleanup EXIT
-
-chmod 600 "$seed_secret"
-openssl rand -hex 32 >"$seed_secret"
-
-npx wrangler deploy --config tools/wrangler.seed.jsonc >"$seed_log" 2>&1
-seed_deployed='true'
-
-npx wrangler secret put OPS_AUTH_TOKEN --name "$seed_worker" <"$seed_secret" >>"$seed_log" 2>&1
-
-seed_url="$(sed -n 's/.*\(https:\/\/[^ ]*\.workers\.dev\).*/\1/p' "$seed_log" | tail -n 1)"
-if [[ -z "$seed_url" ]]; then
-  cat "$seed_log" >&2
-  echo 'The bootstrap Worker deployed, but Wrangler did not report its workers.dev URL.' >&2
-  exit 1
-fi
+trap temporary_worker_cleanup_on_exit EXIT
+temporary_worker_start "$seed_worker" tools/wrangler.seed.jsonc
 
 call_seed_worker() {
-  node ops/shared/call-worker.mjs "$seed_secret" "$seed_url" "$1"
+  temporary_worker_call "$1"
 }
 
 if [[ "$seed_mode" == 'bootstrap' ]]; then

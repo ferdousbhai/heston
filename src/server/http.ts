@@ -6,6 +6,7 @@ import {
   type AuthenticatedIdentity,
 } from './auth'
 import { type AppEnv } from './env'
+import { OwnerVisibleError } from './owner-visible-error'
 
 const CANONICAL_ORIGIN = 'https://tryspice.xyz'
 const NON_CANONICAL_HOSTS = new Set(['www.tryspice.xyz'])
@@ -71,17 +72,31 @@ export async function authorizePersonalRequest(
   return undefined
 }
 
-export function publicError(error: Error | undefined): string {
-  if (!error) return 'Request failed'
-  if (error.message.includes('expired')) return 'This confirmation has expired'
-  if (error.message.includes('no longer pending') || error.message.includes('already resolved')) {
-    return 'This action is no longer pending'
+type OwnerHttpFailureStatus = 409 | 502
+
+export type OwnerHttpFailure = {
+  message: string
+  status: OwnerHttpFailureStatus
+}
+
+const SAFE_OWNER_ERROR_MESSAGES = new Map([
+  ['InternalWatchlist:not-seeded', 'The internal watchlist has not been initialized'],
+  ['InternalWatchlist:not-finalized', 'The internal watchlist is still being initialized'],
+])
+
+/** Map private route failures through an explicit display allowlist and redact everything else. */
+export function ownerHttpFailure(
+  error: Error | undefined,
+  fallbackStatus: OwnerHttpFailureStatus,
+): OwnerHttpFailure {
+  if (!error) return { message: 'The request could not be completed', status: fallbackStatus }
+  if (error instanceof OwnerVisibleError) {
+    return {
+      message: error.message,
+      status: error.kind === 'ambiguous-brokerage' ? 502 : fallbackStatus,
+    }
   }
-  if (error.message.includes('contract is not available')) return error.message
-  if (error.name === 'PortfolioRiskError') return error.message
-  if (error.name === 'BrokerageSubmissionUnknownError') return error.message
-  if (error.name === 'TastytradeOrderWarningError') return error.message
-  if (error.message.includes('InternalWatchlist:not-seeded')) return 'The internal watchlist has not been initialized'
-  if (error.message.includes('InternalWatchlist:not-finalized')) return 'The internal watchlist is still being initialized'
-  return 'The request could not be completed'
+  const safeMessage = SAFE_OWNER_ERROR_MESSAGES.get(error.message)
+  if (safeMessage) return { message: safeMessage, status: fallbackStatus }
+  return { message: 'The request could not be completed', status: fallbackStatus }
 }

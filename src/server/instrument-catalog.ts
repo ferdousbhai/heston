@@ -351,6 +351,15 @@ export async function missingInstrumentCatalogSymbols(env: AppEnv, symbols: read
   return normalized.filter((symbol) => !stored.has(symbol))
 }
 
+export async function instrumentCatalogSymbolsNeedingResolution(
+  env: AppEnv,
+  symbols: readonly string[],
+): Promise<string[]> {
+  const normalized = [...new Set(symbols.map((symbol) => EquitySymbolSchema.parse(symbol)))]
+  const stored = await readInstrumentCatalog(env, normalized)
+  return normalized.filter((symbol) => stored.get(symbol)?.resolutionStatus !== 'resolved')
+}
+
 /** Honest placeholder for a tastytrade watchlist Equity absent from its instrument endpoints. */
 export function unresolvedInstrumentCatalogItem(symbolValue: string, now = new Date()): InstrumentCatalogRecord {
   const symbol = EquitySymbolSchema.parse(symbolValue)

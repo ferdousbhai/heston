@@ -5,8 +5,11 @@ import {
   authorizePersonalRequest,
   canonicalHostRedirect,
   jsonPublic,
-  publicError,
+  ownerHttpFailure,
 } from '../src/server/http'
+import { BrokerageSubmissionUnknownError, TastytradeOrderWarningError } from '../src/server/brokerage'
+import { PendingActionStateError } from '../src/server/agent'
+import { OptionContractUnavailableError } from '../src/server/option-contract'
 
 describe('canonical host redirect', () => {
   it('preserves the path and query when redirecting www to the canonical host', () => {
@@ -61,11 +64,34 @@ describe('personal API authorization', () => {
   })
 })
 
-describe('public errors', () => {
-  it('explains why a broker preflight warning stopped placement', () => {
-    const error = new Error('Tastytrade returned a preflight warning, so the order was not submitted: Review position effect')
-    error.name = 'TastytradeOrderWarningError'
-    expect(publicError(error)).toContain('order was not submitted')
+describe('owner route errors', () => {
+  it('allows only typed or exact private failures through the boundary', () => {
+    const error = new TastytradeOrderWarningError(['Review position effect'])
+    expect(ownerHttpFailure(error, 409)).toEqual({ message: error.message, status: 409 })
+    expect(ownerHttpFailure(new PendingActionStateError('expired'), 409)).toEqual({
+      message: 'This confirmation has expired',
+      status: 409,
+    })
+    expect(ownerHttpFailure(new OptionContractUnavailableError('No matching expiry.'), 409)).toEqual({
+      message: 'Requested option contract is not available. No matching expiry.',
+      status: 409,
+    })
+    expect(ownerHttpFailure(new Error('InternalWatchlist:not-seeded'), 409)).toEqual({
+      message: 'The internal watchlist has not been initialized',
+      status: 409,
+    })
+    expect(ownerHttpFailure(new Error('provider body: account 123'), 502)).toEqual({
+      message: 'The request could not be completed',
+      status: 502,
+    })
+    const nameOnlyImpostor = new Error('private detail')
+    nameOnlyImpostor.name = 'PortfolioRiskError'
+    expect(ownerHttpFailure(nameOnlyImpostor, 409).message).toBe('The request could not be completed')
+  })
+
+  it('preserves ambiguous brokerage mutation handling regardless of route fallback', () => {
+    const error = new BrokerageSubmissionUnknownError()
+    expect(ownerHttpFailure(error, 409)).toEqual({ message: error.message, status: 502 })
   })
 })
 

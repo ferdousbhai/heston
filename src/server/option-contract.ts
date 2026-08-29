@@ -9,20 +9,28 @@ import {
   type JsonValue,
 } from '../domain/json-payload'
 import { brokerApi } from './tastytrade'
+import { OwnerVisibleError } from './owner-visible-error'
 
 type OptionAction = Extract<OrderPlacement, { kind: 'place_option_order' }>
 // Error details show enough alternatives to correct a tuple without echoing a full option chain.
 const MAX_RESOLUTION_SUGGESTIONS = 8
 
+export class OptionContractUnavailableError extends OwnerVisibleError {
+  constructor(detail: string) {
+    super('option-contract', `Requested option contract is not available. ${detail}`)
+    this.name = 'OptionContractUnavailableError'
+  }
+}
+
 function chainRows(payload: JsonValue): JsonObject[] {
   const data = jsonObjectOrEmpty(jsonObjectOrEmpty(payload).data)
   const items = JsonArraySchema.safeParse(data.items).data
-  if (!items) throw new Error('Requested option contract is not available. The option chain response was incomplete.')
+  if (!items) throw new OptionContractUnavailableError('The option chain response was incomplete.')
   return items.map(jsonObjectOrEmpty)
 }
 
 function unavailable(detail: string): Error {
-  return new Error(`Requested option contract is not available. ${detail}`)
+  return new OptionContractUnavailableError(detail)
 }
 
 function shortList(values: string[]): string {
@@ -147,7 +155,7 @@ export async function resolveEquityOptionTuples(
     }
   }
   if (resolved.length !== tuples.length) {
-    throw new Error('Requested option contract is not available. Resolution was incomplete.')
+    throw new OptionContractUnavailableError('Resolution was incomplete.')
   }
   return resolved
 }

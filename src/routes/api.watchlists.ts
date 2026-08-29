@@ -4,7 +4,7 @@ import { toError } from '../domain/failure'
 
 import { WatchlistMutationSchema } from '../domain/watchlist'
 import { appEnv } from '../server/worker-env'
-import { authorizePersonalRequest, jsonNoStore, publicError } from '../server/http'
+import { authorizePersonalRequest, jsonNoStore, ownerHttpFailure } from '../server/http'
 import { executeWatchlistAction } from '../server/watchlist-actions'
 
 export const Route = createFileRoute('/api/watchlists')({
@@ -19,7 +19,8 @@ export const Route = createFileRoute('/api/watchlists')({
           const result = await executeWatchlistAction(appEnv, parsed.data)
           return jsonNoStore(result, { status: result.discardedSymbols.length ? 409 : 200 })
         } catch (error) {
-          return jsonNoStore({ error: publicError(toError(error)) }, { status: 409 })
+          const failure = ownerHttpFailure(toError(error), 409)
+          return jsonNoStore({ error: failure.message }, { status: failure.status })
         }
       },
     },

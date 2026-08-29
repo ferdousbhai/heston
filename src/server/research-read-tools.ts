@@ -3,11 +3,11 @@ import { type AgentTool } from '@earendil-works/pi-agent-core'
 
 import { CatalystSchema, marketDate, type Catalyst } from '../domain/catalyst'
 import { EQUITY_SYMBOL_PATTERN, EquitySymbolSchema } from '../domain/instrument'
-import { type JsonValue } from '../domain/json-payload'
-import { parseStoredResearchBrief, type ResearchBrief } from '../domain/market'
+import { type ResearchBrief } from '../domain/market'
 import { type AppEnv } from './env'
 import { textResult } from './agent-tool-result'
 import { MAX_MARKET_SYMBOLS } from './brokerage-read-contracts'
+import { readLatestResearchBrief } from './research-brief-store'
 
 // A catalyst call shares the normal market-read batch budget. The row ceiling is a model-context
 // budget and is observable through `truncated`; the one-year horizon keeps "upcoming" scheduled
@@ -99,19 +99,10 @@ export async function readLatestResearch(
   now = new Date(),
 ): Promise<DailyResearchReadResult> {
   if (!env.DB) throw new Error('Daily research is unavailable.')
-  const row = await env.DB.prepare(
-    'SELECT payload_json FROM research_briefs ORDER BY published_at DESC LIMIT 1',
-  ).first<{ payload_json: string }>()
-  if (!row) {
+  const brief = await readLatestResearchBrief(env.DB)
+  if (!brief) {
     return { fetchedAt: now.toISOString(), source: 'spice-research-store', status: 'not_found' }
   }
-  let payload: JsonValue
-  try {
-    payload = JSON.parse(row.payload_json)
-  } catch {
-    throw new Error('Daily research returned an invalid response.')
-  }
-  const brief = parseStoredResearchBrief(payload)
   return { brief, fetchedAt: now.toISOString(), source: 'spice-research-store', status: 'ok' }
 }
 

@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { toError } from '../domain/failure'
 
 import { appEnv } from '../server/worker-env'
-import { authorizePersonalRequest, jsonNoStore, publicError } from '../server/http'
+import { authorizePersonalRequest, jsonNoStore, ownerHttpFailure } from '../server/http'
 import {
   SCHEDULED_JOB_KINDS,
   startDailyResearchWorkflow,
@@ -34,8 +34,10 @@ export const Route = createFileRoute('/api/jobs/$jobKind')({
           })
           return jsonNoStore({ instanceId, job: params.jobKind, runAt: runAt.toISOString(), status: 'started' }, { status: 202 })
         } catch (error) {
-          console.error('DailyResearchPreviewFailed', toError(error)?.message ?? 'UnknownError')
-          return jsonNoStore({ error: publicError(toError(error)) }, { status: 502 })
+          const cause = toError(error)
+          console.error('DailyResearchPreviewFailed', cause?.name ?? 'UnknownError')
+          const failure = ownerHttpFailure(cause, 502)
+          return jsonNoStore({ error: failure.message }, { status: failure.status })
         }
       },
     },

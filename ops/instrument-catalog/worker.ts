@@ -7,8 +7,6 @@ import {
 import { summarizeOwnerMarketSync } from '../shared/market-sync'
 import { type OpsEnv, serveOpsRequest } from '../shared/worker-auth'
 
-export { BrokerGate } from '../../src/server/broker-gate'
-
 const CATALOG_PATHS = ['/preview', '/apply', '/finalize', '/sync']
 
 export default {
