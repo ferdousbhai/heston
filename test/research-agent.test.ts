@@ -10,11 +10,14 @@ import {
 import { resetMarketMoverResearch, setMarketMoverResearch } from '../src/server/research-market-movers'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
+import { markdownBrowser } from './fake-browser'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
 import { unsupportedAi } from './fake-ai'
 
 const NOW = new Date('2026-08-28T13:30:00.000Z')
 const CITED_URL = 'https://example.com/nvidia-supply'
+/** What the stub browser returns for CITED_URL, so cited quotes have a retained page to match. */
+const CITED_MARKDOWN = '# NVIDIA\n\nNVIDIA signed a multi-year supply agreement with a hyperscaler.'
 
 function submission(): DailyResearchSubmission {
   return {
@@ -30,7 +33,7 @@ function submission(): DailyResearchSubmission {
     ideas: [{
       description: 'The signed agreement improves visibility while option premium remains usable.',
       direction: 'bullish',
-      evidence: [{ quote: 'SpaceX will hold a shareholder event', sourceIndex: 0 }],
+      evidence: [{ quote: 'signed a multi-year supply agreement', sourceIndex: 0 }],
       headline: 'Signed supply terms improve demand visibility',
       play: { expiration: '2026-10-16', optionType: 'call', strike: 225 },
       risk: 'Delivery timing slips or contracted volume fails to convert to revenue.',
@@ -107,6 +110,7 @@ function environment() {
       gateway: () => ({ getUrl: async () => 'https://gateway.example/spice/grok' }) as AiGateway,
     },
     AI_GATEWAY_TOKEN: secret('gateway-token'),
+    BROWSER: markdownBrowser(CITED_MARKDOWN),
     DB: { ...unsupportedDatabase(), prepare: () => ({ ...unsupportedStatement(), bind }) },
     REDDIT_CLIENT_ID: secret('reddit-id'),
     REDDIT_CLIENT_SECRET: secret('reddit-secret'),
@@ -123,6 +127,7 @@ function agentFetcher(
     providerXContext(status, xSearchStatus, serverSideTools),
     providerToolCall('read_market_metrics', { symbols: ['NVDA'] }, status),
     providerToolCall('get_recent_coverage', { daysAgo: 14, tickers: ['NVDA'] }, status),
+    providerToolCall('read_page', { url: CITED_URL }, status),
     providerReport(status),
   ]
   const bodies: JsonObject[] = []
@@ -189,7 +194,7 @@ describe('daily research Pi agent boundary', () => {
     }, fetcher)
 
     expect(result.submission.ideas[0]?.symbol).toBe('NVDA')
-    expect(bodies).toHaveLength(4)
+    expect(bodies).toHaveLength(5)
     expect(bodies[0]?.tools).toEqual([{ from_date: '2026-03-01', to_date: '2026-08-29', type: 'x_search' }])
     expect(bodies[0]?.tool_choice).toBe('required')
     expect(bodies[0]).not.toHaveProperty('text')
@@ -225,7 +230,8 @@ describe('daily research Pi agent boundary', () => {
       'reddit-context', 'yahoo-movers', 'codex-context', 'x-context',
       'model-1', 'tool-1-read_market_metrics',
       'model-2', 'tool-2-get_recent_coverage',
-      'model-3',
+      'model-3', 'tool-3-read_page',
+      'model-4',
     ])
   })
 
@@ -279,6 +285,30 @@ describe('daily research Pi agent boundary', () => {
 
     await expect(runDailyResearchAgent(environment(), { now: NOW, runId: 'daily-run' }, fetcher))
       .resolves.toEqual(expect.objectContaining({ submission: expect.any(Object) }))
+  })
+
+  it('refuses a submission whose quote is in no page the run read, then fails visibly', async () => {
+    const broker = stubBroker()
+    broker.tastyRequest.mockResolvedValue({ data: { items: [{ symbol: 'NVDA' }] } })
+    setBrokerApi(broker)
+    // The model submits without ever calling read_page, so nothing backs the quote. It is
+    // told what failed and given two more turns before the run gives up loudly, which is
+    // the whole reason the binder runs inside the loop rather than after it.
+    const providerResponses = [
+      providerXContext('completed', 'completed', 1),
+      providerReport(), providerReport(), providerReport(),
+    ]
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.endsWith('/responses')) return Response.json(providerResponses.shift())
+      if (url.includes('/api/v1/access_token')) return Response.json({ access_token: 'reddit-token' })
+      if (url.includes('/r/wallstreetbets/hot')) return Response.json({ data: { children: [] } })
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    await expect(runDailyResearchAgent(environment(), { now: NOW, runId: 'daily-run' }, fetcher))
+      .rejects.toThrow('DailyResearchAgentCitations')
+    expect(providerResponses).toHaveLength(0)
   })
 
   it('fails visibly when the model completes without running native X search', async () => {

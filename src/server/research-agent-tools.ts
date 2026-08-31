@@ -49,6 +49,12 @@ const ReadPageParameters = Type.Object({
 
 export type RetainedPage = { markdown: string; readAt: string }
 
+const RetainedPageSchema = z.object({
+  markdown: z.string(),
+  readAt: z.string(),
+  url: z.string(),
+})
+
 /*
  * A citation is worth what this Worker can show was read. Native web search happens inside
  * the provider, so a page it opened leaves nothing here to bind a claim to; a page read
@@ -117,6 +123,23 @@ export function createResearchAgentTools(
   const runRead = <T>(name: string, task: () => Promise<T>): Promise<T> => (
     options.runStep ? options.runStep(name, task) : task()
   )
+  // A page is retained from what the step returned, not from inside it. A workflow replay
+  // serves a cached step result without running its closure, so retaining inside would leave
+  // the map empty on replay and every citation would fail to bind through no fault of the
+  // model. Reading the durable result rebuilds the same map either way.
+  const withRetention = (tool: AgentTool): AgentTool => {
+    if (tool.name !== 'read_page' || !retained) return tool
+    const execute = tool.execute
+    return {
+      ...tool,
+      execute: async (toolCallId, params, signal, onUpdate) => {
+        const result = await execute(toolCallId, params, signal, onUpdate)
+        const page = RetainedPageSchema.safeParse(result.details).data
+        if (page) retained.set(page.url, { markdown: page.markdown, readAt: page.readAt })
+        return result
+      },
+    }
+  }
   const withRunStep = (tool: AgentTool): AgentTool => {
     const execute = tool.execute
     return {
@@ -161,8 +184,7 @@ export function createResearchAgentTools(
       })()
       if (!parsed) return textResult({ error: 'the page did not open' })
       const markdown = parsed.result.slice(0, MAX_PAGE_MARKDOWN_CHARS)
-      retained?.set(key, { markdown, readAt: now.toISOString() })
-      return textResult({ markdown, url: key })
+      return textResult({ markdown, readAt: now.toISOString(), url: key })
     },
     label: 'Reading a source page',
     name: 'read_page',
@@ -194,5 +216,5 @@ export function createResearchAgentTools(
     createMarketMetricsReadTool(env),
     createOptionContractFindTool(env),
     createInstrumentQuoteReadTool(env),
-  ].map(withRunStep)
+  ].map(withRunStep).map(withRetention)
 }

@@ -38,6 +38,7 @@ import {
   type RetainedPage,
 } from './research-agent-tools'
 import { marketMoverResearch, type YahooMarketMoverContext } from './research-market-movers'
+import { bindBriefCitations } from './research-citation-binding'
 import { GROK_MODEL } from './pi-runtime'
 import { readStoredSecret } from './secrets'
 import { defineSeam, type SeamValue } from './seam'
@@ -49,6 +50,9 @@ const MAX_DAILY_IDEAS = 3
 // A refused tool call costs one provider turn, so a handful of corrections is affordable
 // while a provider that keeps failing still stops the run rather than looping to the
 // Workflow's wall clock. The detail is what the runtime said, truncated to stay a log line.
+// A refused submission costs one provider turn and the reasons handed back are exact, so a
+// model that has not converged after two corrections is malfunctioning rather than mistaken.
+const MAX_SUBMISSION_REFUSALS = 2
 const MAX_TOOL_ERRORS = 6
 const MAX_TOOL_ERROR_DETAIL = 600
 const MAX_READING_LINKS = 6
@@ -131,8 +135,10 @@ export interface DailyResearchAgentResponse {
 
 interface RunCapture {
   conversation?: JsonValue[]
+  pendingCorrection?: string
   providerTurns: number
   submission?: DailyResearchSubmission
+  submissionRefusals: number
   toolResults: Set<string>
 }
 
@@ -322,6 +328,7 @@ function responseMessage(
   model: Model<Api>,
   allowedNames: ReadonlySet<string>,
   capture: RunCapture,
+  retained: ReadonlyMap<string, RetainedPage>,
 ): AssistantMessage & { stopReason: 'stop' | 'toolUse' } {
   assertCompletedProviderResponse(payload)
   const calls = localToolCalls(payload, allowedNames)
@@ -345,7 +352,33 @@ function responseMessage(
   } catch (cause) {
     throw new Error('DailyResearchAgentResponse:invalid-json', { cause })
   }
-  capture.submission = DailyResearchSubmissionValidator.Parse(value)
+  const submission = DailyResearchSubmissionValidator.Parse(value)
+  // Bind here rather than after the run: a report whose ideas do not hold used to be accepted
+  // and quietly amputated downstream, publishing a summary that described ideas no longer in
+  // it. The model is told exactly which citation failed and gets to correct it, because it is
+  // the only party that can. An honest empty report binds on the first attempt — sifting no
+  // ideas rejects nothing — so a quiet day still costs one turn.
+  const bound = bindBriefCitations(submission.ideas, submission.sources, retained)
+  if (bound.rejected.length === 0) {
+    capture.submission = submission
+  } else if (capture.submissionRefusals >= MAX_SUBMISSION_REFUSALS) {
+    throw new Error(`DailyResearchAgentCitations:${bound.rejected.join('; ').slice(0, MAX_TOOL_ERROR_DETAIL)}`)
+  } else {
+    capture.submissionRefusals += 1
+    console.warn(JSON.stringify({
+      event: 'DailyResearchAgentSubmissionRefused',
+      pagesRead: retained.size,
+      rejected: bound.rejected,
+      runId: capture.providerTurns,
+    }))
+    capture.pendingCorrection = [
+      `Submission refused: ${bound.rejected.join('; ')}.`,
+      retained.size === 0
+        ? 'You read no pages this run. Only read_page makes a source citable; search results are not retained.'
+        : 'Each quote must appear verbatim in a page you read with read_page this run.',
+      'Read the pages you cite, fix the quotes, and submit again — or drop an idea its source does not support.',
+    ].join(' ')
+  }
   return {
     role: 'assistant',
     content: [{ type: 'text', text }],
@@ -381,6 +414,7 @@ function grokStream(
   env: AppEnv,
   request: DailyResearchAgentRequest,
   capture: RunCapture,
+  retained: ReadonlyMap<string, RetainedPage>,
   fetcher: typeof fetch,
 ): StreamFunction {
   return (model: Model<Api>, context: Context, options?: SimpleStreamOptions) => {
@@ -464,7 +498,7 @@ function grokStream(
         const output = JsonArraySchema.parse(jsonObjectOrEmpty(payload).output)
         conversation.push(...output)
         const allowedNames = new Set((context.tools ?? []).map((tool) => tool.name))
-        const message = responseMessage(payload, model, allowedNames, capture)
+        const message = responseMessage(payload, model, allowedNames, capture, retained)
         stream.push({ type: 'start', partial: pending })
         stream.push({ type: 'done', reason: message.stopReason, message })
       } catch (error) {
@@ -496,7 +530,7 @@ export async function runDailyResearchAgent(
     runContext('x-context', () => collectXDiscovery(env, request, fetcher)),
   ])
   const capture: RunCapture = {
-    providerTurns: 0,
+    providerTurns: 0, submissionRefusals: 0,
     toolResults: new Set(),
   }
   let toolCall = 0
@@ -532,6 +566,17 @@ export async function runDailyResearchAgent(
     },
     maxTokens: 8_000,
     shouldStopAfterTurn: () => failure !== undefined || capture.submission !== undefined,
+    // A refusal reaches the model only through here: the provider input is rebuilt from
+    // capture.conversation, so a steering message that is not pushed onto it is never sent.
+    // The refused report is already on the conversation, so the model sees its own attempt
+    // followed by what was wrong with it.
+    getSteeringMessages: async () => {
+      const correction = capture.pendingCorrection
+      if (correction === undefined) return []
+      capture.pendingCorrection = undefined
+      capture.conversation?.push({ role: 'user', content: correction })
+      return [{ role: 'user', content: correction, timestamp: Date.now() }]
+    },
     toolExecution: 'parallel',
   }, (event) => {
     if (event.type === 'tool_execution_end' && event.isError) {
@@ -558,7 +603,7 @@ export async function runDailyResearchAgent(
   },
   // The scheduled Worker invocation is the wall-clock boundary; a second shorter timer
   // would only turn a still-healthy native search into an application-level failure.
-  undefined, grokStream(env, request, capture, fetcher))
+  undefined, grokStream(env, request, capture, retained, fetcher))
 
   if (failure) throw new Error(failure)
   if (!capture.providerTurns) throw new Error('DailyResearchAgentResponse:missing-payload')
