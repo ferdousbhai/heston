@@ -2,8 +2,8 @@
   "name": "Spice Must Flow",
   "short_name": "Spice Must Flow",
   "description": "Public options intelligence and market research with owner-gated order placement.",
-  "theme_color": "#08090c",
-  "background_color": "#08090c",
+  "theme_color": "#0d0e13",
+  "background_color": "#0d0e13",
   "display": "standalone",
   "orientation": "portrait",
   "icons": [
