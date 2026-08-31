@@ -202,12 +202,12 @@ function inspectDedicatedXDiscovery(payload: JsonValue): void {
   }
 }
 
-function assertCompletedProviderResponse(payload: JsonValue): void {
+export function assertCompletedProviderResponse(payload: JsonValue): void {
   const status = z.string().safeParse(jsonObject(payload)?.status).data
   if (status !== 'completed') throw new Error(`DailyResearchAgentResponse:status-${status ?? 'missing'}`)
 }
 
-function providerOutputText(payload: JsonValue): string {
+export function providerOutputText(payload: JsonValue): string {
   const output = JsonArraySchema.parse(jsonObjectOrEmpty(payload).output)
   return output.flatMap((item) => {
     const message = jsonObject(item)

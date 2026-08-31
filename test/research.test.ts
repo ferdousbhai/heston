@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
+import { resetCitationAudit, setCitationAudit } from '../src/server/research-citation-audit'
 import {
   resetDailyResearchAgent,
   setDailyResearchAgent,
@@ -53,11 +54,14 @@ beforeEach(() => {
   broker.resolveResearchInstrumentCatalogFromTastytrade.mockClear()
   setBrokerApi(broker)
   setDailyResearchAgent({ run: () => response() })
+  // The audit fetches cited pages and calls a model; both belong to its own tests.
+  setCitationAudit({ audit: async (_env, request) => ({ ideas: request.ideas, rejected: [], status: 'audited' }) })
 })
 
 afterEach(() => {
   resetBrokerApi()
   resetDailyResearchAgent()
+  resetCitationAudit()
 })
 
 describe('market-session research schedule', () => {
@@ -233,7 +237,9 @@ describe('daily research final boundary', () => {
 
     expect(replayed.publishedAt).toBe(first.publishedAt)
     expect(runIds).toEqual([runIds[0], runIds[0]])
-    expect(executed).toEqual(['run-id', 'published-at'])
+    // The audit is a replayable step on purpose: a retry reuses its verdict rather than
+    // re-fetching every cited page and asking a model to judge them a second time.
+    expect(executed).toEqual(['run-id', 'audit-citations', 'published-at'])
     expect(broker.tastyRequest).not.toHaveBeenCalled()
   })
 })
