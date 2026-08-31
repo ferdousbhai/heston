@@ -586,6 +586,7 @@ export async function runDailyResearchAgent(
   let toolErrors = 0
   const retained = new Map<string, RetainedPage>()
   const tools = createResearchAgentTools(env, {
+    catalystProvider: 'daily-research',
     includeReddit: false,
     now: request.now,
     retained,

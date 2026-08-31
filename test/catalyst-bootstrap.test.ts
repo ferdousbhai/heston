@@ -174,7 +174,7 @@ describe('local Codex catalyst bootstrap boundary', () => {
     const result = await applyCatalystBootstrapArtifact(env, artifact(), new Date('2026-08-26T12:00:00.000Z'))
 
     expect(result.catalysts).toHaveLength(1)
-    expect(store.sqlite.prepare('SELECT symbol, source_label FROM codex_web_catalysts').all()).toEqual([{
+    expect(store.sqlite.prepare("SELECT symbol, source_label FROM catalysts WHERE source_provider = 'codex-web'").all()).toEqual([{
       source_label: 'Codex web · spacex.com', symbol: 'SPCX',
     }])
     expect(store.sqlite.prepare(
@@ -198,7 +198,7 @@ describe('local Codex catalyst bootstrap boundary', () => {
     await expect(applyCatalystBootstrapArtifact(env, value, new Date('2026-08-26T12:00:00.000Z')))
       .rejects.toThrow('CatalystBootstrap:unknown-researched-symbol')
 
-    expect(store.sqlite.prepare('SELECT COUNT(*) AS rows FROM codex_web_catalysts').get())
+    expect(store.sqlite.prepare("SELECT COUNT(*) AS rows FROM catalysts WHERE source_provider = 'codex-web'").get())
       .toEqual({ rows: 0 })
     expect(store.sqlite.prepare(
       'SELECT model, status, symbol_count, error_code FROM catalyst_research_runs',

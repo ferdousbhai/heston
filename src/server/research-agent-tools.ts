@@ -13,6 +13,8 @@ import {
   searchRecentTickerCoverage,
   type RecentTickerCoverage,
 } from './research-coverage'
+import { createCatalystWriteTool } from './catalyst-write-tool'
+import { type CatalystProvider } from './catalysts'
 import { collectRedditSources, type RedditDiscussion } from './research-reddit'
 import { readStoredSecret } from './secrets'
 import {
@@ -90,6 +92,8 @@ function readablePageUrl(value: string): URL | undefined {
 }
 
 export interface ResearchAgentToolOptions {
+  /** Names the producer for catalysts this agent records; without it, it records none. */
+  catalystProvider?: CatalystProvider
   fetcher?: typeof fetch
   retained?: Map<string, RetainedPage>
   includeReddit?: boolean
@@ -209,9 +213,15 @@ export function createResearchAgentTools(
     name: 'get_recent_coverage',
     parameters: RecentCoverageParameters,
   }
+  // Recording a catalyst is only possible for an agent that retains what it reads: the write
+  // tool checks the date against the page, so without the map there is nothing to check.
+  const catalystWrite = retained && options.catalystProvider
+    ? [createCatalystWriteTool(env, options.catalystProvider, { now, retained })]
+    : []
   return [
     ...(options.includeReddit === false ? [] : [reddit]),
     ...(env.BROWSER ? [readPage] : []),
+    ...catalystWrite,
     coverage,
     createMarketMetricsReadTool(env),
     createOptionContractFindTool(env),

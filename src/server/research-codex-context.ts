@@ -48,8 +48,8 @@ export async function readCodexResearchContext(
     const result = await env.DB.prepare(
       `SELECT id, symbol, kind, title, description, event_date AS date, timing, confidence,
         source_label AS source, source_url AS "sourceUrl", updated_at AS "updatedAt"
-       FROM codex_web_catalysts
-       WHERE last_seen_at >= ? AND event_date BETWEEN ? AND ?
+       FROM catalysts
+       WHERE source_provider = 'codex-web' AND last_seen_at >= ? AND event_date BETWEEN ? AND ?
        ORDER BY event_date ASC, symbol ASC, id ASC
        LIMIT ?`,
     ).bind(

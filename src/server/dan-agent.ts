@@ -198,7 +198,12 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
         createExactOptionGreeksReadTool(this.env),
         ...createBrokerageReadTools(this.env),
         ...createMarketResearchTools(),
-        ...createResearchAgentTools(this.env),
+        // Dan retains what it reads for the length of a turn, so a catalyst it records can
+        // be checked against the page it came from — the same bar the daily run is held to.
+        ...createResearchAgentTools(this.env, {
+          catalystProvider: 'dan',
+          retained: new Map(),
+        }),
         ...createResearchReadTools(this.env),
       ]
       const toolLabel = new Map(tools.map((tool) => [tool.name, tool.label] as const))

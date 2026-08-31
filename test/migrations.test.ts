@@ -237,6 +237,10 @@ describe('brokerage action migrations', () => {
       new URL('../migrations/0019_retire_social_catalyst_tables.sql', import.meta.url),
       'utf8',
     )
+    const unifyCatalysts = await readFile(
+      new URL('../migrations/0020_unify_catalyst_store.sql', import.meta.url),
+      'utf8',
+    )
     const db = new DatabaseSync(':memory:')
     db.exec(initial)
     db.exec(publicUniverse)
@@ -316,6 +320,38 @@ describe('brokerage action migrations', () => {
     expect(db.prepare(
       `SELECT source_provider FROM upcoming_catalysts WHERE id = 'codex-web:NVDA:conference:legacy'`,
     ).get()).toEqual({ source_provider: 'codex-web' })
+
+    db.exec(unifyCatalysts)
+
+    // Both producers' rows survive the consolidation, and the view reads the same as before.
+    expect(db.prepare(
+      "SELECT source_provider FROM upcoming_catalysts ORDER BY id",
+    ).all()).toEqual([{ source_provider: 'codex-web' }, { source_provider: 'tastytrade' }])
+    expect(db.prepare(
+      "SELECT name FROM sqlite_master WHERE name IN ('tastytrade_catalysts', 'codex_web_catalysts')",
+    ).all()).toEqual([])
+    // A producer costs a value now, not a table — but a row still has to name the producer
+    // that wrote it, so nothing lands that cannot be traced back and retracted.
+    db.prepare(
+      `INSERT INTO catalysts
+        (id, source_provider, symbol, kind, title, description, event_date, timing,
+         confidence, source_label, source_url, updated_at, last_seen_at)
+       VALUES (
+        'dan:NVDA:conference:2026-11-04', 'dan', 'NVDA', 'conference', 'Recorded by Dan',
+        'From a page Dan read', '2026-11-04', 'unknown', 'estimated',
+        'https://example.com/dan', 'https://example.com/dan', 'now', 'now'
+       )`,
+    ).run()
+    expect(() => db.prepare(
+      `INSERT INTO catalysts
+        (id, source_provider, symbol, kind, title, description, event_date, timing,
+         confidence, source_label, source_url, updated_at, last_seen_at)
+       VALUES (
+        'codex-web:NVDA:conference:2026-11-05', 'dan', 'NVDA', 'conference', 'Mislabelled',
+        'Claims a producer its id denies', '2026-11-05', 'unknown', 'estimated',
+        'https://example.com/x', 'https://example.com/x', 'now', 'now'
+       )`,
+    ).run()).toThrow()
     db.close()
   })
 })

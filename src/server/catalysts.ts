@@ -9,16 +9,20 @@ import { D1_MAX_BOUND_PARAMETERS, rowsPerD1Statement } from './d1-limits'
 
 const TASTYTRADE_METRICS_URL = 'https://developer.tastytrade.com/open-api-spec/market-metrics/'
 const DELETE_SYMBOL_CHUNK_SIZE = D1_MAX_BOUND_PARAMETERS
-const CATALYST_BOUND_PARAMETERS_PER_ROW = 12
+const CATALYST_BOUND_PARAMETERS_PER_ROW = 13
 const CATALYST_ROWS_PER_STATEMENT = rowsPerD1Statement(CATALYST_BOUND_PARAMETERS_PER_ROW)
 
-// One research producer writes catalysts: the local Codex run. The X and Reddit tables that
-// lived here were retired with their producers in migration 0019.
-type CatalystTable = 'tastytrade_catalysts' | 'codex_web_catalysts'
+/**
+ * Every producer writes the same row to the same table and is told apart by this column, so
+ * adding one costs a value rather than a table, an upsert, and an arm on the view. A row's id
+ * carries its producer too, which is what keeps it traceable to something that can refresh or
+ * retract it — the property migration 0019 retired two tables for lacking.
+ */
+export type CatalystProvider = 'tastytrade' | 'codex-web' | 'daily-research' | 'dan'
 
 function catalystUpsertStatements(
   db: D1Database,
-  table: CatalystTable,
+  provider: CatalystProvider,
   catalysts: readonly Catalyst[],
   observedAt: string,
 ): D1PreparedStatement[] {
@@ -26,9 +30,9 @@ function catalystUpsertStatements(
   for (let start = 0; start < catalysts.length; start += CATALYST_ROWS_PER_STATEMENT) {
     const chunk = catalysts.slice(start, start + CATALYST_ROWS_PER_STATEMENT)
     statements.push(db.prepare(
-      `INSERT INTO ${table}
-        (id, symbol, kind, title, description, event_date, timing, confidence, source_label, source_url, updated_at, last_seen_at)
-       VALUES ${chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ')}
+      `INSERT INTO catalysts
+        (id, source_provider, symbol, kind, title, description, event_date, timing, confidence, source_label, source_url, updated_at, last_seen_at)
+       VALUES ${chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ')}
        ON CONFLICT(id) DO UPDATE SET
         symbol = excluded.symbol, kind = excluded.kind, title = excluded.title,
         description = excluded.description, event_date = excluded.event_date,
@@ -36,9 +40,9 @@ function catalystUpsertStatements(
         source_label = excluded.source_label, source_url = excluded.source_url,
         updated_at = excluded.updated_at, last_seen_at = excluded.last_seen_at`,
     ).bind(...chunk.flatMap((catalyst) => [
-      catalyst.id, catalyst.symbol, catalyst.kind, catalyst.title, catalyst.description ?? null,
-      catalyst.date, catalyst.timing, catalyst.confidence, catalyst.source,
-      catalyst.sourceUrl, catalyst.updatedAt, observedAt,
+      catalyst.id, provider, catalyst.symbol, catalyst.kind, catalyst.title,
+      catalyst.description ?? null, catalyst.date, catalyst.timing, catalyst.confidence,
+      catalyst.source, catalyst.sourceUrl, catalyst.updatedAt, observedAt,
     ])))
   }
   return statements
@@ -133,11 +137,11 @@ export async function persistAndLoadCatalysts(
   for (let start = 0; start < normalizedSymbols.length; start += DELETE_SYMBOL_CHUNK_SIZE) {
     const symbols = normalizedSymbols.slice(start, start + DELETE_SYMBOL_CHUNK_SIZE)
     statements.push(env.DB.prepare(
-      `DELETE FROM tastytrade_catalysts
-       WHERE symbol IN (${symbols.map(() => '?').join(', ')})`,
+      `DELETE FROM catalysts
+       WHERE source_provider = 'tastytrade' AND symbol IN (${symbols.map(() => '?').join(', ')})`,
     ).bind(...symbols))
   }
-  statements.push(...catalystUpsertStatements(env.DB, 'tastytrade_catalysts', observed, now.toISOString()))
+  statements.push(...catalystUpsertStatements(env.DB, 'tastytrade', observed, now.toISOString()))
   if (statements.length) await env.DB.batch(statements)
   const result = await env.DB.prepare(
     `SELECT id, symbol, kind, title, description, event_date AS date, timing, confidence,
@@ -154,12 +158,13 @@ export async function persistAndLoadCatalysts(
  * source going quiet is not proof that a previously observed event was cancelled.
  * Keep each source's stable row and only refresh it when that source sees it again.
  */
-export async function persistCodexWebCatalysts(
+export async function persistResearchCatalysts(
   env: AppEnv,
+  provider: CatalystProvider,
   catalysts: readonly Catalyst[],
   now = new Date(),
 ): Promise<void> {
   if (!env.DB) throw new Error('CatalystStoreUnavailable')
   if (!catalysts.length) return
-  await env.DB.batch(catalystUpsertStatements(env.DB, 'codex_web_catalysts', catalysts, now.toISOString()))
+  await env.DB.batch(catalystUpsertStatements(env.DB, provider, catalysts, now.toISOString()))
 }

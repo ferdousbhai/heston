@@ -7,7 +7,7 @@ import { addDays, isValidIsoDate, textMentionsIsoDate } from '../domain/iso-date
 import { type JsonValue } from '../domain/json-payload'
 import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 import { sift, type Verdict } from '../domain/sift'
-import { persistCodexWebCatalysts } from './catalysts'
+import { persistResearchCatalysts } from './catalysts'
 import { canonicalCodexSourceUrl } from './codex-source-url'
 import { type AppEnv } from './env'
 import { readInstrumentCatalog } from './instrument-catalog'
@@ -264,7 +264,7 @@ export async function applyCatalystBootstrapArtifact(
     symbolCount: validation.researchedSymbolCount,
   })
   try {
-    await persistCodexWebCatalysts(env, validation.catalysts, now)
+    await persistResearchCatalysts(env, 'codex-web', validation.catalysts, now)
     await recordRun(env, {
       accepted: validation.catalysts.length,
       completedAt: new Date().toISOString(),
