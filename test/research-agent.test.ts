@@ -63,6 +63,7 @@ function providerToolCall(
 
 function providerReport(
   status: string | null = 'completed',
+  report: DailyResearchSubmission = submission(),
 ) {
   const response = {
     output: [
@@ -70,7 +71,7 @@ function providerReport(
         type: 'message',
         content: [{
           type: 'output_text',
-          text: JSON.stringify(submission()),
+          text: JSON.stringify(report),
         }],
       },
     ],
@@ -308,6 +309,42 @@ describe('daily research Pi agent boundary', () => {
 
     await expect(runDailyResearchAgent(environment(), { now: NOW, runId: 'daily-run' }, fetcher))
       .rejects.toThrow('DailyResearchAgentCitations')
+    expect(providerResponses).toHaveLength(0)
+  })
+
+  it('refuses an empty report from a run that read nothing', async () => {
+    const broker = stubBroker()
+    broker.tastyRequest.mockResolvedValue({ data: { items: [{ symbol: 'NVDA' }] } })
+    setBrokerApi(broker)
+    // A schema-shaped report costs the model nothing to produce. One reached production with
+    // "placeholder" in every field on the first turn, no tool call behind it, and published:
+    // sifting no ideas rejected nothing. Concluding the day is quiet requires having looked.
+    const empty: DailyResearchSubmission = {
+      ...submission(),
+      ideas: [],
+      readingList: [],
+      regime: 'placeholder',
+      regimeDetail: 'placeholder',
+      sources: [],
+      summary: 'placeholder',
+      title: 'placeholder',
+    }
+    const providerResponses = [
+      providerXContext('completed', 'completed', 1),
+      providerReport('completed', empty),
+      providerReport('completed', empty),
+      providerReport('completed', empty),
+    ]
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.endsWith('/responses')) return Response.json(providerResponses.shift())
+      if (url.includes('/api/v1/access_token')) return Response.json({ access_token: 'reddit-token' })
+      if (url.includes('/r/wallstreetbets/hot')) return Response.json({ data: { children: [] } })
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    await expect(runDailyResearchAgent(environment(), { now: NOW, runId: 'daily-run' }, fetcher))
+      .rejects.toThrow('no page was read this run')
     expect(providerResponses).toHaveLength(0)
   })
 

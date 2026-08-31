@@ -356,27 +356,36 @@ function responseMessage(
   // Bind here rather than after the run: a report whose ideas do not hold used to be accepted
   // and quietly amputated downstream, publishing a summary that described ideas no longer in
   // it. The model is told exactly which citation failed and gets to correct it, because it is
-  // the only party that can. An honest empty report binds on the first attempt — sifting no
-  // ideas rejects nothing — so a quiet day still costs one turn.
+  // the only party that can.
+  //
+  // An empty report is credible only from a run that looked. Sifting no ideas rejects
+  // nothing, and a run took that exit on its first turn: no tool call, no page read, the
+  // word "placeholder" in every field, published. A quiet day still reads something before
+  // it concludes the day is quiet.
   const bound = bindBriefCitations(submission.ideas, submission.sources, retained)
-  if (bound.rejected.length === 0) {
+  const rejected = submission.ideas.length === 0 && retained.size === 0
+    ? ['the report carries no ideas and no page was read this run', ...bound.rejected]
+    : bound.rejected
+  if (rejected.length === 0) {
     capture.submission = submission
   } else if (capture.submissionRefusals >= MAX_SUBMISSION_REFUSALS) {
-    throw new Error(`DailyResearchAgentCitations:${bound.rejected.join('; ').slice(0, MAX_TOOL_ERROR_DETAIL)}`)
+    throw new Error(`DailyResearchAgentCitations:${rejected.join('; ').slice(0, MAX_TOOL_ERROR_DETAIL)}`)
   } else {
     capture.submissionRefusals += 1
     console.warn(JSON.stringify({
       event: 'DailyResearchAgentSubmissionRefused',
       pagesRead: retained.size,
-      rejected: bound.rejected,
+      rejected,
       runId: capture.providerTurns,
     }))
     capture.pendingCorrection = [
-      `Submission refused: ${bound.rejected.join('; ')}.`,
+      `Submission refused: ${rejected.join('; ')}.`,
       retained.size === 0
         ? 'You read no pages this run. Only read_page makes a source citable; search results are not retained.'
         : 'Each quote must appear verbatim in a page you read with read_page this run.',
-      'Read the pages you cite, fix the quotes, and submit again — or drop an idea its source does not support.',
+      submission.ideas.length === 0
+        ? 'Research the candidates, read what supports the best of them, and submit again.'
+        : 'Read the pages you cite, fix the quotes, and submit again — or drop an idea its source does not support.',
     ].join(' ')
   }
   return {
