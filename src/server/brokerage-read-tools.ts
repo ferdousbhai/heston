@@ -1,5 +1,6 @@
 import { type AgentTool } from '@earendil-works/pi-agent-core'
 
+import { equitySymbolFromModelText } from '../domain/instrument'
 import { type AppEnv } from './env'
 import {
   AccountHistoryReadParameters,
@@ -509,10 +510,15 @@ function createAccountHistoryReadTool(
 
 export function createMarketMetricsReadTool(
   env: AppEnv,
-): AgentTool<typeof MarketMetricsReadParameters, MarketMetricsReadResult> {
+): AgentTool<typeof MarketMetricsReadParameters, MarketMetricsReadResult | { error: string }> {
   return {
     description: 'IV, liquidity, beta, valuation, and earnings metrics; IV is percentage points.',
-    execute: async (_toolCallId, params) => textResult(await readMarketMetrics(env, params.symbols)),
+    execute: async (_toolCallId, params) => {
+      const symbols = params.symbols.map((symbol) => equitySymbolFromModelText(symbol))
+      const unreadable = params.symbols.find((_symbol, index) => symbols[index] === undefined)
+      if (unreadable !== undefined) return textResult({ error: `not a ticker symbol: ${unreadable.slice(0, 12)}` })
+      return textResult(await readMarketMetrics(env, symbols.filter((symbol) => symbol !== undefined)))
+    },
     label: 'Reading market metrics',
     name: 'read_market_metrics',
     parameters: MarketMetricsReadParameters,

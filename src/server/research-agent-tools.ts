@@ -2,7 +2,7 @@ import { type AgentTool } from '@earendil-works/pi-agent-core'
 import { Type } from 'typebox'
 import { z } from 'zod'
 
-import { EquitySymbolSchema, EquitySymbolType } from '../domain/instrument'
+import { equitySymbolFromModelText, EquitySymbolType } from '../domain/instrument'
 import { textResult } from './agent-tool-result'
 import { readBoundedJson } from './bounded-response'
 import { type JsonValue } from '../domain/json-payload'
@@ -118,10 +118,10 @@ export function createResearchAgentTools(
     }
   }
   const reddit: AgentTool<typeof RedditSearchParameters, RedditResearchResult> = {
-    description: 'WallStreetBets hot posts with post text and top comments.',
+    description: 'Ingest current WallStreetBets hot posts with their text and top comments. Takes no query.',
     execute: async () => textResult(await searchRedditResearch(env, now, options.fetcher)),
-    label: 'Searching Reddit',
-    name: 'search_reddit',
+    label: 'Ingesting WallStreetBets', 
+    name: 'ingest_wsb',
     parameters: RedditSearchParameters,
   }
   const retained = options.retained
@@ -155,14 +155,17 @@ export function createResearchAgentTools(
   const coverage: AgentTool<typeof RecentCoverageParameters, RecentTickerCoverage[] | { error: string }> = {
     description: 'Prior Spice ideas for these tickers within daysAgo; today is excluded.',
     execute: async (_toolCallId, params) => {
-      // A ticker written the way a post writes it — $NXE — is not a symbol, and today's
-      // preview run ended on exactly that: one malformed argument aborted the whole brief.
-      // The model can correct a symbol, so it is told rather than stopped.
-      const unreadable = params.tickers.find((ticker) => !EquitySymbolSchema.safeParse(ticker).success)
+      // X writes tickers as cashtags, and the discovery packet carries them that way, so a
+      // leading $ is a convention to read rather than a defect to reject. Today's preview run
+      // died on exactly that: $NXE reached this tool, the symbol rule threw, and the whole
+      // brief was lost to one argument. Anything still unreadable after that is reported to
+      // the model, which can correct a symbol, instead of ending the run.
+      const tickers = params.tickers.map((ticker) => equitySymbolFromModelText(ticker))
+      const unreadable = params.tickers.find((_ticker, index) => tickers[index] === undefined)
       if (unreadable !== undefined) {
         return textResult({ error: `not a ticker symbol: ${unreadable.slice(0, 12)}` })
       }
-      return textResult(await searchRecentTickerCoverage(env, params.tickers, params.daysAgo, now))
+      return textResult(await searchRecentTickerCoverage(env, tickers.filter((t) => t !== undefined), params.daysAgo, now))
     },
     label: 'Reading recent coverage',
     name: 'get_recent_coverage',

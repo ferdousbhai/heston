@@ -2,7 +2,7 @@ import { type AgentTool } from '@earendil-works/pi-agent-core'
 import { Type } from 'typebox'
 
 import { CatalystSchema, marketDate, type Catalyst } from '../domain/catalyst'
-import { EquitySymbolSchema, EquitySymbolType } from '../domain/instrument'
+import { equitySymbolFromModelText, EquitySymbolSchema, EquitySymbolType } from '../domain/instrument'
 import { type ResearchBrief } from '../domain/market'
 import { type AppEnv } from './env'
 import { textResult } from './agent-tool-result'
@@ -107,9 +107,14 @@ export async function readLatestResearch(
 }
 
 export function createResearchReadTools(env: AppEnv) {
-  const catalysts: AgentTool<typeof CatalystReadParameters, CatalystReadResult> = {
+  const catalysts: AgentTool<typeof CatalystReadParameters, CatalystReadResult | { error: string }> = {
     description: 'Stored upcoming catalysts; excludes dividends.',
-    execute: async (_toolCallId, params) => textResult(await readCatalysts(env, params.symbols, params.horizonDays)),
+    execute: async (_toolCallId, params) => {
+      const symbols = params.symbols.map((symbol) => equitySymbolFromModelText(symbol))
+      const unreadable = params.symbols.find((_symbol, index) => symbols[index] === undefined)
+      if (unreadable !== undefined) return textResult({ error: `not a ticker symbol: ${unreadable.slice(0, 12)}` })
+      return textResult(await readCatalysts(env, symbols.filter((symbol) => symbol !== undefined), params.horizonDays))
+    },
     label: 'Reading catalysts',
     name: 'read_catalysts',
     parameters: CatalystReadParameters,

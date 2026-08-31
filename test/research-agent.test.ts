@@ -209,7 +209,7 @@ describe('daily research Pi agent boundary', () => {
     }))
     expect(bodies[1]?.tool_choice).toBe('auto')
     expect(bodies[1]?.tools).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: 'search_reddit', type: 'function' }),
+      expect.objectContaining({ name: 'ingest_wsb', type: 'function' }),
     ]))
     expect(JSON.stringify(bodies[2]?.input)).toContain('function_call_output')
     // Citations are now bound deterministically after the run, so the prompt no longer has
