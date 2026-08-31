@@ -184,14 +184,47 @@ async function recordRun(
   ).run()
 }
 
+async function recordFailureReceipt(
+  env: AppEnv,
+  values: { error: string; id: string; model: string; startedAt: string; symbolCount: number },
+): Promise<void> {
+  await recordRun(env, { ...values, completedAt: new Date().toISOString(), status: 'failed' })
+    .catch((receiptCause) => {
+      const receiptError = toError(receiptCause)
+      console.error('Catalyst bootstrap failed and its failure receipt could not be recorded', {
+        receiptError: receiptError?.name ?? 'UnknownError',
+      })
+    })
+}
+
 export async function applyCatalystBootstrapArtifact(
   env: AppEnv,
   artifactValue: JsonValue,
   now = new Date(),
 ): Promise<CatalystBootstrapValidation> {
   const instruments = await readCatalystBootstrapInstruments(env)
-  const validation = validateCatalystBootstrapArtifact(artifactValue, instruments, now)
   const startedAt = now.toISOString()
+  // A refused artifact is still a run that happened. Validation runs before any receipt
+  // exists, so a gate that rejects every artifact used to leave no trace in D1 at all:
+  // the codex-open-page evidence gate refused every run from 2026-08-27 and the table
+  // recorded none of them. The envelope parses on its own and carries the run identity,
+  // so a rejection can be recorded even when the findings inside it cannot be trusted.
+  const envelope = ArtifactEnvelopeSchema.safeParse(artifactValue)
+  let validation: CatalystBootstrapValidation
+  try {
+    validation = validateCatalystBootstrapArtifact(artifactValue, instruments, now)
+  } catch (cause) {
+    if (envelope.success) {
+      await recordFailureReceipt(env, {
+        error: cause instanceof Error ? cause.message.slice(0, 160) : 'UnknownError',
+        id: envelope.data.runId,
+        model: `${envelope.data.model}/${envelope.data.reasoningEffort} (${envelope.data.codexVersion})`,
+        startedAt,
+        symbolCount: envelope.data.researchedSymbols.length,
+      })
+    }
+    throw cause
+  }
   await recordRun(env, {
     id: validation.runId,
     model: validation.model,
@@ -214,19 +247,12 @@ export async function applyCatalystBootstrapArtifact(
     return validation
   } catch (cause) {
     const error = cause instanceof Error ? cause.message.slice(0, 160) : 'UnknownError'
-    await recordRun(env, {
-      completedAt: new Date().toISOString(),
+    await recordFailureReceipt(env, {
       error,
       id: validation.runId,
       model: validation.model,
       startedAt,
-      status: 'failed',
       symbolCount: validation.researchedSymbolCount,
-    }).catch((receiptCause) => {
-      const receiptError = toError(receiptCause)
-      console.error('Catalyst bootstrap failed and its failure receipt could not be recorded', {
-        receiptError: receiptError?.name ?? 'UnknownError',
-      })
     })
     throw cause
   }

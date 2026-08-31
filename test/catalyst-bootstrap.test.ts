@@ -162,6 +162,28 @@ describe('local Codex catalyst bootstrap boundary', () => {
     })
   })
 
+  it('records a failure receipt when the evidence gate refuses the artifact', async () => {
+    const env = await initializedEnv()
+    const value = artifact()
+    // Findings with no page-open evidence: exactly what codex-cli emits once its
+    // transcript reports every action as a bare `other`.
+    value.openPageTranscripts = ['']
+
+    await expect(applyCatalystBootstrapArtifact(env, value, new Date('2026-08-26T12:00:00.000Z')))
+      .rejects.toThrow('CatalystBootstrap:codex-open-page-evidence-unavailable')
+
+    expect(store.sqlite.prepare('SELECT COUNT(*) AS rows FROM codex_web_catalysts').get())
+      .toEqual({ rows: 0 })
+    expect(store.sqlite.prepare(
+      'SELECT model, status, symbol_count, error_code FROM catalyst_research_runs',
+    ).get()).toEqual({
+      error_code: 'CatalystBootstrap:codex-open-page-evidence-unavailable',
+      model: 'gpt-5.6-sol/xhigh (codex-cli 0.150.1)',
+      status: 'failed',
+      symbol_count: 1,
+    })
+  })
+
   it('does not treat a URL-shaped search query or ambiguous legacy action as a page open', async () => {
     const env = await initializedEnv()
     const instruments = await readCatalystBootstrapInstruments(env)

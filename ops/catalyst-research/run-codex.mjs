@@ -134,6 +134,20 @@ function openPageTranscript(transcript) {
   }).join('\n')
 }
 
+// The importer accepts a citation only when the transcript records an open_page event
+// for it, and rejects the entire artifact when findings arrive with no evidence at all.
+// Checking per chunk turns that into a two-minute failure with a legible cause instead of
+// a 45-minute run refused at apply. codex-cli 0.151.0 and 0.152.0-alpha.1 both report
+// every search action as a bare `other` carrying no URL, so this currently stops the run
+// immediately, which is the honest outcome until the CLI emits the events again.
+function assertOpenPageEvidence(findings, transcript, index) {
+  if (!findings.length || openPageTranscript(transcript)) return
+  throw new Error(
+    `Codex catalyst chunk ${index + 1} returned ${findings.length} findings with no open_page `
+    + `transcript events (${codexVersion}); the importer would reject the whole artifact.`,
+  )
+}
+
 async function runChunk(instruments, index) {
   const finalPath = path.join(runsPath, `chunk-${String(index + 1).padStart(3, '0')}.json`)
   const transcriptPath = path.join(runsPath, `chunk-${String(index + 1).padStart(3, '0')}.jsonl`)
@@ -144,6 +158,7 @@ async function runChunk(instruments, index) {
   if (completed !== undefined && existingTranscript !== undefined) {
     if (Array.isArray(completed.findings)) {
       process.stderr.write(`Reusing catalyst chunk ${index + 1}/${chunks.length}\n`)
+      assertOpenPageEvidence(completed.findings, existingTranscript, index)
       return { findings: completed.findings, transcript: existingTranscript }
     }
     throw new Error(`Stored catalyst chunk ${index + 1} returned no findings`)
@@ -178,6 +193,7 @@ async function runChunk(instruments, index) {
   if (exitCode !== 0) throw new Error(`Codex catalyst chunk ${index + 1} failed with exit ${exitCode}`)
   const output = JSON.parse(await readFile(finalPath, 'utf8'))
   if (!Array.isArray(output.findings)) throw new Error(`Codex catalyst chunk ${index + 1} returned no findings`)
+  assertOpenPageEvidence(output.findings, transcript, index)
   return { findings: output.findings, transcript }
 }
 
