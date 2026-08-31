@@ -212,7 +212,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .focus-eyebrow { min-height: 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .focus-eyebrow h3 { margin: 0; color: var(--spice); font: 10px/1 var(--mono); font-weight: 400; text-transform: uppercase; letter-spacing: .13em; }
 /* Box-drawing rail, decorative only: it opens the section the way a TUI frame would. */
-.focus-eyebrow h3::before { content: "\250C\2500"; margin-right: .55em; color: var(--ink-faint); }
+.focus-eyebrow h3::before { content: "\250C\2500"; margin-right: .55em; vertical-align: -.2em; color: var(--ink-faint); }
 .focus-eyebrow > span { flex: 0 0 auto; color: var(--ink-faint); font: 9px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
 
 .thesis-headline { margin: 12px 0 0; font-size: clamp(20px, 5.4vw, 25px); font-weight: 700; line-height: 1.14; }
@@ -270,7 +270,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .watch-table, .ideas-section { padding: 24px 20px 0; }
 .section-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 14px; margin-bottom: 12px; }
 .section-header h2 { margin: 0; font-size: 17px; font-weight: 700; line-height: 1.06; text-transform: uppercase; }
-.section-header h2::before, .watchlist-title::before { content: "\250C\2500"; margin-right: .4em; color: var(--ink-faint); font-weight: 300; }
+.section-header h2::before, .watchlist-title::before { content: "\250C\2500"; margin-right: .4em; vertical-align: -.2em; color: var(--ink-faint); font-weight: 300; }
 .watch-table { padding-bottom: 16px; }
 .watch-table .section-header { justify-content: flex-start; }
 .watchlist-title { margin: 0; font-size: 17px; line-height: 1.06; font-weight: 700; text-transform: uppercase; }
@@ -310,7 +310,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .sparkline { display: block; width: 100%; max-width: 84px; height: 22px; margin-left: auto; color: #6f7480; overflow: visible; }
 .sparkline polyline { fill: none; stroke: currentColor; stroke-width: 1.25; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .premium-data-table [data-slot="table-row"][data-state="selected"] .sparkline { color: var(--spice); }
-.ticker-table-button[data-slot="button"] { width: 100%; max-width: 330px; height: auto; min-width: 0; padding: 0; align-items: flex-start; flex-direction: column; gap: 3px; background: transparent; text-align: left; }
+.ticker-table-button[data-slot="button"] { width: 100%; height: auto; min-width: 0; padding: 0; align-items: flex-start; flex-direction: column; gap: 3px; background: transparent; text-align: left; }
 .ticker-table-button > span { display: flex; align-items: baseline; gap: 7px; }
 .ticker-table-button > span::before { content: "\203A"; margin-right: 1px; color: var(--ink-faint); }
 .ticker-table-button strong { font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -560,6 +560,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   .focus-narrative:not(.runway-only) .focus-runway { padding: 0 0 0 clamp(28px, 3.6vw, 60px); border-top: 0; border-left: 1px solid var(--hairline); }
 
   .watch-table { padding: 24px 24px 16px; }
+  .ticker-table-button[data-slot="button"] { max-width: 330px; }
 
   .brief-screen { border-inline: 1px solid var(--hairline); }
   .brief-cover { padding-inline: 28px; }
