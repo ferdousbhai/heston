@@ -43,7 +43,7 @@ const now = new Date()
 const today = new Intl.DateTimeFormat('en-CA', {
   day: '2-digit', month: '2-digit', timeZone: 'America/New_York', year: 'numeric',
 }).format(now)
-// The importer accepts a finding only when its date falls in [today, today + 180]
+// The importer accepts a finding only when its date falls inside CATALYST_HORIZON_DAYS
 // measured from the same New York date (`catalystFromFinding` in
 // src/server/catalyst-bootstrap.ts), and one out-of-window finding rejects the whole
 // artifact. Deriving the horizon from the wall clock instead put the prompt's window a

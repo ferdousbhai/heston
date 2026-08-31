@@ -1,9 +1,9 @@
 import { z } from 'zod'
 
-import { CatalystKindSchema, CatalystSchema, CODEX_WEB_CATALYST_ID_PREFIX, marketDate, type Catalyst } from '../domain/catalyst'
+import { CATALYST_HORIZON_DAYS, CatalystKindSchema, CatalystSchema, CODEX_WEB_CATALYST_ID_PREFIX, marketDate, type Catalyst } from '../domain/catalyst'
 import { toError } from '../domain/failure'
 import { EquitySymbolSchema, instrumentDisplayName, type InstrumentCatalogItem } from '../domain/instrument'
-import { isValidIsoDate, textMentionsIsoDate } from '../domain/iso-date'
+import { addDays, isValidIsoDate, textMentionsIsoDate } from '../domain/iso-date'
 import { type JsonValue } from '../domain/json-payload'
 import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 import { persistResearchedCatalysts } from './catalysts'
@@ -72,11 +72,6 @@ export type CatalystBootstrapValidation = {
   runId: string
 }
 
-function plusDays(date: string, days: number): string {
-  const [year, month, day] = date.split('-').map(Number)
-  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10)
-}
-
 function shortStableHash(value: string): string {
   let hash = 2_166_136_261
   for (const character of value) {
@@ -95,7 +90,7 @@ function catalystFromFinding(
   if (finding.instrumentName !== instrument.name
     || !isValidIsoDate(finding.date)
     || finding.date < today
-    || finding.date > plusDays(today, 180)) {
+    || finding.date > addDays(today, CATALYST_HORIZON_DAYS)) {
     throw new Error('invalid-instrument-or-date')
   }
   // Identity and label come from where the bytes actually arrived from rather than from the

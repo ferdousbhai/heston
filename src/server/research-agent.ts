@@ -30,7 +30,7 @@ import { readBoundedJson } from './bounded-response'
 import { type AppEnv } from './env'
 import { grokNativeSearchTools, grokNativeXSearchTool } from './grok-native-tools'
 import { readCodexResearchContext, type CodexResearchContext } from './research-codex-context'
-import { addDays } from './research-contracts'
+import { addDays } from '../domain/iso-date'
 import {
   createResearchAgentTools,
   searchRedditResearch,

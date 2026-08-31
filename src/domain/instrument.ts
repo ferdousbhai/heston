@@ -35,7 +35,6 @@ export const EquitySymbolSchema = z.string().trim().toUpperCase().regex(EQUITY_S
  */
 export const POTENTIAL_PLAY_PATTERN =
   `^${EQUITY_SYMBOL_BODY} \\d+(?:\\.\\d+)?[cp] (?:1[0-2]|[1-9])\\/(?:3[01]|[12]\\d|[1-9])$`
-export const POTENTIAL_PLAY_REGEX = new RegExp(POTENTIAL_PLAY_PATTERN)
 
 const OptionalBoolean = z.boolean().nullable()
 

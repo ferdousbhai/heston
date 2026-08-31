@@ -4,6 +4,11 @@ export const ISO_DATE_PATTERN = '^\\d{4}-\\d{2}-\\d{2}$'
 export const ISO_DATE_REGEX = new RegExp(ISO_DATE_PATTERN)
 export const IsoDateType = Type.String({ pattern: ISO_DATE_PATTERN })
 
+export function addDays(date: string, days: number): string {
+  const [year, month, day] = date.split('-').map(Number)
+  return new Date(Date.UTC(year!, month! - 1, day! + days)).toISOString().slice(0, 10)
+}
+
 /** Validate both the wire shape and the actual Gregorian calendar date. */
 export function isValidIsoDate(value: string): boolean {
   if (!ISO_DATE_REGEX.test(value)) return false

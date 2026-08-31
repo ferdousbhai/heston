@@ -5,6 +5,13 @@ import { isValidIsoDate } from './iso-date'
 
 export { isValidIsoDate } from './iso-date'
 
+/**
+ * How far ahead a catalyst may be scheduled and still be worth carrying. The importer
+ * refuses a finding dated past it, the research context reads no further, and the local
+ * runner asks for nothing beyond it; all three read this rather than restating the number.
+ */
+export const CATALYST_HORIZON_DAYS = 180
+
 export const CatalystKindSchema = z.enum([
   'earnings', 'investor-event', 'product-event', 'regulatory', 'clinical',
   'conference', 'shareholder',

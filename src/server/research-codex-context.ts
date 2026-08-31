@@ -1,13 +1,13 @@
 import { CatalystSchema, marketDate, type Catalyst } from '../domain/catalyst'
 import { toError } from '../domain/failure'
 import { type AppEnv } from './env'
-import { addDays } from './research-contracts'
+import { CATALYST_HORIZON_DAYS } from '../domain/catalyst'
+import { addDays } from '../domain/iso-date'
 
 const CODEX_WEB_EVIDENCE_MAX_AGE_DAYS = 7
 // The nearest-dated forty rows keep this complementary packet well below the
 // Workflow step-output budget while giving each watched name room for several events.
 const CODEX_WEB_EVIDENCE_MAX_ROWS = 40
-const CATALYST_HORIZON_DAYS = 180
 
 export type CodexResearchContext = {
   catalysts: Catalyst[]
