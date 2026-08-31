@@ -251,7 +251,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .runway-body > a { margin-top: 8px; }
 .runway-empty { margin: 14px 0 0; max-width: 72ch; color: var(--ink-muted); font-size: 11px; line-height: 1.62; }
 .runway-empty strong { color: var(--text); }
-.runway-more { margin: 12px 0 0; padding-top: 11px; border-top: 1px solid var(--hairline); color: var(--ink-faint); font: 9px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
 
 .signal-list { margin: 12px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .signal { position: relative; min-width: 0; padding-left: 16px; }
