@@ -131,18 +131,42 @@ describe('local Codex catalyst bootstrap boundary', () => {
     ['wrong-name', { instrumentName: 'The SPAC and New Issue ETF' }],
     ['social-source', { sourceUrl: 'https://x.com/spacex/status/1234' }],
     ['out-of-range-date', { date: '2027-03-01' }],
-    ['unopened-source', { sourceUrl: 'https://www.spacex.com/investors/unopened' }],
-  ])('fails the whole artifact for an invalid %s finding', async (_name, replacement) => {
+    // The page that answered has to be one this boundary would accept on its own terms.
+    ['insecure-final-url', { verification: { contentSha256: 'a'.repeat(64), fetchedAt: '2026-08-26T11:59:00.000Z', finalUrl: 'http://www.spacex.com/investors/event', httpStatus: 200, snippet: 'Shareholder event scheduled for September 24, 2026.', via: 'fetch' } }],
+  ])('drops an invalid %s finding and counts it, keeping its siblings', async (_name, replacement) => {
     const env = await initializedEnv()
     const instruments = await readCatalystBootstrapInstruments(env)
     const value = artifact()
     value.findings.push({ ...value.findings[0]!, ...replacement })
 
+    const result = validateCatalystBootstrapArtifact(value, instruments, new Date('2026-08-26T12:00:00.000Z'))
+
+    expect(result.catalysts).toHaveLength(1)
+    expect(result.rejections).toEqual([expect.stringMatching(/^1:/)])
+    expect(result.rejectedCount).toBe(1)
+  })
+
+  it.each([
+    ['an unreadable finding', (value: ReturnType<typeof artifact>) => {
+      // SAFETY: the point of the case is a finding that violates its own schema, which the
+      // fixture's type cannot express; the boundary is what has to notice, not the compiler.
+      value.findings.push({ ...value.findings[0]!, date: 42 } as never)
+    }],
+    ['a researched symbol the watchlist does not hold', (value: ReturnType<typeof artifact>) => {
+      value.researchedSymbols.push('ZZZZ')
+    }],
+  ])('still refuses the whole artifact for %s', async (_name, corrupt) => {
+    const env = await initializedEnv()
+    const instruments = await readCatalystBootstrapInstruments(env)
+    const value = artifact()
+    corrupt(value)
+
+    // The producer itself is wrong here, so nothing it sent can be trusted.
     expect(() => validateCatalystBootstrapArtifact(
       value,
       instruments,
       new Date('2026-08-26T12:00:00.000Z'),
-    )).toThrow('CatalystBootstrap:invalid-finding:1:')
+    )).toThrow('CatalystBootstrap:')
   })
 
   it('applies the exact validated artifact and records a compact run receipt', async () => {
@@ -167,20 +191,22 @@ describe('local Codex catalyst bootstrap boundary', () => {
   it('records a failure receipt when the evidence gate refuses the artifact', async () => {
     const env = await initializedEnv()
     const value = artifact()
-    value.findings[0]!.verification.snippet = 'No dates have been announced.'
+    // A contract violation rather than one weak citation, so the whole artifact is refused
+    // and that refusal still has to leave a receipt behind.
+    value.researchedSymbols.push('ZZZZ')
 
     await expect(applyCatalystBootstrapArtifact(env, value, new Date('2026-08-26T12:00:00.000Z')))
-      .rejects.toThrow('CatalystBootstrap:invalid-finding:0:unverified-date')
+      .rejects.toThrow('CatalystBootstrap:unknown-researched-symbol')
 
     expect(store.sqlite.prepare('SELECT COUNT(*) AS rows FROM codex_web_catalysts').get())
       .toEqual({ rows: 0 })
     expect(store.sqlite.prepare(
       'SELECT model, status, symbol_count, error_code FROM catalyst_research_runs',
     ).get()).toEqual({
-      error_code: 'CatalystBootstrap:invalid-finding:0:unverified-date',
+      error_code: 'CatalystBootstrap:unknown-researched-symbol',
       model: 'gpt-5.6-sol/xhigh (codex-cli 0.150.1)',
       status: 'failed',
-      symbol_count: 1,
+      symbol_count: 2,
     })
   })
 
@@ -203,11 +229,10 @@ describe('local Codex catalyst bootstrap boundary', () => {
     // The page was served and read; it just does not say what the finding claims.
     value.findings[0]!.verification.snippet = 'Upcoming events will be announced in due course.'
 
-    expect(() => validateCatalystBootstrapArtifact(
-      value,
-      instruments,
-      new Date('2026-08-26T12:00:00.000Z'),
-    )).toThrow('CatalystBootstrap:invalid-finding:0:unverified-date')
+    const result = validateCatalystBootstrapArtifact(value, instruments, new Date('2026-08-26T12:00:00.000Z'))
+
+    expect(result.catalysts).toEqual([])
+    expect(result.rejections).toEqual(['0:unverified-date'])
   })
 
   it('reads the date the page actually rendered rather than only its ISO form', async () => {
@@ -246,11 +271,10 @@ describe('local Codex catalyst bootstrap boundary', () => {
     const value = artifact()
     value.findings[0]!.sourceUrl = 'https://x.com/spacex/status/1234'
 
-    expect(() => validateCatalystBootstrapArtifact(
-      value,
-      instruments,
-      new Date('2026-08-26T12:00:00.000Z'),
-    )).toThrow('CatalystBootstrap:invalid-finding:0:invalid-provenance')
+    const result = validateCatalystBootstrapArtifact(value, instruments, new Date('2026-08-26T12:00:00.000Z'))
+
+    expect(result.catalysts).toEqual([])
+    expect(result.rejections).toEqual(['0:invalid-provenance'])
   })
 
   it('rejects a supplied artifact that asserts URLs without raw transcript evidence', async () => {

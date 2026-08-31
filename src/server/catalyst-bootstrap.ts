@@ -67,6 +67,7 @@ export type CatalystBootstrapValidation = {
   catalysts: Catalyst[]
   model: string
   rejectedCount: number
+  rejections: string[]
   researchedSymbolCount: number
   runId: string
 }
@@ -150,7 +151,15 @@ export function validateCatalystBootstrapArtifact(
   for (const symbol of researchedSymbols) {
     if (!known.has(symbol)) throw new Error('CatalystBootstrap:unknown-researched-symbol')
   }
+  // Two different failures live here. An artifact that breaks its own contract — an
+  // unreadable envelope, a researched-symbol list that disagrees with the watchlist, a
+  // finding that is not even the right shape — says the producer is wrong and none of it can
+  // be trusted, so the whole artifact goes. A single finding that fails its own date,
+  // instrument or provenance check says only that one citation did not hold up; it is
+  // dropped and counted, because condemning ninety-nine verified siblings over it loses a
+  // day of research to one bad row on a feed the product treats as best effort.
   const accepted = new Map<string, Catalyst>()
+  const rejections: string[] = []
   for (const [index, candidate] of artifact.findings.entries()) {
     let finding: z.infer<typeof FindingSchema>
     try {
@@ -159,23 +168,30 @@ export function validateCatalystBootstrapArtifact(
       throw new Error(`CatalystBootstrap:invalid-finding:${index}:invalid-shape`)
     }
     const instrument = researchedSymbols.has(finding.symbol) ? known.get(finding.symbol) : undefined
-    if (!instrument) throw new Error(`CatalystBootstrap:invalid-finding:${index}:unknown-symbol`)
+    if (!instrument) {
+      rejections.push(`${index}:unknown-symbol`)
+      continue
+    }
     let catalyst: Catalyst
     try {
       catalyst = catalystFromFinding(finding, instrument, now)
     } catch (cause) {
-      const reason = cause instanceof Error ? cause.message : 'invalid-finding'
-      throw new Error(`CatalystBootstrap:invalid-finding:${index}:${reason}`)
+      rejections.push(`${index}:${cause instanceof Error ? cause.message : 'invalid-finding'}`)
+      continue
     }
     if (accepted.has(catalyst.id)) {
-      throw new Error(`CatalystBootstrap:invalid-finding:${index}:duplicate`)
+      rejections.push(`${index}:duplicate`)
+      continue
     }
     accepted.set(catalyst.id, catalyst)
   }
   return {
     catalysts: [...accepted.values()],
     model: `${artifact.model}/${artifact.reasoningEffort} (${artifact.codexVersion})`,
-    rejectedCount: artifact.rejectedCount,
+    // What the runner could not verify plus what this boundary refused, so the receipt
+    // counts every finding that did not reach D1 rather than only the runner's share.
+    rejectedCount: artifact.rejectedCount + rejections.length,
+    rejections,
     researchedSymbolCount: researchedSymbols.size,
     runId: artifact.runId,
   }
