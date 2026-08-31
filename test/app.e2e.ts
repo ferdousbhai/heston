@@ -4,7 +4,6 @@ import { z } from 'zod'
 import { marketSnapshotFixture } from './fixtures/market'
 
 /** `postDataJSON()` hands back an unparsed body; decode it before the route acts on it. */
-const WatchlistMutationRequestSchema = z.object({ kind: z.string(), symbols: z.array(z.string()) })
 const FavoriteMutationRequestSchema = z.object({
   kind: z.enum(['merge', 'remove']),
   symbols: z.array(z.string()),
@@ -132,30 +131,6 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
     return route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify(snapshot),
-    })
-  })
-  await page.route('**/api/watchlists', async (route) => {
-    const action = WatchlistMutationRequestSchema.parse(route.request().postDataJSON())
-    const watchlist = snapshot.watchlists.find((candidate) => candidate.kind === 'private')!
-    if (action.kind === 'add_watchlist_symbols' && action.symbols.includes('FULL')) {
-      await route.fulfill({
-        status: 409,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          appliedSymbols: [],
-          detail: 'FULL could not be retained within the 100-symbol Watchlist',
-          discardedSymbols: ['FULL'],
-        }),
-      })
-      return
-    }
-    const requested = new Set(action.symbols)
-    watchlist.symbols = action.kind === 'add_watchlist_symbols'
-      ? [...new Set([...watchlist.symbols, ...action.symbols])]
-      : watchlist.symbols.filter((symbol) => !requested.has(symbol))
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({ appliedSymbols: action.symbols, detail: 'updated', discardedSymbols: [] }),
     })
   })
   const ownerFavorites = new Set<string>()

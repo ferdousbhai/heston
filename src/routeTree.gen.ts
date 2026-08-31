@@ -22,7 +22,6 @@ import { Route as ApiPublicSnapshotRouteImport } from './routes/api.public-snaps
 import { Route as ApiSnapshotRouteImport } from './routes/api.snapshot'
 import { Route as ApiStreamRouteImport } from './routes/api.stream'
 import { Route as ApiViewerRouteImport } from './routes/api.viewer'
-import { Route as ApiWatchlistsRouteImport } from './routes/api.watchlists'
 import { Route as ApiActionsActionIdRouteImport } from './routes/api.actions.$actionId'
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
 import { Route as ApiJobsJobKindRouteImport } from './routes/api.jobs.$jobKind'
@@ -92,11 +91,6 @@ const ApiViewerRoute = ApiViewerRouteImport.update({
   path: '/api/viewer',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiWatchlistsRoute = ApiWatchlistsRouteImport.update({
-  id: '/api/watchlists',
-  path: '/api/watchlists',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiActionsActionIdRoute = ApiActionsActionIdRouteImport.update({
   id: '/api/actions/$actionId',
   path: '/api/actions/$actionId',
@@ -127,7 +121,6 @@ export interface FileRoutesByFullPath {
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
   '/api/viewer': typeof ApiViewerRoute
-  '/api/watchlists': typeof ApiWatchlistsRoute
   '/api/actions/$actionId': typeof ApiActionsActionIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/jobs/$jobKind': typeof ApiJobsJobKindRoute
@@ -146,7 +139,6 @@ export interface FileRoutesByTo {
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
   '/api/viewer': typeof ApiViewerRoute
-  '/api/watchlists': typeof ApiWatchlistsRoute
   '/api/actions/$actionId': typeof ApiActionsActionIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/jobs/$jobKind': typeof ApiJobsJobKindRoute
@@ -166,7 +158,6 @@ export interface FileRoutesById {
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
   '/api/viewer': typeof ApiViewerRoute
-  '/api/watchlists': typeof ApiWatchlistsRoute
   '/api/actions/$actionId': typeof ApiActionsActionIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/jobs/$jobKind': typeof ApiJobsJobKindRoute
@@ -187,7 +178,6 @@ export interface FileRouteTypes {
     | '/api/snapshot'
     | '/api/stream'
     | '/api/viewer'
-    | '/api/watchlists'
     | '/api/actions/$actionId'
     | '/api/auth/$'
     | '/api/jobs/$jobKind'
@@ -206,7 +196,6 @@ export interface FileRouteTypes {
     | '/api/snapshot'
     | '/api/stream'
     | '/api/viewer'
-    | '/api/watchlists'
     | '/api/actions/$actionId'
     | '/api/auth/$'
     | '/api/jobs/$jobKind'
@@ -225,7 +214,6 @@ export interface FileRouteTypes {
     | '/api/snapshot'
     | '/api/stream'
     | '/api/viewer'
-    | '/api/watchlists'
     | '/api/actions/$actionId'
     | '/api/auth/$'
     | '/api/jobs/$jobKind'
@@ -245,7 +233,6 @@ export interface RootRouteChildren {
   ApiSnapshotRoute: typeof ApiSnapshotRoute
   ApiStreamRoute: typeof ApiStreamRoute
   ApiViewerRoute: typeof ApiViewerRoute
-  ApiWatchlistsRoute: typeof ApiWatchlistsRoute
   ApiActionsActionIdRoute: typeof ApiActionsActionIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiJobsJobKindRoute: typeof ApiJobsJobKindRoute
@@ -344,13 +331,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiViewerRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/watchlists': {
-      id: '/api/watchlists'
-      path: '/api/watchlists'
-      fullPath: '/api/watchlists'
-      preLoaderRoute: typeof ApiWatchlistsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/actions/$actionId': {
       id: '/api/actions/$actionId'
       path: '/api/actions/$actionId'
@@ -389,7 +369,6 @@ const rootRouteChildren: RootRouteChildren = {
   ApiSnapshotRoute: ApiSnapshotRoute,
   ApiStreamRoute: ApiStreamRoute,
   ApiViewerRoute: ApiViewerRoute,
-  ApiWatchlistsRoute: ApiWatchlistsRoute,
   ApiActionsActionIdRoute: ApiActionsActionIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiJobsJobKindRoute: ApiJobsJobKindRoute,
