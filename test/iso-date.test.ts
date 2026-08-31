@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Compile } from 'typebox/compile'
 
-import { IsoDateType, isValidIsoDate } from '../src/domain/iso-date'
+import { IsoDateType, isValidIsoDate, textMentionsIsoDate } from '../src/domain/iso-date'
 
 describe('ISO date contract', () => {
   it.each([
@@ -25,5 +25,32 @@ describe('ISO date contract', () => {
 
     expect(validator.Check('2026-02-30')).toBe(true)
     expect(isValidIsoDate('2026-02-30')).toBe(false)
+  })
+})
+
+describe('provenance date matching', () => {
+  it.each([
+    ['2026-09-24', 'Event on 2026-09-24 at the campus'],
+    ['2026-09-24', 'Scheduled for September 24, 2026'],
+    ['2026-09-24', 'scheduled for sep 24 2026'],
+    ['2026-09-24', 'Held 24 September 2026 in Hawthorne'],
+    ['2026-09-24', 'Starts 9/24/2026'],
+    // Multi-day events, which no single rendering can match.
+    ['2026-09-22', 'SEPTEMBER 22-24 2026 | CAESARS FORUM'],
+    ['2026-08-31', 'August 31 - September 3, 2026, more than 10,000 attendees'],
+  ])('accepts %s rendered as %s', (date, text) => {
+    expect(textMentionsIsoDate(text, date)).toBe(true)
+  })
+
+  it.each([
+    // The day is present but no year vouches for it, so the page does not establish the date.
+    ['2026-10-20', 'October 20 | Berlin'],
+    // A year far from the day is a different date further down the page.
+    ['2026-09-24', 'September 24 in a paragraph of prose long enough that the mention of 2026 sits well beyond the window'],
+    ['2026-09-24', 'Upcoming events will be announced'],
+    ['2026-09-24', 'September 25, 2026'],
+    ['2026-09-24', 'September 24, 2027'],
+  ])('refuses %s against %s', (date, text) => {
+    expect(textMentionsIsoDate(text, date)).toBe(false)
   })
 })

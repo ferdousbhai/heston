@@ -27,8 +27,9 @@ export default {
       return Response.json({
         accepted: result.catalysts,
         acceptedCount: result.catalysts.length,
-        rejected: [],
-        rejectedCount: 0,
+        // What the runner fetched and refused before sending. The findings that arrive here
+        // are the ones it could prove, so reporting zero would hide the size of the gap.
+        rejectedCount: result.rejectedCount,
         researchedSymbolCount: result.researchedSymbolCount,
         runId: result.runId,
       })

@@ -9,21 +9,10 @@ if (!inputPath || !artifactPath || !runsPath) {
   throw new Error('Usage: run-codex.mjs INPUT ARTIFACT RUNS_DIR')
 }
 
-const LAST_KNOWN_AMBIGUOUS_TRANSCRIPT_VERSION = [0, 148, 0]
 const versionResult = spawnSync('codex', ['--version'], { encoding: 'utf8' })
-const versionMatch = versionResult.stdout?.match(/codex-cli\s+(\d+)\.(\d+)\.(\d+)/)
-const installedVersion = versionMatch?.slice(1).map(Number)
-const codexVersion = versionMatch?.[0]
-const versionOrder = installedVersion
-  ? installedVersion[0] - LAST_KNOWN_AMBIGUOUS_TRANSCRIPT_VERSION[0]
-    || installedVersion[1] - LAST_KNOWN_AMBIGUOUS_TRANSCRIPT_VERSION[1]
-    || installedVersion[2] - LAST_KNOWN_AMBIGUOUS_TRANSCRIPT_VERSION[2]
-  : -1
-if (versionResult.status !== 0 || versionOrder <= 0) {
-  const found = versionMatch?.[0] ?? 'unknown Codex version'
-  throw new Error(
-    `Catalyst research requires a codex-cli release newer than 0.148.0 that emits structured open_page transcript actions; found ${found}`,
-  )
+const codexVersion = versionResult.stdout?.match(/codex-cli\s+\d+\.\d+\.\d+/)?.[0]
+if (versionResult.status !== 0 || !codexVersion) {
+  throw new Error('Catalyst research requires a working codex CLI that reports its version')
 }
 
 const operationDir = path.dirname(fileURLToPath(import.meta.url))
@@ -117,35 +106,156 @@ Today in New York is ${today}. Return only material, scheduled, ticker-specific 
 
 For every finding, echo symbol and instrumentName exactly from this input. Use the direct HTTPS page that establishes the date, not a search result page or home page. Keep the description factual and under 500 characters. Use unknown timing unless the source establishes pre-market, intraday, or after-hours. Return an empty findings array when the evidence bar is not met.
 
-Immediately before your final response, open every sourceUrl directly by its exact HTTPS URL. The importer rejects any finding whose page-open event is absent from the Codex transcript.
+Every sourceUrl is fetched and read after you answer. A finding is discarded unless the page served at that URL contains the event date in its visible text, so cite the page that states the date itself, never a hub, calendar index, or search result that merely links to it.
 
 An instrument with resolutionStatus unresolved has only a tastytrade watchlist symbol, not a verified instrument name. Research it only when an official source clearly establishes what that exact ticker represents; otherwise return no finding for it.
 
 Instruments:\n${JSON.stringify(instruments)}`
 }
 
-function openPageTranscript(transcript) {
-  return transcript.split('\n').filter((line) => {
-    if (!line) return false
-    const event = JSON.parse(line)
-    return event?.type === 'item.completed'
-      && event.item?.type === 'web_search'
-      && event.item.action?.type === 'open_page'
-  }).join('\n')
+// A cited page has to answer for itself. The runner fetches every sourceUrl with an
+// ordinary HTTP client and keeps a finding only when the page it served contains the
+// finding's date, recording where the bytes came from and the text around the match.
+// Nothing the model says about its own browsing is evidence.
+// Fifteen seconds is longer than any investor-relations page needs and short enough that
+// one unresponsive host cannot stall a hundred-symbol run; five megabytes is past the
+// largest IR page observed and bounds a hostile response; a hundred characters either
+// side of the date is enough for a reader to see the claim in context and stays inside
+// the importer's snippet bound.
+const VERIFY_TIMEOUT_MS = 15_000
+const VERIFY_MAX_BYTES = 5_000_000
+const SNIPPET_RADIUS = 100
+const DATE_PROXIMITY_CHARS = 60
+const VERIFY_USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36'
+
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+]
+
+// Mirror of isoDateRenderings in src/domain/iso-date.ts. The importer re-derives the same
+// set from the finding's date and re-checks the snippet, so that copy is authoritative and
+// this one exists only so the runner can drop a finding before sending it. Keep them in step.
+function dateRenderings(date) {
+  const [year, month, day] = date.split('-').map(Number)
+  if (!year || !month || !day) return []
+  const monthName = MONTHS[month - 1]
+  const short = monthName.slice(0, 3)
+  return [
+    date,
+    `${monthName} ${day}, ${year}`,
+    `${monthName} ${day} ${year}`,
+    `${short} ${day}, ${year}`,
+    `${short} ${day} ${year}`,
+    `${day} ${monthName} ${year}`,
+    `${day} ${short} ${year}`,
+    `${String(day).padStart(2, '0')} ${monthName} ${year}`,
+    `${month}/${day}/${year}`,
+    `${String(month).padStart(2, '0')}/${String(day).padStart(2, '0')}/${year}`,
+  ]
 }
 
-// The importer accepts a citation only when the transcript records an open_page event
-// for it, and rejects the entire artifact when findings arrive with no evidence at all.
-// Checking per chunk turns that into a two-minute failure with a legible cause instead of
-// a 45-minute run refused at apply. codex-cli 0.151.0 and 0.152.0-alpha.1 both report
-// every search action as a bare `other` carrying no URL, so this currently stops the run
-// immediately, which is the honest outcome until the CLI emits the events again.
-function assertOpenPageEvidence(findings, transcript, index) {
-  if (!findings.length || openPageTranscript(transcript)) return
-  throw new Error(
-    `Codex catalyst chunk ${index + 1} returned ${findings.length} findings with no open_page `
-    + `transcript events (${codexVersion}); the importer would reject the whole artifact.`,
+function visibleText(html) {
+  return html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;|&#160;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function dateSnippet(text, date) {
+  const lowered = text.toLowerCase()
+  for (const rendering of dateRenderings(date)) {
+    const at = lowered.indexOf(rendering.toLowerCase())
+    if (at === -1) continue
+    return text.slice(Math.max(0, at - SNIPPET_RADIUS), at + rendering.length + SNIPPET_RADIUS)
+  }
+  // Ranges: see textMentionsIsoDate in src/domain/iso-date.ts, which the importer applies to
+  // whatever snippet this returns. The snippet has to carry the year, or that check fails.
+  const [year, month, day] = date.split('-').map(Number)
+  const spelled = new RegExp(`\\b(?:${MONTHS[month - 1]}|${MONTHS[month - 1].slice(0, 3)})\\.?\\s+0?${day}\\b`, 'gi')
+  for (const match of text.matchAll(spelled)) {
+    const window = text.slice(match.index, match.index + DATE_PROXIMITY_CHARS)
+    if (new RegExp(`\\b${year}\\b`).test(window)) {
+      return text.slice(Math.max(0, match.index - SNIPPET_RADIUS), match.index + DATE_PROXIMITY_CHARS + SNIPPET_RADIUS)
+    }
+  }
+  return undefined
+}
+
+async function readCapped(response) {
+  const reader = response.body?.getReader()
+  if (!reader) return new Uint8Array()
+  const parts = []
+  let size = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    parts.push(value)
+    size += value.length
+    if (size >= VERIFY_MAX_BYTES) {
+      await reader.cancel()
+      break
+    }
+  }
+  const body = new Uint8Array(size)
+  let offset = 0
+  for (const part of parts) {
+    body.set(part.subarray(0, Math.min(part.length, size - offset)), offset)
+    offset += part.length
+    if (offset >= size) break
+  }
+  return body
+}
+
+async function verifyFinding(finding) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), VERIFY_TIMEOUT_MS)
+  try {
+    const response = await fetch(finding.sourceUrl, {
+      headers: { accept: 'text/html,application/xhtml+xml', 'user-agent': VERIFY_USER_AGENT },
+      redirect: 'follow',
+      signal: controller.signal,
+    })
+    if (response.status !== 200) return { reason: `http-${response.status}` }
+    if (!response.url.startsWith('https://')) return { reason: 'insecure-final-url' }
+    const body = await readCapped(response)
+    const snippet = dateSnippet(visibleText(new TextDecoder().decode(body)), finding.date)
+    if (!snippet) return { reason: 'date-absent' }
+    return {
+      verification: {
+        contentSha256: createHash('sha256').update(body).digest('hex'),
+        fetchedAt: new Date().toISOString(),
+        finalUrl: response.url,
+        httpStatus: 200,
+        snippet,
+      },
+    }
+  } catch (cause) {
+    return { reason: cause?.name === 'AbortError' ? 'timeout' : 'fetch-failed' }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+// Sequential inside a chunk: chunks already run concurrently, and one page at a time per
+// chunk keeps the run from arriving at a provider as a burst.
+async function verifyFindings(findings, index) {
+  const verified = []
+  const rejected = []
+  for (const finding of findings) {
+    const outcome = await verifyFinding(finding)
+    if (outcome.verification) verified.push({ ...finding, verification: outcome.verification })
+    else rejected.push(`${finding.symbol}:${outcome.reason}`)
+  }
+  process.stderr.write(
+    `Chunk ${index + 1}/${chunks.length} verified ${verified.length}/${findings.length}`
+    + `${rejected.length ? ` (rejected ${rejected.join(', ')})` : ''}\n`,
   )
+  return { rejected: rejected.length, verified }
 }
 
 async function runChunk(instruments, index) {
@@ -157,9 +267,10 @@ async function runChunk(instruments, index) {
   ])
   if (completed !== undefined && existingTranscript !== undefined) {
     if (Array.isArray(completed.findings)) {
+      // Codex output is reused, but the pages are fetched again: provenance is only worth
+      // what it was worth at the moment the artifact was built.
       process.stderr.write(`Reusing catalyst chunk ${index + 1}/${chunks.length}\n`)
-      assertOpenPageEvidence(completed.findings, existingTranscript, index)
-      return { findings: completed.findings, transcript: existingTranscript }
+      return verifyFindings(completed.findings, index)
     }
     throw new Error(`Stored catalyst chunk ${index + 1} returned no findings`)
   }
@@ -193,12 +304,11 @@ async function runChunk(instruments, index) {
   if (exitCode !== 0) throw new Error(`Codex catalyst chunk ${index + 1} failed with exit ${exitCode}`)
   const output = JSON.parse(await readFile(finalPath, 'utf8'))
   if (!Array.isArray(output.findings)) throw new Error(`Codex catalyst chunk ${index + 1} returned no findings`)
-  assertOpenPageEvidence(output.findings, transcript, index)
-  return { findings: output.findings, transcript }
+  return verifyFindings(output.findings, index)
 }
 
 const findings = []
-const openPageTranscripts = []
+let rejectedCount = 0
 const chunkResults = Array.from({ length: chunks.length })
 let nextChunk = 0
 async function runWorker() {
@@ -211,16 +321,17 @@ async function runWorker() {
 }
 await Promise.all(Array.from({ length: Math.min(concurrency, chunks.length) }, () => runWorker()))
 for (const chunk of chunkResults) {
-  findings.push(...chunk.findings)
-  openPageTranscripts.push(openPageTranscript(chunk.transcript))
+  findings.push(...chunk.verified)
+  rejectedCount += chunk.rejected
 }
+process.stderr.write(`Verified ${findings.length} findings; ${rejectedCount} rejected\n`)
 
 await writeFile(artifactPath, `${JSON.stringify({
   codexVersion,
   findings,
   model,
-  openPageTranscripts,
   reasoningEffort,
+  rejectedCount,
   researchedSymbols: selectedInstruments.map((instrument) => instrument.symbol),
   runId: randomUUID(),
 }, null, 2)}\n`)

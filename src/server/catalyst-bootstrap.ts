@@ -3,17 +3,29 @@ import { z } from 'zod'
 import { CatalystKindSchema, CatalystSchema, CODEX_WEB_CATALYST_ID_PREFIX, marketDate, type Catalyst } from '../domain/catalyst'
 import { toError } from '../domain/failure'
 import { EquitySymbolSchema, instrumentDisplayName, type InstrumentCatalogItem } from '../domain/instrument'
-import { isValidIsoDate } from '../domain/iso-date'
+import { isValidIsoDate, textMentionsIsoDate } from '../domain/iso-date'
 import { type JsonValue } from '../domain/json-payload'
 import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 import { persistResearchedCatalysts } from './catalysts'
-import { canonicalCodexSourceUrl, openedPageUrlsFromCodexTranscripts } from './codex-transcript-evidence'
+import { canonicalCodexSourceUrl } from './codex-source-url'
 import { type AppEnv } from './env'
 import { readInstrumentCatalog } from './instrument-catalog'
 import { readInternalWatchlistFocus } from './internal-watchlist'
 
-// Local Codex output is untrusted. Text widths and transcript cardinality bound the validated
-// artifact before its exact-page-open evidence is considered; they do not establish provenance.
+// Local Codex output is untrusted. Text widths bound the validated artifact before its
+// provenance is considered; they do not establish it. Provenance is the verification block:
+// the ops runner fetched the cited URL itself and recorded where the bytes came from and the
+// text around the date, and this boundary re-checks that text rather than trusting the claim.
+const VerificationSchema = z.object({
+  contentSha256: z.string().regex(/^[0-9a-f]{64}$/),
+  // Recorded for audit, not enforced: laptop and edge clocks disagree by unknown amounts,
+  // so a freshness bound here would reject honest runs without stopping a dishonest one.
+  fetchedAt: z.string().datetime(),
+  finalUrl: z.string().min(1).max(2_048),
+  httpStatus: z.literal(200),
+  snippet: z.string().min(1).max(400),
+})
+
 const FindingSchema = z.object({
   date: z.string(),
   description: z.string().min(1).max(500),
@@ -23,14 +35,17 @@ const FindingSchema = z.object({
   symbol: EquitySymbolSchema,
   timing: z.enum(['pre-market', 'intraday', 'after-hours', 'unknown']),
   title: z.string().min(1).max(160),
+  verification: VerificationSchema,
 })
 
 const ArtifactEnvelopeSchema = z.object({
   codexVersion: z.string().regex(/^codex-cli \d+\.\d+\.\d+$/),
   findings: z.array(z.custom<JsonValue>()),
   model: z.string().min(1).max(160),
-  openPageTranscripts: z.array(z.string().max(1_000_000)).min(1).max(MAX_WATCHLIST_SYMBOLS),
   reasoningEffort: z.string().min(1).max(40),
+  // What the runner fetched and refused, so a run that verifies nothing is visible as a
+  // recorded rejection count rather than as an empty success.
+  rejectedCount: z.number().int().nonnegative().max(1_000),
   researchedSymbols: z.array(EquitySymbolSchema).min(1).max(MAX_WATCHLIST_SYMBOLS),
   runId: z.string().uuid(),
 })
@@ -47,6 +62,7 @@ export type CatalystBootstrapInstrument = {
 export type CatalystBootstrapValidation = {
   catalysts: Catalyst[]
   model: string
+  rejectedCount: number
   researchedSymbolCount: number
   runId: string
 }
@@ -68,7 +84,6 @@ function shortStableHash(value: string): string {
 function catalystFromFinding(
   finding: z.infer<typeof FindingSchema>,
   instrument: CatalystBootstrapInstrument,
-  accessedUrls: ReadonlySet<string>,
   now: Date,
 ): Catalyst {
   const today = marketDate(now)
@@ -78,8 +93,18 @@ function catalystFromFinding(
     || finding.date > plusDays(today, 180)) {
     throw new Error('invalid-instrument-or-date')
   }
-  const sourceUrl = canonicalCodexSourceUrl(finding.sourceUrl)
-  if (!sourceUrl || !accessedUrls.has(sourceUrl)) throw new Error('invalid-provenance')
+  // Identity and label come from where the bytes actually arrived from rather than from the
+  // URL the model cited, so an open redirect cannot make a respectable host vouch for a page
+  // served elsewhere. The cited URL still has to clear the same policy: a social source that
+  // redirects somewhere acceptable is still a social source.
+  if (!canonicalCodexSourceUrl(finding.sourceUrl)) throw new Error('invalid-provenance')
+  const sourceUrl = canonicalCodexSourceUrl(finding.verification.finalUrl)
+  if (!sourceUrl) throw new Error('invalid-provenance')
+  // The runner already matched the date to decide the finding was worth sending; matching it
+  // again here is what keeps this boundary checking evidence instead of accepting a verdict.
+  if (!textMentionsIsoDate(finding.verification.snippet, finding.date)) {
+    throw new Error('unverified-date')
+  }
   const sourceName = new URL(sourceUrl).hostname.replace(/^www\./, '')
   const identity = `${finding.symbol}:${finding.kind}:${finding.date}:${sourceUrl}:${finding.title}`
   return CatalystSchema.parse({
@@ -113,10 +138,6 @@ export function validateCatalystBootstrapArtifact(
   now = new Date(),
 ): CatalystBootstrapValidation {
   const artifact = ArtifactEnvelopeSchema.parse(artifactValue)
-  const accessedUrls = openedPageUrlsFromCodexTranscripts(artifact.openPageTranscripts)
-  if (artifact.findings.length && !accessedUrls.size) {
-    throw new Error('CatalystBootstrap:codex-open-page-evidence-unavailable')
-  }
   const researchedSymbols = new Set(artifact.researchedSymbols)
   if (researchedSymbols.size !== artifact.researchedSymbols.length) {
     throw new Error('CatalystBootstrap:duplicate-researched-symbol')
@@ -137,7 +158,7 @@ export function validateCatalystBootstrapArtifact(
     if (!instrument) throw new Error(`CatalystBootstrap:invalid-finding:${index}:unknown-symbol`)
     let catalyst: Catalyst
     try {
-      catalyst = catalystFromFinding(finding, instrument, accessedUrls, now)
+      catalyst = catalystFromFinding(finding, instrument, now)
     } catch (cause) {
       const reason = cause instanceof Error ? cause.message : 'invalid-finding'
       throw new Error(`CatalystBootstrap:invalid-finding:${index}:${reason}`)
@@ -150,6 +171,7 @@ export function validateCatalystBootstrapArtifact(
   return {
     catalysts: [...accepted.values()],
     model: `${artifact.model}/${artifact.reasoningEffort} (${artifact.codexVersion})`,
+    rejectedCount: artifact.rejectedCount,
     researchedSymbolCount: researchedSymbols.size,
     runId: artifact.runId,
   }
@@ -239,7 +261,7 @@ export async function applyCatalystBootstrapArtifact(
       completedAt: new Date().toISOString(),
       id: validation.runId,
       model: validation.model,
-      rejected: 0,
+      rejected: validation.rejectedCount,
       startedAt,
       status: 'completed',
       symbolCount: validation.researchedSymbolCount,

@@ -8,7 +8,7 @@ import {
   validateCatalystBootstrapArtifact,
 } from '../src/server/catalyst-bootstrap'
 import { persistInstrumentCatalog } from '../src/server/instrument-catalog'
-import { canonicalCodexSourceUrl } from '../src/server/codex-transcript-evidence'
+import { canonicalCodexSourceUrl } from '../src/server/codex-source-url'
 import { ensureInternalWatchlistSeeded, finalizeInternalWatchlist } from '../src/server/internal-watchlist'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 
@@ -83,16 +83,17 @@ function artifact() {
       symbol: 'SPCX',
       timing: 'unknown',
       title: 'SpaceX shareholder event',
+      verification: {
+        contentSha256: 'a'.repeat(64),
+        fetchedAt: '2026-08-26T11:59:00.000Z',
+        finalUrl: 'https://www.spacex.com/investors/event',
+        httpStatus: 200,
+        snippet: 'Shareholder event scheduled for September 24, 2026 at the Hawthorne campus.',
+      },
     }],
     model: 'gpt-5.6-sol',
-    openPageTranscripts: [`${JSON.stringify({
-      type: 'item.completed',
-      item: {
-        type: 'web_search',
-        action: { type: 'open_page', url: 'https://www.spacex.com/investors/event#agenda' },
-      },
-    })}\n`],
     reasoningEffort: 'xhigh',
+    rejectedCount: 0,
     researchedSymbols: ['SPCX'],
     runId: 'd239f195-630c-476f-9bf3-4930be438748',
   }
@@ -165,52 +166,90 @@ describe('local Codex catalyst bootstrap boundary', () => {
   it('records a failure receipt when the evidence gate refuses the artifact', async () => {
     const env = await initializedEnv()
     const value = artifact()
-    // Findings with no page-open evidence: exactly what codex-cli emits once its
-    // transcript reports every action as a bare `other`.
-    value.openPageTranscripts = ['']
+    value.findings[0]!.verification.snippet = 'No dates have been announced.'
 
     await expect(applyCatalystBootstrapArtifact(env, value, new Date('2026-08-26T12:00:00.000Z')))
-      .rejects.toThrow('CatalystBootstrap:codex-open-page-evidence-unavailable')
+      .rejects.toThrow('CatalystBootstrap:invalid-finding:0:unverified-date')
 
     expect(store.sqlite.prepare('SELECT COUNT(*) AS rows FROM codex_web_catalysts').get())
       .toEqual({ rows: 0 })
     expect(store.sqlite.prepare(
       'SELECT model, status, symbol_count, error_code FROM catalyst_research_runs',
     ).get()).toEqual({
-      error_code: 'CatalystBootstrap:codex-open-page-evidence-unavailable',
+      error_code: 'CatalystBootstrap:invalid-finding:0:unverified-date',
       model: 'gpt-5.6-sol/xhigh (codex-cli 0.150.1)',
       status: 'failed',
       symbol_count: 1,
     })
   })
 
-  it('does not treat a URL-shaped search query or ambiguous legacy action as a page open', async () => {
+  it('records what the runner refused so a run that verifies little is visible', async () => {
+    const env = await initializedEnv()
+    const value = artifact()
+    value.rejectedCount = 7
+
+    await applyCatalystBootstrapArtifact(env, value, new Date('2026-08-26T12:00:00.000Z'))
+
+    expect(store.sqlite.prepare(
+      'SELECT accepted_count, rejected_count, status FROM catalyst_research_runs',
+    ).get()).toEqual({ accepted_count: 1, rejected_count: 7, status: 'completed' })
+  })
+
+  it('refuses a finding whose fetched page never states the date', async () => {
     const env = await initializedEnv()
     const instruments = await readCatalystBootstrapInstruments(env)
     const value = artifact()
-    value.openPageTranscripts = [
-      `${JSON.stringify({
-        type: 'item.completed',
-        item: {
-          type: 'web_search',
-          query: 'https://www.spacex.com/investors/event',
-          action: { type: 'search', queries: ['https://www.spacex.com/investors/event'] },
-        },
-      })}\n${JSON.stringify({
-        type: 'item.completed',
-        item: {
-          type: 'web_search',
-          query: 'https://www.spacex.com/investors/event',
-          action: { type: 'other' },
-        },
-      })}\n`,
-    ]
+    // The page was served and read; it just does not say what the finding claims.
+    value.findings[0]!.verification.snippet = 'Upcoming events will be announced in due course.'
 
     expect(() => validateCatalystBootstrapArtifact(
       value,
       instruments,
       new Date('2026-08-26T12:00:00.000Z'),
-    )).toThrow('codex-open-page-evidence-unavailable')
+    )).toThrow('CatalystBootstrap:invalid-finding:0:unverified-date')
+  })
+
+  it('reads the date the page actually rendered rather than only its ISO form', async () => {
+    const env = await initializedEnv()
+    const instruments = await readCatalystBootstrapInstruments(env)
+    for (const rendering of ['2026-09-24', 'Sep 24, 2026', '24 September 2026', '9/24/2026']) {
+      const value = artifact()
+      value.findings[0]!.verification.snippet = `Event on ${rendering} at the campus.`
+      expect(validateCatalystBootstrapArtifact(
+        value,
+        instruments,
+        new Date('2026-08-26T12:00:00.000Z'),
+      ).catalysts).toHaveLength(1)
+    }
+  })
+
+  it('attributes the citation to the host that served the bytes, not the one cited', async () => {
+    const env = await initializedEnv()
+    const instruments = await readCatalystBootstrapInstruments(env)
+    const value = artifact()
+    // A redirect is normal for investor-relations hosts; the label must follow it so a
+    // cited host can never vouch for a page served somewhere else.
+    value.findings[0]!.verification.finalUrl = 'https://spacex.gcs-web.com/investors/event'
+
+    const result = validateCatalystBootstrapArtifact(value, instruments, new Date('2026-08-26T12:00:00.000Z'))
+
+    expect(result.catalysts[0]).toEqual(expect.objectContaining({
+      source: 'Codex web · spacex.gcs-web.com',
+      sourceUrl: 'https://spacex.gcs-web.com/investors/event',
+    }))
+  })
+
+  it('still refuses a social citation that redirects somewhere respectable', async () => {
+    const env = await initializedEnv()
+    const instruments = await readCatalystBootstrapInstruments(env)
+    const value = artifact()
+    value.findings[0]!.sourceUrl = 'https://x.com/spacex/status/1234'
+
+    expect(() => validateCatalystBootstrapArtifact(
+      value,
+      instruments,
+      new Date('2026-08-26T12:00:00.000Z'),
+    )).toThrow('CatalystBootstrap:invalid-finding:0:invalid-provenance')
   })
 
   it('rejects a supplied artifact that asserts URLs without raw transcript evidence', async () => {
