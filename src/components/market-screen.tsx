@@ -32,7 +32,7 @@ import {
   fiftyTwoWeekPosition,
   formatMarketMetric,
   formatMarketPrice,
-  instrumentSignals,
+  issuerName,
   termStructureSpread,
   volatilityVerdict,
   type IvTermStructure,
@@ -60,10 +60,6 @@ const compactFormatter = new Intl.NumberFormat('en-US', {
   notation: 'compact',
 })
 
-const borrowRateFormatter = new Intl.NumberFormat('en-US', {
-  maximumFractionDigits: 4,
-})
-
 const catalystDateFormatter = new Intl.DateTimeFormat('en-US', {
   day: 'numeric',
   month: 'short',
@@ -84,14 +80,6 @@ function assetLabel(ticker: Pick<Ticker, 'assetType'>): string | undefined {
   return ticker.assetType === 'etf' ? 'ETF' : ticker.assetType === 'index' ? 'Index' : undefined
 }
 
-function formatBorrowRate(rate: number): string {
-  return `${borrowRateFormatter.format(rate)}%`
-}
-
-function borrowRateDetail(rate: number): string {
-  return rate === 0 ? 'Reported 0%' : `${formatBorrowRate(rate)} borrow`
-}
-
 type SortDirection = 'asc' | 'desc'
 type SortKey = 'symbol' | 'marketCap' | 'price' | 'volume' | 'premium' | 'rank' | 'liquidity'
 
@@ -99,7 +87,7 @@ const SORT_COLUMNS: { defaultDirection: SortDirection; key: SortKey; label: stri
   { defaultDirection: 'asc', key: 'symbol', label: 'Instrument' },
   { defaultDirection: 'desc', key: 'marketCap', label: 'Market cap' },
   { defaultDirection: 'desc', key: 'price', label: 'Price' },
-  { defaultDirection: 'desc', key: 'volume', label: 'Volume' },
+  { defaultDirection: 'desc', key: 'volume', label: 'Share volume' },
   { defaultDirection: 'desc', key: 'premium', label: 'Option premium' },
   { defaultDirection: 'desc', key: 'rank', label: 'IV rank' },
   { defaultDirection: 'desc', key: 'liquidity', label: 'Liquidity' },
@@ -172,7 +160,6 @@ function focusTape(ticker: Ticker): Array<[label: string, value: string]> {
     ['Term', formatIfReported(ticker.ivTermStructure, termStructureLabel)],
     ['Liq', formatIfReported(ticker.liquidity, (liquidity) => `${formatMarketMetric(liquidity)}/5`)],
     ['Lend', ticker.lendability],
-    ['Borrow', formatIfReported(ticker.borrowRate, formatBorrowRate)],
     ['Vol', formatIfReported(ticker.volume, (volume) => compactMetric(volume))],
     ['Cap', formatIfReported(ticker.marketCap, (cap) => compactMetric(cap, '$'))],
     ['52w', yearRangeLabel(ticker)],
@@ -304,7 +291,7 @@ const MarketTickerRow = memo(function MarketTickerRow({
       </TableCell>
       <TableCell className="instrument-cell">
         <Button
-          aria-label={`${ticker.symbol}, ${ticker.name}, ${ticker.position ? 'held, ' : ''}${copy.label} option premium, IV rank ${ivRank}`}
+          aria-label={`${ticker.symbol}, ${issuerName(ticker.name)}, ${ticker.position ? 'held, ' : ''}${copy.label} option premium, IV rank ${ivRank}`}
           aria-pressed={isSelected}
           className="ticker-table-button"
           onClick={() => onSelectTicker(ticker.symbol)}
@@ -317,7 +304,7 @@ const MarketTickerRow = memo(function MarketTickerRow({
             {type ? <small>{type}</small> : null}
             {ticker.position ? <small className="held-marker">Held</small> : null}
           </span>
-          <small>{ticker.name}</small>
+          <small>{issuerName(ticker.name)}</small>
           {catalyst ? <small>{catalystLabel(catalyst, now)}</small> : null}
         </Button>
       </TableCell>
@@ -337,9 +324,10 @@ const MarketTickerRow = memo(function MarketTickerRow({
           ? <small>52w range unavailable</small>
           : <Progress className="price-range" aria-label={`${Math.round(rangePosition)}% of 52-week range`} value={rangePosition} />}
       </TableCell>
-      {/* tastytrade reports equity day share volume here, not 24-hour or option-contract volume. */}
+      {/* tastytrade reports equity day share volume here, not 24-hour or option-contract
+          volume; the column heading carries the unit so the rows need not repeat it. */}
       <TableCell className="volume-cell">
-        <strong>{compactMetric(ticker.volume, '', ' shares')}</strong>
+        <strong>{compactMetric(ticker.volume)}</strong>
       </TableCell>
       <TableCell className={`premium-cell ${verdict}`}>
         <strong>{copy.label}</strong>
@@ -353,7 +341,6 @@ const MarketTickerRow = memo(function MarketTickerRow({
       <TableCell className="liquidity-cell">
         <strong>{formatIfReported(ticker.liquidity, (liquidity) => `${formatMarketMetric(liquidity)}/5`) ?? '—'}</strong>
         <small>{ticker.lendability ?? 'Lendability unavailable'}</small>
-        <small>{ticker.borrowRate === undefined ? 'Rate unavailable' : borrowRateDetail(ticker.borrowRate)}</small>
       </TableCell>
     </TableRow>
   )
@@ -410,7 +397,6 @@ export function MarketScreen({
   const selectedPremiumScore = premiumScore(selected)
   const selectedAsset = assetLabel(selected)
   const selectedIdea = research?.ideas.find((idea) => idea.symbol === selected.symbol)
-  const selectedSignals = instrumentSignals(selected)
   const selectedTape = focusTape(selected)
 
   return (
@@ -422,7 +408,7 @@ export function MarketScreen({
           <div className="selected-summary">
             <div className="selected-instrument">
               <h2 className="selected-symbol" id="selected-instrument-title">{selected.symbol}</h2>
-              <p>{selected.name}{selectedAsset ? ` · ${selectedAsset}` : ''}</p>
+              <p>{issuerName(selected.name)}{selectedAsset ? ` · ${selectedAsset}` : ''}</p>
             </div>
             <div className="selected-price">
               <strong>{formatMarketPrice(selected.price)}</strong>
@@ -439,23 +425,8 @@ export function MarketScreen({
             )}
           </div>
         </CardHeader>
-        <CardContent className={cn('focus-narrative', selectedIdea && 'with-thesis', !selectedIdea && selectedSignals.length === 0 && 'runway-only')}>
-          <div className="focus-context">
-            {selectedIdea && <ThesisPanel idea={selectedIdea} />}
-            {/* In-band instruments omit this section entirely; the tape still reports their available metrics. */}
-            {selectedSignals.length > 0 && (
-              <section className="focus-signals" aria-label="What stands out">
-                <ul className="signal-list">
-                  {selectedSignals.map((signal) => (
-                    <li className={cn('signal', signal.tone)} key={signal.key}>
-                      <strong>{signal.label}</strong>
-                      <span>{signal.detail}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-          </div>
+        <CardContent className="focus-narrative">
+          {selectedIdea && <ThesisPanel idea={selectedIdea} />}
           <CatalystRunway catalysts={catalysts} now={now} symbol={selected.symbol} />
         </CardContent>
         <CardFooter>

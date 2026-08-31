@@ -259,10 +259,6 @@ export function normalizeTastytradeMarketTicker(
   const quoteTime = Date.parse(quoteUpdatedAt ?? '')
   if (!Number.isFinite(quoteTime)) throw new Error('TastytradeSnapshot:invalid-updated-at')
   const updatedAt = new Date(quoteTime).toISOString()
-  const borrowRate = optionalNonnegative(
-    metrics['borrow-rate'] ?? instrument?.['borrow-rate'] ?? instrument?.borrowRate,
-    'borrow-rate',
-  )
   const lendability = optionalText(metrics.lendability ?? instrument?.lendability, 'lendability')
   const ivIndex5DayChange = optionalPercentagePoints(
     metrics['implied-volatility-index-5-day-change'] ?? metrics.impliedVolatilityIndex5DayChange,
@@ -307,7 +303,6 @@ export function normalizeTastytradeMarketTicker(
       'instrument-name',
     ) ?? symbol,
     assetType: assetType(instrument),
-    borrowRate,
     lendability,
     marketCap,
     price,
@@ -344,7 +339,6 @@ export function liveTickerFromRecords(
 export function catalogTickerInstrument(item: InstrumentCatalogItem | undefined): JsonObject | undefined {
   if (!item) return undefined
   return {
-    'borrow-rate': item.borrowRate,
     description: item.description,
     'is-etf': item.isEtf,
     'is-index': item.isIndex,

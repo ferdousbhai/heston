@@ -96,28 +96,15 @@ describe('selected market context', () => {
 })
 
 describe('watchlist market data', () => {
-  it('orders the core market columns and keeps lendability separate from a precise borrow rate', () => {
+  it('orders the core market columns and reports lending as lendability alone', () => {
     const snapshot = marketSnapshotFixture()
-    const nvda = snapshot.tickers.find((ticker) => ticker.symbol === 'NVDA')!
-    nvda.borrowRate = 0.0375
 
     const html = renderMarket(snapshot, { symbol: 'NVDA' })
     const header = html.match(/<thead[^>]*>(.*?)<\/thead>/s)?.[1]
 
-    expect(header).toMatch(/Market cap.*Price.*Volume/)
+    expect(header).toMatch(/Market cap.*Price.*Share volume/)
     expect(html).toContain('price-range')
     expect(html).toContain('Easy To Borrow')
-    expect(html).toContain('0.0375% borrow')
-  })
-
-  it('distinguishes an exact provider zero from a rounded small borrow rate', () => {
-    const snapshot = marketSnapshotFixture()
-    const nvda = snapshot.tickers.find((ticker) => ticker.symbol === 'NVDA')!
-    nvda.borrowRate = 0
-
-    const html = renderMarket(snapshot, { symbol: 'NVDA' })
-
-    expect(html).toContain('Reported 0%')
-    expect(html).not.toContain('0.0000%')
+    expect(html).not.toContain('borrow')
   })
 })

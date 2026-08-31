@@ -200,15 +200,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .instrument-focus.fair .premium-verdict { color: var(--fair-tone); }
 .instrument-focus.rich .premium-verdict { color: var(--rich); }
 
+/* One column reads thesis → runway → tape; the wide layout instead dissolves this grid
+   into the panel's own columns. */
 .focus-narrative { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--hairline); display: grid; gap: 22px; }
-/* One column reads thesis → runway → flags → tape, so the context wrapper dissolves into
-   the narrative grid and `order` lifts the runway above the flags; the wide layout re-forms
-   it as the left column beside the runway. The tape sits full width beneath either way. */
-.focus-context { display: contents; }
-.focus-thesis { order: 1; }
-.focus-runway { order: 2; }
-.focus-signals { order: 3; padding-top: 18px; border-top: 1px solid var(--hairline); }
-.focus-narrative.with-thesis .focus-runway { padding-top: 20px; border-top: 1px solid var(--hairline); }
+.focus-thesis + .focus-runway { padding-top: 20px; border-top: 1px solid var(--hairline); }
 .focus-eyebrow { min-height: 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .focus-eyebrow h3 { margin: 0; color: var(--spice); font: 10px/1 var(--mono); font-weight: 400; text-transform: uppercase; letter-spacing: .13em; }
 /* Box-drawing rail, decorative only: it opens the section the way a TUI frame would. */
@@ -224,10 +219,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .thesis-play span { color: var(--ink-faint); }
 .thesis-play strong { color: var(--spice); font: 700 13px/1.2 var(--mono); }
 .thesis-sources { margin: 11px 0 0; display: flex; flex-wrap: wrap; gap: 5px 14px; }
-.thesis-sources a, .runway-body > a { min-width: 0; display: inline-flex; align-items: center; gap: 3px; color: #83868f; font-size: 10px; line-height: 1.3; text-decoration: none; }
+/* The arrow rides the last word rather than sitting in its own flex slot, so a source that
+   wraps in a narrow column never strands it on a line of its own. */
+.thesis-sources a, .runway-body > a { min-width: 0; color: #83868f; font-size: 10px; line-height: 1.3; text-decoration: none; }
 .thesis-sources a:hover, .thesis-sources a:focus-visible, .runway-body > a:hover, .runway-body > a:focus-visible { color: var(--text); }
-.thesis-sources svg, .runway-body > a svg { width: 10px; height: 10px; flex: 0 0 auto; }
+.thesis-sources svg, .runway-body > a svg { display: inline-block; width: 10px; height: 10px; margin-left: 3px; vertical-align: -1px; }
 
+.focus-runway { container-type: inline-size; }
 .runway { margin: 14px 0 0; padding: 0; list-style: none; }
 .runway-event { position: relative; display: grid; grid-template-columns: 52px 10px minmax(0, 1fr); column-gap: 13px; padding-bottom: 14px; }
 .runway-event:last-child { padding-bottom: 0; }
@@ -252,14 +250,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .runway-empty { margin: 14px 0 0; max-width: 72ch; color: var(--ink-muted); font-size: 11px; line-height: 1.62; }
 .runway-empty strong { color: var(--text); }
 
-.signal-list { margin: 12px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
-.signal { position: relative; min-width: 0; padding-left: 16px; }
-.signal::before { content: ""; position: absolute; left: 0; top: 4px; width: 8px; height: 8px; background: var(--ink-faint); }
-.signal.rich::before { background: var(--rich); }
-.signal.cheap::before { background: var(--cheap); }
-.signal.note::before { background: var(--spice); }
-.signal strong { display: block; font-size: 13px; line-height: 1.3; }
-.signal span { display: block; margin-top: 3px; color: var(--ink-faint); font: 10px/1.3 var(--mono); font-variant-numeric: tabular-nums; }
 .focus-tape { margin: 22px 0 0; padding: 12px 0 18px; border-top: 1px solid var(--hairline); display: flex; flex-wrap: wrap; row-gap: 6px; font: 10px/1.4 var(--mono); font-variant-numeric: tabular-nums; }
 .focus-tape > div { display: inline-flex; gap: 5px; white-space: nowrap; }
 .focus-tape > div:not(:last-child)::after { content: "·"; margin: 0 9px; color: #3a3d45; }
@@ -279,7 +269,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .watch-search input { width: 100%; border: 0; outline: 0; background: none; color: var(--text); font-size: 12px; }
 .watch-search input::placeholder { color: #63666e; }
 .watch-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
-.premium-data-table { min-width: 850px; border-top: 1px solid var(--hairline); font-size: 12px; }
+/* Eight narrow columns spread over an ultra-wide viewport put a ticker's numbers far from
+   its name, so the table stops widening once every column has the room it needs. */
+.premium-data-table { min-width: 850px; max-width: 1120px; border-top: 1px solid var(--hairline); font-size: 12px; }
 .premium-data-table [data-slot="table-head"] { height: 30px; padding: 0 8px; color: var(--spice); font: 10px/1 var(--mono); text-transform: uppercase; }
 .premium-data-table [data-slot="table-head"]:first-child { width: 34px; padding: 0; }
 .premium-data-table [data-slot="table-head"]:nth-child(n + 3) { text-align: right; }
@@ -293,8 +285,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .premium-data-table .pin-cell { width: 34px; padding-inline: 0; }
 .pin-button[data-slot="button"] { color: #5f626b; }
 .pin-button[data-slot="button"].pinned { color: var(--spice); }
-.instrument-cell { width: 24%; min-width: 180px; }
-.premium-data-table .market-cap-cell { width: 11%; min-width: 100px; text-align: right; }
+.instrument-cell { width: 22%; min-width: 180px; }
+.premium-data-table .market-cap-cell { width: 10%; min-width: 84px; text-align: right; }
 .premium-data-table .price-cell { width: 18%; min-width: 145px; text-align: right; }
 .price-session { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .price-session > span { flex: 0 0 auto; }
@@ -315,7 +307,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .ticker-table-button > span small.held-marker { color: var(--spice); font: 9px/1 var(--mono); text-transform: uppercase; letter-spacing: .09em; }
 .ticker-table-button > small { width: 100%; overflow: hidden; color: var(--ink-faint); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .ticker-table-button > small:last-child:not(:nth-child(2)) { color: var(--spice); }
-.premium-data-table .volume-cell { width: 12%; min-width: 100px; text-align: right; }
+.premium-data-table .volume-cell { width: 10%; min-width: 84px; text-align: right; }
 .premium-data-table .premium-cell, .premium-data-table .rank-cell, .premium-data-table .liquidity-cell { width: 11%; min-width: 92px; text-align: right; }
 .premium-data-table .market-cap-cell strong, .premium-data-table .price-cell strong, .premium-data-table .premium-cell strong, .premium-data-table .rank-cell strong, .premium-data-table .liquidity-cell strong, .premium-data-table .volume-cell strong { display: block; font-variant-numeric: tabular-nums; }
 .premium-data-table .premium-cell strong { font-size: 12px; }
@@ -516,15 +508,28 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
   .story-row { padding-inline: 24px; }
 
-  .instrument-focus { padding: 22px 24px 2px; }
-  .selected-summary { display: flex; align-items: flex-start; gap: clamp(24px, 3vw, 48px); }
-  .selected-price { margin-top: 1px; flex: 0 0 auto; }
-  .focus-narrative:not(.runway-only) { grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); column-gap: 0; }
-  .focus-context { min-width: 0; display: block; padding-right: clamp(28px, 3.6vw, 60px); }
-  .focus-narrative.runway-only .focus-context { display: none; }
-  .focus-narrative:not(.with-thesis) .focus-signals { padding-top: 0; border-top: 0; }
-  .focus-narrative.with-thesis .focus-signals { margin-top: 22px; }
-  .focus-narrative:not(.runway-only) .focus-runway { padding: 0 0 0 clamp(28px, 3.6vw, 60px); border-top: 0; border-left: 1px solid var(--hairline); }
+  /* Wide screens read as one dense block rather than a header band above two sparse columns:
+     a left rail stacks the instrument, its premium axis, and the metric tape while the runway
+     takes the rest of the row beside them, so the narrative grid dissolves into this one. The
+     rail's rows size to their content and a trailing row absorbs whatever height the runway
+     adds, so a long runway never opens gaps between the rail's sections. */
+  .instrument-focus { padding: 18px 24px 16px; display: grid; grid-template-columns: clamp(300px, 24vw, 420px) minmax(0, 1fr); grid-template-rows: auto auto auto 1fr; column-gap: clamp(22px, 2.4vw, 40px); align-items: start; }
+  .instrument-focus [data-slot="card-header"] { grid-column: 1; grid-row: 1; display: block; }
+  .selected-instrument p { font-size: 10px; }
+  .selected-price { margin-top: 7px; }
+  .premium-gauge { margin-top: 13px; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: end; }
+  .premium-verdict { margin-top: 0; justify-self: end; font-size: 15px; line-height: 1; }
+  .premium-axis[data-slot="progress"] { width: 100%; grid-column: 1 / -1; height: 9px; margin-top: 8px; }
+  .focus-narrative { display: contents; }
+  .focus-thesis { grid-column: 1; grid-row: 2; min-width: 0; }
+  .focus-thesis, .focus-tape { margin-top: 15px; padding: 13px 0 0; border-top: 1px solid var(--hairline); }
+  .instrument-focus [data-slot="card-footer"] { grid-column: 1; grid-row: 3; }
+  /* The last column line puts the runway right of the rail in both the two- and three-column
+     arrangements, and the columns beside the rail stretch so their rules run the full height. */
+  .focus-thesis + .focus-runway, .focus-runway { grid-column: -2; grid-row: 1 / -1; align-self: stretch; padding: 0 0 0 clamp(22px, 2.4vw, 40px); border-top: 0; border-left: 1px solid var(--hairline); }
+  .runway { margin-top: 0; }
+  .runway-event { grid-template-columns: 68px 10px minmax(0, 1fr); padding-bottom: 13px; }
+  .runway-event::before { left: 86.5px; }
 
   .watch-table { padding: 24px 24px 16px; }
   .ticker-table-button[data-slot="button"] { max-width: 330px; }
@@ -535,6 +540,24 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
   .agent-main { min-height: 100vh; min-height: 100dvh; }
   .agent-screen { height: 100vh; height: 100dvh; max-width: 900px; margin-inline: auto; border-inline: 1px solid var(--hairline); padding-top: 60px; }
+}
+
+/* A wide enough runway reads across instead of down: countdown, then what the event is,
+   then its detail beside the title rather than stacked under it. */
+@container (min-width: 700px) {
+  /* The title column keeps a floor wide enough for a source citation to sit on one line. */
+  .runway-body { display: grid; grid-template-columns: minmax(280px, .72fr) minmax(0, 1fr); column-gap: clamp(20px, 2vw, 36px); }
+  .runway-kind, .runway-body > strong { grid-column: 1; }
+  .runway-body > a { grid-column: 1; justify-self: start; }
+  .runway-detail { grid-column: 2; grid-row: 2 / span 2; max-width: 62ch; margin: 0; }
+}
+
+/* With a thesis to carry, the panel splits three ways instead of lengthening the rail:
+   the instrument and its numbers, the thesis, then the runway. Below this the thesis and
+   the runway would each fall under a readable measure, so the rail keeps the thesis. */
+@media (min-width: 1120px) {
+  .instrument-focus:has(.focus-thesis) { grid-template-columns: clamp(300px, 20vw, 380px) minmax(0, .82fr) minmax(0, 1.1fr); }
+  .instrument-focus:has(.focus-thesis) .focus-thesis { grid-column: 2; grid-row: 1 / -1; align-self: stretch; margin-top: 0; padding: 0 0 0 clamp(22px, 2.4vw, 40px); border-top: 0; border-left: 1px solid var(--hairline); }
 }
 
 @media (max-width: 390px) {
