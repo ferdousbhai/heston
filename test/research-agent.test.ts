@@ -130,6 +130,7 @@ function agentFetcher(
     providerToolCall('get_recent_coverage', { daysAgo: 14, tickers: ['NVDA'] }, status),
     providerToolCall('read_page', { url: CITED_URL }, status),
     providerReport(status),
+    providerReport(status),
   ]
   const bodies: JsonObject[] = []
   const fetcher = vi.fn<typeof fetch>(async (input, init) => {
@@ -195,7 +196,7 @@ describe('daily research Pi agent boundary', () => {
     }, fetcher)
 
     expect(result.submission.ideas[0]?.symbol).toBe('NVDA')
-    expect(bodies).toHaveLength(5)
+    expect(bodies).toHaveLength(6)
     expect(bodies[0]?.tools).toEqual([{ from_date: '2026-03-01', to_date: '2026-08-29', type: 'x_search' }])
     expect(bodies[0]?.tool_choice).toBe('required')
     expect(bodies[0]).not.toHaveProperty('text')
@@ -210,10 +211,14 @@ describe('daily research Pi agent boundary', () => {
     expect(bodies[1]?.tools).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ name: 'submit_daily_report', type: 'function' }),
     ]))
-    expect(bodies[1]?.text).toEqual(expect.objectContaining({
+    // A research turn carries the tools and no schema; forcing both is what produced a
+    // report full of "placeholder" from a model that had decided to use tools.
+    expect(bodies[1]).not.toHaveProperty('text')
+    expect(bodies[1]?.tool_choice).toBe('auto')
+    expect(bodies[5]?.text).toEqual(expect.objectContaining({
       format: expect.objectContaining({ name: 'daily_research_report', type: 'json_schema' }),
     }))
-    expect(bodies[1]?.tool_choice).toBe('auto')
+    expect(bodies[5]).not.toHaveProperty('tools')
     expect(bodies[1]?.tools).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ name: 'ingest_wsb', type: 'function' }),
     ]))
@@ -232,7 +237,7 @@ describe('daily research Pi agent boundary', () => {
       'model-1', 'tool-1-read_market_metrics',
       'model-2', 'tool-2-get_recent_coverage',
       'model-3', 'tool-3-read_page',
-      'model-4',
+      'model-4', 'model-5',
     ])
   })
 
@@ -298,6 +303,7 @@ describe('daily research Pi agent boundary', () => {
     const providerResponses = [
       providerXContext('completed', 'completed', 1),
       providerReport(), providerReport(), providerReport(),
+      providerReport(), providerReport(), providerReport(),
     ]
     const fetcher = vi.fn<typeof fetch>(async (input) => {
       const url = String(input)
@@ -331,9 +337,9 @@ describe('daily research Pi agent boundary', () => {
     }
     const providerResponses = [
       providerXContext('completed', 'completed', 1),
-      providerReport('completed', empty),
-      providerReport('completed', empty),
-      providerReport('completed', empty),
+      providerReport('completed', empty), providerReport('completed', empty),
+      providerReport('completed', empty), providerReport('completed', empty),
+      providerReport('completed', empty), providerReport('completed', empty),
     ]
     const fetcher = vi.fn<typeof fetch>(async (input) => {
       const url = String(input)

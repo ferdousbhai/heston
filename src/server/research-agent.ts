@@ -137,6 +137,8 @@ interface RunCapture {
   conversation?: JsonValue[]
   pendingCorrection?: string
   providerTurns: number
+  /** True once the model has finished researching and is being asked to serialize a report. */
+  reporting: boolean
   submission?: DailyResearchSubmission
   submissionRefusals: number
   toolResults: Set<string>
@@ -345,6 +347,22 @@ function responseMessage(
     }
   }
   const text = providerOutputText(payload)
+  if (!capture.reporting) {
+    // The model stopped calling tools, so it is done researching. Its prose is not a report
+    // and must not be parsed as one; ask for the report on a turn that carries the schema.
+    capture.reporting = true
+    capture.pendingCorrection = 'Research complete. Output the report now as JSON matching the schema.'
+    return {
+      role: 'assistant',
+      content: text ? [{ type: 'text', text }] : [],
+      api: model.api,
+      provider: model.provider,
+      model: model.id,
+      usage: zeroUsage(),
+      stopReason: 'stop',
+      timestamp: Date.now(),
+    }
+  }
   if (!text) throw new Error('DailyResearchAgentResponse:missing-output')
   let value: JsonValue
   try {
@@ -371,6 +389,9 @@ function responseMessage(
   } else if (capture.submissionRefusals >= MAX_SUBMISSION_REFUSALS) {
     throw new Error(`DailyResearchAgentCitations:${rejected.join('; ').slice(0, MAX_TOOL_ERROR_DETAIL)}`)
   } else {
+    // A refused report is a return to research: give the tools back, or the model is asked to
+    // fix a citation on a turn where it cannot read anything.
+    capture.reporting = false
     capture.submissionRefusals += 1
     console.warn(JSON.stringify({
       event: 'DailyResearchAgentSubmissionRefused',
@@ -469,27 +490,39 @@ function grokStream(
               include: ['no_inline_citations'],
               input: conversation,
               max_output_tokens: options?.maxTokens,
-              tools: [
-                ...grokNativeSearchTools({
-                  fromDate: addDays(marketDate(request.now), -180),
-                  toDate: addDays(marketDate(request.now), 1),
+              // Strict structured output is a straitjacket: while `text.format` is set, a
+              // schema-shaped object is the only legal completion, so a model that has decided
+              // to research cannot emit a tool call. A run died of exactly that — its own
+              // reasoning read "I need to actually research, use tools, read pages", and the
+              // turn produced `placeholder` in every field because that was the only shape it
+              // was allowed to make. Research turns carry the tools; the report turn carries
+              // the schema; neither carries both.
+              ...(capture.reporting
+                ? {
+                  text: {
+                    format: {
+                      type: 'json_schema',
+                      name: 'daily_research_report',
+                      schema: DailyResearchSubmissionSchema,
+                      strict: true,
+                    },
+                  },
+                }
+                : {
+                  tools: [
+                    ...grokNativeSearchTools({
+                      fromDate: addDays(marketDate(request.now), -180),
+                      toDate: addDays(marketDate(request.now), 1),
+                    }),
+                    ...(context.tools ?? []).map((tool) => ({
+                      type: 'function',
+                      name: tool.name,
+                      description: tool.description,
+                      parameters: tool.parameters,
+                    })),
+                  ],
+                  tool_choice: 'auto',
                 }),
-                ...(context.tools ?? []).map((tool) => ({
-                  type: 'function',
-                  name: tool.name,
-                  description: tool.description,
-                  parameters: tool.parameters,
-                })),
-              ],
-              text: {
-                format: {
-                  type: 'json_schema',
-                  name: 'daily_research_report',
-                  schema: DailyResearchSubmissionSchema,
-                  strict: true,
-                },
-              },
-              tool_choice: 'auto',
             }),
           })
           if (!response.ok) {
@@ -539,7 +572,7 @@ export async function runDailyResearchAgent(
     runContext('x-context', () => collectXDiscovery(env, request, fetcher)),
   ])
   const capture: RunCapture = {
-    providerTurns: 0, submissionRefusals: 0,
+    providerTurns: 0, reporting: false, submissionRefusals: 0,
     toolResults: new Set(),
   }
   let toolCall = 0
