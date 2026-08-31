@@ -36,9 +36,55 @@ describe('volatility classification', () => {
     expect(volatilityVerdict({ ivRank: undefined, ivPercentile: 82 })).toBe('unavailable')
   })
 
-  it('displays the issuer without the security class the provider appends', () => {
+  // Every string here is a description this catalog serves today.
+  it('cuts the security class the provider appends, however it is written', () => {
     expect(issuerName('NVIDIA Corporation - Common Stock')).toBe('NVIDIA Corporation')
-    expect(issuerName('Dell Technologies Inc. Class C')).toBe('Dell Technologies Inc. Class C')
+    expect(issuerName('Ford Motor Company Common Stock')).toBe('Ford Motor Company')
+    expect(issuerName('Dell Technologies Inc. Class C Common Stock')).toBe('Dell Technologies Inc.')
+    expect(issuerName('Alphabet Inc. - Class C Capital Stock')).toBe('Alphabet Inc.')
+    expect(issuerName('Warner Bros. Discovery, Inc. - Series A Common Stock')).toBe('Warner Bros. Discovery, Inc.')
+    expect(issuerName('Shopify Inc. - Class A Subordinate Voting Shares')).toBe('Shopify Inc.')
+    expect(issuerName('XPLR Infrastructure, LP Common Units representing limited partner interests'))
+      .toBe('XPLR Infrastructure, LP')
+    expect(issuerName('Service Properties Trust - Common Shares of Beneficial Interest'))
+      .toBe('Service Properties Trust')
+    expect(issuerName('ASML Holding N.V. - New York Registry Shares')).toBe('ASML Holding N.V.')
+  })
+
+  it('cuts a depositary-share tail whether it is named or described', () => {
+    expect(issuerName('Nokia Corporation Sponsored American Depositary Shares')).toBe('Nokia Corporation')
+    expect(issuerName('NIO Inc. American depositary shares, each representing one Class A ordinary share'))
+      .toBe('NIO Inc.')
+    expect(issuerName('KE Holdings Inc American Depositary Shares (each representing three Class A Ordinary Shares)'))
+      .toBe('KE Holdings Inc')
+    expect(issuerName('Petroleo Brasileiro S.A. Petrobras ADS')).toBe('Petroleo Brasileiro S.A. Petrobras')
+  })
+
+  it('drops a trailing qualifier and the abbreviated name the tape carries', () => {
+    expect(issuerName('Walt Disney Company (The) Common Stock')).toBe('Walt Disney Company')
+    expect(issuerName('Merck & Company, Inc. Common Stock (new)')).toBe('Merck & Company, Inc.')
+    expect(issuerName('Energy Fuels Inc Ordinary Shares (Canada)')).toBe('Energy Fuels Inc')
+    expect(issuerName('CAREVIEW COMMUNS INC by Careview Communications, Inc.'))
+      .toBe('Careview Communications, Inc.')
+  })
+
+  it('reads the abbreviated class a shouted tape string appends', () => {
+    expect(issuerName('CATALENT INC COM')).toBe('CATALENT INC')
+    expect(issuerName('GORES HLD XI CL A OS')).toBe('GORES HLD XI')
+    expect(issuerName('SEALED AIR CORP NEW')).toBe('SEALED AIR CORP')
+    expect(issuerName('ATENTO S A SHS')).toBe('ATENTO S A')
+    expect(issuerName('MARSH & MCLENNAN COMPANIES INC')).toBe('MARSH & MCLENNAN COMPANIES INC')
+  })
+
+  it('leaves a name that carries no class tail whole', () => {
+    expect(issuerName('iShares 20+ Year Treasury Bond ETF')).toBe('iShares 20+ Year Treasury Bond ETF')
+    expect(issuerName('SPDR Gold Shares')).toBe('SPDR Gold Shares')
+    expect(issuerName('iPath Series B S&P 500 VIX Short-Term Futures ETN'))
+      .toBe('iPath Series B S&P 500 VIX Short-Term Futures ETN')
+    expect(issuerName('Natural Grocers by Vitamin Cottage, Inc. Common Stock'))
+      .toBe('Natural Grocers by Vitamin Cottage, Inc.')
+    expect(issuerName('ADS-TEC ENERGY PLC - Ordinary Shares')).toBe('ADS-TEC ENERGY PLC')
+    expect(issuerName('AT&T Inc.')).toBe('AT&T Inc.')
   })
 
   it('places the current price within a valid 52-week range', () => {

@@ -213,11 +213,52 @@ export function termStructureSpread(term: IvTermStructure): number {
   return term.frontIv - term.backIv
 }
 
+const CLASS_NOUN = String.raw`(?:Common|Capital|Preferred|Ordinary|Beneficial|Subordinate|Voting|Registered|Registry|Deposit[ao]ry|Units?|Shares?|Stock|Interests?)`
+
 /*
- * Provider names carry the security class after a spaced hyphen ("NVIDIA Corporation -
- * Common Stock"); the class repeats across the list, so only the issuer is displayed.
+ * The class tail as tastytrade writes it, in every spelling its descriptions use: joined by
+ * a hyphen or nothing ("NVIDIA Corporation - Common Stock", "Ford Motor Company Common
+ * Stock"), led by a share class ("Dell Technologies Inc. Class C Common Stock"), or running
+ * into prose ("NIO Inc. American depositary shares, each representing one Class A ordinary
+ * share"). A class is only read as one when a class noun follows, so the "Series B" of an
+ * ETN and the "Shares" of SPDR Gold Shares stay part of the issuer's own name.
+ */
+const SECURITY_CLASS = new RegExp([
+  String.raw`\b(?:Class|Series) [A-Z]\b(?= ${CLASS_NOUN})`,
+  String.raw`\b(?:Common|Capital|Preferred|Beneficial) Stock\b`,
+  String.raw`\b(?:Common|Ordinary|Ord|Subordinate Voting) Shares?\b`,
+  String.raw`\b(?:New York )?(?:Registry|Registered) Shares?\b`,
+  String.raw`\b(?:Common|Deposit[ao]ry) Units\b`,
+  String.raw`\b(?:Shares|Units) of Beneficial Interest\b`,
+  String.raw`\b(?:Sponsored )?(?:American )?Deposit[ao]ry Shares?\b`,
+  String.raw`\bADSs?\b`,
+  String.raw`\bADRs?\b`,
+].join('|'), 'gi')
+
+/* Some rows lead with the abbreviated name the tape carries: "CAREVIEW COMMUNS INC by
+   Careview Communications, Inc.". The shouting is what tells this apart from an issuer
+   whose own name contains "by" (Natural Grocers by Vitamin Cottage). */
+const TAPE_ABBREVIATION = /^[A-Z0-9][A-Z0-9 .,&/()-]* by (?=\S)/
+
+/* A description shouted end to end is a tape string, and abbreviates the class it appends
+   ("CATALENT INC COM", "GORES HLD XI CL A OS"). Only these rows are read this way, so an
+   issuer that merely ends in one of these letters keeps its name. */
+const TAPE_CLASS = /(?: (?:COM|CM|CS|SHS|ORD|ORDA|CLA|OS|NEW|CL [A-Z]|SH [A-Z]|ORD [A-Z]))+$/
+
+/**
+ * The issuer as the list should read it. The security class repeats down every row and
+ * tells no two apart, and neither does a trailing qualifier ("(The)", "(DE)", "(REIT)"),
+ * so both are cut. A description that carries no class tail — a fund, a trust, an issuer
+ * whose name is a marker itself — is returned whole.
  */
 export function issuerName(name: string): string {
-  return name.split(' - ')[0] ?? name
+  const described = name.replace(TAPE_ABBREVIATION, '')
+  // A marker at the very start is the issuer's own name (ADS-TEC ENERGY PLC), not its class.
+  const tail = [...described.matchAll(SECURITY_CLASS)].find((match) => match.index > 0)
+  const issuer = (tail ? described.slice(0, tail.index) : described)
+    .replace(/\s*\([^)]*\)\s*$/, '')
+    .replace(/[\s,\u2013-]+$/, '')
+  const named = issuer === issuer.toUpperCase() ? issuer.replace(TAPE_CLASS, '') : issuer
+  return named || described
 }
 
