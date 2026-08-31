@@ -223,10 +223,7 @@ function CatalystRunway({
   const upcoming = upcomingCatalystsForSymbol(symbol, catalysts, now)
 
   return (
-    <section className="focus-runway" aria-labelledby="focus-runway-title">
-      <header className="focus-eyebrow">
-        <h3 id="focus-runway-title">What&rsquo;s coming</h3>
-      </header>
+    <section className="focus-runway" aria-label="What&rsquo;s coming">
       {upcoming.length
         ? (
             <ol className="runway">
@@ -450,10 +447,7 @@ export function MarketScreen({
             {selectedIdea && <ThesisPanel idea={selectedIdea} />}
             {/* In-band instruments omit this section entirely; the tape still reports their available metrics. */}
             {selectedSignals.length > 0 && (
-              <section className="focus-signals" aria-labelledby="focus-signals-title">
-                <header className="focus-eyebrow">
-                  <h3 id="focus-signals-title">What stands out</h3>
-                </header>
+              <section className="focus-signals" aria-label="What stands out">
                 <ul className="signal-list">
                   {selectedSignals.map((signal) => (
                     <li className={cn('signal', signal.tone)} key={signal.key}>
