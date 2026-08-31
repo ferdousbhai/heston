@@ -72,6 +72,29 @@ temporary_worker_api_retry() {
   done
 }
 
+# A freshly created workers.dev script is not routable the instant its deploy returns:
+# the first request can answer with Cloudflare error 1104 (Script not found) for a few
+# seconds, which aborted the 2026-08-31 apply after its research had already been done.
+# The ops handler answers every unauthenticated request with a plain-text 404 precisely so
+# these endpoints stay undiscoverable, so an HTML body is the edge saying the script is not
+# there yet rather than the Worker refusing the caller.
+temporary_worker_wait_until_routable() {
+  local attempt=1 probe status content_type
+  while true; do
+    probe="$(curl -s -o /dev/null -w '%{http_code} %{content_type}' --max-time 10 "$temporary_worker_url" || echo '000 none')"
+    status="${probe%% *}"
+    content_type="${probe#* }"
+    if [[ "$status" != '000' && "$content_type" != text/html* ]]; then return 0; fi
+    if (( attempt >= temporary_worker_api_attempts )); then
+      echo "Temporary Worker never became routable: $temporary_worker_name_value" >&2
+      return 1
+    fi
+    echo "Temporary Worker not routable yet; retrying in ${temporary_worker_retry_delay_seconds}s" >&2
+    attempt=$(( attempt + 1 ))
+    sleep "$temporary_worker_retry_delay_seconds"
+  done
+}
+
 temporary_worker_deploy_step() {
   npx wrangler deploy --config "$1" --name "$2"
 }
@@ -109,6 +132,7 @@ temporary_worker_start() {
     cat "$temporary_worker_log" >&2
     return 1
   fi
+  temporary_worker_wait_until_routable
 }
 
 temporary_worker_call() {
