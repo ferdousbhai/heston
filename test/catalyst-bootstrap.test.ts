@@ -89,6 +89,7 @@ function artifact() {
         finalUrl: 'https://www.spacex.com/investors/event',
         httpStatus: 200,
         snippet: 'Shareholder event scheduled for September 24, 2026 at the Hawthorne campus.',
+        via: 'fetch',
       },
     }],
     model: 'gpt-5.6-sol',

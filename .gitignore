@@ -17,3 +17,5 @@ test-results/
 work/
 ops/**/runs/
 *.out
+
+.firecrawl/

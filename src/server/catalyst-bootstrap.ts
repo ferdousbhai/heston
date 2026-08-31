@@ -24,6 +24,10 @@ const VerificationSchema = z.object({
   finalUrl: z.string().min(1).max(2_048),
   httpStatus: z.literal(200),
   snippet: z.string().min(1).max(400),
+  // Which client read the page. A proxy fetch is a third party reporting what the URL
+  // served rather than the runner reading it, which is weaker evidence and is recorded as
+  // such rather than being flattened into the others.
+  via: z.enum(['fetch', 'browser', 'proxy']),
 })
 
 const FindingSchema = z.object({

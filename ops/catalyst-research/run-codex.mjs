@@ -251,11 +251,75 @@ async function renderedVerification(finding) {
       finalUrl,
       httpStatus: 200,
       snippet,
+      via: 'browser',
     }
   } catch {
     return undefined
   } finally {
     await context.close().catch(() => undefined)
+  }
+}
+
+// A handful of investor-relations hosts refuse a plain client and a real browser alike,
+// answering both with 403 from their bot management. Firecrawl reads those through its own
+// proxies, so it is the last tier: a citation it recovers is still established by a fetch
+// rather than by anything the model says, but the fetch was performed by a third party
+// reporting what the URL served, so the record says so and the reader can weigh it.
+// A minute is far longer than the tier's own pages need and bounds a scrape that stalls
+// upstream; the tier only ever runs for findings the first two could not read.
+const PROXY_TIMEOUT_MS = 60_000
+let proxyAvailable
+
+async function proxyIsAuthenticated() {
+  proxyAvailable ??= new Promise((resolve) => {
+    const probe = spawn('npx', ['firecrawl-cli', '--status'], {
+      cwd: repoRoot, env: { ...process.env, FIRECRAWL_NO_TELEMETRY: '1' }, stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    let output = ''
+    probe.stdout.setEncoding('utf8')
+    probe.stdout.on('data', (chunk) => { output += chunk })
+    probe.once('error', () => resolve(false))
+    probe.once('close', () => {
+      const ready = output.includes('Authenticated')
+      if (!ready) process.stderr.write('Proxy verification unavailable: firecrawl CLI is not authenticated\n')
+      resolve(ready)
+    })
+  })
+  return proxyAvailable
+}
+
+async function proxiedVerification(finding) {
+  if (!await proxyIsAuthenticated()) return undefined
+  const outputPath = path.join(runsPath, `proxy-${createHash('sha256').update(finding.sourceUrl).digest('hex').slice(0, 16)}.json`)
+  const scraped = await new Promise((resolve) => {
+    const child = spawn('npx', [
+      'firecrawl-cli', 'scrape', finding.sourceUrl,
+      // Without this the service answers from its own cache, which would make the evidence
+      // "the proxy saw this text at some earlier time" rather than what the URL serves now.
+      '--max-age', '0',
+      '--format', 'rawHtml', '--json', '-o', outputPath,
+    ], { cwd: repoRoot, env: { ...process.env, FIRECRAWL_NO_TELEMETRY: '1' }, stdio: 'ignore' })
+    const timer = setTimeout(() => { child.kill(); resolve(false) }, PROXY_TIMEOUT_MS)
+    child.once('error', () => { clearTimeout(timer); resolve(false) })
+    child.once('close', (code) => { clearTimeout(timer); resolve(code === 0) })
+  })
+  if (!scraped) return undefined
+  try {
+    const payload = JSON.parse(await readFile(outputPath, 'utf8'))
+    const finalUrl = payload.metadata?.sourceURL ?? payload.metadata?.url
+    if (payload.metadata?.statusCode !== 200 || !finalUrl?.startsWith('https://')) return undefined
+    const snippet = dateSnippet(visibleText(payload.rawHtml ?? ''), finding.date)
+    if (!snippet) return undefined
+    return {
+      contentSha256: createHash('sha256').update(payload.rawHtml).digest('hex'),
+      fetchedAt: new Date().toISOString(),
+      finalUrl,
+      httpStatus: 200,
+      snippet,
+      via: 'proxy',
+    }
+  } catch {
+    return undefined
   }
 }
 
@@ -280,6 +344,7 @@ async function verifyFinding(finding) {
         finalUrl: response.url,
         httpStatus: 200,
         snippet,
+        via: 'fetch',
       },
     }
   } catch (cause) {
@@ -302,9 +367,9 @@ async function verifyFindings(findings, index) {
     }
     // The label records that the page was also opened in a browser, so a rejection is never
     // read as though only the cheap attempt was made.
-    const rendered = await renderedVerification(finding)
-    if (rendered) verified.push({ ...finding, verification: rendered })
-    else rejected.push(`${finding.symbol}:${outcome.reason}+rendered`)
+    const recovered = await renderedVerification(finding) ?? await proxiedVerification(finding)
+    if (recovered) verified.push({ ...finding, verification: recovered })
+    else rejected.push(`${finding.symbol}:${outcome.reason}+rendered+proxied`)
   }
   process.stderr.write(
     `Chunk ${index + 1}/${chunks.length} verified ${verified.length}/${findings.length}`
