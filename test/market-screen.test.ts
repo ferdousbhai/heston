@@ -79,7 +79,6 @@ describe('selected market context', () => {
 
     expect(html).not.toContain('Stale NVDA event')
     expect(html.indexOf('Sooner NVDA print')).toBeLessThan(html.indexOf('Later NVDA review'))
-    expect(html).toContain('2 dated')
   })
 
   it('states that nothing is scheduled instead of leaving a gap', () => {
@@ -91,7 +90,6 @@ describe('selected market context', () => {
       symbol: 'SPY',
     })
 
-    expect(html).toContain('Nothing dated')
     expect(html).toContain('Nothing is on the calendar.')
     expect(html).toContain('Spice tracks earnings, regulatory, clinical, investor day, product launch, conference and shareholder vote dates for SPY')
     expect(html).not.toContain('Thesis')

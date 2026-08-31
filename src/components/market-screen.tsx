@@ -226,7 +226,6 @@ function CatalystRunway({
     <section className="focus-runway" aria-labelledby="focus-runway-title">
       <header className="focus-eyebrow">
         <h3 id="focus-runway-title">What&rsquo;s coming</h3>
-        <span>{upcoming.length ? `${upcoming.length} dated` : 'Nothing dated'}</span>
       </header>
       {upcoming.length
         ? (
@@ -259,7 +258,7 @@ function CatalystRunway({
         : (
             <p className="runway-empty">
               <strong>Nothing is on the calendar.</strong>
-              {` Spice tracks ${CATALYST_SCOPE} dates for ${symbol}, and none are scheduled — a re-rating from here would have to come from something unannounced.`}
+              {` Spice tracks ${CATALYST_SCOPE} dates for ${symbol}, and none are scheduled. A re-rating from here would have to come from something unannounced.`}
             </p>
           )}
     </section>
@@ -454,7 +453,6 @@ export function MarketScreen({
               <section className="focus-signals" aria-labelledby="focus-signals-title">
                 <header className="focus-eyebrow">
                   <h3 id="focus-signals-title">What stands out</h3>
-                  <span>{selectedSignals.length} flag{selectedSignals.length === 1 ? '' : 's'}</span>
                 </header>
                 <ul className="signal-list">
                   {selectedSignals.map((signal) => (
