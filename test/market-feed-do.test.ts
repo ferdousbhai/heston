@@ -392,6 +392,46 @@ describe('MarketFeed option Greeks RPC', () => {
     })).toBe(true)
   })
 
+  it('waits for the layout instead of failing on dxLink\'s own opening config', async () => {
+    const client = downstream(['SPY'])
+    const context = new FakeContext([client])
+    new MarketFeedCore(context, liveEnvironment())
+    await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(1))
+
+    const socket = FakeUpstreamWebSocket.instances[0]!
+    socket.open()
+    await context.drain()
+    socket.message({ type: 'SETUP', channel: 0, version: '0.1-test' })
+    await context.drain()
+    socket.message({ type: 'AUTH_STATE', channel: 0, state: 'AUTHORIZED' })
+    await context.drain()
+    socket.message({ type: 'CHANNEL_OPENED', channel: 3, service: 'FEED', parameters: { contract: 'AUTO' } })
+    await context.drain()
+    // dxLink's answer to the channel request: its own defaults, carrying no field layout.
+    socket.message({ type: 'FEED_CONFIG', channel: 3, aggregationPeriod: 0.25, dataFormat: 'COMPACT' })
+    await context.drain()
+
+    expect(socket.readyState).toBe(FakeUpstreamWebSocket.OPEN)
+    expect(vi.mocked(client.send).mock.calls.some(([sent]) => {
+      const status = JsonObjectSchema.parse(JSON.parse(sent))
+      return status.type === 'feed-status' && status.state === 'live'
+    })).toBe(false)
+
+    // The channel is not configured, so data on it is still refused rather than mapped
+    // against a layout nobody validated.
+    socket.message({
+      type: 'FEED_DATA',
+      channel: 3,
+      data: ['Trade', ['SPY', 1_786_629_600_000, 1_786_629_600_000, null, 1, 'Q',
+        1, 'Up', false, 700, null, 10, 1_000, 700_000]],
+    })
+    await context.drain()
+    expect(vi.mocked(client.send).mock.calls.some(([sent]) => {
+      const status = JsonObjectSchema.parse(JSON.parse(sent))
+      return status.detail === 'Unconfigured feed data channel.'
+    })).toBe(true)
+  })
+
   // A refused frame used to report one generic string whatever refused it, which left a live
   // production failure undiagnosable. Each check now names itself without quoting the frame.
   it.each([

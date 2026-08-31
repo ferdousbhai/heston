@@ -440,9 +440,13 @@ export class MarketFeedCore {
       const eventFields = message.eventFields === undefined
         ? undefined
         : JsonObjectSchema.parse(message.eventFields)
-      if (eventFields === undefined && !this.configuredChannels.has(messageChannel)) {
-        throw new FeedFrameError('Initial feed config has no event fields.')
-      }
+      // dxLink answers a channel request with its own config before our FEED_SETUP applies,
+      // and that first frame carries no eventFields because no layout is set yet. It
+      // establishes nothing, so the channel stays unconfigured until a config arrives that
+      // does carry the layout. That is the same state which keeps FEED_DATA refused, so an
+      // unvalidated layout still cannot reach a subscriber, and the setup timeout still
+      // reports a channel whose fields never arrive.
+      if (eventFields === undefined && !this.configuredChannels.has(messageChannel)) return
       if (eventFields) {
         const fields = z.array(z.string()).parse(eventFields[type])
         if (fields.length !== FIELDS[type].length
