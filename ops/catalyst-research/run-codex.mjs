@@ -53,7 +53,15 @@ const now = new Date()
 const today = new Intl.DateTimeFormat('en-CA', {
   day: '2-digit', month: '2-digit', timeZone: 'America/New_York', year: 'numeric',
 }).format(now)
-const horizon = new Date(now.getTime() + 180 * 86_400_000).toISOString().slice(0, 10)
+// The importer accepts a finding only when its date falls in [today, today + 180]
+// measured from the same New York date (`catalystFromFinding` in
+// src/server/catalyst-bootstrap.ts), and one out-of-window finding rejects the whole
+// artifact. Deriving the horizon from the wall clock instead put the prompt's window a
+// day past that whenever a run started after 20:00 New York, and moved the manifest
+// across UTC midnight so a resume re-researched chunks it had already completed.
+const horizonDate = new Date(`${today}T00:00:00Z`)
+horizonDate.setUTCDate(horizonDate.getUTCDate() + 180)
+const horizon = horizonDate.toISOString().slice(0, 10)
 const chunks = []
 for (let chunkStart = 0; chunkStart < selectedInstruments.length; chunkStart += chunkSize) {
   chunks.push(selectedInstruments.slice(chunkStart, chunkStart + chunkSize))
