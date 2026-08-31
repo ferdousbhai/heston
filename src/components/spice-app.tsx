@@ -7,9 +7,7 @@ import { Empty, EmptyDescription, EmptyHeader } from '#/components/ui/empty'
 import { Skeleton } from '#/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { selectLiveMarketSymbols } from '../data/collections'
-import { toError } from '../domain/failure'
 import { mostActiveSymbol } from '../domain/market'
-import { type WatchlistMutation, WatchlistMutationResultSchema } from '../domain/watchlist'
 import { useLiveMarket } from '../data/live-market'
 import { useAudienceMarket } from '../data/use-audience-market'
 import { useWorkspaceFavorites } from '../data/use-workspace-favorites'
@@ -18,9 +16,7 @@ import { OwnerAccessScreen, type Viewer, useViewer } from './auth-gate'
 import { BriefScreen } from './brief-screen'
 import { MarketScreen } from './market-screen'
 import { TopBar } from './top-bar'
-import { WatchlistEditor } from './watchlist-editor'
 
-const ApiErrorSchema = z.looseObject({ error: z.string().optional() })
 const TabSchema = z.enum(['market', 'brief', 'agent'])
 
 type Tab = z.infer<typeof TabSchema>
@@ -50,9 +46,6 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
   const watchlists = snapshot?.watchlists ?? []
   const research = snapshot?.research
   const [tab, setTab] = useState<Tab>('market')
-  const [watchlistEditorOpen, setWatchlistEditorOpen] = useState(false)
-  const closeWatchlistEditor = useCallback(() => setWatchlistEditorOpen(false), [setWatchlistEditorOpen])
-  const openWatchlistEditor = useCallback(() => setWatchlistEditorOpen(true), [setWatchlistEditorOpen])
   // One D1-backed watchlist reaches each audience; the preference only survives
   // so a stale stored id cannot outrank the list the snapshot actually carries.
   const activeWatchlist = watchlists.find((watchlist) => watchlist.id === preference?.selectedWatchlistId)
@@ -81,51 +74,6 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
     void saveSelectedSymbol(symbol)
     setTab('market')
   }, [saveSelectedSymbol])
-  const mutateWatchlist = async (action: WatchlistMutation) => {
-    if (!owner) throw new Error('Owner authentication is required')
-    const response = await fetch('/api/watchlists', {
-      method: 'POST',
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify(action),
-    })
-    let payload: unknown
-    try {
-      payload = await response.json()
-    } catch {
-      throw new Error(`Watchlist update returned invalid JSON (${response.status})`)
-    }
-    const result = WatchlistMutationResultSchema.safeParse(payload).data
-    const apiError = ApiErrorSchema.safeParse(payload).data
-    if (!response.ok) {
-      // A typed zero-apply capacity rejection changed no server state. Avoid a
-      // needless snapshot reconciliation that can erase the rejected form value.
-      if (snapshotReady && (!result || result.appliedSymbols.length > 0)) {
-        try {
-          await synchronize(undefined, true)
-        } catch (cause: unknown) {
-          const refreshFailure = toError(cause)
-          if (refreshFailure?.name === 'AbortError') {
-            throw new Error(result?.detail ?? apiError?.error ?? 'The watchlist could not be updated')
-          }
-          const refreshDetail = refreshFailure?.message ?? 'Unknown refresh failure'
-          throw new Error(`${result?.detail ?? apiError?.error ?? 'The watchlist could not be updated'}. Refresh also failed: ${refreshDetail}`)
-        }
-      }
-      throw new Error(result?.detail ?? apiError?.error ?? 'The watchlist could not be updated')
-    }
-    WatchlistMutationResultSchema.parse(payload)
-    if (snapshotReady) {
-      try {
-        await synchronize(undefined, true)
-      } catch (cause: unknown) {
-        const refreshFailure = toError(cause)
-        if (refreshFailure?.name === 'AbortError') return
-        throw new Error(refreshFailure?.message ?? 'The updated watchlist could not be refreshed')
-      }
-    }
-  }
-
-  const overlayOpen = watchlistEditorOpen
   const ownerAgentOpen = tab === 'agent' && owner
 
   return (
@@ -133,8 +81,6 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
       <a className="skip-link" href="#main-content">Skip to content</a>
       <Tabs
         className="app-shell"
-        aria-hidden={overlayOpen || undefined}
-        inert={overlayOpen}
         onValueChange={(value) => {
           const parsed = TabSchema.safeParse(value)
           if (parsed.success) setTab(parsed.data)
@@ -168,7 +114,6 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
               <MarketScreen
                 activeWatchlist={activeWatchlist}
                 catalysts={catalysts}
-                onManageWatchlist={openWatchlistEditor}
                 onSelectTicker={chooseSymbol}
                 onTogglePinned={favorites.togglePinned}
                 pinnedSymbols={favorites.pinnedSymbols}
@@ -196,14 +141,6 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
           <TabsTrigger value="agent"><Bot /><span>Dan</span></TabsTrigger>
         </TabsList>
       </Tabs>
-      {owner && watchlistEditorOpen && snapshotReady && activeWatchlist?.kind === 'private' && (
-        <WatchlistEditor
-          onClose={closeWatchlistEditor}
-          onMutation={mutateWatchlist}
-          tickers={tickers}
-          watchlist={activeWatchlist}
-        />
-      )}
     </div>
   )
 }

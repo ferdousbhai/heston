@@ -117,7 +117,6 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
 
 test('mobile market, research, search, sorting, and agent flows remain coherent', async ({ page, context }) => {
   const snapshot = marketSnapshotFixture()
-  let rejectNextSnapshot = false
   let rejectSnapshots = false
   snapshot.catalysts.forEach((catalyst, index) => {
     catalyst.date = isoDateAfter(10 + index * 7)
@@ -127,8 +126,7 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
     body: JSON.stringify({ authRequired: true, user: { id: 'owner-1', name: 'Owner', role: 'owner' } }),
   }))
   await page.route('**/api/snapshot', (route) => {
-    if (rejectNextSnapshot || rejectSnapshots) {
-      rejectNextSnapshot = false
+    if (rejectSnapshots) {
       return route.fulfill({ status: 503, body: '{}' })
     }
     return route.fulfill({
@@ -209,31 +207,6 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   await expect(page.getByRole('button', { name: /BE, Bloom Energy, Fair/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /BE, Bloom Energy, Fair/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /INTC, Intel, Cheap/ })).toBeVisible()
-
-  await page.getByRole('button', { name: 'Manage Watchlist' }).click()
-  const watchlistEditor = page.getByRole('dialog', { name: 'Manage watchlist' })
-  await expect(watchlistEditor).toBeVisible()
-  await watchlistEditor.getByLabel('Add a symbol').fill('PLTR')
-  await expect(page.getByText('No loaded symbol matches. You can still add the typed equity symbol.')).toBeVisible()
-  await page.keyboard.press('Escape')
-  rejectNextSnapshot = true
-  await watchlistEditor.getByRole('button', { name: 'Add symbol' }).click()
-  await expect(watchlistEditor.getByText('Snapshot sync failed (503)')).toBeVisible()
-  await expect(watchlistEditor.locator('.watchlist-member', { hasText: 'PLTR' })).toHaveCount(0)
-  await expect(watchlistEditor.getByLabel('Add a symbol')).toHaveValue('PLTR')
-  await watchlistEditor.getByRole('button', { name: 'Add symbol' }).click()
-  await expect(watchlistEditor.locator('.watchlist-member', { hasText: 'PLTR' })).toBeVisible()
-  await watchlistEditor.getByRole('button', { name: 'Remove PLTR from Watchlist' }).click()
-  await expect(watchlistEditor.locator('.watchlist-member', { hasText: 'PLTR' })).toHaveCount(0)
-  await watchlistEditor.getByLabel('Add a symbol').fill('FULL')
-  await page.keyboard.press('Escape')
-  await expect(watchlistEditor.getByRole('button', { name: 'Add symbol' })).toBeEnabled()
-  await watchlistEditor.getByRole('button', { name: 'Add symbol' }).click()
-  await expect(watchlistEditor.getByText('FULL could not be retained within the 100-symbol Watchlist')).toBeVisible()
-  await expect(watchlistEditor.getByLabel('Add a symbol')).toHaveValue('FULL')
-  await expect(watchlistEditor.locator('.watchlist-member', { hasText: 'FULL' })).toHaveCount(0)
-  await watchlistEditor.getByRole('button', { name: 'Close watchlist editor' }).click()
-  await expect(page.getByRole('button', { name: 'Manage Watchlist' })).toBeFocused()
 
   const selectedSymbol = page.locator('.selected-symbol')
   const search = page.getByLabel('Search all symbols')

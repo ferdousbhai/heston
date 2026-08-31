@@ -17,7 +17,6 @@ function renderMarket(
   return renderToStaticMarkup(createElement(MarketScreen, {
     activeWatchlist: { ...snapshot.watchlists[0]!, kind: 'public' },
     catalysts: overrides.catalysts ?? snapshot.catalysts,
-    onManageWatchlist: () => undefined,
     onSelectTicker: () => undefined,
     onTogglePinned: () => undefined,
     pinnedSymbols: [],

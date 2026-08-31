@@ -1,5 +1,5 @@
 import { memo, useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, ArrowUpRight, Search, Settings2, Star } from 'lucide-react'
+import { ArrowDown, ArrowUp, ArrowUpRight, Search, Star } from 'lucide-react'
 import { matchSorter } from 'match-sorter'
 
 import { Badge } from '#/components/ui/badge'
@@ -15,7 +15,6 @@ import {
   TableHeader,
   TableRow,
 } from '#/components/ui/table'
-import { Tooltip, TooltipContent, TooltipTrigger } from '#/components/ui/tooltip'
 import { cn } from '#/lib/utils'
 import { type CandlePoint } from '../domain/candle'
 import {
@@ -363,7 +362,6 @@ const MarketTickerRow = memo(function MarketTickerRow({
 export function MarketScreen({
   activeWatchlist,
   catalysts,
-  onManageWatchlist,
   onSelectTicker,
   onTogglePinned,
   pinnedSymbols,
@@ -373,7 +371,6 @@ export function MarketScreen({
 }: {
   activeWatchlist: Watchlist
   catalysts: Catalyst[]
-  onManageWatchlist: () => void
   onSelectTicker: (symbol: string) => void
   onTogglePinned: (symbol: string) => void
   pinnedSymbols: readonly string[]
@@ -490,15 +487,6 @@ export function MarketScreen({
               value={query}
             />
           </div>
-          {activeWatchlist.kind === 'private' && (
-            <Tooltip>
-              <TooltipTrigger render={<Button className="watchlist-manage-button" onClick={onManageWatchlist} size="icon-lg" type="button" variant="outline" />}>
-                <Settings2 aria-hidden="true" />
-                <span className="sr-only">Manage {activeWatchlist.name}</span>
-              </TooltipTrigger>
-              <TooltipContent>Manage {activeWatchlist.name}</TooltipContent>
-            </Tooltip>
-          )}
         </header>
         <Table className="premium-data-table">
           <TableHeader>

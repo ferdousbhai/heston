@@ -80,6 +80,18 @@ async function readOptionalJson(filePath) {
   return contents === undefined ? undefined : JSON.parse(contents)
 }
 
+/** A chunk killed mid-write is not an answer, so it is rerun rather than failing the day. */
+async function readStoredChunk(filePath, index) {
+  const contents = await readOptionalFile(filePath)
+  if (contents === undefined) return undefined
+  try {
+    return JSON.parse(contents)
+  } catch {
+    process.stderr.write(`Rerunning unreadable catalyst chunk ${index + 1}/${chunks.length}\n`)
+    return undefined
+  }
+}
+
 const existingManifest = await readOptionalJson(manifestPath)
 if (existingManifest && JSON.stringify(existingManifest) !== JSON.stringify(manifest)) {
   // Chunk files are keyed by position, so partial work for a different instrument
@@ -188,7 +200,7 @@ function dateSnippet(text, date) {
 
 async function readCapped(response) {
   const reader = response.body?.getReader()
-  if (!reader) return new Uint8Array()
+  if (!reader) return Buffer.alloc(0)
   const parts = []
   let size = 0
   for (;;) {
@@ -201,14 +213,7 @@ async function readCapped(response) {
       break
     }
   }
-  const body = new Uint8Array(size)
-  let offset = 0
-  for (const part of parts) {
-    body.set(part.subarray(0, Math.min(part.length, size - offset)), offset)
-    offset += part.length
-    if (offset >= size) break
-  }
-  return body
+  return Buffer.concat(parts, Math.min(size, VERIFY_MAX_BYTES))
 }
 
 async function verifyFinding(finding) {
@@ -261,23 +266,15 @@ async function verifyFindings(findings, index) {
 async function runChunk(instruments, index) {
   const finalPath = path.join(runsPath, `chunk-${String(index + 1).padStart(3, '0')}.json`)
   const transcriptPath = path.join(runsPath, `chunk-${String(index + 1).padStart(3, '0')}.jsonl`)
-  const [completed, existingTranscript] = await Promise.all([
-    readOptionalJson(finalPath),
-    readOptionalFile(transcriptPath),
-  ])
-  if (completed !== undefined && existingTranscript !== undefined) {
-    if (Array.isArray(completed.findings)) {
-      // Codex output is reused, but the pages are fetched again: provenance is only worth
-      // what it was worth at the moment the artifact was built.
-      process.stderr.write(`Reusing catalyst chunk ${index + 1}/${chunks.length}\n`)
-      return verifyFindings(completed.findings, index)
+  const completed = await readStoredChunk(finalPath, index)
+  if (completed !== undefined) {
+    if (!Array.isArray(completed.findings)) {
+      throw new Error(`Stored catalyst chunk ${index + 1} returned no findings`)
     }
-    throw new Error(`Stored catalyst chunk ${index + 1} returned no findings`)
-  }
-  if (completed !== undefined || existingTranscript !== undefined) {
-    // A process can stop between writing its transcript and structured response.
-    // Neither file has reached D1, so rerunning this incomplete pair is safe.
-    process.stderr.write(`Rerunning incomplete catalyst chunk ${index + 1}/${chunks.length}\n`)
+    // Codex output is reused, but the pages are fetched again: provenance is only worth
+    // what it was worth at the moment the artifact was built.
+    process.stderr.write(`Reusing catalyst chunk ${index + 1}/${chunks.length}\n`)
+    return verifyFindings(completed.findings, index)
   }
   process.stderr.write(`Starting catalyst chunk ${index + 1}/${chunks.length}\n`)
   const child = spawn('codex', [
@@ -300,6 +297,8 @@ async function runChunk(instruments, index) {
     child.once('error', reject)
     child.once('close', resolve)
   })
+  // Kept as the record of what the model actually did, which is how the open_page
+  // regression was found. It is a debugging artifact and no longer evidence of anything.
   await writeFile(transcriptPath, transcript)
   if (exitCode !== 0) throw new Error(`Codex catalyst chunk ${index + 1} failed with exit ${exitCode}`)
   const output = JSON.parse(await readFile(finalPath, 'utf8'))
