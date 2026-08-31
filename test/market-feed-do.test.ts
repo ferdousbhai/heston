@@ -18,6 +18,11 @@ const GREEKS_FIELDS = [
   'eventSymbol', 'eventFlags', 'index', 'time', 'sequence', 'price',
   'volatility', 'delta', 'gamma', 'theta', 'rho', 'vega',
 ]
+const QUOTE_FIELDS = [
+  'eventSymbol', 'eventTime', 'sequence', 'timeNanoPart', 'bidTime', 'bidExchangeCode',
+  'askTime', 'askExchangeCode', 'bidPrice', 'askPrice', 'bidSize', 'askSize',
+]
+
 const TRADE_FIELDS = [
   'eventSymbol', 'eventTime', 'time', 'timeNanoPart', 'sequence', 'exchangeCode',
   'dayId', 'tickDirection', 'extendedTradingHours', 'price', 'change', 'size',
@@ -432,6 +437,43 @@ describe('MarketFeed option Greeks RPC', () => {
     })).toBe(true)
   })
 
+  it('skips an unquoted symbol instead of tearing the feed down', async () => {
+    const client = downstream(['SPY'])
+    const context = new FakeContext([client])
+    new MarketFeedCore(context, liveEnvironment())
+    await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(1))
+
+    const socket = FakeUpstreamWebSocket.instances[0]!
+    socket.open()
+    await context.drain()
+    socket.message({ type: 'SETUP', channel: 0, version: '0.1-test' })
+    await context.drain()
+    socket.message({ type: 'AUTH_STATE', channel: 0, state: 'AUTHORIZED' })
+    await context.drain()
+    socket.message({ type: 'CHANNEL_OPENED', channel: 1, service: 'FEED', parameters: { contract: 'AUTO' } })
+    await context.drain()
+    socket.message({
+      type: 'FEED_CONFIG', channel: 1, aggregationPeriod: 0.25,
+      dataFormat: 'COMPACT', eventFields: { Quote: QUOTE_FIELDS },
+    })
+    await context.drain()
+
+    // A name with no bid right now, which is an ordinary market state and not a broken frame.
+    socket.message({
+      type: 'FEED_DATA',
+      channel: 1,
+      data: ['Quote', ['SPY', 1_786_629_600_000, 1, null, 1_786_629_600_000, 'Q',
+        1_786_629_600_000, 'Q', 0, 0, 0, 0]],
+    })
+    await context.drain()
+
+    expect(socket.readyState).toBe(FakeUpstreamWebSocket.OPEN)
+    expect(vi.mocked(client.send).mock.calls.some(([sent]) => {
+      const status = JsonObjectSchema.parse(JSON.parse(sent))
+      return status.detail === 'Malformed upstream Quote row.'
+    })).toBe(false)
+  })
+
   // A refused frame used to report one generic string whatever refused it, which left a live
   // production failure undiagnosable. Each check now names itself without quoting the frame.
   it.each([
@@ -475,11 +517,13 @@ describe('MarketFeed option Greeks RPC', () => {
     socket.message({
       type: 'FEED_DATA',
       channel: 3,
+      // The second row's change is present but unreadable, so the layout itself is in doubt
+      // and the sibling row cannot be trusted either, however well it happens to parse.
       data: ['Trade', [
         'SPY', 1_786_629_600_000, 1_786_629_600_000, null, 1, 'Q',
         1, 'Up', false, 700, 1, 10, 1_000, 700_000,
         'SPY', 1_786_629_600_100, 1_786_629_600_100, null, 2, 'Q',
-        1, 'Up', false, null, 1, 10, 1_010, 707_000,
+        1, 'Up', false, 700, 'not-a-number', 10, 1_010, 707_000,
       ]],
     })
     await context.drain()

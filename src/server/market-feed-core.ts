@@ -132,7 +132,13 @@ function normalizedSymbol(value: JsonValue): string | undefined {
   return EquitySymbolSchema.safeParse(symbol).data
 }
 
-function eventFromRow(type: Exclude<FeedType, 'Greeks'>, row: JsonObject): LiveMarketEvent | undefined {
+/**
+ * `undefined` means the row broke the contract and the connection cannot be trusted;
+ * `null` means the row was well formed and simply carries no price to publish. A quote with
+ * no bid or no ask is an ordinary market state — a name that is not quoted right now — and
+ * conflating the two tore the whole feed down over one unquoted symbol.
+ */
+function eventFromRow(type: Exclude<FeedType, 'Greeks'>, row: JsonObject): LiveMarketEvent | null | undefined {
   const symbol = normalizedSymbol(row.eventSymbol)
   const timestamp = eventTimestamp(row)
   if (!symbol || !timestamp) return undefined
@@ -141,14 +147,16 @@ function eventFromRow(type: Exclude<FeedType, 'Greeks'>, row: JsonObject): LiveM
     const rawAsk = jsonNumber(row.askPrice)
     const bid = rawBid !== undefined && rawBid > 0 ? rawBid : undefined
     const ask = rawAsk !== undefined && rawAsk > 0 ? rawAsk : undefined
-    if (bid === undefined || ask === undefined || bid > ask) return undefined
+    if (bid === undefined || ask === undefined || bid > ask) return null
     return { type: 'market', symbol, price: (bid + ask) / 2, bid, ask, timestamp }
   }
   if (type === 'Trade') {
     const price = jsonNumber(row.price)
     const change = jsonNumber(row.change)
-    if (price === undefined || price <= 0
-      || (change === undefined && !compactValueIsAbsent(row.change))) return undefined
+    // A change field that is present but unreadable breaks the contract; a trade with no
+    // positive price is simply nothing to publish yet.
+    if (change === undefined && !compactValueIsAbsent(row.change)) return undefined
+    if (price === undefined || price <= 0) return null
     const trade: LiveMarketEvent = { type: 'market', symbol, price, timestamp }
     if (change !== undefined) trade.change = change
     return trade
@@ -525,8 +533,11 @@ export class MarketFeedCore {
       for (const event of events) this.greekRequests.accept(event)
       return
     }
-    const events = rows.map((row) => eventFromRow(type, row)).filter(isPresent)
-    if (events.length !== rows.length) throw new FeedFrameError(`Malformed upstream ${type} row.`)
+    const mapped = rows.map((row) => eventFromRow(type, row))
+    if (mapped.some((event) => event === undefined)) {
+      throw new FeedFrameError(`Malformed upstream ${type} row.`)
+    }
+    const events = mapped.filter((event) => event !== null).filter(isPresent)
     for (const event of events) {
       this.cacheCandle(event)
       const serialized = JSON.stringify(event)
