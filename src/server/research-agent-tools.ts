@@ -63,6 +63,11 @@ const MAX_PAGE_READS = 30
 const MAX_PAGE_MARKDOWN_CHARS = 120_000
 const MAX_PAGE_RESPONSE_BYTES = 4_000_000
 
+/** A page is retained and cited under one spelling, so both sides agree what "same page" is. */
+export function retentionKey(value: string): string | undefined {
+  return readablePageUrl(value)?.toString()
+}
+
 function readablePageUrl(value: string): URL | undefined {
   let url: URL
   try {
@@ -138,7 +143,6 @@ export function createResearchAgentTools(
       const key = url.toString()
       const already = retained?.get(key)
       if (already) return textResult({ markdown: already.markdown, url: key })
-      if (!env.BROWSER) return textResult({ error: 'page reading is unavailable' })
       if (retained && retained.size >= MAX_PAGE_READS) {
         return textResult({ error: 'no page reads left in this run' })
       }

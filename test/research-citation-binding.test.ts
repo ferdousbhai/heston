@@ -51,10 +51,43 @@ describe('brief citation binding', () => {
   })
 
   it('drops an idea that cites nothing at all', () => {
+    // The submission schema requires at least one citation, so this cannot arrive from the
+    // provider; the boundary refuses it on its own terms rather than trusting that.
     const bound = bindBriefCitations([idea({ sourceIndices: [] })], sources, retained)
 
     expect(bound.ideas).toEqual([])
+    expect(bound.rejected).toEqual(['SPCX: quotes a source it does not cite'])
+  })
+
+  it('drops an idea citing a source index past the end of the table', () => {
+    // This one used to pass: mapping the index gives undefined, and a find that matches
+    // undefined returns undefined too, which read as "nothing failed". The idea then threw
+    // downstream and took the whole brief with it.
+    const bound = bindBriefCitations([idea({ sourceIndices: [7] })], sources, retained)
+
+    expect(bound.ideas).toEqual([])
     expect(bound.rejected).toEqual(['SPCX: cites a page this run never read'])
+  })
+
+  it('drops an idea quoting a page it never cited', () => {
+    const strayQuote = idea({ evidence: [{ quote: 'investor day', sourceIndex: 3 }] })
+
+    const bound = bindBriefCitations([strayQuote], sources, retained)
+
+    expect(bound.ideas).toEqual([])
+    expect(bound.rejected).toEqual(['SPCX: quotes a source it does not cite'])
+  })
+
+  it('matches a citation and a retained page written the same way', () => {
+    // read_page retains under a normalized URL; a citation of the bare origin is the same page.
+    const bareOrigin = 'https://ir.example.com'
+    const bound = bindBriefCitations(
+      [idea({ evidence: [{ quote: 'investor day', sourceIndex: 0 }] })],
+      [{ sourceUrl: bareOrigin }],
+      new Map([[bareOrigin, { markdown: 'the investor day is webcast', readAt: '2026-08-31T12:00:00.000Z' }]]),
+    )
+
+    expect(bound.ideas).toHaveLength(1)
   })
 
   it('keeps the ideas that hold when a sibling fails', () => {

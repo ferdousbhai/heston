@@ -98,6 +98,9 @@ export async function generateDailyResearch(
   const today = marketDate(now)
   // Workflow replay must keep one transcript identity for every provider turn.
   const gatewayRunId = await runTask('run-id', async () => crypto.randomUUID())
+  // Without page reading nothing can be cited, so every idea would be refused and an empty
+  // brief would publish as though the day had nothing in it. A missing binding fails closed.
+  if (persist && !env.BROWSER) throw new Error('DailyResearch:page-reading-unavailable')
   const agent = await dailyResearchAgent().run(env, {
     now,
     runId: gatewayRunId,

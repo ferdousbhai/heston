@@ -1,6 +1,6 @@
 import { sift, type Verdict } from '../domain/sift'
 import { type DailyResearchSubmission } from './research-agent'
-import { type RetainedPage } from './research-agent-tools'
+import { retentionKey, type RetainedPage } from './research-agent-tools'
 
 /*
  * A citation is bound to what this Worker actually read. Native web search runs inside the
@@ -37,17 +37,25 @@ export function bindBriefCitations(
   sources: readonly { sourceUrl: string }[],
   retained: ReadonlyMap<string, RetainedPage>,
 ): CitationBinding {
-  const pages = new Map([...retained].map(([url, page]) => [url, normalized(page.markdown)]))
+  const pages = new Map([...retained].map(([url, page]) => [retentionKey(url) ?? url, normalized(page.markdown)]))
+  const readPage = (index: number | undefined): string | undefined => {
+    const cited = index === undefined ? undefined : sources[index]?.sourceUrl
+    const key = cited === undefined ? undefined : retentionKey(cited)
+    return key === undefined ? undefined : pages.get(key)
+  }
   const sifted = sift(ideas, (idea): Verdict<DailyResearchSubmission['ideas'][number]> => {
-    const unread = idea.sourceIndices
-      .map((index) => sources[index]?.sourceUrl)
-      .find((url) => url === undefined || !pages.has(url))
-    if (unread !== undefined || idea.sourceIndices.length === 0) {
+    // `some`, not `find`: an index past the end of sources maps to undefined, and a `find`
+    // that matches it returns undefined too — indistinguishable from nothing failing. Such an
+    // idea used to pass here and then throw downstream, taking the whole brief with it.
+    if (idea.sourceIndices.some((index) => readPage(index) === undefined)) {
       return { rejected: `${idea.symbol}: cites a page this run never read` }
     }
-    const unquoted = idea.evidence.find((evidence) => {
-      const url = sources[evidence.sourceIndex]?.sourceUrl
-      const page = url === undefined ? undefined : pages.get(url)
+    // A quote only vouches for a source the idea actually leans on.
+    if (idea.evidence.some((evidence) => !idea.sourceIndices.includes(evidence.sourceIndex))) {
+      return { rejected: `${idea.symbol}: quotes a source it does not cite` }
+    }
+    const unquoted = idea.evidence.some((evidence) => {
+      const page = readPage(evidence.sourceIndex)
       return page === undefined || !page.includes(normalized(evidence.quote))
     })
     return unquoted
