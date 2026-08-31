@@ -12,15 +12,9 @@ const DELETE_SYMBOL_CHUNK_SIZE = D1_MAX_BOUND_PARAMETERS
 const CATALYST_BOUND_PARAMETERS_PER_ROW = 12
 const CATALYST_ROWS_PER_STATEMENT = rowsPerD1Statement(CATALYST_BOUND_PARAMETERS_PER_ROW)
 
-export type ResearchCatalystSource = 'codex-web' | 'reddit' | 'x'
-
-const RESEARCH_CATALYST_TABLES = {
-  'codex-web': 'codex_web_catalysts',
-  reddit: 'reddit_catalysts',
-  x: 'x_catalysts',
-} as const satisfies Record<ResearchCatalystSource, string>
-
-type CatalystTable = 'tastytrade_catalysts' | (typeof RESEARCH_CATALYST_TABLES)[ResearchCatalystSource]
+// One research producer writes catalysts: the local Codex run. The X and Reddit tables that
+// lived here were retired with their producers in migration 0019.
+type CatalystTable = 'tastytrade_catalysts' | 'codex_web_catalysts'
 
 function catalystUpsertStatements(
   db: D1Database,
@@ -160,14 +154,12 @@ export async function persistAndLoadCatalysts(
  * source going quiet is not proof that a previously observed event was cancelled.
  * Keep each source's stable row and only refresh it when that source sees it again.
  */
-export async function persistResearchedCatalysts(
+export async function persistCodexWebCatalysts(
   env: AppEnv,
-  source: ResearchCatalystSource,
   catalysts: readonly Catalyst[],
   now = new Date(),
 ): Promise<void> {
   if (!env.DB) throw new Error('CatalystStoreUnavailable')
   if (!catalysts.length) return
-  const table = RESEARCH_CATALYST_TABLES[source]
-  await env.DB.batch(catalystUpsertStatements(env.DB, table, catalysts, now.toISOString()))
+  await env.DB.batch(catalystUpsertStatements(env.DB, 'codex_web_catalysts', catalysts, now.toISOString()))
 }

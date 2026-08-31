@@ -5,7 +5,7 @@ import {
   catalystsFromMarketMetrics,
   earningsDateFromMetric,
   persistAndLoadCatalysts,
-  persistResearchedCatalysts,
+  persistCodexWebCatalysts,
 } from '../src/server/catalysts'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
 
@@ -95,7 +95,7 @@ describe('tastytrade catalyst normalization', () => {
 describe('research catalyst storage', () => {
   it('fails when authoritative catalyst storage is unavailable', async () => {
     await expect(persistAndLoadCatalysts({}, [], [], NOW)).rejects.toThrow('CatalystStoreUnavailable')
-    await expect(persistResearchedCatalysts({}, 'codex-web', [], NOW)).rejects.toThrow('CatalystStoreUnavailable')
+    await expect(persistCodexWebCatalysts({}, [], NOW)).rejects.toThrow('CatalystStoreUnavailable')
   })
 
   it('keeps the maximum accepted bootstrap below D1 query and bind limits', async () => {
@@ -130,7 +130,7 @@ describe('research catalyst storage', () => {
       updatedAt: NOW.toISOString(),
     }))
 
-    await persistResearchedCatalysts({ DB: database }, 'codex-web', catalysts, NOW)
+    await persistCodexWebCatalysts({ DB: database }, catalysts, NOW)
 
     expect(batch).toHaveBeenCalledOnce()
     expect(batchStatementCount).toBe(125)

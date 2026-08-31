@@ -233,6 +233,10 @@ describe('brokerage action migrations', () => {
       new URL('../migrations/0012_codex_catalyst_confidence.sql', import.meta.url),
       'utf8',
     )
+    const retireSocial = await readFile(
+      new URL('../migrations/0019_retire_social_catalyst_tables.sql', import.meta.url),
+      'utf8',
+    )
     const db = new DatabaseSync(':memory:')
     db.exec(initial)
     db.exec(publicUniverse)
@@ -301,6 +305,17 @@ describe('brokerage action migrations', () => {
         { name: 'public_market_overview' },
         { name: 'upcoming_catalysts' },
       ]))
+
+    db.exec(retireSocial)
+
+    // Storage no producer writes cannot be re-verified, so it stops being served.
+    expect(db.prepare(
+      "SELECT name FROM sqlite_master WHERE name IN ('x_catalysts', 'reddit_catalysts')",
+    ).all()).toEqual([])
+    // What the one remaining research producer wrote is still public, unchanged.
+    expect(db.prepare(
+      `SELECT source_provider FROM upcoming_catalysts WHERE id = 'codex-web:NVDA:conference:legacy'`,
+    ).get()).toEqual({ source_provider: 'codex-web' })
     db.close()
   })
 })
