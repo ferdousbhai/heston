@@ -6,6 +6,7 @@ import { EquitySymbolSchema, instrumentDisplayName, type InstrumentCatalogItem }
 import { addDays, isValidIsoDate, textMentionsIsoDate } from '../domain/iso-date'
 import { type JsonValue } from '../domain/json-payload'
 import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
+import { sift, type Verdict } from '../domain/sift'
 import { persistResearchedCatalysts } from './catalysts'
 import { canonicalCodexSourceUrl } from './codex-source-url'
 import { type AppEnv } from './env'
@@ -153,9 +154,8 @@ export function validateCatalystBootstrapArtifact(
   // instrument or provenance check says only that one citation did not hold up; it is
   // dropped and counted, because condemning ninety-nine verified siblings over it loses a
   // day of research to one bad row on a feed the product treats as best effort.
-  const accepted = new Map<string, Catalyst>()
-  const rejections: string[] = []
-  for (const [index, candidate] of artifact.findings.entries()) {
+  const seen = new Set<string>()
+  const sifted = sift(artifact.findings, (candidate, index): Verdict<Catalyst> => {
     let finding: z.infer<typeof FindingSchema>
     try {
       finding = FindingSchema.parse(candidate)
@@ -163,30 +163,24 @@ export function validateCatalystBootstrapArtifact(
       throw new Error(`CatalystBootstrap:invalid-finding:${index}:invalid-shape`)
     }
     const instrument = researchedSymbols.has(finding.symbol) ? known.get(finding.symbol) : undefined
-    if (!instrument) {
-      rejections.push(`${index}:unknown-symbol`)
-      continue
-    }
+    if (!instrument) return { rejected: `${finding.symbol}: not a researched symbol` }
     let catalyst: Catalyst
     try {
       catalyst = catalystFromFinding(finding, instrument, now)
     } catch (cause) {
-      rejections.push(`${index}:${cause instanceof Error ? cause.message : 'invalid-finding'}`)
-      continue
+      return { rejected: `${finding.symbol}: ${cause instanceof Error ? cause.message : 'invalid finding'}` }
     }
-    if (accepted.has(catalyst.id)) {
-      rejections.push(`${index}:duplicate`)
-      continue
-    }
-    accepted.set(catalyst.id, catalyst)
-  }
+    if (seen.has(catalyst.id)) return { rejected: `${finding.symbol}: duplicate` }
+    seen.add(catalyst.id)
+    return { kept: catalyst }
+  })
   return {
-    catalysts: [...accepted.values()],
+    catalysts: sifted.kept,
     model: `${artifact.model}/${artifact.reasoningEffort} (${artifact.codexVersion})`,
     // What the runner could not verify plus what this boundary refused, so the receipt
     // counts every finding that did not reach D1 rather than only the runner's share.
-    rejectedCount: artifact.rejectedCount + rejections.length,
-    rejections,
+    rejectedCount: artifact.rejectedCount + sifted.rejected.length,
+    rejections: sifted.rejected,
     researchedSymbolCount: researchedSymbols.size,
     runId: artifact.runId,
   }

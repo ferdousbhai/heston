@@ -1,3 +1,4 @@
+import { sift, type Verdict } from '../domain/sift'
 import { type DailyResearchSubmission } from './research-agent'
 import { type RetainedPage } from './research-agent-tools'
 
@@ -37,26 +38,21 @@ export function bindBriefCitations(
   retained: ReadonlyMap<string, RetainedPage>,
 ): CitationBinding {
   const pages = new Map([...retained].map(([url, page]) => [url, normalized(page.markdown)]))
-  const kept: DailyResearchSubmission['ideas'] = []
-  const rejected: string[] = []
-  for (const idea of ideas) {
+  const sifted = sift(ideas, (idea): Verdict<DailyResearchSubmission['ideas'][number]> => {
     const unread = idea.sourceIndices
       .map((index) => sources[index]?.sourceUrl)
       .find((url) => url === undefined || !pages.has(url))
     if (unread !== undefined || idea.sourceIndices.length === 0) {
-      rejected.push(`${idea.symbol}: cites a page this run never read`)
-      continue
+      return { rejected: `${idea.symbol}: cites a page this run never read` }
     }
     const unquoted = idea.evidence.find((evidence) => {
       const url = sources[evidence.sourceIndex]?.sourceUrl
       const page = url === undefined ? undefined : pages.get(url)
       return page === undefined || !page.includes(normalized(evidence.quote))
     })
-    if (unquoted) {
-      rejected.push(`${idea.symbol}: quote absent from its source`)
-      continue
-    }
-    kept.push(idea)
-  }
-  return { ideas: kept, rejected }
+    return unquoted
+      ? { rejected: `${idea.symbol}: quote absent from its source` }
+      : { kept: idea }
+  })
+  return { ideas: sifted.kept, rejected: sifted.rejected }
 }

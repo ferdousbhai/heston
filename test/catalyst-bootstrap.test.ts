@@ -142,7 +142,7 @@ describe('local Codex catalyst bootstrap boundary', () => {
     const result = validateCatalystBootstrapArtifact(value, instruments, new Date('2026-08-26T12:00:00.000Z'))
 
     expect(result.catalysts).toHaveLength(1)
-    expect(result.rejections).toEqual([expect.stringMatching(/^1:/)])
+    expect(result.rejections).toEqual([expect.stringMatching(/^SPCX: /)])
     expect(result.rejectedCount).toBe(1)
   })
 
@@ -232,7 +232,7 @@ describe('local Codex catalyst bootstrap boundary', () => {
     const result = validateCatalystBootstrapArtifact(value, instruments, new Date('2026-08-26T12:00:00.000Z'))
 
     expect(result.catalysts).toEqual([])
-    expect(result.rejections).toEqual(['0:unverified-date'])
+    expect(result.rejections).toEqual(['SPCX: unverified-date'])
   })
 
   it('reads the date the page actually rendered rather than only its ISO form', async () => {
@@ -274,7 +274,7 @@ describe('local Codex catalyst bootstrap boundary', () => {
     const result = validateCatalystBootstrapArtifact(value, instruments, new Date('2026-08-26T12:00:00.000Z'))
 
     expect(result.catalysts).toEqual([])
-    expect(result.rejections).toEqual(['0:invalid-provenance'])
+    expect(result.rejections).toEqual(['SPCX: invalid-provenance'])
   })
 
   it('rejects a supplied artifact that asserts URLs without raw transcript evidence', async () => {

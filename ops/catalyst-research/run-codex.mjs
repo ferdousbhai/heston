@@ -350,6 +350,9 @@ async function verifyFinding(finding) {
   }
 }
 
+// Refusing one finding without condemning its siblings, and keeping the reasons — the same
+// shape as sift in src/domain/sift.ts, which this script cannot import. Reasons read
+// `symbol: why` there too, so a receipt is the same to read whichever side produced it.
 // Sequential inside a chunk: chunks already run concurrently, and one page at a time per
 // chunk keeps the run from arriving at a provider as a burst.
 async function verifyFindings(findings, index) {
