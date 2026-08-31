@@ -211,9 +211,11 @@ describe('daily research Pi agent boundary', () => {
       expect.objectContaining({ name: 'search_reddit', type: 'function' }),
     ]))
     expect(JSON.stringify(bodies[2]?.input)).toContain('function_call_output')
-    expect(JSON.stringify(bodies[1]?.input)).toContain('Not Found page is not evidence')
-    expect(JSON.stringify(bodies[1]?.input)).toContain('Every material factual claim')
-    expect(JSON.stringify(bodies[1]?.input)).toContain('reopen every selected source page')
+    // The prompt's wording is free to change; these two constraints are not. Nothing
+    // downstream fetches a brief's citations, so the instruction is all that stands between
+    // a claim and its evidence, and the discovery venues must never surface publicly.
+    expect(JSON.stringify(bodies[1]?.input)).toContain('supported by one of that idea')
+    expect(JSON.stringify(bodies[1]?.input)).toContain('never appear as public sources')
     expect(JSON.stringify(bodies[1]?.input)).toContain('reddit_discovery_packet')
     expect(JSON.stringify(bodies[1]?.input)).toContain('yahoo_mover_packet')
     expect(JSON.stringify(bodies[1]?.input)).toContain('codex_catalyst_packet')
