@@ -54,10 +54,20 @@ const RECONNECT_MAX_EXPONENT = 6
 
 class FeedProtocolError extends Error {}
 
+/**
+ * A frame this parser refused, carrying the check that refused it. Every message thrown as
+ * one is a literal written here: an upstream frame may echo credentials or private payloads,
+ * so no value from a frame, and no schema message derived from one, may reach the client, the
+ * logs, or the status detail. The class is what makes that structural — only a rejection we
+ * wrote can have its message forwarded, and anything else collapses to a fixed description.
+ */
+class FeedFrameError extends Error {}
+
+
 function streamRows(type: FeedType, values: JsonValue): JsonObject[] {
   const items = JsonArraySchema.parse(values)
   const fields = FIELDS[type]
-  if (items.length % fields.length !== 0) throw new Error('Malformed COMPACT row batch.')
+  if (items.length % fields.length !== 0) throw new FeedFrameError('Malformed COMPACT row batch.')
   const rows: JsonObject[] = []
   for (let offset = 0; offset + fields.length <= items.length; offset += fields.length) {
     rows.push(Object.fromEntries(fields.map((field, index) => [field, items[offset + index]])))
@@ -67,7 +77,7 @@ function streamRows(type: FeedType, values: JsonValue): JsonObject[] {
 
 function parseCandleFromTime(value: number): number {
   const timestamp = z.number().int().positive().safe().parse(value)
-  if (timestamp > Date.now()) throw new Error('Candle session starts in the future.')
+  if (timestamp > Date.now()) throw new FeedFrameError('Candle session starts in the future.')
   return timestamp
 }
 
@@ -361,13 +371,19 @@ export class MarketFeedCore {
   private async handleUpstreamMessage(socket: WebSocket, raw: string | ArrayBuffer): Promise<void> {
     if (socket !== this.upstream) return
     try {
-      const frame = TextFrameSchema.parse(raw)
-      const message = JsonObjectSchema.parse(JSON.parse(frame))
-      await this.processUpstreamMessage(socket, message)
+      const frame = TextFrameSchema.safeParse(raw)
+      if (!frame.success) throw new FeedFrameError('Upstream feed frame was not text')
+      const message = JsonObjectSchema.safeParse(JSON.parse(frame.data))
+      if (!message.success) throw new FeedFrameError('Upstream feed frame was not a JSON object')
+      await this.processUpstreamMessage(socket, message.data)
     } catch (error) {
-      await this.failProtocol(socket, error instanceof FeedProtocolError
-        ? error.message
-        : 'Malformed upstream feed frame')
+      // Only a rejection written in this file may have its message forwarded. An upstream
+      // frame may echo credentials or private payloads, so nothing derived from one — no
+      // value, no schema message — reaches the client, the logs, or the status detail.
+      let detail = 'Upstream feed frame did not match the expected shape'
+      if (error instanceof FeedProtocolError || error instanceof FeedFrameError) detail = error.message
+      else if (error instanceof SyntaxError) detail = 'Upstream feed frame was not JSON'
+      await this.failProtocol(socket, detail)
     }
   }
 
@@ -375,12 +391,12 @@ export class MarketFeedCore {
     const messageType = TextFrameSchema.parse(message.type)
     const messageChannel = z.number().int().nonnegative().parse(message.channel)
     if (messageType === 'SETUP') {
-      if (messageChannel !== 0) throw new Error('Unexpected setup channel.')
+      if (messageChannel !== 0) throw new FeedFrameError('Unexpected setup channel.')
       TextFrameSchema.min(1).parse(message.version)
       return
     }
     if (messageType === 'AUTH_STATE' && message.state === 'AUTHORIZED') {
-      if (messageChannel !== 0) throw new Error('Unexpected auth channel.')
+      if (messageChannel !== 0) throw new FeedFrameError('Unexpected auth channel.')
       this.upstreamAuthorization = 'authorized'
       this.reconnectAttempt = 0
       if (this.keepalive) clearInterval(this.keepalive)
@@ -393,7 +409,7 @@ export class MarketFeedCore {
       return
     }
     if (messageType === 'AUTH_STATE') {
-      if (messageChannel !== 0 || message.state !== 'UNAUTHORIZED') throw new Error('Malformed auth state.')
+      if (messageChannel !== 0 || message.state !== 'UNAUTHORIZED') throw new FeedFrameError('Malformed auth state.')
       if (this.upstreamAuthorization === 'awaiting') {
         this.upstreamAuthorization = 'initial-unauthorized'
         return
@@ -403,8 +419,8 @@ export class MarketFeedCore {
     }
     if (messageType === 'CHANNEL_OPENED') {
       const type = FEED_TYPES.find((candidate) => CHANNELS[candidate] === messageChannel)
-      if (!type) throw new Error('Unexpected feed channel.')
-      if (message.service !== 'FEED') throw new Error('Unexpected channel service.')
+      if (!type) throw new FeedFrameError('Unexpected feed channel.')
+      if (message.service !== 'FEED') throw new FeedFrameError('Unexpected channel service.')
       JsonObjectSchema.parse(message.parameters)
       const channel = messageChannel
       this.openedChannels.add(channel)
@@ -418,20 +434,20 @@ export class MarketFeedCore {
     }
     if (messageType === 'FEED_CONFIG') {
       const type = FEED_TYPES.find((candidate) => CHANNELS[candidate] === messageChannel)
-      if (!type || !this.openedChannels.has(messageChannel)) throw new Error('Unexpected feed config channel.')
+      if (!type || !this.openedChannels.has(messageChannel)) throw new FeedFrameError('Unexpected feed config channel.')
       z.number().finite().nonnegative().parse(message.aggregationPeriod)
-      if (message.dataFormat !== 'COMPACT') throw new Error('Unexpected feed data format.')
+      if (message.dataFormat !== 'COMPACT') throw new FeedFrameError('Unexpected feed data format.')
       const eventFields = message.eventFields === undefined
         ? undefined
         : JsonObjectSchema.parse(message.eventFields)
       if (eventFields === undefined && !this.configuredChannels.has(messageChannel)) {
-        throw new Error('Initial feed config has no event fields.')
+        throw new FeedFrameError('Initial feed config has no event fields.')
       }
       if (eventFields) {
         const fields = z.array(z.string()).parse(eventFields[type])
         if (fields.length !== FIELDS[type].length
           || fields.some((field, index) => field !== FIELDS[type][index])) {
-          throw new Error('Unexpected feed field configuration.')
+          throw new FeedFrameError('Unexpected feed field configuration.')
         }
       }
       this.configuredChannels.add(messageChannel)
@@ -443,18 +459,18 @@ export class MarketFeedCore {
     }
     if (messageType === 'FEED_DATA') {
       const type = FEED_TYPES.find((candidate) => CHANNELS[candidate] === messageChannel)
-      if (!type || !this.configuredChannels.has(messageChannel)) throw new Error('Unconfigured feed data channel.')
+      if (!type || !this.configuredChannels.has(messageChannel)) throw new FeedFrameError('Unconfigured feed data channel.')
       this.broadcastFeedData(JsonArraySchema.parse(message.data), type)
       return
     }
     if (messageType === 'KEEPALIVE') {
-      if (messageChannel !== 0) throw new Error('Unexpected keepalive channel.')
+      if (messageChannel !== 0) throw new FeedFrameError('Unexpected keepalive channel.')
       return
     }
     if (messageType === 'ERROR' || messageType === 'CHANNEL_CLOSED') {
       throw new FeedProtocolError(messageType === 'ERROR' ? 'Upstream feed error' : 'Upstream channel closed')
     }
-    throw new Error('Unexpected upstream message.')
+    throw new FeedFrameError('Unexpected upstream message.')
   }
 
   private async syncSubscriptions(socket: WebSocket): Promise<void> {
@@ -469,7 +485,7 @@ export class MarketFeedCore {
       if (added.length) {
         if (type === 'Candle') {
           const fromTime = this.candleFromTime
-          if (fromTime === undefined) throw new Error('Candle session is unavailable.')
+          if (fromTime === undefined) throw new FeedFrameError('Candle session is unavailable.')
           frame.add = added.map((symbol) => candleSubscription(symbol, fromTime))
         } else frame.add = added.map((symbol) => ({ symbol, type }))
       }
@@ -490,23 +506,23 @@ export class MarketFeedCore {
   }
 
   private broadcastFeedData(data: JsonValue[], channelType: FeedType): void {
-    if (!data.length || data.length % 2 !== 0) throw new Error('Malformed upstream feed envelope.')
+    if (!data.length || data.length % 2 !== 0) throw new FeedFrameError('Malformed upstream feed envelope.')
     const batches: JsonObject[][] = []
     for (let offset = 0; offset < data.length; offset += 2) {
       const type = TextFrameSchema.parse(data[offset])
-      if (type !== channelType) throw new Error('Feed descriptor does not match its channel.')
+      if (type !== channelType) throw new FeedFrameError('Feed descriptor does not match its channel.')
       batches.push(streamRows(channelType, data[offset + 1]))
     }
     const rows = batches.flat()
     const type = channelType
     if (type === 'Greeks') {
       const events = rows.map((row) => optionGreeksFromRow(row)).filter(isPresent)
-      if (events.length !== rows.length) throw new Error('Malformed upstream Greeks row.')
+      if (events.length !== rows.length) throw new FeedFrameError('Malformed upstream Greeks row.')
       for (const event of events) this.greekRequests.accept(event)
       return
     }
     const events = rows.map((row) => eventFromRow(type, row)).filter(isPresent)
-    if (events.length !== rows.length) throw new Error(`Malformed upstream ${type} row.`)
+    if (events.length !== rows.length) throw new FeedFrameError(`Malformed upstream ${type} row.`)
     for (const event of events) {
       this.cacheCandle(event)
       const serialized = JSON.stringify(event)

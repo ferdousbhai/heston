@@ -64,7 +64,7 @@ class FakeUpstreamWebSocket {
     this.emit('message', JSON.stringify(payload))
   }
 
-  emit(type: string, data?: string): void {
+  emit(type: string, data?: string | ArrayBuffer): void {
     for (const listener of this.listeners.get(type) ?? []) listener({ data })
   }
 }
@@ -388,7 +388,31 @@ describe('MarketFeed option Greeks RPC', () => {
       const status = JsonObjectSchema.parse(JSON.parse(frame))
       return status.type === 'feed-status'
         && status.state === 'degraded'
-        && status.detail === 'Malformed upstream feed frame'
+        && status.detail === 'Upstream feed frame was not JSON'
+    })).toBe(true)
+  })
+
+  // A refused frame used to report one generic string whatever refused it, which left a live
+  // production failure undiagnosable. Each check now names itself without quoting the frame.
+  it.each([
+    ['a frame that is not text', new ArrayBuffer(4), 'Upstream feed frame was not text'],
+    ['a message type it does not handle', '{"type":"NOPE","channel":0}', 'Unexpected upstream message.'],
+    ['a keepalive off channel zero', '{"type":"KEEPALIVE","channel":3}', 'Unexpected keepalive channel.'],
+  ])('names the check that refused %s', async (_name, frame, detail) => {
+    const client = downstream(['SPY'])
+    const context = new FakeContext([client])
+    new MarketFeedCore(context, liveEnvironment())
+    await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(1))
+
+    const socket = FakeUpstreamWebSocket.instances[0]!
+    socket.open()
+    await context.drain()
+    socket.emit('message', frame)
+    await context.drain()
+
+    expect(vi.mocked(client.send).mock.calls.some(([sent]) => {
+      const status = JsonObjectSchema.parse(JSON.parse(sent))
+      return status.type === 'feed-status' && status.state === 'degraded' && status.detail === detail
     })).toBe(true)
   })
 

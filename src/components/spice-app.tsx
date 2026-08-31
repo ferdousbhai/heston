@@ -57,8 +57,10 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
   const streamSymbols = selectLiveMarketSymbols(selected?.symbol, activeWatchlist?.symbols ?? [], loadedSymbols)
   const liveMarket = useLiveMarket(streamSymbols, snapshotReady && owner)
   const collectionFailed = market.collectionFailed || favorites.collectionFailed
-  const liveWarning = liveMarket.state === 'connecting' || liveMarket.state === 'degraded'
-      || liveMarket.state === 'reconnecting'
+  // An opening handshake is not stale data. Only a feed that degraded or dropped after
+  // connecting has anything to report, and those states carry the reason with them, so a
+  // feed that keeps failing still surfaces on its next attempt rather than going quiet.
+  const liveWarning = liveMarket.state === 'degraded' || liveMarket.state === 'reconnecting'
     ? liveMarket.detail ?? `Live market feed is ${liveMarket.state}.`
     : undefined
   const visibleSnapshotWarning = [
