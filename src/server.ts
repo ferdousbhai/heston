@@ -5,6 +5,9 @@ import { type AppEnv } from './server/env'
 import { authorizePersonalRequest, canonicalHostRedirect } from './server/http'
 import { shouldStartScheduledResearch } from './server/research'
 import { startScheduledJob } from './server/scheduled-jobs'
+import { configureTypeboxRuntime } from './server/typebox-runtime'
+
+configureTypeboxRuntime()
 
 export { DanAgent } from './server/dan-agent'
 export { BrokerGate } from './server/broker-gate'
