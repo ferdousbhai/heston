@@ -20,7 +20,18 @@ import { z } from 'zod'
  * broker 404s on it. A provider with its own rendering translates at that provider's own
  * boundary and nowhere else — `yahooSymbol` maps the slash to Yahoo's dash.
  */
-const EQUITY_SYMBOL_BODY = '[A-Z0-9]{1,6}(?:/[A-Z0-9]{1,3})?'
+const equitySymbolBody = (characters: string): string => `${characters}{1,6}(?:/${characters}{1,3})?`
+const EQUITY_SYMBOL_BODY = equitySymbolBody('[A-Z0-9]')
+
+/**
+ * The shape a symbol may arrive in when it comes out of model text: X's cashtag, any letter
+ * case, and nothing else. It admits exactly what `equitySymbolFromModelText` can read, so the
+ * schema a provider validates against and the reader behind it cannot disagree about what is
+ * well formed. Another venue's notation stays a visible refusal until it is named a
+ * convention here, and both halves change together in this one place.
+ */
+export const MODEL_TEXT_EQUITY_SYMBOL_PATTERN = `^\\$?${equitySymbolBody('[A-Za-z0-9]')}$`
+export const ModelTextEquitySymbolType = Type.String({ pattern: MODEL_TEXT_EQUITY_SYMBOL_PATTERN })
 
 export const MAX_EQUITY_SYMBOL_LENGTH = 10
 

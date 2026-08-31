@@ -539,10 +539,16 @@ function createSymbolSearchTool(
 
 export function createOptionContractFindTool(
   env: AppEnv,
-): AgentTool<typeof OptionContractFindParameters, OptionContractFindResult> {
+): AgentTool<typeof OptionContractFindParameters, OptionContractFindResult | { error: string }> {
   return {
     description: 'Without expiry, lists expirations; with expiry, returns active standard contracts nearest nearStrike or matching strike.',
-    execute: async (_toolCallId, params) => textResult(await findOptionContracts(env, params)),
+    execute: async (_toolCallId, params) => {
+      const underlying = equitySymbolFromModelText(params.underlying)
+      if (underlying === undefined) {
+        return textResult({ error: `not a ticker symbol: ${params.underlying.slice(0, 12)}` })
+      }
+      return textResult(await findOptionContracts(env, { ...params, underlying }))
+    },
     label: 'Finding option contracts',
     name: 'find_option_contracts',
     parameters: OptionContractFindParameters,
@@ -551,10 +557,20 @@ export function createOptionContractFindTool(
 
 export function createInstrumentQuoteReadTool(
   env: AppEnv,
-): AgentTool<typeof InstrumentQuoteReadParameters, InstrumentQuoteReadResult> {
+): AgentTool<typeof InstrumentQuoteReadParameters, InstrumentQuoteReadResult | { error: string }> {
   return {
     description: 'Current broker bid/ask/mid for equities or option tuples.',
-    execute: async (_toolCallId, params) => textResult(await readInstrumentQuotes(env, params)),
+    execute: async (_toolCallId, params) => {
+      const symbols = params.symbols?.map((symbol) => equitySymbolFromModelText(symbol))
+      const unreadable = params.symbols?.find((_symbol, index) => symbols?.[index] === undefined)
+      if (unreadable !== undefined) {
+        return textResult({ error: `not a ticker symbol: ${unreadable.slice(0, 12)}` })
+      }
+      return textResult(await readInstrumentQuotes(env, {
+        ...params,
+        symbols: symbols?.filter((symbol) => symbol !== undefined),
+      }))
+    },
     label: 'Reading instrument quotes',
     name: 'read_instrument_quotes',
     parameters: InstrumentQuoteReadParameters,

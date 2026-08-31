@@ -2,8 +2,9 @@ import { type AgentTool } from '@earendil-works/pi-agent-core'
 import { Type } from 'typebox'
 import { z } from 'zod'
 
-import { equitySymbolFromModelText, EquitySymbolType } from '../domain/instrument'
+import { equitySymbolFromModelText, ModelTextEquitySymbolType } from '../domain/instrument'
 import { textResult } from './agent-tool-result'
+import { MAX_MARKET_SYMBOLS } from './brokerage-read-contracts'
 import { readBoundedJson } from './bounded-response'
 import { type JsonValue } from '../domain/json-payload'
 import { type AppEnv } from './env'
@@ -27,7 +28,11 @@ const RecentCoverageParameters = Type.Object({
     maximum: MAX_RESEARCH_LOOKBACK_DAYS,
     minimum: 1,
   }),
-  tickers: Type.Array(EquitySymbolType, {
+  tickers: Type.Array(ModelTextEquitySymbolType, {
+    description: 'Ticker symbols; a leading $ cashtag is read as the bare symbol.',
+    // The lookback fans into one D1 query, so it takes the same batch budget every other
+    // symbol read here does rather than being the one unbounded set.
+    maxItems: MAX_MARKET_SYMBOLS,
     minItems: 1,
   }),
 }, { additionalProperties: false })

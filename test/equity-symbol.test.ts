@@ -4,8 +4,10 @@ import { z } from 'zod'
 import {
   EQUITY_SYMBOL_PATTERN,
   EQUITY_SYMBOL_REGEX,
+  equitySymbolFromModelText,
   EquitySymbolSchema,
   MAX_EQUITY_SYMBOL_LENGTH,
+  MODEL_TEXT_EQUITY_SYMBOL_PATTERN,
   POTENTIAL_PLAY_PATTERN,
 } from '../src/domain/instrument'
 import { DirectAccountActionParameters } from '../src/server/agent-contracts'
@@ -53,7 +55,7 @@ function advertisedPatterns(node: SchemaNode): string[] {
  * file exists to catch.
  */
 describe('equity symbol rule', () => {
-  it('is the one symbol pattern every Dan tool contract advertises', () => {
+  it('advertises the strict symbol shape, and the model-text one only where text is the source', () => {
     const patterns = [
       AccountHistoryReadParameters, InstrumentQuoteReadParameters, MarketMetricsReadParameters,
       OptionContractFindParameters, SymbolSearchParameters, DirectAccountActionParameters,
@@ -67,8 +69,11 @@ describe('equity symbol rule', () => {
     expect(equityPatterns.length).toBeGreaterThan(1)
     // Zod escapes `/` when serializing its RegExp to JSON Schema; JSON Schema has
     // no slash delimiters, so the spellings are equivalent.
-    expect([...new Set(equityPatterns.map((pattern) => pattern.replaceAll('\\/', '/')))])
-      .toEqual([EQUITY_SYMBOL_PATTERN])
+    // Two shapes, deliberately: contracts fed by the owner's own words take the strict
+    // symbol, and the discovery-facing reads take the one that also reads X's cashtag.
+    // Anything beyond these two is drift.
+    expect(new Set(equityPatterns.map((pattern) => pattern.replaceAll('\\/', '/'))))
+      .toEqual(new Set([EQUITY_SYMBOL_PATTERN, MODEL_TEXT_EQUITY_SYMBOL_PATTERN]))
   })
 
   it('shares the compiled rule with the brokerage response guard', () => {
@@ -115,5 +120,23 @@ describe('equity symbol rule', () => {
     ['', 'an empty symbol'],
   ])('rejects %s (%s)', (symbol) => {
     expect(EquitySymbolSchema.safeParse(symbol).success).toBe(false)
+  })
+})
+
+describe('reading a symbol out of model text', () => {
+  it.each([
+    ['NXE', 'NXE'],
+    ['$NXE', 'NXE'],
+    ['$nxe', 'NXE'],
+    [' $NXE ', 'NXE'],
+    ['brk/a', 'BRK/A'],
+  ])('reads %s as %s', (written, expected) => {
+    expect(equitySymbolFromModelText(written)).toBe(expected)
+  })
+
+  it.each(['BRK.B', '#NXE', 'NXE.TO', 'TOOLONGSYMBOL', ''])('refuses %s', (written) => {
+    // Only the convention the owner named is read; any other venue's notation stays a
+    // visible refusal rather than being guessed at.
+    expect(equitySymbolFromModelText(written)).toBeUndefined()
   })
 })

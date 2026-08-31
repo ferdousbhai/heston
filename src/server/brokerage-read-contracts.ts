@@ -1,7 +1,7 @@
 import { type Static, Type } from 'typebox'
 
 import { EquityOptionTupleSchema } from '../domain/equity-option'
-import { EQUITY_SYMBOL_REGEX, EquitySymbolType } from '../domain/instrument'
+import { EQUITY_SYMBOL_REGEX, ModelTextEquitySymbolType } from '../domain/instrument'
 import { IsoDateType } from '../domain/iso-date'
 
 // These are model-context budgets, not brokerage or trading policy. Read tools expose
@@ -51,7 +51,8 @@ export const AccountHistoryReadParameters = Type.Object({
 }, { additionalProperties: false })
 
 export const MarketMetricsReadParameters = Type.Object({
-  symbols: Type.Array(EquitySymbolType, {
+  symbols: Type.Array(ModelTextEquitySymbolType, {
+    description: 'Ticker symbols; a leading $ cashtag is read as the bare symbol.',
     maxItems: MAX_MARKET_SYMBOLS,
     minItems: 1,
   }),
@@ -75,7 +76,7 @@ export const OptionContractFindParameters = Type.Object({
   })),
   optionType: Type.Optional(Type.Union([Type.Literal('C'), Type.Literal('P')])),
   strike: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
-  underlying: EquitySymbolType,
+  underlying: ModelTextEquitySymbolType,
 }, { additionalProperties: false })
 
 export const InstrumentQuoteReadParameters = Type.Object({
@@ -83,7 +84,7 @@ export const InstrumentQuoteReadParameters = Type.Object({
     maxItems: MAX_QUOTE_INSTRUMENTS,
     minItems: 1,
   })),
-  symbols: Type.Optional(Type.Array(EquitySymbolType, {
+  symbols: Type.Optional(Type.Array(ModelTextEquitySymbolType, {
     maxItems: MAX_QUOTE_INSTRUMENTS,
     minItems: 1,
   })),
