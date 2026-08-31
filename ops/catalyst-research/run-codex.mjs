@@ -1,3 +1,4 @@
+import { chromium } from '@playwright/test'
 import { spawn, spawnSync } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
@@ -216,6 +217,48 @@ async function readCapped(response) {
   return Buffer.concat(parts, Math.min(size, VERIFY_MAX_BYTES))
 }
 
+// Investor-relations hosts behind bot management answer a plain client with 403 however its
+// headers are dressed, and others render their event dates client-side so the served HTML
+// carries no date at all. Both refuse a citation that a person reading the page can see, so a
+// failed plain fetch is retried in a real browser. It is the same deterministic evidence — a
+// non-model client fetching the cited URL — just one that runs the page's own scripts.
+// Five seconds past load is enough for those widgets to paint without waiting on the
+// third-party beacons that keep an IR page's network busy indefinitely.
+const RENDER_SETTLE_MS = 5_000
+let sharedBrowser
+
+async function renderedVerification(finding) {
+  sharedBrowser ??= chromium.launch().catch((cause) => {
+    process.stderr.write(`Browser verification unavailable: ${cause?.message ?? 'launch failed'}\n`)
+    return undefined
+  })
+  const browser = await sharedBrowser
+  if (!browser) return undefined
+  const context = await browser.newContext({ userAgent: VERIFY_USER_AGENT })
+  try {
+    const page = await context.newPage()
+    const response = await page.goto(finding.sourceUrl, { timeout: VERIFY_TIMEOUT_MS, waitUntil: 'load' })
+    if (response?.status() !== 200) return undefined
+    await page.waitForLoadState('networkidle', { timeout: RENDER_SETTLE_MS }).catch(() => undefined)
+    const html = await page.content()
+    const finalUrl = page.url()
+    if (!finalUrl.startsWith('https://')) return undefined
+    const snippet = dateSnippet(visibleText(html), finding.date)
+    if (!snippet) return undefined
+    return {
+      contentSha256: createHash('sha256').update(html).digest('hex'),
+      fetchedAt: new Date().toISOString(),
+      finalUrl,
+      httpStatus: 200,
+      snippet,
+    }
+  } catch {
+    return undefined
+  } finally {
+    await context.close().catch(() => undefined)
+  }
+}
+
 async function verifyFinding(finding) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), VERIFY_TIMEOUT_MS)
@@ -253,8 +296,15 @@ async function verifyFindings(findings, index) {
   const rejected = []
   for (const finding of findings) {
     const outcome = await verifyFinding(finding)
-    if (outcome.verification) verified.push({ ...finding, verification: outcome.verification })
-    else rejected.push(`${finding.symbol}:${outcome.reason}`)
+    if (outcome.verification) {
+      verified.push({ ...finding, verification: outcome.verification })
+      continue
+    }
+    // The label records that the page was also opened in a browser, so a rejection is never
+    // read as though only the cheap attempt was made.
+    const rendered = await renderedVerification(finding)
+    if (rendered) verified.push({ ...finding, verification: rendered })
+    else rejected.push(`${finding.symbol}:${outcome.reason}+rendered`)
   }
   process.stderr.write(
     `Chunk ${index + 1}/${chunks.length} verified ${verified.length}/${findings.length}`
@@ -324,6 +374,7 @@ for (const chunk of chunkResults) {
   rejectedCount += chunk.rejected
 }
 process.stderr.write(`Verified ${findings.length} findings; ${rejectedCount} rejected\n`)
+await (await sharedBrowser)?.close().catch(() => undefined)
 
 await writeFile(artifactPath, `${JSON.stringify({
   codexVersion,
