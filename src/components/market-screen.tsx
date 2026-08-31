@@ -320,8 +320,10 @@ const MarketTickerRow = memo(function MarketTickerRow({
             <small>{formatSignedMetric(ticker.changePercent, '%')}</small>
           </span>
         </div>
+        {/* An unreported reading is left out rather than announced, as the focus tape does;
+            the cell's own metric still shows an em dash so the row is never silently short. */}
         {rangePosition === undefined
-          ? <small>52w range unavailable</small>
+          ? null
           : <Progress className="price-range" aria-label={`${Math.round(rangePosition)}% of 52-week range`} value={rangePosition} />}
       </TableCell>
       {/* tastytrade reports equity day share volume here, not 24-hour or option-contract
@@ -332,7 +334,6 @@ const MarketTickerRow = memo(function MarketTickerRow({
       <TableCell className={`premium-cell ${verdict}`}>
         <strong>{copy.label}</strong>
         <small>{formatIfReported(ticker.ivIndex, (iv) => `${formatMarketMetric(iv)}% IV`) ?? '—'}</small>
-        <small>{formatSignedMetric(ticker.ivIndex5DayChange, ' pts 5d')}</small>
       </TableCell>
       <TableCell className="rank-cell">
         <strong>{ivRank}</strong>
@@ -340,7 +341,7 @@ const MarketTickerRow = memo(function MarketTickerRow({
       </TableCell>
       <TableCell className="liquidity-cell">
         <strong>{formatIfReported(ticker.liquidity, (liquidity) => `${formatMarketMetric(liquidity)}/5`) ?? '—'}</strong>
-        <small>{ticker.lendability ?? 'Lendability unavailable'}</small>
+        {ticker.lendability ? <small>{ticker.lendability}</small> : null}
       </TableCell>
     </TableRow>
   )

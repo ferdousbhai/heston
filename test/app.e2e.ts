@@ -208,7 +208,6 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   const beRow = page.locator('.premium-data-table tbody tr', { hasText: 'BE' })
   await expect(beRow.locator('.price-cell')).toContainText('$43.16')
   await expect(beRow.locator('.price-cell')).toContainText('+3%')
-  await expect(beRow.locator('.price-cell')).toContainText('52w range unavailable')
   await expect(page.locator('.premium-data-table tbody .sparkline')).toHaveCount(11)
 
   await page.getByRole('tab', { name: 'Brief' }).click()

@@ -20,13 +20,11 @@ export function CatalystStories({
   onSelect: (symbol: string) => void
   tickers: readonly Ticker[]
 }) {
-  const tickerBySymbol = new Map(tickers.map((ticker) => [ticker.symbol, ticker]))
   const nextCatalysts = nextCatalystsBySymbol(catalysts, now)
-  const visible = [...tickerBySymbol.keys()]
-    .flatMap((symbol) => {
-      const ticker = tickerBySymbol.get(symbol)
-      const catalyst = nextCatalysts.get(symbol)
-      return ticker && catalyst ? [{ catalyst, ticker }] : []
+  const visible = tickers
+    .flatMap((ticker) => {
+      const catalyst = nextCatalysts.get(ticker.symbol)
+      return catalyst ? [{ catalyst, ticker }] : []
     })
     .sort((left, right) => left.catalyst.date.localeCompare(right.catalyst.date)
       || left.ticker.symbol.localeCompare(right.ticker.symbol))
