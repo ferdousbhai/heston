@@ -30,6 +30,7 @@ function submission(): DailyResearchSubmission {
     ideas: [{
       description: 'The signed agreement improves visibility while option premium remains usable.',
       direction: 'bullish',
+      evidence: [{ quote: 'SpaceX will hold a shareholder event', sourceIndex: 0 }],
       headline: 'Signed supply terms improve demand visibility',
       play: { expiration: '2026-10-16', optionType: 'call', strike: 225 },
       risk: 'Delivery timing slips or contracted volume fails to convert to revenue.',
@@ -211,10 +212,10 @@ describe('daily research Pi agent boundary', () => {
       expect.objectContaining({ name: 'search_reddit', type: 'function' }),
     ]))
     expect(JSON.stringify(bodies[2]?.input)).toContain('function_call_output')
-    // The prompt's wording is free to change; these two constraints are not. Nothing
-    // downstream fetches a brief's citations, so the instruction is all that stands between
-    // a claim and its evidence, and the discovery venues must never surface publicly.
-    expect(JSON.stringify(bodies[1]?.input)).toContain('supported by one of that idea')
+    // Citations are now bound deterministically after the run, so the prompt no longer has
+    // to be trusted for them: losing that instruction makes the binder drop ideas loudly
+    // rather than publish unsupported ones. What is still pinned is the rule nothing
+    // downstream can enforce — the discovery venues must never surface publicly.
     expect(JSON.stringify(bodies[1]?.input)).toContain('never appear as public sources')
     expect(JSON.stringify(bodies[1]?.input)).toContain('reddit_discovery_packet')
     expect(JSON.stringify(bodies[1]?.input)).toContain('yahoo_mover_packet')

@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { resetCitationAudit, setCitationAudit } from '../src/server/research-citation-audit'
 import {
   resetDailyResearchAgent,
   setDailyResearchAgent,
@@ -12,6 +11,14 @@ import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
 
 const NOW = new Date('2026-08-14T13:30:00.000Z')
+
+/** What read_page retained for the cited source, so the binder has text to match against. */
+function retainedPages(sourceUrl = EVIDENCE_URL) {
+  return new Map([[sourceUrl, {
+    markdown: '# NVIDIA\n\nThe company **signed a multi-year supply agreement** this week.',
+    readAt: NOW.toISOString(),
+  }]])
+}
 const EVIDENCE_URL = 'https://www.reuters.com/technology/nvidia-supply'
 
 function submission(sourceUrl = EVIDENCE_URL): DailyResearchSubmission {
@@ -19,6 +26,7 @@ function submission(sourceUrl = EVIDENCE_URL): DailyResearchSubmission {
     ideas: [{
       description: 'A signed agreement improves demand visibility while volatility remains usable.',
       direction: 'bullish',
+      evidence: [{ quote: 'signed a multi-year supply agreement', sourceIndex: 0 }],
       headline: 'Supply agreement improves visibility',
       play: { expiration: '2026-10-16', optionType: 'call', strike: 225 },
       risk: 'Delivery timing slips or volume fails to convert to revenue.',
@@ -43,8 +51,8 @@ function submission(sourceUrl = EVIDENCE_URL): DailyResearchSubmission {
   return report
 }
 
-function response(report = submission()) {
-  return Promise.resolve({ submission: report })
+function response(report = submission(), retained = retainedPages()) {
+  return Promise.resolve({ retained, submission: report })
 }
 
 const broker = stubBroker()
@@ -54,14 +62,11 @@ beforeEach(() => {
   broker.resolveResearchInstrumentCatalogFromTastytrade.mockClear()
   setBrokerApi(broker)
   setDailyResearchAgent({ run: () => response() })
-  // The audit fetches cited pages and calls a model; both belong to its own tests.
-  setCitationAudit({ audit: async (_env, request) => ({ ideas: request.ideas, rejected: [], status: 'audited' }) })
 })
 
 afterEach(() => {
   resetBrokerApi()
   resetDailyResearchAgent()
-  resetCitationAudit()
 })
 
 describe('market-session research schedule', () => {
@@ -162,7 +167,7 @@ describe('daily research final boundary', () => {
   it('maps the structured model source directly into the domain report', async () => {
     const nativeUrl = 'https://example.com/nvidia-primary#agreement'
     setDailyResearchAgent({
-      run: () => response(submission(nativeUrl)),
+      run: () => response(submission(nativeUrl), retainedPages(nativeUrl)),
     })
 
     const brief = await generateDailyResearch({}, NOW, { persist: false })
@@ -237,9 +242,9 @@ describe('daily research final boundary', () => {
 
     expect(replayed.publishedAt).toBe(first.publishedAt)
     expect(runIds).toEqual([runIds[0], runIds[0]])
-    // The audit is a replayable step on purpose: a retry reuses its verdict rather than
-    // re-fetching every cited page and asking a model to judge them a second time.
-    expect(executed).toEqual(['run-id', 'audit-citations', 'published-at'])
+    // The citation binding needs no step of its own: it is a pure function of the retained
+    // pages and the submission, both already memoized, so a replay reaches the same verdict.
+    expect(executed).toEqual(['run-id', 'published-at'])
     expect(broker.tastyRequest).not.toHaveBeenCalled()
   })
 })

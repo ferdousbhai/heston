@@ -35,6 +35,7 @@ import {
   createResearchAgentTools,
   searchRedditResearch,
   type RedditResearchResult,
+  type RetainedPage,
 } from './research-agent-tools'
 import { marketMoverResearch, type YahooMarketMoverContext } from './research-market-movers'
 import { GROK_MODEL } from './pi-runtime'
@@ -46,6 +47,8 @@ const MAX_RESPONSE_BYTES = 900_000
 // The daily surface is intentionally selective: a short ranked editor's brief, not a screener dump.
 const MAX_DAILY_IDEAS = 3
 const MAX_READING_LINKS = 6
+// One quote per source an idea leans on is enough to bind it; more is padding.
+const MAX_EVIDENCE_PER_IDEA = 4
 // Keep this private packet compact beside the other contexts and within one
 // durable Workflow step; the response byte boundary remains the final envelope.
 const MAX_X_DISCOVERY_OUTPUT_TOKENS = 3_000
@@ -85,6 +88,13 @@ export const DailyResearchSubmissionSchema = Type.Object({
   regimeDetail: Type.String({ minLength: 1, maxLength: 180 }),
   ideas: Type.Array(Type.Object({
     description: Type.String({ minLength: 1, maxLength: 360 }),
+    // Quoted verbatim from a page read through read_page. The binder matches each quote
+    // against the retained text, so an idea cannot assert a date or number its own source
+    // does not contain.
+    evidence: Type.Array(Type.Object({
+      quote: Type.String({ minLength: 1, maxLength: 300 }),
+      sourceIndex: Type.Integer({ minimum: 0 }),
+    }, { additionalProperties: false }), { minItems: 1, maxItems: MAX_EVIDENCE_PER_IDEA }),
     direction: Type.Union([Type.Literal('bullish'), Type.Literal('bearish'), Type.Literal('neutral')]),
     headline: Type.String({ minLength: 1, maxLength: 100 }),
     play: Type.Union([ProposedPlay, Type.Null()]),
@@ -110,6 +120,7 @@ export interface DailyResearchAgentRequest {
 }
 
 export interface DailyResearchAgentResponse {
+  retained: Map<string, RetainedPage>
   submission: DailyResearchSubmission
 }
 
@@ -154,7 +165,7 @@ Inspect metrics before recommending: call read_market_metrics for the symbols yo
 
 Name an option only from the chain: call read_instrument_quotes and find_option_contracts, and copy an expiration and strike the tool returned. Use a null play when no listed contract expresses the thesis coherently.
 
-Build sources as the only citation table. Every sourceUrl is copied verbatim from a native tool citation of a page you opened, and every claim, date, and number in an idea must be supported by one of that idea's own attached sources — omit whatever you cannot support that way. X and Reddit are discovery only and must never appear as public sources, nor may the discovery venues or the research process appear anywhere in public prose.
+Read before you cite. Search finds candidates; read_page is what makes a page citable, and sources may contain only pages you read that way. Each idea carries a verbatim quote from one of its own sources for the claim it rests on. Every quote is checked against the page this run retained, and an idea whose quote is not there is discarded — so quote what the page says rather than what you believe. X and Reddit are discovery only and must never appear as public sources, nor may the discovery venues or the research process appear anywhere in public prose.
 
 One thesis you believe is worth more than three you can defend.`
 }
@@ -491,9 +502,11 @@ export async function runDailyResearchAgent(
         task,
       )
     : undefined
+  const retained = new Map<string, RetainedPage>()
   const tools = createResearchAgentTools(env, {
     includeReddit: false,
     now: request.now,
+    retained,
     runStep: runToolStep,
   })
   let failure: string | undefined
@@ -533,7 +546,7 @@ export async function runDailyResearchAgent(
     event: 'DailyResearchAgentCompleted',
     runId: request.runId,
   }))
-  return { submission: capture.submission }
+  return { retained, submission: capture.submission }
 }
 
 const dailyResearchAgentSeam = defineSeam(() => ({ run: runDailyResearchAgent }))

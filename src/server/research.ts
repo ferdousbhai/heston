@@ -7,7 +7,7 @@ import { type AppEnv } from './env'
 import { researchBriefId } from './research-contracts'
 import { upsertResearchBrief } from './research-brief-store'
 import { brokerApi } from './tastytrade'
-import { citationAudit } from './research-citation-audit'
+import { bindBriefCitations } from './research-citation-binding'
 import {
   readingListFromCandidates,
   researchIdeas,
@@ -109,24 +109,18 @@ export async function generateDailyResearch(
     event: 'DailyResearchModelCompleted',
     runId: gatewayRunId,
   }))
-  const proposed = researchIdeas(submission.ideas, sources)
-  // The model that wrote these claims cannot vouch for them, and nothing downstream reads a
-  // cited page. An idea whose own sources do not state it is dropped here rather than
-  // published beside a citation that does not hold.
-  const audit = await runTask('audit-citations', () => citationAudit().audit(env, {
-    ideas: proposed,
-    marketDate: today,
-    runId: gatewayRunId,
-  }))
+  // An idea has to point at a page this run actually read and quote it. Both checks read
+  // only the retained text and the submission, so a workflow replay reaches the same verdict.
+  const bound = bindBriefCitations(submission.ideas, submission.sources, agent.retained)
   console.info(JSON.stringify({
-    event: 'DailyResearchCitationAudit',
-    kept: audit.ideas.length,
-    proposed: proposed.length,
-    rejected: audit.rejected,
+    event: 'DailyResearchCitationBinding',
+    kept: bound.ideas.length,
+    pagesRead: agent.retained.size,
+    proposed: submission.ideas.length,
+    rejected: bound.rejected,
     runId: gatewayRunId,
-    status: audit.status,
   }))
-  const ideas = audit.ideas
+  const ideas = researchIdeas(bound.ideas, sources)
   const readingList = readingListFromCandidates(submission.readingList, sources)
   // Persist the completion time so replay cannot return a timestamp different from D1.
   const publishedAt = await runTask('published-at', async () => new Date().toISOString())

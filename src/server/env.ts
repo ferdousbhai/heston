@@ -34,6 +34,7 @@ export interface AppEnv {
   AUTH_BASE_URL?: string
   BETTER_AUTH_SECRET?: string
   BROKER_GATE?: BrokerGateNamespace
+  BROWSER?: BrowserRun
   DB?: D1Database
   DAILY_RESEARCH_WORKFLOW?: Workflow<DailyResearchWorkflowParams>
   DanAgent?: DurableObjectNamespace
