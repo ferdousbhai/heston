@@ -2,7 +2,7 @@ import { type AgentTool } from '@earendil-works/pi-agent-core'
 import { Type } from 'typebox'
 import { z } from 'zod'
 
-import { EquitySymbolType } from '../domain/instrument'
+import { EquitySymbolSchema, EquitySymbolType } from '../domain/instrument'
 import { textResult } from './agent-tool-result'
 import { readBoundedJson } from './bounded-response'
 import { type JsonValue } from '../domain/json-payload'
@@ -152,21 +152,25 @@ export function createResearchAgentTools(
     name: 'read_page',
     parameters: ReadPageParameters,
   }
-  const coverage: AgentTool<typeof RecentCoverageParameters, RecentTickerCoverage[]> = {
+  const coverage: AgentTool<typeof RecentCoverageParameters, RecentTickerCoverage[] | { error: string }> = {
     description: 'Prior Spice ideas for these tickers within daysAgo; today is excluded.',
-    execute: async (_toolCallId, params) => textResult(await searchRecentTickerCoverage(
-      env,
-      params.tickers,
-      params.daysAgo,
-      now,
-    )),
+    execute: async (_toolCallId, params) => {
+      // A ticker written the way a post writes it — $NXE — is not a symbol, and today's
+      // preview run ended on exactly that: one malformed argument aborted the whole brief.
+      // The model can correct a symbol, so it is told rather than stopped.
+      const unreadable = params.tickers.find((ticker) => !EquitySymbolSchema.safeParse(ticker).success)
+      if (unreadable !== undefined) {
+        return textResult({ error: `not a ticker symbol: ${unreadable.slice(0, 12)}` })
+      }
+      return textResult(await searchRecentTickerCoverage(env, params.tickers, params.daysAgo, now))
+    },
     label: 'Reading recent coverage',
     name: 'get_recent_coverage',
     parameters: RecentCoverageParameters,
   }
   return [
     ...(options.includeReddit === false ? [] : [reddit]),
-    ...(retained ? [readPage] : []),
+    ...(env.BROWSER ? [readPage] : []),
     coverage,
     createMarketMetricsReadTool(env),
     createOptionContractFindTool(env),
