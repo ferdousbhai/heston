@@ -437,7 +437,7 @@ describe('MarketFeed option Greeks RPC', () => {
     })).toBe(true)
   })
 
-  it('skips an unquoted symbol instead of tearing the feed down', async () => {
+  it('publishes a quote from its own bid and ask instants, and stays up when unquoted', async () => {
     const client = downstream(['SPY'])
     const context = new FakeContext([client])
     new MarketFeedCore(context, liveEnvironment())
@@ -458,12 +458,30 @@ describe('MarketFeed option Greeks RPC', () => {
     })
     await context.drain()
 
-    // A name with no bid right now, which is an ordinary market state and not a broken frame.
+    // dxLink leaves eventTime at zero on a quote, so a real one is only publishable if the
+    // bid and ask instants are read instead.
     socket.message({
       type: 'FEED_DATA',
       channel: 1,
-      data: ['Quote', ['SPY', 1_786_629_600_000, 1, null, 1_786_629_600_000, 'Q',
-        1_786_629_600_000, 'Q', 0, 0, 0, 0]],
+      data: ['Quote', ['SPY', 0, 1, null, 1_786_629_600_000, 'Q',
+        1_786_629_599_000, 'Q', 699, 701, 10, 12]],
+    })
+    await context.drain()
+
+    expect(socket.readyState).toBe(FakeUpstreamWebSocket.OPEN)
+    const quote = vi.mocked(client.send).mock.calls
+      .map(([sent]) => JsonObjectSchema.parse(JSON.parse(sent)))
+      .find((frame) => frame.type === 'market')
+    expect(quote).toMatchObject({
+      symbol: 'SPY', bid: 699, ask: 701, price: 700,
+      timestamp: new Date(1_786_629_600_000).toISOString(),
+    })
+
+    // A name that is simply not quoted right now is ordinary silence, not a broken frame.
+    socket.message({
+      type: 'FEED_DATA',
+      channel: 1,
+      data: ['Quote', ['SPY', 0, 2, null, 0, 'Q', 0, 'Q', 0, 0, 0, 0]],
     })
     await context.drain()
 

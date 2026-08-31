@@ -119,11 +119,25 @@ export type FeedContext = {
   waitUntil(task: Promise<unknown>): void
 }
 
-function eventTimestamp(row: JsonObject): string | undefined {
-  const epoch = jsonNumber(row.time ?? row.eventTime)
+function isoFromEpoch(epoch: number | undefined): string | undefined {
   if (epoch === undefined || epoch <= 0 || !Number.isSafeInteger(epoch)) return undefined
   const date = new Date(epoch)
   return Number.isFinite(date.getTime()) ? date.toISOString() : undefined
+}
+
+function eventTimestamp(row: JsonObject): string | undefined {
+  return isoFromEpoch(jsonNumber(row.time ?? row.eventTime))
+}
+
+/**
+ * Quote is the one subscribed event with no `time` of its own, and dxLink leaves its
+ * `eventTime` at zero, so reading a quote like the others left every quote row without an
+ * instant and condemned it as malformed. The instant that matters is the later of the two
+ * sides the event does timestamp.
+ */
+function quoteTimestamp(row: JsonObject): string | undefined {
+  const sides = [jsonNumber(row.bidTime), jsonNumber(row.askTime)].filter(isPresent)
+  return sides.length ? isoFromEpoch(Math.max(...sides)) : undefined
 }
 
 function normalizedSymbol(value: JsonValue): string | undefined {
@@ -140,16 +154,20 @@ function normalizedSymbol(value: JsonValue): string | undefined {
  */
 function eventFromRow(type: Exclude<FeedType, 'Greeks'>, row: JsonObject): LiveMarketEvent | null | undefined {
   const symbol = normalizedSymbol(row.eventSymbol)
-  const timestamp = eventTimestamp(row)
-  if (!symbol || !timestamp) return undefined
+  if (!symbol) return undefined
   if (type === 'Quote') {
     const rawBid = jsonNumber(row.bidPrice)
     const rawAsk = jsonNumber(row.askPrice)
     const bid = rawBid !== undefined && rawBid > 0 ? rawBid : undefined
     const ask = rawAsk !== undefined && rawAsk > 0 ? rawAsk : undefined
-    if (bid === undefined || ask === undefined || bid > ask) return null
-    return { type: 'market', symbol, price: (bid + ask) / 2, bid, ask, timestamp }
+    const quotedAt = quoteTimestamp(row)
+    // A side that has never been quoted carries no instant either, which is the same
+    // ordinary silence as a missing price rather than a broken frame.
+    if (bid === undefined || ask === undefined || bid > ask || quotedAt === undefined) return null
+    return { type: 'market', symbol, price: (bid + ask) / 2, bid, ask, timestamp: quotedAt }
   }
+  const timestamp = eventTimestamp(row)
+  if (!timestamp) return undefined
   if (type === 'Trade') {
     const price = jsonNumber(row.price)
     const change = jsonNumber(row.change)
