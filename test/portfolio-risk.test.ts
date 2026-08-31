@@ -6,7 +6,6 @@ import {
   buildAgentRuntimeContext,
   type BrokerageContext,
 } from '../src/server/brokerage-context'
-import { DAN_SYSTEM_PROMPT } from '../src/server/dan-doctrine'
 import { assessPortfolioAction } from '../src/server/portfolio-risk'
 
 const longOnlyAccount = {
@@ -128,18 +127,8 @@ describe('portfolio action boundary', () => {
 })
 
 describe('Dan doctrine', () => {
-  it('keeps survival, Kelly, convexity, liquidity, and epistemic humility in the system layer', () => {
-    expect(DAN_SYSTEM_PROMPT).toContain('leave less than 60%')
-    expect(DAN_SYSTEM_PROMPT).toContain('Kelly is a ceiling')
-    expect(DAN_SYSTEM_PROMPT).toContain('user-directed order may be prepared without endorsement')
-    expect(DAN_SYSTEM_PROMPT).toContain('A safe haven must pay when needed')
-    expect(DAN_SYSTEM_PROMPT).toContain('bounded-loss convexity')
-    expect(DAN_SYSTEM_PROMPT).toContain('dealer balance sheets')
-    expect(DAN_SYSTEM_PROMPT).toContain('stationarity, ergodicity, and regime assumptions')
-    expect(DAN_SYSTEM_PROMPT).toContain('do not reveal the probability, timing, or size')
-    expect(DAN_SYSTEM_PROMPT).toContain('does not prove that long volatility has positive expectancy')
-  })
-
+  // The doctrine's own contract is pinned in dan-doctrine.test.ts, against
+  // PORTFOLIO_POLICY itself rather than a spelled-out percentage that can drift from it.
   it('builds compact model context without exposing account identity', () => {
     const account: BrokerageContext = {
       accountNumber: 'SECRET123',
