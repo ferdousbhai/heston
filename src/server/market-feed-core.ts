@@ -180,6 +180,7 @@ export class MarketFeedCore {
   private openedChannels = new Set<number>()
   private configuredChannels = new Set<number>()
   private reconnectAttempt = 0
+  private upstreamAuthorization: 'authorized' | 'awaiting' | 'initial-unauthorized' = 'awaiting'
   private keepalive?: ReturnType<typeof setInterval>
   private setupTimeout?: ReturnType<typeof setTimeout>
   private candleFromTime?: number
@@ -328,6 +329,7 @@ export class MarketFeedCore {
     this.candleFromTime = candleFromTime
     const socket = new WebSocket(credentials.url)
     this.upstream = socket
+    this.upstreamAuthorization = 'awaiting'
     this.openedChannels.clear()
     this.configuredChannels.clear()
     this.clearSetupTimeout()
@@ -335,13 +337,13 @@ export class MarketFeedCore {
       if (socket !== this.upstream || this.demandIsConfigured()) return
       this.track(this.closeUpstream(socket, 1013, 'Upstream setup timed out'))
     }, UPSTREAM_SETUP_TIMEOUT_MS)
-    socket.addEventListener('open', () => this.track(this.handleUpstreamOpen(socket)))
-    socket.addEventListener('message', (event) => this.track(this.handleUpstreamMessage(socket, event.data, credentials.token)))
+    socket.addEventListener('open', () => this.track(this.handleUpstreamOpen(socket, credentials.token)))
+    socket.addEventListener('message', (event) => this.track(this.handleUpstreamMessage(socket, event.data)))
     socket.addEventListener('close', () => this.track(this.handleUpstreamClose(socket)))
     socket.addEventListener('error', () => this.track(this.closeUpstream(socket, 1011, 'Upstream error')))
   }
 
-  private async handleUpstreamOpen(socket: WebSocket): Promise<void> {
+  private async handleUpstreamOpen(socket: WebSocket, token: string): Promise<void> {
     if (socket !== this.upstream) {
       socket.close(1000, 'Superseded')
       return
@@ -350,14 +352,18 @@ export class MarketFeedCore {
       type: 'SETUP', channel: 0, keepaliveTimeout: 60, acceptKeepaliveTimeout: 60,
       version: '0.1-DXF-JS/0.3.0',
     })
+    // dxLink reports its initial unauthenticated setup state independently of the
+    // AUTH response. Send both client messages without waiting for that state so
+    // the initial UNAUTHORIZED frame cannot race ahead of our token.
+    await this.sendToUpstream(socket, { type: 'AUTH', channel: 0, token })
   }
 
-  private async handleUpstreamMessage(socket: WebSocket, raw: string | ArrayBuffer, token: string): Promise<void> {
+  private async handleUpstreamMessage(socket: WebSocket, raw: string | ArrayBuffer): Promise<void> {
     if (socket !== this.upstream) return
     try {
       const frame = TextFrameSchema.parse(raw)
       const message = JsonObjectSchema.parse(JSON.parse(frame))
-      await this.processUpstreamMessage(socket, message, token)
+      await this.processUpstreamMessage(socket, message)
     } catch (error) {
       await this.failProtocol(socket, error instanceof FeedProtocolError
         ? error.message
@@ -365,17 +371,17 @@ export class MarketFeedCore {
     }
   }
 
-  private async processUpstreamMessage(socket: WebSocket, message: JsonObject, token: string): Promise<void> {
+  private async processUpstreamMessage(socket: WebSocket, message: JsonObject): Promise<void> {
     const messageType = TextFrameSchema.parse(message.type)
     const messageChannel = z.number().int().nonnegative().parse(message.channel)
     if (messageType === 'SETUP') {
       if (messageChannel !== 0) throw new Error('Unexpected setup channel.')
       TextFrameSchema.min(1).parse(message.version)
-      await this.sendToUpstream(socket, { type: 'AUTH', channel: 0, token })
       return
     }
     if (messageType === 'AUTH_STATE' && message.state === 'AUTHORIZED') {
       if (messageChannel !== 0) throw new Error('Unexpected auth channel.')
+      this.upstreamAuthorization = 'authorized'
       this.reconnectAttempt = 0
       if (this.keepalive) clearInterval(this.keepalive)
       for (const channel of Object.values(CHANNELS)) {
@@ -388,6 +394,10 @@ export class MarketFeedCore {
     }
     if (messageType === 'AUTH_STATE') {
       if (messageChannel !== 0 || message.state !== 'UNAUTHORIZED') throw new Error('Malformed auth state.')
+      if (this.upstreamAuthorization === 'awaiting') {
+        this.upstreamAuthorization = 'initial-unauthorized'
+        return
+      }
       // Provider frames are untrusted and may echo credentials or private payloads.
       throw new FeedProtocolError('Upstream authorization failed')
     }

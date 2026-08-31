@@ -1,8 +1,12 @@
-import { Type } from '@earendil-works/pi-ai'
 import { type AgentTool } from '@earendil-works/pi-agent-core'
-import { z } from 'zod'
+import { type Static, Type } from 'typebox'
+import { Compile } from 'typebox/compile'
 
-import { EQUITY_SYMBOL_PATTERN, EquitySymbolSchema } from '../domain/instrument'
+import {
+  EquityOptionTupleSchema,
+  type EquityOptionTuple,
+} from '../domain/equity-option'
+import { isValidIsoDate } from '../domain/iso-date'
 import { type AppEnv } from './env'
 import {
   MAX_OPTION_GREEKS_CONTRACTS,
@@ -10,40 +14,18 @@ import {
   OptionStreamerSymbolSchema,
 } from './market-feed-contracts'
 import { textResult } from './agent-tool-result'
-import {
-  type EquityOptionTuple,
-  resolveEquityOptionTuples,
-} from './option-contract'
+import { resolveEquityOptionTuples } from './option-contract'
 
 export const ExactOptionGreeksReadParameters = Type.Object({
-  contracts: Type.Array(Type.Object({
-    expiry: Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }),
-    optionType: Type.Union([Type.Literal('C'), Type.Literal('P')]),
-    strike: Type.Number({ exclusiveMinimum: 0 }),
-    underlying: Type.String({ pattern: EQUITY_SYMBOL_PATTERN }),
-  }, { additionalProperties: false }), {
+  contracts: Type.Array(EquityOptionTupleSchema, {
     maxItems: MAX_OPTION_GREEKS_CONTRACTS,
     minItems: 1,
   }),
 }, { additionalProperties: false })
 
-const IsoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
-  const date = new Date(`${value}T00:00:00.000Z`)
-  return Number.isFinite(date.getTime()) && date.toISOString().startsWith(value)
-})
+const ExactOptionGreeksReadValidator = Compile(ExactOptionGreeksReadParameters)
 
-const ExactOptionGreeksInputSchema = z.object({
-  contracts: z.array(z.object({
-    expiry: IsoDateSchema,
-    optionType: z.enum(['C', 'P']),
-    strike: z.number().finite().positive(),
-    underlying: EquitySymbolSchema,
-  }).strict()).min(1).max(MAX_OPTION_GREEKS_CONTRACTS),
-}).strict()
-
-export type ExactOptionGreeksReadInput = {
-  contracts: EquityOptionTuple[]
-}
+export type ExactOptionGreeksReadInput = Static<typeof ExactOptionGreeksReadParameters>
 
 export type ExactOptionGreeksReadResult = {
   asOf: string
@@ -76,7 +58,10 @@ export async function readExactOptionGreeks(
   env: AppEnv,
   input: ExactOptionGreeksReadInput,
 ): Promise<ExactOptionGreeksReadResult> {
-  const parsed = ExactOptionGreeksInputSchema.parse(input)
+  const parsed = ExactOptionGreeksReadValidator.Parse(input)
+  if (parsed.contracts.some((contract) => !isValidIsoDate(contract.expiry))) {
+    throw new Error('Option expiry is invalid.')
+  }
   const contracts = [...new Map(parsed.contracts.map((contract) => [tupleKey(contract), contract])).values()]
   const resolved = (await resolveEquityOptionTuples(env, contracts, { requireStreamerSymbol: true })).map((instrument) => {
     return {

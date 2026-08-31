@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { type MarketSnapshot } from '../src/domain/market'
+import {
+  PublicMarketSnapshotSchema,
+  type PublicMarketSnapshot,
+} from '../src/domain/market'
 import { PUBLIC_RESPONSE_CACHE_CONTROL } from '../src/server/http'
 import {
   type PublicSnapshotCache,
@@ -34,11 +37,13 @@ class MemoryPublicSnapshotCache implements PublicSnapshotCache {
   }
 }
 
-function publicSnapshot(): MarketSnapshot {
+function publicSnapshot(): PublicMarketSnapshot {
   const snapshot = marketSnapshotFixture()
-  snapshot.watchlists = [{ id: 'public', kind: 'public', name: 'Options Watch', symbols: [] }]
-  snapshot.tickers = []
-  return snapshot
+  return PublicMarketSnapshotSchema.parse({
+    ...snapshot,
+    watchlists: [{ id: 'public', kind: 'public', name: 'Options Watch', symbols: [] }],
+    tickers: [],
+  })
 }
 
 function storedSnapshot(age: number, label: string): Response {

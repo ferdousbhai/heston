@@ -5,7 +5,9 @@ import {
   formatMarketMetric,
   instrumentSignals,
   MarketSnapshotSchema,
+  marketSnapshotFromPublic,
   parseStoredResearchBrief,
+  PublicMarketSnapshotSchema,
   volatilityVerdict,
 } from '../src/domain/market'
 import { marketSnapshotFixture, marketTickersFixture } from './fixtures/market'
@@ -113,6 +115,22 @@ describe('snapshot contract', () => {
   it('validates a complete tastytrade snapshot', () => {
     expect(MarketSnapshotSchema.parse(marketSnapshotFixture()).tickers.length).toBeGreaterThan(3)
     expect(() => MarketSnapshotSchema.parse({ ...marketSnapshotFixture(), watchlists: [] })).toThrow()
+  })
+
+  it('keeps position membership impossible on the public wire and restores the browser default', () => {
+    const owner = marketSnapshotFixture()
+    const publicValue = {
+      ...owner,
+      watchlists: [{ ...owner.watchlists[0]!, kind: 'public' as const }],
+      tickers: owner.tickers.map(({ position: _position, ...ticker }) => ticker),
+    }
+
+    expect(PublicMarketSnapshotSchema.parse(publicValue).tickers[0]).not.toHaveProperty('position')
+    expect(() => PublicMarketSnapshotSchema.parse({
+      ...publicValue,
+      tickers: [{ ...publicValue.tickers[0], position: true }],
+    })).toThrow()
+    expect(marketSnapshotFromPublic(publicValue).tickers.every((ticker) => ticker.position === false)).toBe(true)
   })
 
   it('returns isolated fixtures for tests that mutate broker state', () => {

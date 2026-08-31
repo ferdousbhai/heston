@@ -1,6 +1,9 @@
 import { z } from 'zod'
 
 import { EquitySymbolSchema } from './instrument'
+import { isValidIsoDate } from './iso-date'
+
+export { isValidIsoDate } from './iso-date'
 
 export const CatalystKindSchema = z.enum([
   'earnings', 'investor-event', 'product-event', 'regulatory', 'clinical',
@@ -8,15 +11,6 @@ export const CatalystKindSchema = z.enum([
 ])
 const CatalystConfidenceSchema = z.enum(['confirmed', 'estimated'])
 const CatalystTimingSchema = z.enum(['pre-market', 'intraday', 'after-hours', 'unknown'])
-
-export function isValidIsoDate(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
-  const [year, month, day] = value.split('-').map(Number)
-  const parsed = new Date(Date.UTC(year, month - 1, day))
-  return parsed.getUTCFullYear() === year
-    && parsed.getUTCMonth() === month - 1
-    && parsed.getUTCDate() === day
-}
 
 export const CatalystSchema = z.object({
   id: z.string(),

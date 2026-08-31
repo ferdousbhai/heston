@@ -15,7 +15,7 @@ function cacheKeyFor(request: Request): Request {
   cacheUrl.search = ''
   // Version the private Cache API key so a deploy cannot serve a response
   // serialized under an older public privacy contract.
-  cacheUrl.searchParams.set('schema', '3')
+  cacheUrl.searchParams.set('schema', '4')
   cacheUrl.searchParams.set('copy', 'fresh')
   return new Request(cacheUrl, { method: 'GET' })
 }

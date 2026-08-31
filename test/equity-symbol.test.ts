@@ -8,6 +8,7 @@ import {
   MAX_EQUITY_SYMBOL_LENGTH,
   POTENTIAL_PLAY_PATTERN,
 } from '../src/domain/instrument'
+import { DirectAccountActionParameters } from '../src/server/agent-contracts'
 import {
   AccountHistoryReadParameters,
   EQUITY_SYMBOL,
@@ -16,25 +17,32 @@ import {
   OptionContractFindParameters,
   SymbolSearchParameters,
 } from '../src/server/brokerage-read-contracts'
+import { PriceHistoryReadParameters } from '../src/server/market-research-contracts'
 import { ExactOptionGreeksReadParameters } from '../src/server/option-greeks-tool'
 import { WatchlistReadParameters } from '../src/server/watchlist-tool'
 
 type SchemaNode = {
+  anyOf?: SchemaNode[]
   items?: SchemaNode
+  oneOf?: SchemaNode[]
   pattern?: string
   properties?: Record<string, SchemaNode>
 }
 
 const SchemaNodeSchema: z.ZodType<SchemaNode> = z.lazy(() => z.looseObject({
+  anyOf: z.array(SchemaNodeSchema).optional(),
   items: SchemaNodeSchema.optional(),
+  oneOf: z.array(SchemaNodeSchema).optional(),
   pattern: z.string().optional(),
   properties: z.record(z.string(), SchemaNodeSchema).optional(),
 }))
 
 function advertisedPatterns(node: SchemaNode): string[] {
   return [
+    ...(node.anyOf ?? []).flatMap(advertisedPatterns),
     ...node.pattern === undefined ? [] : [node.pattern],
     ...node.items === undefined ? [] : advertisedPatterns(node.items),
+    ...(node.oneOf ?? []).flatMap(advertisedPatterns),
     ...Object.values(node.properties ?? {}).flatMap(advertisedPatterns),
   ]
 }
@@ -48,8 +56,8 @@ describe('equity symbol rule', () => {
   it('is the one symbol pattern every Dan tool contract advertises', () => {
     const patterns = [
       AccountHistoryReadParameters, InstrumentQuoteReadParameters, MarketMetricsReadParameters,
-      OptionContractFindParameters, SymbolSearchParameters, ExactOptionGreeksReadParameters,
-      WatchlistReadParameters,
+      OptionContractFindParameters, SymbolSearchParameters, DirectAccountActionParameters,
+      ExactOptionGreeksReadParameters, PriceHistoryReadParameters, WatchlistReadParameters,
     ].flatMap((contract) => advertisedPatterns(SchemaNodeSchema.parse(contract)))
 
     const equityPatterns = patterns.filter((pattern) => {
@@ -57,7 +65,10 @@ describe('equity symbol rule', () => {
       return rule.test('AAPL') && !rule.test('/ES')
     })
     expect(equityPatterns.length).toBeGreaterThan(1)
-    expect([...new Set(equityPatterns)]).toEqual([EQUITY_SYMBOL_PATTERN])
+    // Zod escapes `/` when serializing its RegExp to JSON Schema; JSON Schema has
+    // no slash delimiters, so the spellings are equivalent.
+    expect([...new Set(equityPatterns.map((pattern) => pattern.replaceAll('\\/', '/')))])
+      .toEqual([EQUITY_SYMBOL_PATTERN])
   })
 
   it('shares the compiled rule with the brokerage response guard', () => {

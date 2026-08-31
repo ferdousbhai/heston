@@ -204,7 +204,14 @@ describe('MarketFeed option Greeks RPC', () => {
     const socket = FakeUpstreamWebSocket.instances[0]!
     socket.open()
     await context.drain()
+    expect(socket.sent.map((frame) => JsonObjectSchema.parse(JSON.parse(frame))).slice(0, 2))
+      .toEqual([
+        expect.objectContaining({ channel: 0, type: 'SETUP' }),
+        { channel: 0, token: 'quote-token', type: 'AUTH' },
+      ])
     socket.message({ type: 'SETUP', channel: 0, version: '0.1-test' })
+    await context.drain()
+    socket.message({ type: 'AUTH_STATE', channel: 0, state: 'UNAUTHORIZED' })
     await context.drain()
     socket.message({ type: 'AUTH_STATE', channel: 0, state: 'AUTHORIZED' })
     await context.drain()
@@ -305,6 +312,44 @@ describe('MarketFeed option Greeks RPC', () => {
     expect(FakeUpstreamWebSocket.instances[0]?.readyState).toBe(FakeUpstreamWebSocket.CLOSED)
     expect(context.setAlarm).toHaveBeenCalled()
     vi.useRealTimers()
+  })
+
+  it('treats a second pre-authorization rejection as an invalid token', async () => {
+    const client = downstream(['SPY'])
+    const context = new FakeContext([client])
+    new MarketFeedCore(context, liveEnvironment())
+    await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(1))
+
+    const socket = FakeUpstreamWebSocket.instances[0]!
+    socket.open()
+    await context.drain()
+    socket.message({ type: 'SETUP', channel: 0, version: '0.1-test' })
+    socket.message({ type: 'AUTH_STATE', channel: 0, state: 'UNAUTHORIZED' })
+    await context.drain()
+    expect(socket.readyState).toBe(FakeUpstreamWebSocket.OPEN)
+
+    socket.message({ type: 'AUTH_STATE', channel: 0, state: 'UNAUTHORIZED' })
+    await context.drain()
+    expect(socket.readyState).toBe(FakeUpstreamWebSocket.CLOSED)
+    expect(vi.mocked(client.send).mock.calls.some(([frame]) => (
+      JsonObjectSchema.parse(JSON.parse(frame)).detail === 'Upstream authorization failed'
+    ))).toBe(true)
+  })
+
+  it('treats any rejection after authorization as terminal', async () => {
+    const context = new FakeContext([downstream(['SPY'])])
+    new MarketFeedCore(context, liveEnvironment())
+    await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(1))
+
+    const socket = FakeUpstreamWebSocket.instances[0]!
+    socket.open()
+    await context.drain()
+    socket.message({ type: 'AUTH_STATE', channel: 0, state: 'AUTHORIZED' })
+    await context.drain()
+    socket.message({ type: 'AUTH_STATE', channel: 0, state: 'UNAUTHORIZED' })
+    await context.drain()
+
+    expect(socket.readyState).toBe(FakeUpstreamWebSocket.CLOSED)
   })
 
   it('does not expose provider-supplied protocol details to logs or clients', async () => {

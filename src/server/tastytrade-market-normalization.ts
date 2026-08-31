@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
-import { isValidIsoDate } from '../domain/catalyst'
 import { EquitySymbolSchema, type InstrumentCatalogItem } from '../domain/instrument'
+import { isValidIsoDate } from '../domain/iso-date'
 import {
   type MarketSnapshot,
   type Ticker,

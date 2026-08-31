@@ -1,7 +1,7 @@
-import { Type } from '@earendil-works/pi-ai'
 import { type AgentTool } from '@earendil-works/pi-agent-core'
+import { Type } from 'typebox'
 
-import { EQUITY_SYMBOL_PATTERN } from '../domain/instrument'
+import { EquitySymbolType } from '../domain/instrument'
 import { textResult } from './agent-tool-result'
 import { type AppEnv } from './env'
 import {
@@ -24,7 +24,7 @@ const RecentCoverageParameters = Type.Object({
     maximum: MAX_RESEARCH_LOOKBACK_DAYS,
     minimum: 1,
   }),
-  tickers: Type.Array(Type.String({ pattern: EQUITY_SYMBOL_PATTERN }), {
+  tickers: Type.Array(EquitySymbolType, {
     minItems: 1,
   }),
 }, { additionalProperties: false })

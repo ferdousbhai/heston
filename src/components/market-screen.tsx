@@ -89,6 +89,10 @@ function formatBorrowRate(rate: number): string {
   return `${borrowRateFormatter.format(rate)}%`
 }
 
+function borrowRateDetail(rate: number): string {
+  return rate === 0 ? 'Reported 0%' : `${formatBorrowRate(rate)} borrow`
+}
+
 type SortDirection = 'asc' | 'desc'
 type SortKey = 'symbol' | 'marketCap' | 'price' | 'volume' | 'premium' | 'rank' | 'liquidity'
 
@@ -354,7 +358,7 @@ const MarketTickerRow = memo(function MarketTickerRow({
       <TableCell className="liquidity-cell">
         <strong>{formatIfReported(ticker.liquidity, (liquidity) => `${formatMarketMetric(liquidity)}/5`) ?? '—'}</strong>
         <small>{ticker.lendability ?? 'Lendability unavailable'}</small>
-        <small>{ticker.borrowRate === undefined ? 'Rate unavailable' : `${formatBorrowRate(ticker.borrowRate)} borrow`}</small>
+        <small>{ticker.borrowRate === undefined ? 'Rate unavailable' : borrowRateDetail(ticker.borrowRate)}</small>
       </TableCell>
     </TableRow>
   )

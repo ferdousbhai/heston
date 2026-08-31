@@ -1,9 +1,8 @@
-import { Type } from '@earendil-works/pi-ai'
+import { type Static, Type } from 'typebox'
 
-import { EQUITY_SYMBOL_PATTERN, EQUITY_SYMBOL_REGEX } from '../domain/instrument'
-
-export type HistoryKind = 'orders' | 'transactions'
-export type TransactionType = 'Money Movement' | 'Trade'
+import { EquityOptionTupleSchema } from '../domain/equity-option'
+import { EQUITY_SYMBOL_REGEX, EquitySymbolType } from '../domain/instrument'
+import { IsoDateType } from '../domain/iso-date'
 
 // These are model-context budgets, not brokerage or trading policy. Read tools expose
 // pagination/truncation so the agent can make another narrow call instead of receiving
@@ -25,7 +24,6 @@ export const EQUITY_SYMBOL = EQUITY_SYMBOL_REGEX
  * `EQUITY_SYMBOL_PATTERN`.
  */
 export const UNDERLYING_SYMBOL = /^\/?[A-Z0-9.]{1,31}$/
-export const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 export const AccountHistoryReadParameters = Type.Object({
   days: Type.Optional(Type.Integer({
@@ -53,7 +51,7 @@ export const AccountHistoryReadParameters = Type.Object({
 }, { additionalProperties: false })
 
 export const MarketMetricsReadParameters = Type.Object({
-  symbols: Type.Array(Type.String({ pattern: EQUITY_SYMBOL_PATTERN }), {
+  symbols: Type.Array(EquitySymbolType, {
     maxItems: MAX_MARKET_SYMBOLS,
     minItems: 1,
   }),
@@ -70,30 +68,30 @@ export const SymbolSearchParameters = Type.Object({
 }, { additionalProperties: false })
 
 export const OptionContractFindParameters = Type.Object({
-  expiry: Type.Optional(Type.String({
-    pattern: '^\\d{4}-\\d{2}-\\d{2}$',
-  })),
+  expiry: Type.Optional(IsoDateType),
   nearStrike: Type.Optional(Type.Number({
     description: 'Target strike; returns the nearest listed contracts.',
     exclusiveMinimum: 0,
   })),
   optionType: Type.Optional(Type.Union([Type.Literal('C'), Type.Literal('P')])),
   strike: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
-  underlying: Type.String({ pattern: EQUITY_SYMBOL_PATTERN }),
+  underlying: EquitySymbolType,
 }, { additionalProperties: false })
 
 export const InstrumentQuoteReadParameters = Type.Object({
-  contracts: Type.Optional(Type.Array(Type.Object({
-    expiry: Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }),
-    optionType: Type.Union([Type.Literal('C'), Type.Literal('P')]),
-    strike: Type.Number({ exclusiveMinimum: 0 }),
-    underlying: Type.String({ pattern: EQUITY_SYMBOL_PATTERN }),
-  }, { additionalProperties: false }), { maxItems: MAX_QUOTE_INSTRUMENTS, minItems: 1 })),
-  symbols: Type.Optional(Type.Array(Type.String({ pattern: EQUITY_SYMBOL_PATTERN }), {
+  contracts: Type.Optional(Type.Array(EquityOptionTupleSchema, {
+    maxItems: MAX_QUOTE_INSTRUMENTS,
+    minItems: 1,
+  })),
+  symbols: Type.Optional(Type.Array(EquitySymbolType, {
     maxItems: MAX_QUOTE_INSTRUMENTS,
     minItems: 1,
   })),
 }, { additionalProperties: false })
+
+export type AccountHistoryReadInput = Static<typeof AccountHistoryReadParameters>
+export type InstrumentQuoteReadInput = Static<typeof InstrumentQuoteReadParameters>
+export type OptionContractFindInput = Static<typeof OptionContractFindParameters>
 
 export type CompactTransaction = {
   action?: string

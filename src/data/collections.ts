@@ -15,6 +15,8 @@ import {
 } from '../server/market-feed-contracts'
 import {
   MarketSnapshotSchema,
+  marketSnapshotFromPublic,
+  PublicMarketSnapshotSchema,
   TickerSchema,
   mostActiveSymbol,
   type MarketSnapshot,
@@ -24,7 +26,7 @@ import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 
 // One versioned row now commits the audience and complete server snapshot together.
 // Earlier versions spread one snapshot across five independently persisted collections.
-export const OFFLINE_SNAPSHOT_VERSION = 7 as const
+export const OFFLINE_SNAPSHOT_VERSION = 8 as const
 export type SnapshotAudience = 'owner' | 'public'
 
 const PreferenceSchema = z.object({
@@ -48,6 +50,7 @@ const LEGACY_SNAPSHOT_STORAGE_PREFIXES = [
   'spice.tickers.v',
   'spice.watchlists.v',
 ]
+const LEGACY_ATOMIC_SNAPSHOT_STORAGE_KEYS = ['spice.snapshot.v7']
 
 const OfflineSnapshotSchema = z.object({
   audience: z.enum(['owner', 'public']),
@@ -147,6 +150,7 @@ async function preloadSnapshotCollections(): Promise<void> {
   ])
   const storage = globalThis.window?.localStorage
   if (storage) {
+    for (const key of LEGACY_ATOMIC_SNAPSHOT_STORAGE_KEYS) storage.removeItem(key)
     // Retire every split-snapshot generation after the atomic collection is ready.
     // This removes stale owner rows without touching preferences or favorite staging.
     for (let index = storage.length - 1; index >= 0; index -= 1) {
@@ -265,7 +269,10 @@ export async function syncFromCloud(
     ? await fetch('/api/snapshot', { headers: { Accept: 'application/json' }, signal })
     : await fetch('/api/public-snapshot', { signal })
   if (!response.ok) throw new Error(`Snapshot sync failed (${response.status})`)
-  const snapshot = MarketSnapshotSchema.parse(await response.json())
+  const payload: unknown = await response.json()
+  const snapshot = audience === 'owner'
+    ? MarketSnapshotSchema.parse(payload)
+    : marketSnapshotFromPublic(PublicMarketSnapshotSchema.parse(payload))
   if (signal?.aborted || !isCurrent()) throw new DOMException('Snapshot was superseded', 'AbortError')
   await hydrateCollections(snapshot, audience)
   return snapshot

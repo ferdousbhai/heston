@@ -16,6 +16,13 @@ function isoDateAfter(days: number): string {
   return date.toISOString().slice(0, 10)
 }
 
+function publicSnapshotJson(snapshot: ReturnType<typeof marketSnapshotFixture>): string {
+  return JSON.stringify({
+    ...snapshot,
+    tickers: snapshot.tickers.map(({ position: _position, ...ticker }) => ticker),
+  })
+}
+
 test('unauthenticated visitors can read market data but Dan stays behind Google sign-in', async ({ page }) => {
   const publicSnapshot = marketSnapshotFixture()
   publicSnapshot.catalysts = publicSnapshot.catalysts.map((catalyst) => (
@@ -36,7 +43,7 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
   }))
   await page.route('**/api/public-snapshot', (route) => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify(publicSnapshot),
+    body: publicSnapshotJson(publicSnapshot),
   }))
   await page.addInitScript(() => {
     localStorage.setItem('spice.tickers.v6', 'stale owner ticker rows')
@@ -49,9 +56,9 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
   await expect(page.locator('.premium-data-table [data-slot="badge"]')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /NVDA, NVIDIA, Expensive option premium/ })).toBeVisible()
   expect(await page.evaluate(() => Object.keys(localStorage).filter((key) => (
-    key === 'spice.snapshot.v7'
+    key === 'spice.snapshot.v8'
       || /^spice\.(?:tickers|watchlists|research|catalysts|sync-state)\.v/.test(key)
-  )))).toEqual(['spice.snapshot.v7'])
+  )))).toEqual(['spice.snapshot.v8'])
   await expect(page.getByRole('button', { name: 'Manage Options Watch' })).toHaveCount(0)
   await expect(page.getByRole('combobox', { name: 'Watchlist' })).toHaveCount(0)
   await expect(page.locator('.watchlist-title')).toHaveCount(0)
@@ -318,7 +325,7 @@ test('authenticated favorites consume only unchanged anonymous staging across ta
   }))
   await page.route('**/api/public-snapshot', (route) => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify(snapshot),
+    body: publicSnapshotJson(snapshot),
   }))
   await page.route('**/api/favorites', async (route) => {
     if (route.request().method() === 'POST') {
@@ -362,7 +369,7 @@ test('authenticated favorites consume only unchanged anonymous staging across ta
   }))
   await staleAnonymous.route('**/api/public-snapshot', (route) => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify(snapshot),
+    body: publicSnapshotJson(snapshot),
   }))
   await staleAnonymous.goto('/')
   await expect(staleAnonymous.getByRole('button', { name: 'Unpin NVDA' })).toBeVisible()
@@ -441,7 +448,7 @@ test('two signed-out devices converge on the account union without granting owne
   }))
   await page.route('**/api/public-snapshot', (route) => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify(snapshot),
+    body: publicSnapshotJson(snapshot),
   }))
   await page.route('**/api/snapshot', (route) => {
     ownerSnapshotRequests += 1
@@ -492,7 +499,7 @@ test('two signed-out devices converge on the account union without granting owne
   }))
   await mobile.route('**/api/public-snapshot', (route) => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify(snapshot),
+    body: publicSnapshotJson(snapshot),
   }))
   await mobile.route('**/api/snapshot', (route) => {
     ownerSnapshotRequests += 1

@@ -1,8 +1,9 @@
 import { z } from 'zod'
 
-import { CatalystSchema, isValidIsoDate } from './catalyst'
+import { CatalystSchema } from './catalyst'
 import { CandlePointSchema } from './candle'
 import { EquitySymbolSchema } from './instrument'
+import { isValidIsoDate } from './iso-date'
 import { type JsonValue } from './json-payload'
 
 // One list, two audiences: `private` is the owner's authoritative D1 internal
@@ -54,6 +55,9 @@ export const TickerSchema = z.object({
   position: z.boolean(),
   updatedAt: z.string(),
 })
+
+/** The public wire contract cannot represent account-derived position membership. */
+export const PublicTickerSchema = TickerSchema.omit({ position: true }).strict()
 
 // Daily research has already validated the structured play before rendering this label.
 // Reinterpreting the label here would create a second model-output policy.
@@ -110,7 +114,19 @@ export const MarketSnapshotSchema = z.object({
   watchlists: z.array(WatchlistSchema).length(1),
   tickers: z.array(TickerSchema),
   catalysts: z.array(CatalystSchema),
-  research: ResearchBriefSchema,
+  research: ResearchBriefSchema.optional(),
+})
+
+const PublicWatchlistSchema = WatchlistSchema.extend({ kind: z.literal('public') }).strict()
+
+export const PublicMarketSnapshotSchema = z.strictObject({
+  source: z.literal('tastytrade'),
+  syncedAt: z.string(),
+  marketState: z.enum(['open', 'closed', 'pre', 'after', 'unknown']),
+  watchlists: z.array(PublicWatchlistSchema).length(1),
+  tickers: z.array(PublicTickerSchema),
+  catalysts: z.array(CatalystSchema),
+  research: ResearchBriefSchema.optional(),
 })
 
 export type Watchlist = z.infer<typeof WatchlistSchema>
@@ -118,6 +134,21 @@ export type Ticker = z.infer<typeof TickerSchema>
 export type IvTermStructure = z.infer<typeof IvTermStructureSchema>
 export type ResearchBrief = z.infer<typeof ResearchBriefSchema>
 export type MarketSnapshot = z.infer<typeof MarketSnapshotSchema>
+export type PublicMarketSnapshot = z.infer<typeof PublicMarketSnapshotSchema>
+export type PublicTicker = z.infer<typeof PublicTickerSchema>
+
+export function publicTickerFromTicker(ticker: Ticker): PublicTicker {
+  const { position: _privatePosition, ...candidate } = ticker
+  return PublicTickerSchema.parse(candidate)
+}
+
+/** Convert a validated account-free response into the browser's richer internal model. */
+export function marketSnapshotFromPublic(snapshot: PublicMarketSnapshot): MarketSnapshot {
+  return MarketSnapshotSchema.parse({
+    ...snapshot,
+    tickers: snapshot.tickers.map((ticker) => ({ ...ticker, position: false })),
+  })
+}
 
 /** Highest reported share volume first; missing volume sorts last, then ticker. */
 export function mostActiveSymbol(

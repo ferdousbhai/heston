@@ -1,8 +1,8 @@
-import { Type } from '@earendil-works/pi-ai'
 import { type AgentTool } from '@earendil-works/pi-agent-core'
+import { Type } from 'typebox'
 
 import { CatalystSchema, marketDate, type Catalyst } from '../domain/catalyst'
-import { EQUITY_SYMBOL_PATTERN, EquitySymbolSchema } from '../domain/instrument'
+import { EquitySymbolSchema, EquitySymbolType } from '../domain/instrument'
 import { type ResearchBrief } from '../domain/market'
 import { type AppEnv } from './env'
 import { textResult } from './agent-tool-result'
@@ -22,7 +22,7 @@ const CatalystReadParameters = Type.Object({
     maximum: MAX_CATALYST_HORIZON_DAYS,
     minimum: 1,
   })),
-  symbols: Type.Array(Type.String({ pattern: EQUITY_SYMBOL_PATTERN }), {
+  symbols: Type.Array(EquitySymbolType, {
     maxItems: MAX_CATALYST_SYMBOLS,
     minItems: 1,
   }),

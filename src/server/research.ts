@@ -1,6 +1,7 @@
 import { marketDate } from '../domain/catalyst'
 import { toError } from '../domain/failure'
 import { ResearchBriefSchema, type ResearchBrief } from '../domain/market'
+import { shouldStartDailyResearch } from '../domain/research-schedule'
 import { readMarketStatus } from './brokerage-read-tools'
 import { type AppEnv } from './env'
 import { researchBriefId } from './research-contracts'
@@ -12,17 +13,8 @@ import {
 } from './research-output'
 import { dailyResearchAgent, type DailyResearchSubmission } from './research-agent'
 
-function newYorkParts(date: Date) {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false,
-  }).formatToParts(date)
-  return Object.fromEntries(parts.map((part) => [part.type, part.value]))
-}
-
 export function shouldStartScheduledResearch(date: Date): boolean {
-  const parts = newYorkParts(date)
-  return parts.weekday !== 'Sat' && parts.weekday !== 'Sun' && parts.hour === '09'
-    && parts.minute === '30'
+  return shouldStartDailyResearch(date)
 }
 
 /** Publish only sources the editor selected for an idea or the reading list. */

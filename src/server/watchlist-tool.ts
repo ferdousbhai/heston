@@ -1,5 +1,5 @@
-import { Type } from '@earendil-works/pi-ai'
 import { type AgentTool } from '@earendil-works/pi-agent-core'
+import { Type } from 'typebox'
 
 import { EQUITY_SYMBOL_PATTERN } from '../domain/instrument'
 import { textResult } from './agent-tool-result'

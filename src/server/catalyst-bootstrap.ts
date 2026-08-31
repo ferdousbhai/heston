@@ -1,8 +1,9 @@
 import { z } from 'zod'
 
-import { CatalystKindSchema, CatalystSchema, CODEX_WEB_CATALYST_ID_PREFIX, isValidIsoDate, marketDate, type Catalyst } from '../domain/catalyst'
+import { CatalystKindSchema, CatalystSchema, CODEX_WEB_CATALYST_ID_PREFIX, marketDate, type Catalyst } from '../domain/catalyst'
 import { toError } from '../domain/failure'
 import { EquitySymbolSchema, instrumentDisplayName, type InstrumentCatalogItem } from '../domain/instrument'
+import { isValidIsoDate } from '../domain/iso-date'
 import { type JsonValue } from '../domain/json-payload'
 import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 import { persistResearchedCatalysts } from './catalysts'

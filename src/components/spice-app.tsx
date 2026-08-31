@@ -180,10 +180,9 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
             {snapshotReady && tab === 'market' && (!selected || !activeWatchlist) && (
               <MarketState message="No market symbols are available." />
             )}
-            {snapshotReady && tab === 'brief' && research && (
+            {snapshotReady && tab === 'brief' && (
               <BriefScreen availableSymbols={loadedSymbols} brief={research} onSymbol={chooseSymbol} />
             )}
-            {snapshotReady && tab === 'brief' && !research && <MarketState message="No research brief is available." />}
             {owner && !snapshotReady && tab === 'agent' && (
               <MarketState loading={!market.bootstrapComplete} message={market.bootstrapComplete ? 'Account market data is unavailable.' : 'Loading account context…'} />
             )}

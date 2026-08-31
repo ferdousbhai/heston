@@ -2,8 +2,11 @@ import { EquitySymbolSchema } from '../domain/instrument'
 import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 import {
   MarketSnapshotSchema,
+  PublicMarketSnapshotSchema,
   type MarketSnapshot,
+  type PublicMarketSnapshot,
   type Watchlist,
+  publicTickerFromTicker,
 } from '../domain/market'
 import { type AppEnv } from './env'
 import { readBoundedJson } from './bounded-response'
@@ -226,9 +229,7 @@ async function loadEquityCandleFromTime(env: AppEnv): Promise<number> {
 
 async function loadStoredResearch(env: AppEnv): Promise<MarketSnapshot['research']> {
   if (!env.DB) throw new Error('TastytradeResearch:store-unavailable')
-  const brief = await readLatestResearchBrief(env.DB)
-  if (!brief) throw new Error('TastytradeResearch:not-found')
-  return brief
+  return readLatestResearchBrief(env.DB)
 }
 
 type MarketSnapshotOptions = {
@@ -460,7 +461,7 @@ async function loadMarketSnapshot(
  */
 export async function loadPublicMarketSnapshot(
   env: AppEnv,
-): Promise<MarketSnapshot> {
+): Promise<PublicMarketSnapshot> {
   const storedUniverse = await loadStoredPublicMarketUniverse(env)
   const publicSymbols = [...new Set(storedUniverse.symbols)]
   const [sessionResult, marketFacts] = await Promise.all([
@@ -474,12 +475,12 @@ export async function loadPublicMarketSnapshot(
     name: 'Options Watch',
     symbols: storedUniverse.symbols,
   }]
-  return MarketSnapshotSchema.parse({
+  return PublicMarketSnapshotSchema.parse({
     source: 'tastytrade',
     syncedAt,
     marketState: marketStateFromTastytradeSession(sessionResult),
     watchlists,
-    tickers: marketFacts.tickers,
+    tickers: marketFacts.tickers.map(publicTickerFromTicker),
     catalysts: marketFacts.catalysts,
     research: await loadStoredResearch(env),
   })

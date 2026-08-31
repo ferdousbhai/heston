@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Compile } from 'typebox/compile'
 
 import { JsonObjectSchema, type JsonObject } from '../src/domain/json-payload'
 import {
+  DailyResearchSubmissionSchema,
   runDailyResearchAgent,
   type DailyResearchSubmission,
 } from '../src/server/research-agent'
@@ -154,6 +156,13 @@ afterEach(() => {
 })
 
 describe('daily research Pi agent boundary', () => {
+  it('asserts the structured report without cleaning or coercing it', () => {
+    const validator = Compile(DailyResearchSubmissionSchema)
+
+    expect(() => validator.Parse({ ...submission(), title: 42 })).toThrow()
+    expect(() => validator.Parse({ ...submission(), unexpected: true })).toThrow()
+  })
+
   it('gives Pi Reddit context before it chooses candidates and uses research tools', async () => {
     const broker = stubBroker()
     broker.tastyRequest.mockResolvedValue({

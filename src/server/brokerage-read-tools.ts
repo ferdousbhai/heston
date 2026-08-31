@@ -18,21 +18,23 @@ import {
   SymbolSearchParameters,
   UNDERLYING_SYMBOL,
   type AccountHistoryReadResult,
+  type AccountHistoryReadInput,
   type CompactMarketMetric,
   type CompactOptionContract,
   type CompactOrder,
   type CompactOrderLeg,
   type CompactTransaction,
-  type HistoryKind,
   type InstrumentQuoteReadResult,
+  type InstrumentQuoteReadInput,
   type MarketMetricsReadResult,
   type MarketStatusReadResult,
   type OptionContractFindResult,
+  type OptionContractFindInput,
   type SymbolSearchItem,
   type SymbolSearchResult,
-  type TransactionType,
 } from './brokerage-read-contracts'
 import { jsonObject, type JsonObject, type JsonValue } from '../domain/json-payload'
+import { isValidIsoDate } from '../domain/iso-date'
 import {
   dataRecord,
   finiteNumber,
@@ -48,17 +50,19 @@ import {
   requiredIdentifier,
   requiredText,
   requiredTimestamp,
-  validDate,
 } from './brokerage-read-normalization'
 import { resolveEquityOptionTuples } from './option-contract'
 import { textResult } from './agent-tool-result'
 import { brokerApi } from './tastytrade'
 
 export type {
+  AccountHistoryReadInput,
   AccountHistoryReadResult,
+  InstrumentQuoteReadInput,
   InstrumentQuoteReadResult,
   MarketMetricsReadResult,
   MarketStatusReadResult,
+  OptionContractFindInput,
   OptionContractFindResult,
   SymbolSearchResult,
 } from './brokerage-read-contracts'
@@ -140,15 +144,6 @@ function compactOrder(row: JsonObject): CompactOrder {
     underlyingSymbol: requiredText(row, ['underlying-symbol'], label, 64),
     updatedAt: requiredTimestamp(row, ['updated-at'], label),
   }
-}
-
-export type AccountHistoryReadInput = {
-  days?: number
-  limit?: number
-  pageOffset?: number
-  transactionType?: TransactionType
-  type: HistoryKind
-  underlyingSymbol?: string
 }
 
 /** Read one bounded broker page and strip account identifiers before returning it to the model. */
@@ -335,11 +330,6 @@ function quoteFromRecord(
   return quote
 }
 
-export type InstrumentQuoteReadInput = {
-  contracts?: Array<{ expiry: string; optionType: 'C' | 'P'; strike: number; underlying: string }>
-  symbols?: string[]
-}
-
 /** Resolve human option tuples server-side, then fetch exact bid/ask without accepting arbitrary broker symbols. */
 export async function readInstrumentQuotes(
   env: AppEnv,
@@ -352,7 +342,7 @@ export async function readInstrumentQuotes(
     || symbols.length + contracts.length > MAX_QUOTE_INSTRUMENTS
     || symbols.some((symbol) => !EQUITY_SYMBOL.test(symbol))
     || contracts.some((contract) => !EQUITY_SYMBOL.test(contract.underlying)
-      || !validDate(contract.expiry)
+      || !isValidIsoDate(contract.expiry)
       || (contract.optionType !== 'C' && contract.optionType !== 'P')
       || !Number.isFinite(contract.strike)
       || contract.strike <= 0)) {
@@ -449,14 +439,6 @@ function parseActiveStandardOption(row: JsonObject, underlying: string): ParsedO
   }
 }
 
-export type OptionContractFindInput = {
-  expiry?: string
-  nearStrike?: number
-  optionType?: 'C' | 'P'
-  strike?: number
-  underlying: string
-}
-
 export async function findOptionContracts(
   env: AppEnv,
   input: OptionContractFindInput,
@@ -464,7 +446,7 @@ export async function findOptionContracts(
 ): Promise<OptionContractFindResult> {
   const underlying = input.underlying.trim().toUpperCase()
   if (!EQUITY_SYMBOL.test(underlying)) throw new Error('Option underlying is invalid.')
-  if (input.expiry !== undefined && !validDate(input.expiry)) throw new Error('Option expiry is invalid.')
+  if (input.expiry !== undefined && !isValidIsoDate(input.expiry)) throw new Error('Option expiry is invalid.')
   if (input.optionType !== undefined && input.optionType !== 'C' && input.optionType !== 'P') {
     throw new Error('Option type is invalid.')
   }

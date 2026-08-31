@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { readLatestResearchBrief, upsertResearchBrief } from '../src/server/research-brief-store'
+import {
+  readLatestResearchBrief,
+  readResearchBriefBefore,
+  upsertResearchBrief,
+} from '../src/server/research-brief-store'
 import { unsupportedDatabase, unsupportedStatement } from './fake-d1'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 
@@ -49,5 +53,16 @@ describe('research brief store', () => {
       'INSERT INTO research_briefs (id, published_at, payload_json) VALUES (?, ?, ?)',
     ).run('broken', '2026-08-29T13:30:00.000Z', '{}')
     await expect(readLatestResearchBrief(store.database)).rejects.toThrow()
+  })
+
+  it('reads one older brief at a time in publication order', async () => {
+    const older = { ...brief, id: 'daily-2026-08-27', publishedAt: '2026-08-27T13:30:00.000Z' }
+    await upsertResearchBrief(store.database, older)
+    await upsertResearchBrief(store.database, brief)
+
+    await expect(readResearchBriefBefore(store.database, brief.publishedAt)).resolves.toMatchObject({
+      id: older.id,
+    })
+    await expect(readResearchBriefBefore(store.database, older.publishedAt)).resolves.toBeUndefined()
   })
 })

@@ -317,6 +317,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .bottom-nav { position: fixed; z-index: 20; left: 50%; bottom: 0; transform: translateX(-50%); width: 100%; height: calc(71px + env(safe-area-inset-bottom)); padding: 6px 18px env(safe-area-inset-bottom); background: rgba(11, 12, 16, .84); backdrop-filter: blur(28px) saturate(150%); border-top: 1px solid var(--hairline); display: grid; grid-template-columns: repeat(3, 1fr); }
 
 .brief-screen { max-width: 760px; margin-inline: auto; animation: enter .35s var(--ease) both; }
+.brief-navigation { min-height: 42px; padding: 7px 14px; border-bottom: 1px solid var(--hairline); display: flex; align-items: center; justify-content: space-between; }
+.brief-navigation [data-slot="button"]:only-child { margin-right: auto; }
+.brief-archive-error { margin: 16px 20px 0; }
+.brief-next-run { min-height: calc(50vh - 42px); min-height: calc(50dvh - 42px); padding: 24px 20px; display: grid; place-items: center; }
+.brief-next-run h1 { margin: 0; font-size: 18px; letter-spacing: -.025em; }
+.brief-next-run [data-slot="empty-description"] { display: flex; flex-direction: column; gap: 4px; }
+.brief-next-run time { color: var(--text); font-size: 13px; }
+.brief-next-run [data-slot="empty-description"] span { color: var(--ink-faint); font-size: 11px; }
 .brief-cover { padding: 28px 22px 26px; border-bottom: 1px solid var(--hairline); }
 .brief-cover time { color: var(--ink-faint); font: 10px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
 .brief-cover h1 { max-width: 560px; margin: 22px 0 4px; font-size: clamp(26px, 6.4vw, 36px); font-weight: 780; line-height: 1.06; letter-spacing: -.04em; }

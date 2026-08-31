@@ -17,6 +17,7 @@ import { Route as SupportRouteImport } from './routes/support'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as ApiFavoritesRouteImport } from './routes/api.favorites'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
+import { Route as ApiPublicResearchBriefRouteImport } from './routes/api.public-research-brief'
 import { Route as ApiPublicSnapshotRouteImport } from './routes/api.public-snapshot'
 import { Route as ApiSnapshotRouteImport } from './routes/api.snapshot'
 import { Route as ApiStreamRouteImport } from './routes/api.stream'
@@ -64,6 +65,11 @@ const ApiFavoritesRoute = ApiFavoritesRouteImport.update({
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
   path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicResearchBriefRoute = ApiPublicResearchBriefRouteImport.update({
+  id: '/api/public-research-brief',
+  path: '/api/public-research-brief',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicSnapshotRoute = ApiPublicSnapshotRouteImport.update({
@@ -116,6 +122,7 @@ export interface FileRoutesByFullPath {
   '/terms': typeof TermsRoute
   '/api/favorites': typeof ApiFavoritesRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/public-research-brief': typeof ApiPublicResearchBriefRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
@@ -134,6 +141,7 @@ export interface FileRoutesByTo {
   '/terms': typeof TermsRoute
   '/api/favorites': typeof ApiFavoritesRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/public-research-brief': typeof ApiPublicResearchBriefRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
@@ -153,6 +161,7 @@ export interface FileRoutesById {
   '/terms': typeof TermsRoute
   '/api/favorites': typeof ApiFavoritesRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/public-research-brief': typeof ApiPublicResearchBriefRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
@@ -173,6 +182,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/api/favorites'
     | '/api/health'
+    | '/api/public-research-brief'
     | '/api/public-snapshot'
     | '/api/snapshot'
     | '/api/stream'
@@ -191,6 +201,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/api/favorites'
     | '/api/health'
+    | '/api/public-research-brief'
     | '/api/public-snapshot'
     | '/api/snapshot'
     | '/api/stream'
@@ -209,6 +220,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/api/favorites'
     | '/api/health'
+    | '/api/public-research-brief'
     | '/api/public-snapshot'
     | '/api/snapshot'
     | '/api/stream'
@@ -228,6 +240,7 @@ export interface RootRouteChildren {
   TermsRoute: typeof TermsRoute
   ApiFavoritesRoute: typeof ApiFavoritesRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  ApiPublicResearchBriefRoute: typeof ApiPublicResearchBriefRoute
   ApiPublicSnapshotRoute: typeof ApiPublicSnapshotRoute
   ApiSnapshotRoute: typeof ApiSnapshotRoute
   ApiStreamRoute: typeof ApiStreamRoute
@@ -294,6 +307,13 @@ declare module '@tanstack/react-router' {
       path: '/api/health'
       fullPath: '/api/health'
       preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public-research-brief': {
+      id: '/api/public-research-brief'
+      path: '/api/public-research-brief'
+      fullPath: '/api/public-research-brief'
+      preLoaderRoute: typeof ApiPublicResearchBriefRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public-snapshot': {
@@ -364,6 +384,7 @@ const rootRouteChildren: RootRouteChildren = {
   TermsRoute: TermsRoute,
   ApiFavoritesRoute: ApiFavoritesRoute,
   ApiHealthRoute: ApiHealthRoute,
+  ApiPublicResearchBriefRoute: ApiPublicResearchBriefRoute,
   ApiPublicSnapshotRoute: ApiPublicSnapshotRoute,
   ApiSnapshotRoute: ApiSnapshotRoute,
   ApiStreamRoute: ApiStreamRoute,

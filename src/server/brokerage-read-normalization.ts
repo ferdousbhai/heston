@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
+import { isValidIsoDate } from '../domain/iso-date'
 import { envelopeRows, jsonNumber, jsonObject, type JsonObject, type JsonValue } from '../domain/json-payload'
-import { ISO_DATE } from './brokerage-read-contracts'
 
 type ItemEnvelope = { rows: JsonObject[]; totalItems?: number }
 
@@ -104,16 +104,10 @@ export function requiredIdentifier(row: JsonObject, key: string, label: string):
   return invalidResponse(label)
 }
 
-export function validDate(value: string): boolean {
-  if (!ISO_DATE.test(value)) return false
-  const date = new Date(`${value}T00:00:00.000Z`)
-  return !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value
-}
-
 export function optionalDate(row: JsonObject, keys: readonly string[], label: string): string | undefined {
   const value = optionalText(row, keys, label, 40)
   if (value === undefined) return undefined
-  return validDate(value) ? value : invalidResponse(label)
+  return isValidIsoDate(value) ? value : invalidResponse(label)
 }
 
 export function optionalTimestamp(row: JsonObject, keys: readonly string[], label: string): string | undefined {

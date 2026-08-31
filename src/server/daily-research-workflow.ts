@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { generateDailyResearch } from './research'
 import { type AppEnv, type DailyResearchWorkflowParams } from './env'
+import { publishResearchBriefToTelegram } from './research-telegram-publication'
 
 const DailyResearchWorkflowParameters = z.object({
   persist: z.boolean(),
@@ -37,11 +38,20 @@ export class DailyResearchWorkflow extends WorkflowEntrypoint<AppEnv, DailyResea
       requireMarketOpen: params.requireMarketOpen,
       runStep,
     })
+    // Previews are deliberately non-publishing. A production brief reaches the
+    // channel only after its public D1 record has committed successfully.
+    const telegramMessageCount = params.persist
+      ? await runStep(
+        'publish-telegram',
+        () => publishResearchBriefToTelegram(this.env, brief),
+      )
+      : 0
     return {
       briefId: brief.id,
       ideaCount: brief.ideas.length,
       publishedAt: brief.publishedAt,
       readingCount: brief.readingList.length,
+      telegramMessageCount,
     }
   }
 }

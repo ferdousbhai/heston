@@ -1,32 +1,20 @@
-import { Type } from '@earendil-works/pi-ai'
 import { type AgentTool } from '@earendil-works/pi-agent-core'
+import { Type } from 'typebox'
 
-import { EQUITY_SYMBOL_PATTERN, EquitySymbolSchema } from '../domain/instrument'
+import { EquitySymbolSchema, EquitySymbolType } from '../domain/instrument'
 import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
-import { DirectAccountActionSchema } from './agent-contracts'
+import {
+  DirectAccountActionParameters,
+  DirectAccountActionSchema,
+} from './agent-contracts'
 import { type AppEnv } from './env'
 import { brokerApi } from './tastytrade'
 import { textResult } from './agent-tool-result'
 import { watchlistWriter } from './watchlist-actions'
 import { internalWatchlistWriter } from './internal-watchlist'
 
-const DirectAccountActionParameters = Type.Union([
-  Type.Object({
-    kind: Type.Literal('cancel_order'),
-    orderId: Type.String({ pattern: '^\\d{1,40}$' }),
-  }, { additionalProperties: false }),
-  Type.Object({
-    kind: Type.Literal('add_watchlist_symbols'),
-    symbols: Type.Array(Type.String({ pattern: EQUITY_SYMBOL_PATTERN }), { maxItems: MAX_WATCHLIST_SYMBOLS, minItems: 1 }),
-  }, { additionalProperties: false }),
-  Type.Object({
-    kind: Type.Literal('remove_watchlist_symbols'),
-    symbols: Type.Array(Type.String({ pattern: EQUITY_SYMBOL_PATTERN }), { maxItems: MAX_WATCHLIST_SYMBOLS, minItems: 1 }),
-  }, { additionalProperties: false }),
-])
-
 const RememberTradeSymbolsParameters = Type.Object({
-  symbols: Type.Array(Type.String({ pattern: EQUITY_SYMBOL_PATTERN }), { maxItems: MAX_WATCHLIST_SYMBOLS, minItems: 1 }),
+  symbols: Type.Array(EquitySymbolType, { maxItems: MAX_WATCHLIST_SYMBOLS, minItems: 1 }),
 }, { additionalProperties: false })
 
 function commandText(message: string): string {

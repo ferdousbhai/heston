@@ -1,7 +1,8 @@
 import { z } from 'zod'
-import { Type } from '@earendil-works/pi-ai'
+import { Type } from 'typebox'
 
 import { EquitySymbolSchema } from '../domain/instrument'
+import { ISO_DATE_REGEX } from '../domain/iso-date'
 
 import {
   AddWatchlistSymbolsSchema,
@@ -10,7 +11,7 @@ import {
 
 const OrderActionSchema = z.enum(['Buy to Open', 'Sell to Open', 'Buy to Close', 'Sell to Close'])
 const OrderIdSchema = z.string().regex(/^\d{1,40}$/)
-const ExpiryDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+const ExpiryDateSchema = z.string().regex(ISO_DATE_REGEX)
 /** Limit prices are whole cents; the broker rejects finer increments. */
 const LimitPriceSchema = z.number().positive().multipleOf(0.01)
 // Quantity has no independent product ceiling. Fresh account state, contract
@@ -110,6 +111,9 @@ export const DirectAccountActionSchema = z.discriminatedUnion('kind', [
   AddWatchlistSymbolsSchema,
   RemoveWatchlistSymbolsSchema,
 ])
+
+/** Direct mutations use the same generated tool contract and server-side Zod boundary. */
+export const DirectAccountActionParameters = modelParameters(DirectAccountActionSchema)
 
 // These are request-envelope abuse bounds: chat is one model turn and the confirmation token is
 // an opaque digest input, not domain data. They do not authorize or constrain trade size.

@@ -1,5 +1,5 @@
-import { Type } from '@earendil-works/pi-ai'
 import { type AgentTool } from '@earendil-works/pi-agent-core'
+import { Type } from 'typebox'
 
 import { type OrderPayload } from './order-payload'
 import { type AppEnv } from './env'

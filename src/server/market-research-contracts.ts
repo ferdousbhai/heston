@@ -1,7 +1,7 @@
-export type StudyInput =
-  | { kind: 'SMA' | 'EMA' | 'RSI'; period?: number }
-  | { kind: 'BBANDS'; period?: number; standardDeviations?: number }
-  | { fastPeriod?: number; kind: 'MACD'; signalPeriod?: number; slowPeriod?: number }
+import { type Static, Type } from 'typebox'
+
+import { EquitySymbolType } from '../domain/instrument'
+import { ISO_DATE_PATTERN } from '../domain/iso-date'
 
 /**
  * Provider rows are the allocation boundary; returned rows and study count are
@@ -13,14 +13,56 @@ export const MAX_PRICE_HISTORY_RETURNED_ROWS = 250
 export const MAX_PRICE_STUDIES = 5
 export const MAX_PRICE_STUDY_PERIOD = MAX_PRICE_HISTORY_PROVIDER_ROWS
 
-export type PriceHistoryReadInput = {
-  endDate?: string
-  interval?: '1d' | '1mo' | '1wk'
-  limit?: number
-  startDate?: string
-  studies?: StudyInput[]
-  symbol: string
-}
+const ScalarStudyParameters = Type.Object({
+  kind: Type.Union([Type.Literal('SMA'), Type.Literal('EMA'), Type.Literal('RSI')]),
+  period: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 2 })),
+}, { additionalProperties: false })
+
+const BollingerStudyParameters = Type.Object({
+  kind: Type.Literal('BBANDS'),
+  period: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 2 })),
+  standardDeviations: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
+}, { additionalProperties: false })
+
+const MacdStudyParameters = Type.Object({
+  fastPeriod: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 2 })),
+  kind: Type.Literal('MACD'),
+  signalPeriod: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 2 })),
+  slowPeriod: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 3 })),
+}, { additionalProperties: false })
+
+const PriceStudyParameters = Type.Union([
+  ScalarStudyParameters,
+  BollingerStudyParameters,
+  MacdStudyParameters,
+])
+
+export const PriceHistoryReadParameters = Type.Object({
+  endDate: Type.Optional(Type.String({
+    description: 'Inclusive end date in YYYY-MM-DD form. Defaults to today.',
+    pattern: ISO_DATE_PATTERN,
+  })),
+  interval: Type.Optional(Type.Union([
+    Type.Literal('1d'), Type.Literal('1wk'), Type.Literal('1mo'),
+  ], { description: 'Daily by default.' })),
+  limit: Type.Optional(Type.Integer({
+    description: 'Most recent rows to return. Defaults to 120.',
+    maximum: MAX_PRICE_HISTORY_RETURNED_ROWS,
+    minimum: 1,
+  })),
+  startDate: Type.Optional(Type.String({
+    description: 'Start date in YYYY-MM-DD form. Defaults to one year before endDate.',
+    pattern: ISO_DATE_PATTERN,
+  })),
+  studies: Type.Optional(Type.Array(PriceStudyParameters, {
+    description: 'Optional studies calculated from adjusted closes. Defaults: period 14; MACD 12/26/9; Bollinger deviations 2.',
+    maxItems: MAX_PRICE_STUDIES,
+  })),
+  symbol: EquitySymbolType,
+}, { additionalProperties: false })
+
+export type StudyInput = Static<typeof PriceStudyParameters>
+export type PriceHistoryReadInput = Static<typeof PriceHistoryReadParameters>
 
 export type PriceHistoryRow = {
   adjustedClose: number

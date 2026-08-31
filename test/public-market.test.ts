@@ -225,7 +225,7 @@ describe('public market boundary', () => {
         (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
       VALUES ('NVDA', 'Equity', 'tastytrade-seed', '{}', '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z');
     `)
-    const research = marketSnapshotFixture().research
+    const research = marketSnapshotFixture().research!
     store.sqlite.prepare(
       'INSERT INTO research_briefs (id, published_at, payload_json) VALUES (?, ?, ?)',
     ).run(research.id, research.publishedAt, JSON.stringify(research))
@@ -300,7 +300,7 @@ describe('public market boundary', () => {
       publicPayload: [],
     }))
     await finalizeInternalWatchlist(env, [])
-    const research = marketSnapshotFixture().research
+    const research = marketSnapshotFixture().research!
     store.sqlite.prepare(
       'INSERT INTO research_briefs (id, published_at, payload_json) VALUES (?, ?, ?)',
     ).run(research.id, research.publishedAt, JSON.stringify(research))
@@ -421,9 +421,10 @@ describe('public market boundary', () => {
 
     expect(snapshot.watchlists[0]?.symbols).toEqual(['BE', 'NVDA'])
     expect(snapshot.tickers).toEqual([
-      expect.objectContaining({ symbol: 'BE', position: false }),
-      expect.objectContaining({ symbol: 'NVDA', position: false }),
+      expect.objectContaining({ symbol: 'BE' }),
+      expect.objectContaining({ symbol: 'NVDA' }),
     ])
+    expect(snapshot.tickers.every((ticker) => !('position' in ticker))).toBe(true)
     const requestedUrls = fetchMock.mock.calls.map(([input]) => String(input))
     expect(requestedUrls.some((url) => url.includes('/accounts/') || url.includes('/watchlists'))).toBe(false)
     expect(requestedUrls.some((url) => url.includes('/instruments/equities'))).toBe(false)

@@ -1,3 +1,4 @@
+import { Type } from 'typebox'
 import { z } from 'zod'
 
 /**
@@ -25,6 +26,7 @@ export const MAX_EQUITY_SYMBOL_LENGTH = 10
 
 export const EQUITY_SYMBOL_PATTERN = `^${EQUITY_SYMBOL_BODY}$`
 export const EQUITY_SYMBOL_REGEX = new RegExp(EQUITY_SYMBOL_PATTERN)
+export const EquitySymbolType = Type.String({ pattern: EQUITY_SYMBOL_PATTERN })
 export const EquitySymbolSchema = z.string().trim().toUpperCase().regex(EQUITY_SYMBOL_REGEX)
 
 /**

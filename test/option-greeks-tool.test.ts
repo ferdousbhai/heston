@@ -65,6 +65,13 @@ function environment(greeks: ReturnType<typeof observation>[]) {
 }
 
 describe('exact option Greeks tool', () => {
+  it('rejects impossible calendar dates before broker resolution', async () => {
+    await expect(readExactOptionGreeks({}, { contracts: [{
+      expiry: '2026-02-30', optionType: 'C', strike: 200, underlying: 'NVDA',
+    }] })).rejects.toThrow('Option expiry is invalid')
+    expect(mocks.tastyRequest).not.toHaveBeenCalled()
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.tastyRequest.mockResolvedValue({ data: { items: [option('C'), option('P')] } })

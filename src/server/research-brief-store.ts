@@ -18,6 +18,22 @@ export async function readLatestResearchBrief(db: D1Database): Promise<ResearchB
   return parseStoredResearchBrief(JSON.parse(row.payload_json))
 }
 
+/** Read one archive neighbor so the public UI can traverse history without an unbounded payload. */
+export async function readResearchBriefBefore(
+  db: D1Database,
+  publishedBefore: string,
+): Promise<ResearchBrief | undefined> {
+  const result = await db.prepare(
+    `SELECT payload_json FROM research_briefs
+     WHERE published_at < ?
+     ORDER BY published_at DESC
+     LIMIT 1`,
+  ).bind(publishedBefore).first()
+  if (!result) return undefined
+  const row = StoredResearchBriefRowSchema.parse(result)
+  return parseStoredResearchBrief(JSON.parse(row.payload_json))
+}
+
 export async function upsertResearchBrief(db: D1Database, brief: ResearchBrief): Promise<void> {
   const stored = ResearchBriefSchema.parse(brief)
   await db.prepare(

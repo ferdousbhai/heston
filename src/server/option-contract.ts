@@ -1,5 +1,6 @@
 import { type OrderPlacement } from './agent-contracts'
 import { type AppEnv } from './env'
+import { type EquityOptionTuple } from '../domain/equity-option'
 import {
   JsonArraySchema,
   jsonNumber,
@@ -56,19 +57,14 @@ export interface EquityOptionContract {
   streamerSymbol?: string
 }
 
-export interface EquityOptionTuple {
-  expiry: string
-  optionType: 'C' | 'P'
-  strike: number
-  underlying: string
-}
-
 type ResolutionOptions = {
   opening?: boolean
   requireStreamerSymbol?: boolean
 }
 
 export type ResolvedEquityOptionTuple = EquityOptionTuple & EquityOptionContract
+
+export type { EquityOptionTuple }
 
 /** Resolve one exact, standard, active contract without assuming its root equals the underlying. */
 export function equityOptionContractFromChainTuple(

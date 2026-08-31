@@ -1,7 +1,8 @@
 import { z } from 'zod'
 
-import { CatalystSchema, isValidIsoDate, marketDate, type Catalyst } from '../domain/catalyst'
+import { CatalystSchema, marketDate, type Catalyst } from '../domain/catalyst'
 import { EquitySymbolSchema } from '../domain/instrument'
+import { isValidIsoDate } from '../domain/iso-date'
 import { type AppEnv } from './env'
 import { jsonObject, jsonText, type JsonObject, type JsonValue } from '../domain/json-payload'
 import { D1_MAX_BOUND_PARAMETERS, rowsPerD1Statement } from './d1-limits'

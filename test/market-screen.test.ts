@@ -31,11 +31,11 @@ describe('selected market context', () => {
   it('leads with the selected symbol thesis and its dated catalysts', () => {
     const snapshot = marketSnapshotFixture()
     const research = {
-      ...snapshot.research,
+      ...snapshot.research!,
       ideas: [
-        snapshot.research.ideas[0]!,
+        snapshot.research!.ideas[0]!,
         {
-          ...snapshot.research.ideas[0]!,
+          ...snapshot.research!.ideas[0]!,
           symbol: 'META' as const,
           headline: 'Unrelated META thesis',
           play: 'META 800c 10/16' as const,
@@ -87,7 +87,7 @@ describe('selected market context', () => {
 
     const html = renderMarket(snapshot, {
       catalysts: [],
-      research: { ...snapshot.research, ideas: [] },
+      research: { ...snapshot.research!, ideas: [] },
       symbol: 'SPY',
     })
 
@@ -111,5 +111,16 @@ describe('watchlist market data', () => {
     expect(html).toContain('price-range')
     expect(html).toContain('Easy To Borrow')
     expect(html).toContain('0.0375% borrow')
+  })
+
+  it('distinguishes an exact provider zero from a rounded small borrow rate', () => {
+    const snapshot = marketSnapshotFixture()
+    const nvda = snapshot.tickers.find((ticker) => ticker.symbol === 'NVDA')!
+    nvda.borrowRate = 0
+
+    const html = renderMarket(snapshot, { symbol: 'NVDA' })
+
+    expect(html).toContain('Reported 0%')
+    expect(html).not.toContain('0.0000%')
   })
 })

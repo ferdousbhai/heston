@@ -1,15 +1,14 @@
-import { Type } from '@earendil-works/pi-ai'
 import { type AgentTool } from '@earendil-works/pi-agent-core'
 import createYahooFinance from 'yahoo-finance2/createYahooFinance'
 import chart, { type ChartResultArray } from 'yahoo-finance2/modules/chart'
 
 import { marketDate } from '../domain/catalyst'
-import { EQUITY_SYMBOL_PATTERN, EQUITY_SYMBOL_REGEX } from '../domain/instrument'
+import { EQUITY_SYMBOL_REGEX } from '../domain/instrument'
+import { ISO_DATE_REGEX, isValidIsoDate } from '../domain/iso-date'
 import {
   MAX_PRICE_HISTORY_PROVIDER_ROWS,
   MAX_PRICE_HISTORY_RETURNED_ROWS,
-  MAX_PRICE_STUDIES,
-  MAX_PRICE_STUDY_PERIOD,
+  PriceHistoryReadParameters,
   type PriceHistoryProvider,
   type PriceHistoryReadInput,
   type PriceHistoryReadResult,
@@ -22,7 +21,6 @@ import { boundedYahooFetch } from './yahoo-finance-transport'
 
 export type { PriceHistoryProvider, PriceHistoryRow } from './market-research-contracts'
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 /**
  * Yahoo is intentionally a credential-free, delayed secondary context source.
  * It never supplies executable quotes or contracts; tastytrade remains the order
@@ -38,62 +36,12 @@ type ResearchYahooClient = {
   }): Promise<ChartResultArray>
 }
 
-const ScalarStudyParameters = Type.Object({
-  kind: Type.Union([Type.Literal('SMA'), Type.Literal('EMA'), Type.Literal('RSI')]),
-  period: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 2 })),
-}, { additionalProperties: false })
-
-const BollingerStudyParameters = Type.Object({
-  kind: Type.Literal('BBANDS'),
-  period: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 2 })),
-  standardDeviations: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
-}, { additionalProperties: false })
-
-const MacdStudyParameters = Type.Object({
-  fastPeriod: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 2 })),
-  kind: Type.Literal('MACD'),
-  signalPeriod: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 2 })),
-  slowPeriod: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 3 })),
-}, { additionalProperties: false })
-
-const PriceHistoryReadParameters = Type.Object({
-  endDate: Type.Optional(Type.String({
-    description: 'Inclusive end date in YYYY-MM-DD form. Defaults to today.',
-    pattern: '^\\d{4}-\\d{2}-\\d{2}$',
-  })),
-  interval: Type.Optional(Type.Union([
-    Type.Literal('1d'), Type.Literal('1wk'), Type.Literal('1mo'),
-  ], { description: 'Daily by default.' })),
-  limit: Type.Optional(Type.Integer({
-    description: 'Most recent rows to return. Defaults to 120.',
-    maximum: MAX_PRICE_HISTORY_RETURNED_ROWS,
-    minimum: 1,
-  })),
-  startDate: Type.Optional(Type.String({
-    description: 'Start date in YYYY-MM-DD form. Defaults to one year before endDate.',
-    pattern: '^\\d{4}-\\d{2}-\\d{2}$',
-  })),
-  studies: Type.Optional(Type.Array(Type.Union([
-    ScalarStudyParameters, BollingerStudyParameters, MacdStudyParameters,
-  ]), {
-    description: 'Optional studies calculated from adjusted closes. Defaults: period 14; MACD 12/26/9; Bollinger deviations 2.',
-    maxItems: MAX_PRICE_STUDIES,
-  })),
-  symbol: Type.String({ pattern: EQUITY_SYMBOL_PATTERN }),
-}, { additionalProperties: false })
-
 function dateString(value: Date | null | undefined): string | undefined {
   return value instanceof Date && Number.isFinite(value.getTime()) ? value.toISOString().slice(0, 10) : undefined
 }
 
 function finite(value: number | null | undefined): number | undefined {
   return value !== null && value !== undefined && Number.isFinite(value) ? value : undefined
-}
-
-function validDate(value: string): boolean {
-  if (!ISO_DATE.test(value)) return false
-  const date = new Date(`${value}T00:00:00.000Z`)
-  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value
 }
 
 function shiftDate(value: string, days: number): string {
@@ -134,7 +82,7 @@ function invalidHistory(): never {
 /** `dateString` already round-trips through `toISOString`, so only the expanded-year form can slip past. */
 function historyDate(value: Date): string | undefined {
   const date = dateString(value)
-  return date && ISO_DATE.test(date) ? date : undefined
+  return date && ISO_DATE_REGEX.test(date) ? date : undefined
 }
 
 /**
@@ -212,9 +160,9 @@ export function createYahooPriceHistoryProvider(
 
 function requestedHistoryRange(input: PriceHistoryReadInput, now: Date) {
   const endDate = input.endDate ?? marketDate(now)
-  if (!validDate(endDate)) throw new Error('Price history end date is invalid.')
+  if (!isValidIsoDate(endDate)) throw new Error('Price history end date is invalid.')
   const startDate = input.startDate ?? shiftDate(endDate, -365)
-  if (!validDate(startDate)) throw new Error('Price history start date is invalid.')
+  if (!isValidIsoDate(startDate)) throw new Error('Price history start date is invalid.')
   const start = Date.parse(`${startDate}T00:00:00.000Z`)
   const end = Date.parse(`${endDate}T00:00:00.000Z`)
   if (start > end) throw new Error('Price history range is invalid.')
