@@ -111,17 +111,13 @@ if (existingManifest && JSON.stringify(existingManifest) !== JSON.stringify(mani
 await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
 
 function prompt(instruments) {
-  return `Refresh an official-source upcoming catalyst calendar for an options investor.
+  return `Find scheduled, ticker-specific events for these instruments, dated from ${today} (New York) through ${horizon}.
 
-Use Codex's native live web search. Do not use Reddit, X, Twitter, other social posts, or secondary reporting as final evidence. Search each supplied instrument carefully. Secondary pages may help locate a source, but every returned sourceUrl must be the company investor-relations site or official newsroom, a regulator, clinical-trial registry, government page, or official event organizer. Follow leads until you find a direct dated source or conclude that no qualifying event is known.
+Every sourceUrl you return is fetched and read after you answer. A finding is discarded unless the page served at that URL states the event's date in its visible text, so cite the page that states the date, never a hub, calendar index, or search result that links to it. Returning nothing for an instrument is a correct answer.
 
-Today in New York is ${today}. Return only material, scheduled, ticker-specific events from ${today} through ${horizon}. Exclude earnings, dividends, routine filings, past events, undated possibilities, analyst forecasts, rumors, and generic product roadmaps. An exact date must be stated by the source. Re-report an event that is still scheduled. Never infer that a similarly named security or company belongs to a ticker.
+A source must be the company's investor-relations site or newsroom, a regulator, a clinical-trial registry, a government page, or the official event organizer. Not social posts, not secondary reporting, though those may help you find the official page.
 
-For every finding, echo symbol and instrumentName exactly from this input. Use the direct HTTPS page that establishes the date, not a search result page or home page. Keep the description factual and under 500 characters. Use unknown timing unless the source establishes pre-market, intraday, or after-hours. Return an empty findings array when the evidence bar is not met.
-
-Every sourceUrl is fetched and read after you answer. A finding is discarded unless the page served at that URL contains the event date in its visible text, so cite the page that states the date itself, never a hub, calendar index, or search result that merely links to it.
-
-An instrument with resolutionStatus unresolved has only a tastytrade watchlist symbol, not a verified instrument name. Research it only when an official source clearly establishes what that exact ticker represents; otherwise return no finding for it.
+Report only material events the source gives an exact date for. Skip anything routine or speculative. Echo symbol and instrumentName exactly as given; both are checked. Never assume a similarly named company belongs to a ticker, and for an instrument marked unresolved, research it only if an official source establishes what that exact ticker is.
 
 Instruments:\n${JSON.stringify(instruments)}`
 }
