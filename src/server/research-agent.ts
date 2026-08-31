@@ -46,6 +46,11 @@ import { defineSeam, type SeamValue } from './seam'
 const MAX_RESPONSE_BYTES = 900_000
 // The daily surface is intentionally selective: a short ranked editor's brief, not a screener dump.
 const MAX_DAILY_IDEAS = 3
+// A refused tool call costs one provider turn, so a handful of corrections is affordable
+// while a provider that keeps failing still stops the run rather than looping to the
+// Workflow's wall clock. The detail is what the runtime said, truncated to stay a log line.
+const MAX_TOOL_ERRORS = 6
+const MAX_TOOL_ERROR_DETAIL = 600
 const MAX_READING_LINKS = 6
 // One quote per source an idea leans on is enough to bind it; more is padding.
 const MAX_EVIDENCE_PER_IDEA = 4
@@ -502,6 +507,7 @@ export async function runDailyResearchAgent(
         task,
       )
     : undefined
+  let toolErrors = 0
   const retained = new Map<string, RetainedPage>()
   const tools = createResearchAgentTools(env, {
     includeReddit: false,
@@ -529,7 +535,22 @@ export async function runDailyResearchAgent(
     toolExecution: 'parallel',
   }, (event) => {
     if (event.type === 'tool_execution_end' && event.isError) {
-      failure = `DailyResearchAgentTool:${event.toolName}`
+      // A refused tool call is a message to the model, not the end of the day. The runtime
+      // validates arguments before a tool runs, so a symbol written as a cashtag never
+      // reaches the tool's own checks — and ending the run there cost a whole brief this
+      // afternoon over one argument the model could have corrected in a turn. The budget is
+      // what keeps a genuine outage from looping instead: a provider that is down burns it
+      // within a few turns and the run fails carrying the last error.
+      toolErrors += 1
+      const detail = toolResultText(event.result).slice(0, MAX_TOOL_ERROR_DETAIL)
+      console.warn(JSON.stringify({
+        error: detail,
+        event: 'DailyResearchAgentToolError',
+        remaining: MAX_TOOL_ERRORS - toolErrors,
+        runId: request.runId,
+        toolName: event.toolName,
+      }))
+      if (toolErrors > MAX_TOOL_ERRORS) failure = `DailyResearchAgentTool:${event.toolName}:${detail}`
     } else if (event.type === 'turn_end' && event.message.role === 'assistant'
       && (event.message.stopReason === 'error' || event.message.stopReason === 'aborted')) {
       failure = event.message.errorMessage ?? 'DailyResearchAgentFailed'

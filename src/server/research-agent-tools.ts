@@ -137,14 +137,21 @@ export function createResearchAgentTools(
       if (retained && retained.size >= MAX_PAGE_READS) {
         return textResult({ error: 'no page reads left in this run' })
       }
-      const response = await env.BROWSER.quickAction('markdown', { url: key })
-      const payload = await readBoundedJson(response, MAX_PAGE_RESPONSE_BYTES, 'ResearchReadPage')
-      const parsed = z.object({ result: z.string(), success: z.literal(true) })
-        .safeParse(payload)
-      // A page that would not open is reported to the model so it cites something else,
-      // rather than being passed off as an empty read.
-      if (!response.ok || !parsed.success) return textResult({ error: 'the page did not open' })
-      const markdown = parsed.data.result.slice(0, MAX_PAGE_MARKDOWN_CHARS)
+      // A browser that times out, a session limit, or a body past the cap all mean the same
+      // thing to the model — cite something else — so none of them may escape as an error
+      // that ends the run.
+      const parsed = await (async () => {
+        try {
+          const response = await env.BROWSER!.quickAction('markdown', { url: key })
+          if (!response.ok) return undefined
+          const payload = await readBoundedJson(response, MAX_PAGE_RESPONSE_BYTES, 'ResearchReadPage')
+          return z.object({ result: z.string(), success: z.literal(true) }).safeParse(payload).data
+        } catch {
+          return undefined
+        }
+      })()
+      if (!parsed) return textResult({ error: 'the page did not open' })
+      const markdown = parsed.result.slice(0, MAX_PAGE_MARKDOWN_CHARS)
       retained?.set(key, { markdown, readAt: now.toISOString() })
       return textResult({ markdown, url: key })
     },

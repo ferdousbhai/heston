@@ -312,15 +312,18 @@ describe('daily research Pi agent boundary', () => {
     expect(bodies).toHaveLength(1)
   })
 
-  it('fails immediately when a research tool fails', async () => {
+  it('carries on when a research tool refuses a call', async () => {
     const broker = stubBroker()
     broker.tastyRequest.mockRejectedValue(new Error('provider unavailable'))
     setBrokerApi(broker)
-    const { bodies, fetcher } = agentFetcher()
+    const { fetcher } = agentFetcher()
 
-    await expect(runDailyResearchAgent(environment(), { now: NOW, runId: 'daily-run' }, fetcher))
-      .rejects.toThrow('DailyResearchAgentTool:read_market_metrics')
-    expect(bodies).toHaveLength(2)
+    // A refused call is a message to the model, not the end of the day. One failure used to
+    // abort the whole brief, which is how a cashtag reaching a tool cost an afternoon's run;
+    // a provider that keeps failing still stops it once the error budget is spent.
+    const agent = await runDailyResearchAgent(environment(), { now: NOW, runId: 'daily-run' }, fetcher)
+
+    expect(agent.submission.ideas).toHaveLength(1)
   })
 
   it('rejects a provider response without a completed status', async () => {
