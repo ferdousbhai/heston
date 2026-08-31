@@ -185,17 +185,17 @@ describe('daily research final boundary', () => {
   })
 
   it('uses the narrow market-status read for scheduled runs', async () => {
-    broker.tastyRequest.mockResolvedValueOnce({ data: { state: 'pre' } })
+    broker.tastyRequest.mockResolvedValueOnce({ data: { state: 'Pre-Market' } })
 
     await expect(generateDailyResearch({}, NOW, { persist: false, requireMarketOpen: true }))
-      .rejects.toThrow('DailyResearchMarketNotOpen:pre')
+      .rejects.toThrow('DailyResearchMarketNotOpen:Pre-Market')
     expect(broker.tastyRequest).toHaveBeenCalledWith(expect.anything(), '/market-time/equities/sessions/current')
     expect(broker.resolveResearchInstrumentCatalogFromTastytrade).not.toHaveBeenCalled()
     expect(broker.loadMarketSnapshot).not.toHaveBeenCalled()
   })
 
   it('retries only unresolved catalog identities after the market-open check', async () => {
-    broker.tastyRequest.mockResolvedValueOnce({ data: { state: 'open' } })
+    broker.tastyRequest.mockResolvedValueOnce({ data: { state: 'Open' } })
     broker.resolveResearchInstrumentCatalogFromTastytrade.mockResolvedValueOnce({
       missingSymbols: ['VXD'],
       receivedCount: 1,
@@ -208,7 +208,7 @@ describe('daily research final boundary', () => {
   })
 
   it('keeps research available when catalog identity repair is unavailable', async () => {
-    broker.tastyRequest.mockResolvedValueOnce({ data: { state: 'open' } })
+    broker.tastyRequest.mockResolvedValueOnce({ data: { state: 'Open' } })
     broker.resolveResearchInstrumentCatalogFromTastytrade
       .mockRejectedValueOnce(new Error('TastytradeApi:503:/instruments/equities'))
 

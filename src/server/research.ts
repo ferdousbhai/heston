@@ -89,7 +89,14 @@ export async function generateDailyResearch(
   )
   if (options.requireMarketOpen) {
     const status = await runTask('market-status', () => readMarketStatus(env, now))
-    if (status.state !== 'open') throw new Error(`DailyResearchMarketNotOpen:${status.state}`)
+    // Tastytrade capitalises the session state ("Open"), which this guard compared verbatim
+    // until it cost a scheduled brief: `DailyResearchMarketNotOpen:Open`. Reading the
+    // provider's capitalisation is parsing, not repair, and the snapshot path already
+    // lowercases the same field. The raw state still reaches the error, so a genuinely
+    // closed market says which state it was in.
+    if (status.state.toLowerCase() !== 'open') {
+      throw new Error(`DailyResearchMarketNotOpen:${status.state}`)
+    }
     await runTask(
       'resolve-instrument-catalog',
       () => resolveResearchInstrumentCatalog(env, now),
