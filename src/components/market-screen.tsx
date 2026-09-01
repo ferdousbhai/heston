@@ -20,6 +20,7 @@ import { latestSessionCandles, REGULAR_SESSION_MS, type CandlePoint } from '../d
 import { recommendedOrderLabel } from '../domain/recommended-order'
 import {
   CATALYST_KIND_NAMES,
+  hasNearTermCatalyst,
   catalystCountdown,
   catalystKindName,
   catalystLabel,
@@ -247,17 +248,7 @@ function RecommendationPanel({ recommendation }: { recommendation: DailyRecommen
 }
 
 /** An empty calendar is either one nobody has searched yet or one with nothing on it. */
-function RunwayEmpty({
-  onRefresh,
-  refreshing,
-  searching,
-  symbol,
-}: {
-  onRefresh?: () => void
-  refreshing: boolean
-  searching: boolean
-  symbol: string
-}) {
+function RunwayEmpty({ searching, symbol }: { searching: boolean; symbol: string }) {
   const [heading, detail] = searching
     ? [
         'Looking for what’s coming.',
@@ -270,14 +261,6 @@ function RunwayEmpty({
   return (
     <div className="runway-empty" aria-live="polite">
       <p><strong>{heading}</strong>{detail}</p>
-      {/* A search runs at most once a month for any symbol, so a calendar can read empty long
-          after the web has something to say. Spending another one costs money per call, which
-          is why only the owner may. What it finds is stored, so every reader gets it. */}
-      {onRefresh && (
-        <Button disabled={refreshing} onClick={onRefresh} size="sm" type="button" variant="outline">
-          {refreshing ? 'Searching…' : 'Search again'}
-        </Button>
-      )}
     </div>
   )
 }
@@ -286,18 +269,20 @@ function CatalystRunway({
   catalysts,
   now,
   onRefresh,
-  refreshing,
   searching,
   symbol,
 }: {
   catalysts: readonly Catalyst[]
   now: Date
   onRefresh?: () => void
-  refreshing: boolean
   searching: boolean
   symbol: string
 }) {
   const upcoming = upcomingCatalystsForSymbol(symbol, catalysts, now)
+  // A calendar with something on it months out is still uncovered for the weeks a reader is
+  // actually trading, and that is the case a search is bought for. Reporting the search only
+  // inside the empty state left it running invisibly on exactly those symbols.
+  const thin = !hasNearTermCatalyst(symbol, catalysts, now)
 
   return (
     <section className="focus-runway" aria-label="What&rsquo;s coming">
@@ -334,7 +319,20 @@ function CatalystRunway({
               })}
             </ol>
           )
-        : <RunwayEmpty onRefresh={onRefresh} refreshing={refreshing} searching={searching} symbol={symbol} />}
+        : <RunwayEmpty searching={searching} symbol={symbol} />}
+      {searching && upcoming.length > 0 && (
+        <p className="runway-searching" aria-live="polite">
+          <span aria-hidden="true" /> Searching for nearer {CATALYST_SCOPE} dates…
+        </p>
+      )}
+      {/* A search runs at most once a month for any symbol, so coverage can read thin long
+          after the web has something to say. Spending another costs money per call, which is
+          why only the owner may. What it finds is stored, so every reader gets it. */}
+      {onRefresh && thin && !searching && (
+        <Button className="runway-refresh" onClick={onRefresh} size="sm" type="button" variant="outline">
+          Search again
+        </Button>
+      )}
     </section>
   )
 }
@@ -554,7 +552,6 @@ export function MarketScreen({
             catalysts={visibleCatalysts}
             now={now}
             onRefresh={owner ? catalystSearch.refresh : undefined}
-            refreshing={catalystSearch.forcing}
             searching={catalystSearch.searching}
             symbol={selected.symbol}
           />

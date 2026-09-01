@@ -83,9 +83,8 @@ describe('reviewing a symbol with an empty calendar', () => {
 })
 
 describe('owner catalyst refresh', () => {
-  it('offers the owner another search on an empty calendar, and never a visitor', async () => {
-    const fetchMock = vi.fn(async () => Response.json({ catalysts: [], ran: true }))
-    vi.stubGlobal('fetch', fetchMock)
+  it('offers the owner another search on a thin calendar, and never a visitor', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ catalysts: [], ran: true })))
 
     renderMarket('BE', [])
     await screen.findByText('Nothing is on the calendar.')
@@ -95,7 +94,19 @@ describe('owner catalyst refresh', () => {
 
     cleanup()
     renderMarket('BE', [], true)
-    await screen.findByText('Nothing is on the calendar.')
     expect(await screen.findByRole('button', { name: 'Search again' })).toBeTruthy()
+  })
+
+  it('reports a search running on a calendar that already has a far-off date on it', async () => {
+    // Nothing resolves while the search is in flight, which is the state a reader was left
+    // staring at with no sign anything was happening.
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => undefined)))
+
+    // Dated past the near-term window, so the runway renders a row and a search still runs.
+    renderMarket('QQQ', [catalyst('QQQ', 70)], true)
+
+    expect(await screen.findByText(/Searching for nearer/)).toBeTruthy()
+    // The control that would spend a second search is not offered while one is running.
+    expect(screen.queryByRole('button', { name: 'Search again' })).toBeNull()
   })
 })
