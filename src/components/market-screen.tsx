@@ -206,13 +206,34 @@ function ThesisPanel({ idea }: { idea: ResearchBrief['ideas'][number] }) {
   )
 }
 
+/** An empty calendar is either one nobody has searched yet or one with nothing on it. */
+function RunwayEmpty({ searching, symbol }: { searching: boolean; symbol: string }) {
+  const [heading, detail] = searching
+    ? [
+        'Looking for what’s coming.',
+        ` Nothing is on ${symbol}'s calendar yet, so Spice is searching for scheduled ${CATALYST_SCOPE} dates.`,
+      ]
+    : [
+        'Nothing is on the calendar.',
+        ` Spice tracks ${CATALYST_SCOPE} dates for ${symbol}, and none are scheduled. A re-rating from here would have to come from something unannounced.`,
+      ]
+  return (
+    <p className="runway-empty" aria-live="polite">
+      <strong>{heading}</strong>
+      {detail}
+    </p>
+  )
+}
+
 function CatalystRunway({
   catalysts,
   now,
+  searching,
   symbol,
 }: {
   catalysts: readonly Catalyst[]
   now: Date
+  searching: boolean
   symbol: string
 }) {
   const upcoming = upcomingCatalystsForSymbol(symbol, catalysts, now)
@@ -247,12 +268,7 @@ function CatalystRunway({
               ))}
             </ol>
           )
-        : (
-            <p className="runway-empty">
-              <strong>Nothing is on the calendar.</strong>
-              {` Spice tracks ${CATALYST_SCOPE} dates for ${symbol}, and none are scheduled. A re-rating from here would have to come from something unannounced.`}
-            </p>
-          )}
+        : <RunwayEmpty searching={searching} symbol={symbol} />}
     </section>
   )
 }
@@ -402,7 +418,19 @@ export function MarketScreen({
     Number(pinned.has(right.symbol)) - Number(pinned.has(left.symbol))
     || compareBySort(left, right, sort)
     || left.symbol.localeCompare(right.symbol))
-  const nextCatalysts = nextCatalystsBySymbol(catalysts, now)
+  // Looking at a symbol with an empty month asks the server to go and find out. What comes
+  // back joins the calendar on this visit rather than waiting for the next snapshot.
+  const catalystSearch = useCatalystSearch(selected.symbol, catalysts, now)
+  // The search state is a new object on every render, so the merge watches the catalysts a
+  // found symbol carried rather than the state that carried them, and holds between searches.
+  const looked = search.status === 'found' ? search.lookup.catalysts : undefined
+  const visibleCatalysts = useMemo(() => {
+    // Later rows win by id, so a row a search just bound replaces the snapshot's copy of it.
+    const merged = new Map([...catalysts, ...(looked ?? []), ...catalystSearch.catalysts]
+      .map((catalyst) => [catalyst.id, catalyst]))
+    return [...merged.values()]
+  }, [catalysts, catalystSearch.catalysts, looked])
+  const nextCatalysts = nextCatalystsBySymbol(visibleCatalysts, now)
   const toggleSort = (column: typeof SORT_COLUMNS[number]) => {
     setSort((current) => current.key === column.key
       ? { direction: current.direction === 'asc' ? 'desc' : 'asc', key: column.key }
@@ -418,7 +446,7 @@ export function MarketScreen({
 
   return (
     <div className="market-screen">
-      <CatalystStories catalysts={catalysts} now={now} onSelect={onSelectTicker} tickers={pinnedTickers} />
+      <CatalystStories catalysts={visibleCatalysts} now={now} onSelect={onSelectTicker} tickers={pinnedTickers} />
 
       <Card className={cn('instrument-focus', selectedVerdict)} variant="flat" aria-labelledby="selected-instrument-title">
         <CardHeader>
@@ -443,8 +471,13 @@ export function MarketScreen({
           </div>
         </CardHeader>
         <CardContent className="focus-narrative">
-          {selectedIdea && <ThesisPanel idea={selectedIdea} />}
-          <CatalystRunway catalysts={catalysts} now={now} symbol={selected.symbol} />
+          {selectedRecommendation && <RecommendationPanel recommendation={selectedRecommendation} />}
+          <CatalystRunway
+            catalysts={visibleCatalysts}
+            now={now}
+            searching={catalystSearch.searching}
+            symbol={selected.symbol}
+          />
         </CardContent>
         <CardFooter>
           <dl className="focus-tape" aria-label={`${selected.symbol} metrics`}>

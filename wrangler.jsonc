@@ -47,6 +47,11 @@
   },
   "secrets_store_secrets": [
     {
+      "binding": "EXA_API_KEY",
+      "store_id": "a436a6cefedc4acd8bb920cdbc202c1c",
+      "secret_name": "exa"
+    },
+    {
       "binding": "REDDIT_CLIENT_ID",
       "store_id": "a436a6cefedc4acd8bb920cdbc202c1c",
       "secret_name": "reddit-client-id"

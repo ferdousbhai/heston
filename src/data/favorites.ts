@@ -109,6 +109,7 @@ async function toggleAnonymousFavorite(symbol: string): Promise<void> {
     draft.pinnedSymbols = nextSymbols
   })
   await mutation.isPersisted.promise
+  return nextSymbols.includes(symbol)
 }
 
 function favoriteRows(symbols: readonly string[]) {
@@ -186,6 +187,7 @@ export function createFavoriteSync(userId: string) {
 
 export type FavoriteSync = ReturnType<typeof createFavoriteSync>
 
+/** Reports whether the symbol is favorited now, which is what a caller acts on. */
 export async function toggleFavoriteSymbol(
   symbol: string,
   favoriteSync: FavoriteSync | undefined,
@@ -194,8 +196,10 @@ export async function toggleFavoriteSymbol(
   if (!favoriteSync) return toggleAnonymousFavorite(parsed)
 
   await favoriteSync.collection.preload()
-  const transaction = favoriteSync.collection.get(parsed)
-    ? favoriteSync.collection.delete(parsed)
-    : favoriteSync.collection.insert({ symbol: parsed })
+  const favorited = !favoriteSync.collection.get(parsed)
+  const transaction = favorited
+    ? favoriteSync.collection.insert({ symbol: parsed })
+    : favoriteSync.collection.delete(parsed)
   await transaction.isPersisted.promise
+  return favorited
 }

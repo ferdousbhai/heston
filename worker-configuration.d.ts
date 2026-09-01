@@ -3,6 +3,7 @@
 // Runtime types generated with workerd@1.20260825.1 2026-08-18 nodejs_compat
 interface __BaseEnv_Env {
 	DB: D1Database;
+	EXA_API_KEY: SecretsStoreSecret;
 	REDDIT_CLIENT_ID: SecretsStoreSecret;
 	REDDIT_CLIENT_SECRET: SecretsStoreSecret;
 	TASTYTRADE_CLIENT_SECRET: SecretsStoreSecret;

@@ -18,7 +18,7 @@ const CATALYST_ROWS_PER_STATEMENT = rowsPerD1Statement(CATALYST_BOUND_PARAMETERS
  * carries its producer too, which is what keeps it traceable to something that can refresh or
  * retract it — the property migration 0019 retired two tables for lacking.
  */
-export type CatalystProvider = 'tastytrade' | 'codex-web' | 'daily-research' | 'dan'
+export type CatalystProvider = 'tastytrade' | 'daily-research' | 'dan' | 'exa'
 
 function catalystUpsertStatements(
   db: D1Database,

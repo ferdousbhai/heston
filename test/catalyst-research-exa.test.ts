@@ -1,0 +1,183 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import { runExaCatalystSearch } from '../src/server/catalyst-research-exa'
+
+const NOW = new Date('2026-09-01T13:00:00.000Z')
+const exaKey: SecretsStoreSecret = { get: async () => 'exa-key' }
+const env = { EXA_API_KEY: exaKey }
+
+/** The event fields Exa is asked to synthesize, as a test writes them. */
+type ExaEventFixture = {
+  date: string
+  description?: string
+  kind: string
+  sourceUrl: string
+  timing?: string
+  title: string
+}
+
+/** Exa names the pages supporting each synthesized field, e.g. `events[0].date`. */
+function grounding(events: readonly ExaEventFixture[]) {
+  return events.map((event, index) => ({
+    citations: [{ url: event.sourceUrl }],
+    confidence: 'high',
+    field: `events[${index}].date`,
+  }))
+}
+
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
+
+function page(date: string): string {
+  return `Bloom Energy said the investor day is scheduled for ${date} at its headquarters.`
+}
+
+function exaResponse(events: readonly ExaEventFixture[], grounded = true) {
+  return Response.json({
+    output: { content: { events }, grounding: grounded ? grounding(events) : [] },
+    results: [{
+      text: page('2026-10-14'),
+      title: 'Bloom investor day',
+      url: 'https://ir.bloomenergy.com/events',
+    }],
+  })
+}
+
+function stubExa(response: Response) {
+  const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => response)
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
+}
+
+const investorDay = {
+  date: '2026-10-14',
+  description: 'Bloom hosts analysts and issues multi-year targets.',
+  kind: 'investor-event',
+  sourceUrl: 'https://ir.bloomenergy.com/events',
+  timing: 'intraday',
+  title: 'Bloom Energy investor day',
+}
+
+describe('exa catalyst search', () => {
+  it('records a dated event its cited page states, and asks Exa for one bounded search', async () => {
+    const fetchMock = stubExa(exaResponse([investorDay]))
+
+    const run = await runExaCatalystSearch(env, 'BE', 'Bloom Energy Corporation', NOW)
+
+    expect(run.catalysts).toEqual([{
+      confidence: 'estimated',
+      date: '2026-10-14',
+      description: 'Bloom hosts analysts and issues multi-year targets.',
+      id: 'exa:BE:investor-event:2026-10-14',
+      kind: 'investor-event',
+      source: 'Exa search · ir.bloomenergy.com',
+      sourceUrl: 'https://ir.bloomenergy.com/events',
+      symbol: 'BE',
+      timing: 'intraday',
+      title: 'Bloom Energy investor day',
+      updatedAt: NOW.toISOString(),
+    }])
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe('https://api.exa.ai/search')
+    expect(init.headers).toMatchObject({ 'x-api-key': 'exa-key' })
+    const body = JSON.parse(String(init.body))
+    expect(body).toMatchObject({ numResults: 8, type: 'auto' })
+    // An IR calendar is neither news nor recently published, so neither filter is sent.
+    expect(body).not.toHaveProperty('category')
+    expect(body).not.toHaveProperty('startPublishedDate')
+    expect(Object.keys(body.outputSchema.properties.events.items.properties)).not.toContain('confidence')
+    expect(body.query).toContain('Bloom Energy Corporation (BE)')
+    expect(body.outputSchema.required).toEqual(['events'])
+  })
+
+  it('keeps a date its source page words differently when Exa grounds it', async () => {
+    // Live reporting writes "Sept. 1" for 2026-09-01, so grounding is what binds most
+    // real findings; the page text is the second way, not the only one.
+    stubExa(Response.json({
+      output: {
+        content: { events: [{ ...investorDay, date: '2026-09-01' }] },
+        grounding: [{
+          citations: [{ url: 'https://ir.bloomenergy.com/events' }],
+          confidence: 'high',
+          field: 'events[0].date',
+        }],
+      },
+      results: [{ text: 'Bloom will hold its call on Sept. 1.', url: 'https://ir.bloomenergy.com/events' }],
+    }))
+
+    await expect(runExaCatalystSearch(env, 'BE', 'Bloom Energy', NOW))
+      .resolves.toMatchObject({ catalysts: [{ date: '2026-09-01' }] })
+  })
+
+  it('drops an event its source page neither states nor grounds', async () => {
+    stubExa(exaResponse([{ ...investorDay, date: '2026-11-20' }], false))
+
+    const run = await runExaCatalystSearch(env, 'BE', 'Bloom Energy', NOW)
+
+    expect(run.catalysts).toEqual([])
+    expect(run.rejected).toEqual(['event 1: 2026-11-20 is not bound to its source page'])
+  })
+
+  it('ignores grounding Exa itself marks low confidence', async () => {
+    stubExa(Response.json({
+      output: {
+        content: { events: [{ ...investorDay, date: '2026-11-20' }] },
+        grounding: [{
+          citations: [{ url: 'https://ir.bloomenergy.com/events' }],
+          confidence: 'low',
+          field: 'events[0].date',
+        }],
+      },
+      results: [{ text: page('2026-10-14'), url: 'https://ir.bloomenergy.com/events' }],
+    }))
+
+    await expect(runExaCatalystSearch(env, 'BE', 'Bloom Energy', NOW))
+      .resolves.toMatchObject({ catalysts: [] })
+  })
+
+  it('drops an event from a page this run never read, a past date, and a duplicate', async () => {
+    stubExa(exaResponse([
+      { ...investorDay, sourceUrl: 'https://elsewhere.example/rumor' },
+      { ...investorDay, date: '2026-08-14' },
+      investorDay,
+      investorDay,
+      { ...investorDay, kind: 'not-a-kind' },
+    ], false))
+
+    const run = await runExaCatalystSearch(env, 'BE', 'Bloom Energy', NOW)
+
+    expect(run.catalysts.map((catalyst) => catalyst.id)).toEqual(['exa:BE:investor-event:2026-10-14'])
+    expect(run.rejected).toEqual([
+      'event 1: source was not read this run',
+      'event 2: 2026-08-14 is not bound to its source page',
+      'event 4: duplicates exa:BE:investor-event:2026-10-14',
+      expect.stringContaining('event 5:'),
+    ])
+  })
+
+  it('drops a grounded event outside the horizon the product carries', async () => {
+    stubExa(exaResponse([{ ...investorDay, date: '2026-08-14' }]))
+
+    const run = await runExaCatalystSearch(env, 'BE', 'Bloom Energy', NOW)
+
+    expect(run.catalysts).toEqual([])
+    expect(run.rejected).toEqual(['event 1: date is outside the 180-day horizon'])
+  })
+
+  it('reports a search that synthesized nothing instead of inventing an event', async () => {
+    stubExa(Response.json({ results: [] }))
+
+    await expect(runExaCatalystSearch(env, 'BE', 'Bloom Energy', NOW)).resolves.toEqual({
+      catalysts: [],
+      rejected: ['Exa returned no structured events'],
+    })
+  })
+
+  it('fails loudly when Exa refuses the request', async () => {
+    stubExa(new Response('', { status: 429 }))
+
+    await expect(runExaCatalystSearch(env, 'BE', 'Bloom Energy', NOW)).rejects.toThrow('ExaSearchFailed:429')
+  })
+})

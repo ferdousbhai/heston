@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { EquitySymbolSchema } from './instrument'
-import { isValidIsoDate } from './iso-date'
+import { addDays, isValidIsoDate } from './iso-date'
 
 export { isValidIsoDate } from './iso-date'
 
@@ -34,6 +34,18 @@ export const CatalystSchema = z.object({
 })
 
 export type Catalyst = z.infer<typeof CatalystSchema>
+
+/**
+ * What a catalyst search hands back to the reader who provoked it. `ran` is false when the
+ * symbol was searched recently enough that this look cost nothing; the rows already stored
+ * for it reach the browser with the next snapshot either way.
+ */
+export const CatalystRefreshSchema = z.strictObject({
+  catalysts: z.array(CatalystSchema),
+  ran: z.boolean(),
+})
+
+export type CatalystRefresh = z.infer<typeof CatalystRefreshSchema>
 
 const KIND_PRIORITY = {
   earnings: 0,
@@ -99,6 +111,22 @@ export function upcomingCatalystsForSymbol(
   return catalysts
     .filter((catalyst) => catalyst.symbol === symbol && catalyst.date >= today)
     .sort(compareCatalystOrder)
+}
+
+/**
+ * How far ahead a symbol has to be covered before a reader looking at it learns anything.
+ * A calendar that is empty for the next month is the honest trigger for going and looking:
+ * either nothing is scheduled, or nobody has searched this symbol yet.
+ */
+export const CATALYST_NEAR_TERM_DAYS = 30
+
+export function hasNearTermCatalyst(
+  symbol: string,
+  catalysts: readonly Catalyst[],
+  now = new Date(),
+): boolean {
+  const horizon = addDays(marketDate(now), CATALYST_NEAR_TERM_DAYS)
+  return upcomingCatalystsForSymbol(symbol, catalysts, now).some((catalyst) => catalyst.date <= horizon)
 }
 
 export function catalystLabel(catalyst: Catalyst, now = new Date()): string {

@@ -3,6 +3,7 @@ import { useLiveQuery } from '@tanstack/react-db'
 
 import { toError } from '../domain/failure'
 import { type Preference } from './collections'
+import { requestCatalystRefresh } from './catalyst-refresh'
 import {
   createFavoriteSync,
   favoriteStageMarkerCollection,
@@ -33,7 +34,11 @@ export function useWorkspaceFavorites(viewerId: string | undefined, preference: 
 
   const togglePinned = useCallback((symbol: string) => {
     setMutationError(undefined)
-    void toggleFavoriteSymbol(symbol, favoriteSync).catch((cause: unknown) => {
+    void toggleFavoriteSymbol(symbol, favoriteSync).then((favorited) => {
+      // Seeding catalyst coverage is a consequence of the favorite, never a condition of
+      // it: a research request that fails leaves the favorite itself untouched and quiet.
+      if (favorited) void requestCatalystRefresh(symbol).catch(() => undefined)
+    }).catch((cause: unknown) => {
       setMutationError(toError(cause)?.message ?? 'The favorite could not be updated')
     })
   }, [favoriteSync])

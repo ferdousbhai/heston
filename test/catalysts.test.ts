@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { catalystLabel, nextCatalystsBySymbol, type Catalyst } from '../src/domain/catalyst'
+import {
+  catalystLabel,
+  catalystSourceLink,
+  hasNearTermCatalyst,
+  nextCatalystsBySymbol,
+  type Catalyst,
+} from '../src/domain/catalyst'
 import {
   catalystsFromMarketMetrics,
   earningsDateFromMetric,
@@ -90,6 +96,73 @@ describe('tastytrade catalyst normalization', () => {
     }, NOW)).toBeNull()
   })
 
+})
+
+describe('when a symbol is worth searching', () => {
+  const catalyst = (symbol: string, date: string): Catalyst => ({
+    confidence: 'estimated',
+    date,
+    id: `exa:${symbol}:conference:${date}`,
+    kind: 'conference',
+    source: 'Exa search · example.com',
+    sourceUrl: 'https://example.com/events',
+    symbol,
+    timing: 'unknown',
+    title: `${symbol} conference`,
+    updatedAt: NOW.toISOString(),
+  })
+
+  it('counts only what falls inside the next month, for that symbol', () => {
+    const catalysts = [catalyst('NVDA', '2026-09-05'), catalyst('BE', '2026-11-30')]
+
+    expect(hasNearTermCatalyst('NVDA', catalysts, NOW)).toBe(true)
+    // Dated, but two months out: the reader still learns nothing about the coming weeks.
+    expect(hasNearTermCatalyst('BE', catalysts, NOW)).toBe(false)
+    expect(hasNearTermCatalyst('TSLA', catalysts, NOW)).toBe(false)
+  })
+
+  it('ignores a date that has already passed', () => {
+    expect(hasNearTermCatalyst('NVDA', [catalyst('NVDA', '2026-08-01')], NOW)).toBe(false)
+  })
+
+  it('holds the boundary day and refuses the one after it', () => {
+    expect(hasNearTermCatalyst('NVDA', [catalyst('NVDA', '2026-09-12')], NOW)).toBe(true)
+    expect(hasNearTermCatalyst('NVDA', [catalyst('NVDA', '2026-09-13')], NOW)).toBe(false)
+  })
+})
+
+describe('what a catalyst shows a reader', () => {
+  const base = {
+    date: '2026-10-14',
+    kind: 'conference' as const,
+    symbol: 'DELL' as const,
+    timing: 'intraday' as const,
+    title: 'Citi 2026 Global TMT Conference',
+    updatedAt: '2026-09-01T13:00:00.000Z',
+  }
+
+  it('shows the host a date was read from, never the producer that wrote the row', () => {
+    // Stored labels carry provenance like "Codex web · investors.delltechnologies.com".
+    // A reader checking where a date came from is looking for the site, not for ours.
+    expect(catalystSourceLink({
+      ...base,
+      confidence: 'estimated',
+      id: 'daily-research:DELL:conference:2026-10-14',
+      source: 'Codex web · Dell Technologies Investor Relations',
+      sourceUrl: 'https://www.investors.delltechnologies.com/events',
+    })).toEqual({ host: 'investors.delltechnologies.com', url: 'https://www.investors.delltechnologies.com/events' })
+  })
+
+  it('offers no link for the broker feed, whose source is an API specification', () => {
+    expect(catalystSourceLink({
+      ...base,
+      confidence: 'confirmed',
+      id: 'tastytrade:DELL:earnings',
+      kind: 'earnings',
+      source: 'tastytrade market metrics',
+      sourceUrl: 'https://developer.tastytrade.com/open-api-spec/market-metrics/',
+    })).toBeUndefined()
+  })
 })
 
 describe('research catalyst storage', () => {

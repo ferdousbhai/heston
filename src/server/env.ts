@@ -38,6 +38,7 @@ export interface AppEnv {
   DB?: D1Database
   DAILY_RESEARCH_WORKFLOW?: Workflow<DailyResearchWorkflowParams>
   DanAgent?: DurableObjectNamespace
+  EXA_API_KEY?: SecretsStoreSecret
   GOOGLE_CLIENT_ID?: string
   GOOGLE_CLIENT_SECRET?: string
   MARKET_FEED?: MarketFeedNamespace

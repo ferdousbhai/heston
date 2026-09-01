@@ -7,12 +7,12 @@ Single-owner options application on Cloudflare with a public market surface, mem
 | Concern | Authoritative code |
 | --- | --- |
 | Worker routing, HTTP, auth, and scheduled jobs | `src/server.ts`, `src/server/http.ts`, `src/server/auth.ts`, `src/server/scheduled-jobs.ts` |
-| Public and private API boundaries | `src/routes/api.public-snapshot.ts`, `src/routes/api.snapshot.ts`, `src/routes/api.viewer.ts`, `src/routes/api.actions.$actionId.ts` |
+| Public and private API boundaries | `src/routes/api.public-snapshot.ts`, `src/routes/api.public-symbol-search.ts`, `src/routes/api.public-catalyst-refresh.ts`, `src/routes/api.snapshot.ts`, `src/routes/api.viewer.ts`, `src/routes/api.actions.$actionId.ts` |
 | Domain contracts | `src/domain/` |
 | Internal watchlist and public universe | `src/server/internal-watchlist.ts`, `src/server/instrument-catalog.ts`, `src/server/public-market-universe.ts` |
 | Provider access and source storage | `src/server/tastytrade.ts`, `src/server/tastytrade-market-store.ts`, `src/server/yahoo-finance-transport.ts` |
 | Browser collections and live overlay | `src/data/collections.ts`, `src/data/favorites.ts`, `src/data/live-market.ts` |
-| Research and catalysts | `src/server/research.ts`, `src/server/research-agent.ts`, `src/server/research-citation-binding.ts`, `src/server/research-evidence.ts`, `src/server/research-output.ts`, `src/server/catalysts.ts`, `src/server/catalyst-bootstrap.ts` |
+| Research and catalysts | `src/server/research.ts`, `src/server/research-agent.ts`, `src/server/research-agent-tools.ts`, `src/server/research-citation-binding.ts`, `src/server/research-output.ts`, `src/server/catalysts.ts`, `src/server/catalyst-research-exa.ts`, `src/server/catalyst-refresh.ts` |
 | Dan and read tools | `src/server/dan-agent.ts`, `src/server/dan-doctrine.ts`, `src/server/brokerage-read-tools.ts`, `src/server/market-research-tools.ts` |
 | Order intent, risk, and execution | `src/server/order-intent.ts`, `src/server/portfolio-risk.ts`, `src/server/trade-guards.ts`, `src/server/brokerage.ts`, `src/server/brokerage-reconciliation.ts` |
 | Durable Objects | `src/server/broker-gate.ts`, `src/server/market-feed.ts`, `src/server/dan-agent.ts` |
