@@ -304,18 +304,19 @@ test('mobile market, recommendations, search, sorting, and agent flows remain co
   await context.setOffline(true)
   await page.evaluate(() => window.dispatchEvent(new Event('offline')))
   await page.getByRole('tab', { name: 'Watch', exact: true }).click()
-  await expect(page.getByRole('alert')).toContainText('Market data may be stale')
-  await expect(page.getByRole('alert')).toContainText('The live feed disconnected')
+  // Going offline is not an alarm. The saved data stays on screen with the reader's selection
+  // intact, and the top bar's age line is what says how current it is — a reconnecting feed
+  // and a failed sync used to flash a stale-data banner on and off over nothing.
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect(page.locator('.last-updated')).toContainText('Updated')
   await expect(selectedSymbol).toHaveText('INTC')
 
   rejectSnapshots = true
   await context.setOffline(false)
   await page.evaluate(() => window.dispatchEvent(new Event('online')))
-  await expect(page.getByRole('alert')).toContainText('Latest market data could not be synchronized')
+  await expect(selectedSymbol).toHaveText('INTC')
+  await expect(page.getByRole('alert')).toHaveCount(0)
   rejectSnapshots = false
-  await page.evaluate(() => window.dispatchEvent(new Event('online')))
-  await expect(page.getByRole('alert')).not.toContainText('Latest market data could not be synchronized')
-  await expect(page.getByRole('alert')).toContainText('The live feed disconnected')
 })
 
 test('authenticated favorites consume only unchanged anonymous staging across tabs', async ({ context, page }) => {
