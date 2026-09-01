@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { useAgent } from 'agents/react'
 import { Bot, Check, ChevronRight, CircleStop, Send, ShieldCheck, Trash2, Wrench, X } from 'lucide-react'
 import { z } from 'zod'
@@ -380,11 +380,14 @@ export function AgentScreen({
     setInput('')
     agent.send(JSON.stringify({ message: trimmed, selectedSymbol: selected.symbol, type: 'submit' }))
   }
-  // An empty transcript has no opening line yet. The agent refuses a second one, so a
-  // reconnect or a re-render cannot talk over a session already under way.
+  // An empty transcript has no opening line yet. One request per mount, ever: a greeting
+  // that fails leaves the transcript empty, and asking again on every state change turned
+  // one bad turn into a request every few seconds for as long as the tab stayed open.
+  const greetRequested = useRef(false)
   const greetable = connected && !running && state?.messages.length === 0
   useEffect(() => {
-    if (!greetable) return
+    if (!greetable || greetRequested.current) return
+    greetRequested.current = true
     agent.send(JSON.stringify({ selectedSymbol: selected.symbol, type: 'greet' }))
   }, [agent, greetable, selected.symbol])
 

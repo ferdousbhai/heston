@@ -123,8 +123,9 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
     }
     if (command.type === 'greet') {
       // Only ever opens an empty transcript: a reader who has already spoken has a session,
-      // and re-greeting them would talk over it.
-      if (this.state.status === 'running' || this.state.messages.length > 0) return
+      // and re-greeting them would talk over it. A greeting that already failed stays failed —
+      // retrying it on every reconnect is how one bad turn became a request every few seconds.
+      if (this.state.status !== 'idle' || this.state.messages.length > 0) return
       const greeting = GreetRequestSchema.safeParse(command).data
       if (!greeting) return
       this.setState({ ...this.state, error: undefined, status: 'running' })
