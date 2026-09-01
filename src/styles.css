@@ -420,15 +420,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .composer-shell { padding: 7px 12px 9px; border-top: 1px solid var(--hairline); background: rgba(13, 14, 19, .94); }
 .chat-composer { width: min(100%, 680px); min-height: 52px; margin: 0 auto; border: 1px solid rgba(255, 255, 255, .11); background: #15171d; display: flex; align-items: flex-end; padding: 5px 5px 5px 13px; }
 .chat-composer:focus-within { border-color: rgba(255, 171, 74, .34); }
+.chat-composer textarea:focus-visible { outline: none; }
 .chat-composer label { min-width: 0; flex: 1; display: flex; }
 .chat-composer textarea { width: 100%; max-height: 116px; min-height: 39px; resize: none; padding: 10px 8px 8px 0; border: 0; background: transparent; color: #e7e7ea; font-family: inherit; font-size: 13px; line-height: 1.45; }
 .chat-composer textarea::placeholder { color: #63666e; }
 .chat-composer button { width: 40px; height: 40px; flex: 0 0 auto; border: 0; display: grid; place-items: center; background: var(--spice); color: #160b05; cursor: pointer; }
 .chat-composer button.stop-button { background: #2b2527; color: #ff9ca5; border: 1px solid rgba(255, 107, 120, .2); }
 .chat-composer button:disabled { background: #292c33; color: #656871; }
-.composer-hints, .runtime-footer { width: min(100%, 680px); margin-inline: auto; font-family: var(--mono); }
-.composer-hints { padding: 6px 2px 0; display: flex; gap: 13px; color: #5e626b; font-size: 10px; }
-.composer-hints span { display: flex; align-items: center; gap: 4px; }
+.runtime-footer { width: min(100%, 680px); margin-inline: auto; font-family: var(--mono); }
 .runtime-footer { padding: 6px 2px 0; display: flex; justify-content: space-between; gap: 12px; color: #5e626b; font-size: 10px; white-space: nowrap; }
 .runtime-footer span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: right; }
 
@@ -496,7 +495,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .action-buttons [data-slot="button"] { width: 100%; }
 .composer-form, .composer-form [data-slot="field-group"] { width: 100%; }
 .chat-composer [data-slot="input-group-addon"] { padding-right: 0; }
-.composer-hints svg { width: 11px; height: 11px; }
 
 
 @media (min-width: 960px) {

@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { useAgent } from 'agents/react'
-import { Bot, Check, ChevronRight, CircleStop, Clock3, Send, ShieldCheck, Trash2, Wrench, X } from 'lucide-react'
+import { Bot, Check, ChevronRight, CircleStop, Send, ShieldCheck, Trash2, Wrench, X } from 'lucide-react'
 import { z } from 'zod'
 
 import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
@@ -284,10 +284,16 @@ function RuntimeFooter({ state }: { state: DanAgentState | undefined }) {
   const latestUsage = [...(state?.messages ?? [])].reverse().find((message) => message.usage)?.usage
   const contextUsed = latestUsage ? latestUsage.input + latestUsage.cacheRead + latestUsage.cacheWrite : 0
   const contextPercent = state?.contextWindow ? (contextUsed / state.contextWindow) * 100 : 0
+  // Before a turn has run there is nothing to account for, and a row of zeros beside
+  // "context n/a" reports only that nothing has happened yet.
+  if (!totals.input && !totals.output) return null
+  const context = state?.contextWindow
+    ? `${contextPercent.toFixed(1)}%/${formatTokens(state.contextWindow)}`
+    : undefined
   return (
     <div className="runtime-footer" aria-label="Agent runtime usage">
       <span>↑{formatTokens(totals.input)} ↓{formatTokens(totals.output)}{totals.cacheRead ? ` R${formatTokens(totals.cacheRead)}` : ''}{totals.cost ? ` $${totals.cost.toFixed(3)}` : ''}</span>
-      <span>{state?.contextWindow ? `${contextPercent.toFixed(1)}%/${formatTokens(state.contextWindow)}` : 'context n/a'} · {state?.model ?? 'pi'}</span>
+      {context && <span>{context}</span>}
     </div>
   )
 }
@@ -401,7 +407,7 @@ export function AgentScreen({
     <div className="agent-screen">
       <header className="agent-header">
         <Avatar className="dan-avatar" size="lg"><AvatarFallback><Bot aria-hidden="true" /></AvatarFallback></Avatar>
-        <div><h1>Dan</h1><Badge variant={connected ? 'cheap' : 'secondary'}>{connected ? state?.model ? `${state.model} runtime` : 'Runtime unavailable' : 'Reconnecting…'}</Badge></div>
+        <div><h1>Dan</h1><Badge variant={connected ? 'cheap' : 'secondary'}>{connected ? state?.model ?? 'Runtime unavailable' : 'Reconnecting…'}</Badge></div>
         <Tooltip>
           <TooltipTrigger render={<Button className="icon-button" disabled={running} onClick={() => agent.send(JSON.stringify({ type: 'clear' }))} size="icon-lg" type="button" variant="outline" />}>
             <Trash2 />
@@ -484,7 +490,6 @@ export function AgentScreen({
             </Field>
           </FieldGroup>
         </form>
-        <div className="composer-hints"><span><Clock3 /> durable history</span><span><ShieldCheck /> orders require confirmation</span></div>
         <RuntimeFooter state={state} />
       </div>
     </div>
