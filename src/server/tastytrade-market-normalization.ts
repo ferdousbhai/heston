@@ -248,7 +248,10 @@ export function normalizeTastytradeMarketTicker(
     `implied-volatility-percentile:${symbol}`,
   )
   const liquidity = optionalNumeric(metrics['liquidity-rating'], `liquidity-rating:${symbol}`)
-  const marketCap = optionalNonnegative(metrics['market-cap'] ?? metrics.marketCap, 'market-cap')
+  // tastytrade writes a zero capitalization for instruments it publishes none for (ETFs,
+  // indices), so a zero is an unreported reading rather than a zero-dollar issuer.
+  const reportedMarketCap = optionalNonnegative(metrics['market-cap'] ?? metrics.marketCap, 'market-cap')
+  const marketCap = reportedMarketCap === 0 ? undefined : reportedMarketCap
   const volume = optionalNonnegative(quote.volume ?? quote['day-volume'], 'volume')
   const yearLow = optionalPositive(quote.yearLowPrice ?? quote['year-low-price'], 'year-low')
   const yearHigh = optionalPositive(quote.yearHighPrice ?? quote['year-high-price'], 'year-high')

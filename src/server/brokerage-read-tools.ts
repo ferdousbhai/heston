@@ -208,6 +208,13 @@ export async function readAccountHistory(
   return result
 }
 
+// tastytrade writes a zero capitalization for instruments it publishes none for (ETFs,
+// indices), so a zero is an unreported reading rather than a zero-dollar issuer.
+function optionalCapitalization(row: JsonObject, label: string): number | undefined {
+  const reported = optionalNumber(row, ['market-cap'], label)
+  return reported === 0 ? undefined : reported
+}
+
 function compactMetric(row: JsonObject): CompactMarketMetric {
   const label = 'Tastytrade market metrics'
   const symbol = requiredText(row, ['symbol'], label, 8).toUpperCase()
@@ -230,7 +237,7 @@ function compactMetric(row: JsonObject): CompactMarketMetric {
     liquidityRank: optionalNumber(row, ['liquidity-rank'], label),
     liquidityRating: optionalNumber(row, ['liquidity-rating'], label),
     liquidityValue: optionalNumber(row, ['liquidity-value', 'liquidity'], label),
-    marketCap: optionalNumber(row, ['market-cap'], label),
+    marketCap: optionalCapitalization(row, label),
     priceEarningsRatio: optionalNumber(row, ['price-earnings-ratio'], label),
     symbol,
     updatedAt: optionalTimestamp(row, ['updated-at'], label),

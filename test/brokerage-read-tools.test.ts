@@ -165,8 +165,21 @@ describe('brokerage read tools', () => {
       impliedVolatility30Day: 51,
       impliedVolatilityRank: 72,
       liquidityRating: 5,
+      marketCap: 3_000_000_000_000,
       symbol: 'NVDA',
     })])
+  })
+
+  it('leaves the capitalization tastytrade reports as zero out of the row', async () => {
+    tastytrade.tastyRequest.mockResolvedValue({ data: { items: [{
+      symbol: 'TQQQ',
+      'market-cap': '0.0',
+      'updated-at': '2026-08-13T11:55:00.000Z',
+    }] } })
+
+    const result = await readMarketMetrics({}, ['TQQQ'], now)
+
+    expect(result.metrics[0]?.marketCap).toBeUndefined()
   })
 
   it('fails closed on duplicate or malformed market metrics', async () => {

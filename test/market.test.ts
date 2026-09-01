@@ -225,7 +225,8 @@ describe('tastytrade normalization', () => {
       position: true, updatedAt: '2026-08-13T13:31:00.000Z',
     })
     expect(liveTickerFromRecords('SPY', metrics, quote, true).sparkline).toEqual([])
-    expect(liveTickerFromRecords('SPY', { ...metrics, 'market-cap': '0' }, quote, true).marketCap).toBe(0)
+    expect(liveTickerFromRecords('SPY', { ...metrics, 'market-cap': '0' }, quote, true).marketCap)
+      .toBeUndefined()
     expect(liveTickerFromRecords('SPCX', metrics, quote, false, {
       symbol: 'SPCX', description: 'SpaceX Corporation',
     })).toMatchObject({ assetType: undefined, name: 'SpaceX Corporation' })
