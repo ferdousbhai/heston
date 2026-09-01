@@ -49,7 +49,7 @@ describe('legacy service-worker retirement', () => {
     expect(handlers.has('fetch')).toBe(false)
   })
 
-  it('unregisters itself while the page owns legacy cache clearing', async () => {
+  it('clears the shell it served before unregistering, and leaves other caches alone', async () => {
     const { cacheStorage, handlers, worker } = loadWorker([
       'spice-public-shell-v1',
       'spice-public-shell-v2',
@@ -58,8 +58,13 @@ describe('legacy service-worker retirement', () => {
 
     await dispatch(handlers.get('activate')!)
 
-    expect(cacheStorage.keys).not.toHaveBeenCalled()
-    expect(cacheStorage.delete).not.toHaveBeenCalled()
+    // The page used to own this, but a document whose own modules 404 never runs page code —
+    // which is exactly the document that needs the stale shell gone.
+    expect(cacheStorage.delete).toHaveBeenCalledTimes(2)
+    expect(cacheStorage.delete).toHaveBeenCalledWith('spice-public-shell-v1')
+    expect(cacheStorage.delete).toHaveBeenCalledWith('spice-public-shell-v2')
+    // Retiring an old shell must not be collateral for a cache something else owns.
+    expect(cacheStorage.delete).not.toHaveBeenCalledWith('unrelated-browser-cache')
     expect(worker.clients.claim).not.toHaveBeenCalled()
     expect(worker.registration.unregister).toHaveBeenCalledOnce()
   })

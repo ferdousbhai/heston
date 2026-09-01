@@ -129,6 +129,9 @@ async function clearLegacySpiceCaches(): Promise<void> {
 }
 
 async function retireLegacyServiceWorker(): Promise<void> {
+  // The worker clears caches on activation now, which is the path that survives a document
+  // its own code cannot load. This covers the other case: caches orphaned by a worker that
+  // is already gone, where no activation will ever come.
   await clearLegacySpiceCaches()
   const registration = await navigator.serviceWorker.getRegistration('/')
   if (registration) {
