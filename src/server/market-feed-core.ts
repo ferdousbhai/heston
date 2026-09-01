@@ -211,10 +211,17 @@ function eventFromRow(type: Exclude<FeedType, 'Greeks'>, row: JsonObject): LiveM
     return trade
   }
   const candleClose = jsonNumber(row.close)
+  // COMPACT encodes an absent numeric slot as null or an empty string, and for a candle those
+  // slots are absent precisely when their value is zero — a quiet bucket carries no sequence
+  // and no flags. Reading absence as damage tore the connection down on the first empty bucket
+  // of every daily backfill, in a reconnect loop that also kept the year store empty.
+  const sequence = jsonNumber(row.sequence) ?? (compactValueIsAbsent(row.sequence) ? 0 : undefined)
+  const eventFlags = jsonNumber(row.eventFlags) ?? (compactValueIsAbsent(row.eventFlags) ? 0 : undefined)
   const candleTime = jsonNumber(row.time)
-  const sequence = jsonNumber(row.sequence)
-  const eventFlags = jsonNumber(row.eventFlags)
-  if (candleTime === undefined || candleTime < 0 || !Number.isSafeInteger(candleTime)
+  // A candle with no instant at all is a frame with nothing to place; only a present-but-
+  // unreadable instant breaks the contract.
+  if (candleTime === undefined) return compactValueIsAbsent(row.time) ? null : undefined
+  if (candleTime < 0 || !Number.isSafeInteger(candleTime)
     || sequence === undefined || sequence < 0 || !Number.isSafeInteger(sequence)
     || eventFlags === undefined || eventFlags < 0 || !Number.isSafeInteger(eventFlags)
     || (candleClose === undefined && !compactValueIsAbsent(row.close))) return undefined

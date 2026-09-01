@@ -436,8 +436,10 @@ describe('MarketFeed option Greeks RPC', () => {
     })
     await context.drain()
 
-    // A days-long backfill crosses buckets where nothing traded: no close, and a snapshot
-    // boundary marker carries no instant either. Both must be survivable.
+    // A days-long backfill crosses buckets where nothing traded. COMPACT omits zero-valued
+    // slots, so such a row nulls its close, its sequence, its flags — even its instant on a
+    // boundary marker. Every shape must be survivable, or the first quiet bucket of a daily
+    // backfill tears the whole feed down.
     socket.message({
       type: 'FEED_DATA',
       channel: 5,
@@ -445,6 +447,10 @@ describe('MarketFeed option Greeks RPC', () => {
         'SPY{=5m,tho=true}', 1_786_629_600_000, 0, 0, 1_786_629_600_000, 1, 0, 0,
         null, null, null, null, null, null, null, null, null,
         'SPY{=5m,tho=true}', 0, 0x8, 0, 0, 0, 0, 0,
+        null, null, null, null, null, null, null, null, null,
+        'SPY{=5m,tho=true}', 1_786_629_900_000, null, null, 1_786_629_900_000, null, null, null,
+        null, null, null, null, null, null, null, null, null,
+        'SPY{=5m,tho=true}', null, null, null, null, null, null, null,
         null, null, null, null, null, null, null, null, null,
       ]],
     })
