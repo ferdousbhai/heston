@@ -64,7 +64,8 @@ describe('recommendation availability', () => {
       onSymbol: () => undefined,
     }))
 
-    expect(html).toContain('>Links</h2>')
+    // The list names itself; the heading stays for heading navigation but is not drawn.
+    expect(html).toMatch(/<h2[^>]*sr-only[^>]*>Links<\/h2>/)
     expect(html).toContain('Primary announcement')
     expect(html).toContain('The primary announcement and its dated terms.')
     expect(html).toContain('src="https://images.example.com/announcement.jpg"')

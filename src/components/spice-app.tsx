@@ -91,9 +91,12 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
         }}
         value={tab}
       >
+        {/* The age belongs to the market data, so it is stated where that data is read and
+            nowhere else: on the recommendations or agent tab it would describe something the
+            reader is not looking at. */}
         {!ownerAgentOpen && (
           <TopBar
-            lastUpdatedAt={lastUpdatedAt}
+            lastUpdatedAt={tab === 'market' ? lastUpdatedAt : undefined}
             viewerName={viewer?.name}
           />
         )}

@@ -186,7 +186,9 @@ function RecommendationArchive({
       <div className="recommendations-section">
         {current.links.length > 0 && (
           <section aria-labelledby="recommendation-links-title" className="recommendation-links-section">
-            <h2 id="recommendation-links-title">Links</h2>
+            {/* The list is self-evidently links; naming it only repeated what a reader can
+                see. The heading stays for anyone navigating by heading or landmark. */}
+            <h2 className="sr-only" id="recommendation-links-title">Links</h2>
             <ol className="recommendation-links">
               {current.links.map((item) => (
                 <li key={item.url}>
