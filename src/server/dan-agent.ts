@@ -27,7 +27,7 @@ import {
 import { createBrokerageReadTools, readMarketStatus } from './brokerage-read-tools'
 import { buildAgentRuntimeContext, loadBrokerageContext } from './brokerage-context'
 import { createBrokerageReconciliationTool } from './brokerage-reconciliation'
-import { DAN_SYSTEM_PROMPT } from './dan-doctrine'
+import { DAN_GREETING_PROMPT, DAN_SYSTEM_PROMPT } from './dan-doctrine'
 import { type AppEnv } from './env'
 import { createPiRuntime } from './pi-runtime'
 import { grokGatewayBaseUrl } from './ai-gateway'
@@ -44,11 +44,15 @@ import {
   projectTurnEnd,
   replayTranscript,
   toolResultText,
-  welcomeMessage,
 } from './dan-transcript'
 
 /** The chat relay delivers text frames; binary frames are not part of the client protocol. */
 const ClientFrameSchema = z.string()
+
+const GreetRequestSchema = z.strictObject({
+  selectedSymbol: z.string().min(1).max(16).optional(),
+  type: z.literal('greet'),
+})
 
 const ActionResolvedSchema = z.strictObject({
   messageId: z.string(),
@@ -59,8 +63,7 @@ const ActionResolvedSchema = z.strictObject({
 export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
   initialState: DanAgentState = {
     contextWindow: 0,
-    messages: [welcomeMessage()],
-    model: 'pi · ready',
+    messages: [],
     status: 'idle',
   }
 
@@ -97,7 +100,7 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
     }
     if (command.type === 'clear') {
       if (this.state.status === 'running') return
-      this.setState({ contextWindow: this.state.contextWindow, messages: [welcomeMessage()], model: this.state.model, status: 'idle' })
+      this.setState({ contextWindow: this.state.contextWindow, messages: [], model: this.state.model, status: 'idle' })
       return
     }
     if (command.type === 'action_resolved') {
@@ -109,6 +112,22 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
           ? { ...message, actionStatus: resolved.status, pendingAction: undefined }
           : message),
       })
+      return
+    }
+    if (command.type === 'greet') {
+      // Only ever opens an empty transcript: a reader who has already spoken has a session,
+      // and re-greeting them would talk over it.
+      if (this.state.status === 'running' || this.state.messages.length > 0) return
+      const greeting = GreetRequestSchema.safeParse(command).data
+      if (!greeting) return
+      this.setState({ ...this.state, error: undefined, status: 'running' })
+      const opening = this.keepAliveWhile(
+        () => this.runTurn(greeting.selectedSymbol, DAN_GREETING_PROMPT, crypto.randomUUID(), true),
+      ).catch((cause: unknown) => {
+        const error = toError(cause)
+        console.error('DanAgentGreetingFailed', error ? error.message.slice(0, 500) : 'UnknownError')
+      })
+      this.ctx.waitUntil(opening)
       return
     }
     if (command.type !== 'submit' || this.state.status === 'running') return
@@ -144,7 +163,17 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
     this.broadcast(JSON.stringify(event))
   }
 
-  private async runTurn(selectedSymbol: string | undefined, currentUserMessage: string, runId: string) {
+  /**
+   * `ephemeral` carries an instruction the model must answer but the transcript must not keep:
+   * the greeting asks for an opening line, and storing that request would leave the owner
+   * reading a prompt they never wrote.
+   */
+  private async runTurn(
+    selectedSymbol: string | undefined,
+    currentUserMessage: string,
+    runId: string,
+    ephemeral = false,
+  ) {
     const controller = new AbortController()
     this.abortController = controller
     let turnFailure: string | undefined
@@ -210,7 +239,13 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
       ]
       const toolLabel = new Map(tools.map((tool) => [tool.name, tool.label] as const))
       const context: AgentContext = {
-        messages: replayTranscript(this.state.messages, runtime.model),
+        messages: ephemeral
+          ? [...replayTranscript(this.state.messages, runtime.model), {
+            content: currentUserMessage,
+            role: 'user' as const,
+            timestamp: Date.now(),
+          }]
+          : replayTranscript(this.state.messages, runtime.model),
         systemPrompt: `${DAN_SYSTEM_PROMPT}\n\n<runtime_context>${runtimeContext}</runtime_context>`,
         tools,
       }

@@ -32,9 +32,8 @@ const USAGE = {
 }
 
 describe('Dan transcript projection', () => {
-  it('replays user and completed prose while excluding welcome and tool traces', () => {
+  it('replays user and completed prose while excluding tool traces', () => {
     const messages: AgentChatMessage[] = [
-      { createdAt: '2026-08-29T10:00:00.000Z', id: 'welcome', role: 'assistant', text: 'Welcome' },
       { createdAt: '2026-08-29T10:01:00.000Z', id: 'user-1', role: 'user', text: 'Inspect NVDA' },
       {
         createdAt: '2026-08-29T10:02:00.000Z', id: 'tool-turn', model: 'grok', role: 'assistant',

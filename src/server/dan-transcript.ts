@@ -9,15 +9,6 @@ import {
 
 type TurnEndEvent = Extract<AgentEvent, { type: 'turn_end' }>
 
-export function welcomeMessage(): AgentChatMessage {
-  return {
-    createdAt: new Date().toISOString(),
-    id: 'welcome',
-    role: 'assistant',
-    text: 'Ask me about option premium, account state, watchlists, or a defined-risk order. I can inspect and reason freely; only order placement stops at a confirmation boundary.',
-  }
-}
-
 function transcriptUsage(usage: Usage) {
   return {
     cacheRead: usage.cacheRead,
@@ -45,7 +36,6 @@ export function completedToolCall(call: AgentToolCall, output: string, isError: 
 export function replayTranscript(messages: AgentChatMessage[], model: Model<any>): Message[] {
   const replay: Message[] = []
   for (const message of messages) {
-    if (message.id === 'welcome') continue
     const timestamp = Date.parse(message.createdAt)
     if (!Number.isFinite(timestamp)) throw new Error(`DanTranscript:invalid-timestamp:${message.id}`)
     if (message.role === 'user') {

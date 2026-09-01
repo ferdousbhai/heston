@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { useAgent } from 'agents/react'
 import { Bot, Check, ChevronRight, CircleStop, Send, ShieldCheck, Trash2, Wrench, X } from 'lucide-react'
 import { z } from 'zod'
@@ -380,6 +380,14 @@ export function AgentScreen({
     setInput('')
     agent.send(JSON.stringify({ message: trimmed, selectedSymbol: selected.symbol, type: 'submit' }))
   }
+  // An empty transcript has no opening line yet. The agent refuses a second one, so a
+  // reconnect or a re-render cannot talk over a session already under way.
+  const greetable = connected && !running && state?.messages.length === 0
+  useEffect(() => {
+    if (!greetable) return
+    agent.send(JSON.stringify({ selectedSymbol: selected.symbol, type: 'greet' }))
+  }, [agent, greetable, selected.symbol])
+
   const submit = (event: FormEvent) => { event.preventDefault(); send(input) }
   const keyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -407,7 +415,8 @@ export function AgentScreen({
     <div className="agent-screen">
       <header className="agent-header">
         <Avatar className="dan-avatar" size="lg"><AvatarFallback><Bot aria-hidden="true" /></AvatarFallback></Avatar>
-        <div><h1>Dan</h1><Badge variant={connected ? 'cheap' : 'secondary'}>{connected ? state?.model ?? 'Runtime unavailable' : 'Reconnecting…'}</Badge></div>
+        {/* Only a state the reader must wait out is worth a badge; naming the model is not. */}
+        <div><h1>Dan</h1>{!connected && <Badge variant="secondary">Reconnecting…</Badge>}</div>
         <Tooltip>
           <TooltipTrigger render={<Button className="icon-button" disabled={running} onClick={() => agent.send(JSON.stringify({ type: 'clear' }))} size="icon-lg" type="button" variant="outline" />}>
             <Trash2 />

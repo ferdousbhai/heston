@@ -126,10 +126,15 @@ export function parseStoredDailyRecommendations(value: JsonValue): DailyRecommen
 
 export const MarketStateSchema = z.enum(['open', 'closed', 'pre', 'after', 'unknown'])
 
+export type MarketState = z.infer<typeof MarketStateSchema>
+
 export const MarketSnapshotSchema = z.object({
   source: z.literal('tastytrade'),
   syncedAt: z.string(),
   marketState: MarketStateSchema,
+  // Present when the provider named an opening bell for the current session; a reader waiting
+  // through pre-market is counting down to this.
+  marketOpensAt: z.string().optional(),
   watchlists: z.array(WatchlistSchema).length(1),
   tickers: z.array(TickerSchema),
   catalysts: z.array(CatalystSchema),
@@ -142,6 +147,9 @@ export const PublicMarketSnapshotSchema = z.strictObject({
   source: z.literal('tastytrade'),
   syncedAt: z.string(),
   marketState: MarketStateSchema,
+  // Present when the provider named an opening bell for the current session; a reader waiting
+  // through pre-market is counting down to this.
+  marketOpensAt: z.string().optional(),
   watchlists: z.array(PublicWatchlistSchema).length(1),
   tickers: z.array(PublicTickerSchema),
   catalysts: z.array(CatalystSchema),

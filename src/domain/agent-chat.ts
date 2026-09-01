@@ -46,7 +46,8 @@ export type DanAgentState = {
   contextWindow: number
   error?: string
   messages: AgentChatMessage[]
-  model: string
+  /** Absent until a turn has built a runtime; there is no honest placeholder for it. */
+  model?: string
   status: 'error' | 'idle' | 'running'
 }
 

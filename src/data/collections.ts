@@ -207,13 +207,23 @@ async function updateSnapshotPreference(snapshot: MarketSnapshot): Promise<void>
 
   const watchlistIds = new Set(snapshot.watchlists.map((watchlist) => watchlist.id))
   const tickerSymbols = new Set(snapshot.tickers.map((ticker) => ticker.symbol))
-  const selectionInvalid = !watchlistIds.has(currentPreference.selectedWatchlistId)
-    || !tickerSymbols.has(currentPreference.selectedSymbol)
-  if (selectionInvalid || (!currentPreference.selectedByUser && currentPreference.selectedSymbol !== defaultSymbol)) {
+  // A watchlist whose identity changed says nothing about the symbol the reader picked, and
+  // the two audiences publish different watchlist ids — so treating one unknown id as proof
+  // that the whole selection was stale threw away the reader's choice on every sign-in and
+  // sent them back to whatever happened to be busiest that morning.
+  const keepsChoice = Boolean(currentPreference.selectedByUser)
+    && tickerSymbols.has(currentPreference.selectedSymbol)
+  const selectedSymbol = keepsChoice ? currentPreference.selectedSymbol : defaultSymbol
+  const selectedWatchlistId = watchlistIds.has(currentPreference.selectedWatchlistId)
+    ? currentPreference.selectedWatchlistId
+    : defaultWatchlist.id
+  if (selectedSymbol !== currentPreference.selectedSymbol
+    || selectedWatchlistId !== currentPreference.selectedWatchlistId
+    || keepsChoice !== Boolean(currentPreference.selectedByUser)) {
     const preference = preferenceCollection.update('primary', (draft) => {
-      draft.selectedByUser = false
-      draft.selectedSymbol = defaultSymbol
-      draft.selectedWatchlistId = defaultWatchlist.id
+      draft.selectedByUser = keepsChoice
+      draft.selectedSymbol = selectedSymbol
+      draft.selectedWatchlistId = selectedWatchlistId
     })
     await preference.isPersisted.promise
   }

@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 
 import {
   applyLiveMarketEvent,
+  selectTicker,
   hydrateCollections,
   offlineSnapshotCollection,
+  preferenceCollection,
   OFFLINE_SNAPSHOT_STORAGE_KEY,
   OFFLINE_SNAPSHOT_VERSION,
   restoreOfflineSnapshot,
@@ -225,6 +227,42 @@ describe('live market subscriptions', () => {
       price: original.price + 10,
       updatedAt: timestamp,
     })
+  })
+
+  it('keeps the reader\'s chosen symbol when the audience changes the watchlist', async () => {
+    const snapshot = marketSnapshotFixture()
+    await hydrateCollections(snapshot, 'owner')
+    // A deliberate pick, on a symbol that is not the busiest.
+    const chosen = snapshot.tickers.find((ticker) => ticker.symbol === 'INTC')!
+    await selectTicker(chosen.symbol)
+    expect(preferenceCollection.get('primary')).toMatchObject({
+      selectedByUser: true, selectedSymbol: 'INTC',
+    })
+
+    // Signing in or out republishes the same tickers under a different watchlist id.
+    await hydrateCollections({
+      ...snapshot,
+      watchlists: [{ id: 'public-options-watch', kind: 'public', name: 'Options Watch', symbols: snapshot.watchlists[0]!.symbols }],
+    }, 'public')
+
+    expect(preferenceCollection.get('primary')).toMatchObject({
+      selectedByUser: true,
+      selectedSymbol: 'INTC',
+      selectedWatchlistId: 'public-options-watch',
+    })
+  })
+
+  it('falls back to the busiest symbol only when the chosen one is gone', async () => {
+    const snapshot = marketSnapshotFixture()
+    await hydrateCollections(snapshot, 'owner')
+    await selectTicker('INTC')
+
+    const withoutIntc = snapshot.tickers.filter((ticker) => ticker.symbol !== 'INTC')
+    await hydrateCollections({ ...snapshot, tickers: withoutIntc }, 'owner')
+
+    const preference = preferenceCollection.get('primary')
+    expect(preference?.selectedSymbol).not.toBe('INTC')
+    expect(preference?.selectedByUser).toBe(false)
   })
 
   it('does not replace a richer live candle series with a shorter broker candle series', async () => {

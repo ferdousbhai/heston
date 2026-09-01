@@ -47,6 +47,7 @@ import {
   activeEquityPositionSymbols,
   catalogTickerInstrument,
   liveTickerFromRecords,
+  marketOpensAtFromTastytradeSession,
   marketStateFromTastytradeSession,
   tickerFromStoredRecords,
   normalizeTastytradeMarketTicker,
@@ -489,13 +490,15 @@ async function loadMarketSnapshot(
   await refreshMissingTastytradeInstruments(env, symbols)
   const { catalysts, tickers } = await loadMarketFacts(env, symbols, new Set(positionSymbols))
   const marketState = marketStateFromTastytradeSession(sessionPayload)
-  await cacheMarketSession(env, marketState)
+  const marketOpensAt = marketOpensAtFromTastytradeSession(sessionPayload)
+  await cacheMarketSession(env, marketState, marketOpensAt)
 
   const syncedAt = new Date().toISOString()
   const snapshot = MarketSnapshotSchema.parse({
     source: 'tastytrade',
     syncedAt,
     marketState,
+    marketOpensAt,
     watchlists,
     tickers,
     catalysts,
@@ -591,7 +594,8 @@ export async function loadPublicMarketSnapshot(
   ])
   const syncedAt = new Date().toISOString()
   const marketState = marketStateFromTastytradeSession(sessionResult)
-  await cacheMarketSession(env, marketState)
+  const marketOpensAt = marketOpensAtFromTastytradeSession(sessionResult)
+  await cacheMarketSession(env, marketState, marketOpensAt)
   const watchlists = [{
     id: 'public-options-watch',
     kind: 'public' as const,
@@ -602,6 +606,7 @@ export async function loadPublicMarketSnapshot(
     source: 'tastytrade',
     syncedAt,
     marketState,
+    marketOpensAt,
     watchlists,
     tickers: marketFacts.tickers.map(publicTickerFromTicker),
     catalysts: marketFacts.catalysts,
@@ -613,9 +618,13 @@ export async function loadPublicMarketSnapshot(
  * Caching the session is best-effort: it is a read optimization for later visitors, never a
  * reason to fail the live build that already has the answer in hand.
  */
-async function cacheMarketSession(env: AppEnv, marketState: MarketSnapshot['marketState']): Promise<void> {
+async function cacheMarketSession(
+  env: AppEnv,
+  marketState: MarketSnapshot['marketState'],
+  marketOpensAt: string | undefined,
+): Promise<void> {
   try {
-    await persistMarketSession(env, marketState)
+    await persistMarketSession(env, marketState, marketOpensAt)
   } catch (error) {
     console.error('MarketSessionCacheWriteFailed', error instanceof Error ? error.message : 'UnknownError')
   }
@@ -657,6 +666,7 @@ async function loadStoredPublicMarketSnapshot(env: AppEnv): Promise<PublicMarket
     source: 'tastytrade',
     syncedAt: records.observedAt,
     marketState: session?.state ?? 'unknown',
+    marketOpensAt: session?.opensAt,
     watchlists: [{
       id: 'public-options-watch',
       kind: 'public' as const,
@@ -706,6 +716,7 @@ async function loadStoredMarketSnapshot(env: AppEnv): Promise<MarketSnapshot | u
     source: 'tastytrade',
     syncedAt: records.observedAt,
     marketState: session?.state ?? 'unknown',
+    marketOpensAt: session?.opensAt,
     watchlists: [{ id: 'watchlist', kind: 'private' as const, name: 'Watchlist', symbols: focusSymbols }],
     tickers,
     catalysts,

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 
+import { type MarketState } from '../domain/market'
+
 import { Avatar, AvatarFallback } from '#/components/ui/avatar'
 import { Button } from '#/components/ui/button'
 import { GoogleSignInButton } from './auth-gate'
@@ -32,30 +34,70 @@ export function elapsedLabel(at: string, now: number): string | undefined {
  * in state. Rendering may not read it directly, so a label can trail the real instant by up to
  * one tick — immaterial at the minute granularity a reader is being told about.
  */
-function useElapsedLabel(at: string | undefined): string | undefined {
+function useTick(enabled: boolean): number {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
-    if (!at) return
+    if (!enabled) return
     const timer = setInterval(() => setNow(Date.now()), ELAPSED_TICK_MS)
     return () => clearInterval(timer)
-  }, [at])
+  }, [enabled])
+  return now
+}
+
+function useElapsedLabel(at: string | undefined): string | undefined {
+  const now = useTick(Boolean(at))
   return at ? elapsedLabel(at, now) : undefined
+}
+
+/**
+ * Pre-market is the only state with something to wait for, so it is the only one that counts.
+ * Everything else a reader needs is whether the bell has rung, which the dot carries.
+ */
+export type MarketStatus = { label: string; tone: 'open' | 'waiting' | 'closed' }
+
+export function marketStatusLabel(
+  state: MarketState,
+  opensAt: string | undefined,
+  now: number,
+): MarketStatus {
+  if (state === 'open') return { label: 'Open', tone: 'open' }
+  if (state !== 'pre') return { label: 'Closed', tone: 'closed' }
+  const opens = opensAt ? Date.parse(opensAt) : Number.NaN
+  const minutes = Number.isFinite(opens) ? Math.ceil((opens - now) / 60_000) : Number.NaN
+  // A bell already rung, or one the provider never named, leaves nothing honest to count down.
+  if (!Number.isFinite(minutes) || minutes <= 0) return { label: 'Pre-market', tone: 'waiting' }
+  const hours = Math.floor(minutes / 60)
+  const remainder = minutes % 60
+  const wait = hours ? `${hours}h ${remainder}m` : `${remainder}m`
+  return { label: `Opens in ${wait}`, tone: 'waiting' }
 }
 
 export function TopBar({
   lastUpdatedAt,
+  marketOpensAt,
+  marketState,
   viewerName,
 }: {
   lastUpdatedAt?: string
+  marketOpensAt?: string
+  marketState?: MarketState
   viewerName?: string
 }) {
   const updated = useElapsedLabel(lastUpdatedAt)
+  // Shares the elapsed clock's tick, so the countdown advances without a second timer.
+  const now = useTick(Boolean(marketState))
+  const status = marketState ? marketStatusLabel(marketState, marketOpensAt, now) : undefined
   return (
     <header className="top-bar">
       <Link aria-label="Spice home" className="brand" to="/">
         <span>SPICE</span>
       </Link>
       <div className="top-actions">
+        {status && (
+          <span className="market-status" data-tone={status.tone}>
+            <span aria-hidden="true" /><span>{status.label}</span>
+          </span>
+        )}
         {updated && (
           <span className="last-updated" title={`Market data last updated ${lastUpdatedAt}`}>
             Updated {updated}

@@ -97,6 +97,8 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
         {!ownerAgentOpen && (
           <TopBar
             lastUpdatedAt={tab === 'market' ? lastUpdatedAt : undefined}
+            marketOpensAt={snapshot?.marketOpensAt}
+            marketState={snapshot?.marketState}
             viewerName={viewer?.name}
           />
         )}

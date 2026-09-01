@@ -97,6 +97,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .brand > span::after { content: "]"; color: var(--ink-faint); }
 .brand small { margin-top: 5px; color: var(--ink-muted); font-size: 7px; font-weight: 700; letter-spacing: .28em; }
 .top-actions { display: flex; align-items: center; gap: 8px; }
+.market-status { display: flex; align-items: center; gap: 6px; color: var(--ink-muted); font-family: var(--mono); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
+.market-status > span:first-child { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: currentColor; }
+.market-status[data-tone="open"] { color: #5fd08a; }
+.market-status[data-tone="waiting"] { color: var(--spice); }
+.market-status[data-tone="closed"] { color: #d8636f; }
 .last-updated { color: var(--ink-faint); font-size: 10px; font-variant-numeric: tabular-nums; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
 .top-link { padding: 12px 6px; color: var(--ink-muted); font-size: 11px; font-weight: 400; text-transform: uppercase; text-decoration: none; }
 .top-link:hover { color: var(--text); }

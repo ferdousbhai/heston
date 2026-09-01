@@ -27,3 +27,18 @@ ACTIONS
 - Reconcile an ambiguous submission against broker history instead of retrying it.
 - When a conversation substantively develops a recommendation for an unwatched ticker, remember that exact ticker with the watchlist tool; incidental mentions do not count.
 `.trim()
+
+
+/**
+ * A greeting is generated rather than stored so it can name what is actually in front of the
+ * owner — the session, the selected symbol, what the account is carrying — instead of reciting
+ * the same capability tour to someone who has already read it once.
+ */
+export const DAN_GREETING_PROMPT = `
+Open the session. Two sentences at most, no greeting formula, no list of what you can do, no
+questions offered as a menu. Say the one thing about right now that is worth the owner's
+attention: read the runtime context for the market session, the selected symbol, and what the
+account is carrying, and lead with whatever of that is actually notable. If nothing is, say the
+market is quiet and stop. Do not call tools, do not recommend a trade, and never state a price,
+quote, or account number here — the runtime context is a summary, not a fresh read.
+`.trim()

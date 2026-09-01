@@ -266,30 +266,47 @@ export async function claimMarketRefresh(
 }
 
 
-const StoredSessionRowSchema = z.object({ state: z.string(), observed_at: z.string() })
+const StoredSessionRowSchema = z.object({
+  state: z.string(),
+  observed_at: z.string(),
+  opens_at: z.string().nullable().optional(),
+})
 
-export type StoredMarketSession = { observedAt: string; state: MarketSnapshot['marketState'] }
+export type StoredMarketSession = {
+  observedAt: string
+  opensAt?: string
+  state: MarketSnapshot['marketState']
+}
 
 export async function readStoredMarketSession(env: AppEnv): Promise<StoredMarketSession | undefined> {
   if (!env.DB) return undefined
   const result = await env.DB.prepare(
-    "SELECT state, observed_at FROM market_session WHERE id = 'equities'",
+    "SELECT state, observed_at, opens_at FROM market_session WHERE id = 'equities'",
   ).first()
   if (!result) return undefined
   const row = StoredSessionRowSchema.safeParse(result)
   if (!row.success) return undefined
   const state = MarketStateSchema.safeParse(row.data.state)
-  return state.success ? { observedAt: row.data.observed_at, state: state.data } : undefined
+  if (!state.success) return undefined
+  return {
+    observedAt: row.data.observed_at,
+    opensAt: row.data.opens_at ?? undefined,
+    state: state.data,
+  }
 }
 
 export async function persistMarketSession(
   env: AppEnv,
   state: MarketSnapshot['marketState'],
+  opensAt: string | undefined,
   observedAt = new Date(),
 ): Promise<void> {
   if (!env.DB) return
   await env.DB.prepare(
-    `INSERT INTO market_session (id, state, observed_at) VALUES ('equities', ?, ?)
-     ON CONFLICT(id) DO UPDATE SET state = excluded.state, observed_at = excluded.observed_at`,
-  ).bind(state, observedAt.toISOString()).run()
+    `INSERT INTO market_session (id, state, observed_at, opens_at) VALUES ('equities', ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       state = excluded.state,
+       observed_at = excluded.observed_at,
+       opens_at = excluded.opens_at`,
+  ).bind(state, observedAt.toISOString(), opensAt ?? null).run()
 }

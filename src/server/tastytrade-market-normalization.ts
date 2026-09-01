@@ -389,6 +389,21 @@ export function marketStateFromTastytradeSession(payload: JsonValue): MarketSnap
   return 'unknown'
 }
 
+/**
+ * When the current session opens. Pre-market is the only state a reader can count down from,
+ * and the provider is the only thing that knows about holidays and half days, so the instant
+ * comes from the session rather than from a clock.
+ */
+export function marketOpensAtFromTastytradeSession(payload: JsonValue): string | undefined {
+  const body = jsonObject(payload)
+  const session = jsonObject(body?.data ?? payload)
+  if (!session) return undefined
+  const opensAt = jsonText(session['open-at'])
+  if (!opensAt) return undefined
+  const parsed = Date.parse(opensAt)
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : undefined
+}
+
 export function selectSnapshotSymbols(
   positionSymbols: readonly string[],
   requestedSymbols: readonly string[],
