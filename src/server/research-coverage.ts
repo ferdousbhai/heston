@@ -3,9 +3,9 @@ import { z } from 'zod'
 import { marketDate } from '../domain/catalyst'
 import { EquitySymbolSchema } from '../domain/instrument'
 import { type AppEnv } from './env'
-import { researchBriefId } from './research-contracts'
+import { dailyRecommendationsId } from './research-contracts'
 
-// Prior daily briefs are a deduplication aid, not an archive-search tool; one year bounds
+// Prior daily recommendations are a deduplication aid, not an archive-search tool; one year bounds
 // the D1 scan and agent context while covering every seasonal comparison available to a daily run.
 export const MAX_RESEARCH_LOOKBACK_DAYS = 365
 
@@ -36,11 +36,11 @@ function coverageCutoff(now: Date, daysAgo: number): string {
 }
 
 /**
- * Read only requested tickers from the model-selected recent-brief window. The ticker
+ * Read only requested tickers from the model-selected recent-recommendation window. The ticker
  * list is one JSON-bound value, so the query stays static without a product-level cap.
  *
- * The current market date's own brief is excluded. A rerun replaces that row, so
- * without this a second run of the same day reads the morning's brief as prior
+ * The current market date's own recommendations are excluded. A rerun replaces that row, so
+ * without this a second run of the same day reads the morning's output as prior
  * coverage and suppresses every symbol it just published as already covered.
  */
 export async function searchRecentTickerCoverage(
@@ -57,22 +57,23 @@ export async function searchRecentTickerCoverage(
   const requested = new Set(symbols.map((symbol) => EquitySymbolSchema.parse(symbol)))
   const rows = await env.DB.prepare(
     `SELECT
-       brief.published_at,
-       json_extract(idea.value, '$.symbol') AS symbol,
-       json_extract(idea.value, '$.direction') AS direction,
-       json_extract(idea.value, '$.headline') AS headline,
-       json_extract(idea.value, '$.description') AS description,
-       json_extract(idea.value, '$.risk') AS risk
-     FROM research_briefs AS brief, json_each(brief.payload_json, '$.ideas') AS idea
-     WHERE brief.published_at >= ?
-       AND brief.published_at < ?
-       AND brief.id <> ?
-       AND json_extract(idea.value, '$.symbol') IN (SELECT value FROM json_each(?))
-     ORDER BY brief.published_at DESC`,
+       daily.published_at,
+       json_extract(recommendation.value, '$.symbol') AS symbol,
+       json_extract(recommendation.value, '$.direction') AS direction,
+       json_extract(recommendation.value, '$.headline') AS headline,
+       json_extract(recommendation.value, '$.description') AS description,
+       json_extract(recommendation.value, '$.risk') AS risk
+     FROM daily_recommendations AS daily,
+          json_each(daily.payload_json, '$.recommendations') AS recommendation
+     WHERE daily.published_at >= ?
+       AND daily.published_at < ?
+       AND daily.id <> ?
+       AND json_extract(recommendation.value, '$.symbol') IN (SELECT value FROM json_each(?))
+     ORDER BY daily.published_at DESC`,
   ).bind(
     coverageCutoff(now, daysAgo),
     now.toISOString(),
-    researchBriefId(marketDate(now)),
+    dailyRecommendationsId(marketDate(now)),
     JSON.stringify([...requested]),
   ).all()
 

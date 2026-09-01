@@ -2,23 +2,23 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import { BriefScreen, researchRunCountdown } from '../src/components/brief-screen'
+import { RecommendationScreen, researchRunCountdown } from '../src/components/recommendation-screen'
 import { marketSnapshotFixture } from './fixtures/market'
 
-describe('brief availability', () => {
-  it('replaces an empty generated brief with the next run and a soft countdown', () => {
-    const latest = marketSnapshotFixture().research!
-    const brief = {
+describe('recommendation availability', () => {
+  it('replaces an empty generated recommendation with the next run and a soft countdown', () => {
+    const latest = marketSnapshotFixture().recommendations!
+    const dailyRecommendations = {
       ...latest,
-      ideas: [],
-      readingList: [],
+      recommendations: [],
+      links: [],
       regime: 'Weekend event screen',
       regimeDetail: 'Aug 29 2026 weekend; next session Aug 31.',
       summary: 'Investigating weekend catalysts before ranking.',
     }
-    const html = renderToStaticMarkup(createElement(BriefScreen, {
+    const html = renderToStaticMarkup(createElement(RecommendationScreen, {
       availableSymbols: new Set<string>(),
-      brief,
+      dailyRecommendations: dailyRecommendations,
       now: new Date('2026-08-29T12:00:00.000Z'),
       onSymbol: () => undefined,
     }))
@@ -33,19 +33,42 @@ describe('brief availability', () => {
   })
 
   it('shows completed research unchanged', () => {
-    const brief = marketSnapshotFixture().research!
-    const html = renderToStaticMarkup(createElement(BriefScreen, {
+    const dailyRecommendations = marketSnapshotFixture().recommendations!
+    const html = renderToStaticMarkup(createElement(RecommendationScreen, {
       availableSymbols: new Set(['NVDA']),
-      brief,
+      dailyRecommendations: dailyRecommendations,
       now: new Date('2026-08-29T12:00:00.000Z'),
       onSymbol: () => undefined,
     }))
 
     expect(html).toContain('Selective long vol')
-    expect(html).toContain('Demand checks keep the AI capex thesis alive')
+    expect(html).toContain('Demand checks keep the AI capex case alive')
     expect(html).toContain('Not financial advice.')
     expect(html).not.toContain('Every contract is illustrative')
     expect(html).not.toContain('Next research run')
+  })
+
+  it('renders reader links with title, description, and an optional preview image', () => {
+    const dailyRecommendations = {
+      ...marketSnapshotFixture().recommendations!,
+      links: [{
+        description: 'The primary announcement and its dated terms.',
+        previewImageUrl: 'https://images.example.com/announcement.jpg',
+        title: 'Primary announcement',
+        url: 'https://example.com/announcement',
+      }],
+    }
+    const html = renderToStaticMarkup(createElement(RecommendationScreen, {
+      availableSymbols: new Set(['NVDA']),
+      dailyRecommendations,
+      onSymbol: () => undefined,
+    }))
+
+    expect(html).toContain('>Links</h2>')
+    expect(html).toContain('Primary announcement')
+    expect(html).toContain('The primary announcement and its dated terms.')
+    expect(html).toContain('src="https://images.example.com/announcement.jpg"')
+    expect(html).toContain('referrerPolicy="no-referrer"')
   })
 
   it('reduces countdown precision as the run gets farther away', () => {

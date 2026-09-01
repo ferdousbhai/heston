@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  candleFeedPeriod,
   candleSubscription,
   isSameOriginWebSocketRequest,
   MarketFeedStatusSchema,
@@ -77,6 +78,19 @@ describe('market feed subscription boundary', () => {
       symbol: 'NVDA{=5m,tho=true}',
       fromTime: 1_765_000_000_000,
     })
+  })
+
+  it('keeps the two candle periods distinct in both directions', () => {
+    expect(candleSubscription('NVDA', 1_765_000_000_000, 'daily')).toEqual({
+      type: 'Candle',
+      symbol: 'NVDA{=d}',
+      fromTime: 1_765_000_000_000,
+    })
+    expect(candleFeedPeriod('NVDA{=5m,tho=true}')).toBe('intraday')
+    expect(candleFeedPeriod('NVDA{=d}')).toBe('daily')
+    // An unknown or absent suffix must not be guessed into one of the two series.
+    expect(candleFeedPeriod('NVDA{=1h}')).toBeUndefined()
+    expect(candleFeedPeriod('NVDA')).toBeUndefined()
   })
 
   it('parses complete finite Greeks with explicit event, receipt, source, and IV units', () => {

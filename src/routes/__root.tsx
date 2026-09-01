@@ -2,6 +2,7 @@ import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 
 import { TooltipProvider } from '#/components/ui/tooltip'
+import { PUBLIC_SNAPSHOT_URL } from '../deployment'
 import appCss from '../styles.css?url'
 
 export const Route = createRootRoute({
@@ -40,7 +41,7 @@ export const Route = createRootRoute({
       // request headers off the public read there.
       {
         rel: 'preload',
-        href: '/api/public-snapshot',
+        href: PUBLIC_SNAPSHOT_URL,
         as: 'fetch',
         crossOrigin: 'anonymous',
       },

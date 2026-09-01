@@ -10,6 +10,7 @@ import {
   type FavoriteMutation,
 } from '../domain/favorites'
 import { EquitySymbolSchema, MAX_EQUITY_SYMBOL_LENGTH } from '../domain/instrument'
+import { browserStorage } from './browser-storage'
 import { preferenceCollection, type Preference } from './collections'
 
 const FavoriteRowSchema = z.strictObject({ symbol: EquitySymbolSchema })
@@ -31,6 +32,7 @@ export const favoriteStageMarkerCollection = createCollection(
   localStorageCollectionOptions({
     id: 'spice-favorite-stage-markers',
     storageKey: 'spice.favorite-stage.v1',
+    storage: browserStorage,
     schema: FavoriteStageMarkerSchema,
     getKey: (marker) => marker.id,
     startSync: true,
@@ -88,7 +90,7 @@ async function markAnonymousStageConsumed(stageId: string): Promise<void> {
   await mutation.isPersisted.promise
 }
 
-async function toggleAnonymousFavorite(symbol: string): Promise<void> {
+async function toggleAnonymousFavorite(symbol: string): Promise<boolean> {
   await Promise.all([
     preferenceCollection.preload(),
     favoriteStageMarkerCollection.preload(),
@@ -191,7 +193,7 @@ export type FavoriteSync = ReturnType<typeof createFavoriteSync>
 export async function toggleFavoriteSymbol(
   symbol: string,
   favoriteSync: FavoriteSync | undefined,
-): Promise<void> {
+): Promise<boolean> {
   const parsed = EquitySymbolSchema.parse(symbol)
   if (!favoriteSync) return toggleAnonymousFavorite(parsed)
 

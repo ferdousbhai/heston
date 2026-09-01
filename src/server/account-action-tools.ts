@@ -125,7 +125,7 @@ export function createRememberTradeSymbolsTool(
   env: AppEnv,
 ): AgentTool<typeof RememberTradeSymbolsParameters, { remembered: string[] }> {
   return {
-    description: 'Add trade-thesis tickers to the private watchlist.',
+    description: 'Add substantively discussed recommendation tickers to the private watchlist.',
     execute: async (_toolCallId, params) => {
       const remembered = await internalWatchlistWriter().ensureSymbols(env, params.symbols, 'agent-discussion')
       return textResult({ remembered })

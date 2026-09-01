@@ -2,6 +2,11 @@ import { vi } from 'vitest'
 
 import { type AppEnv } from '../src/server/env'
 import { type BrokerApi } from '../src/server/tastytrade'
+import {
+  type MarketSnapshot,
+  type PublicMarketSnapshot,
+  type PublicSymbolLookup,
+} from '../src/domain/market'
 
 export function stubBrokerGate() {
   const gate = {
@@ -19,7 +24,6 @@ export function stubBrokerGate() {
 export function stubBroker() {
   const renewBrokerMutationLease = vi.fn(async () => undefined)
   return {
-    loadEquityCandleFromTime: vi.fn(),
     loadMarketSnapshot: vi.fn(),
     loadPublicMarketSnapshot: vi.fn(),
     lookupPublicMarketSymbol: vi.fn<BrokerApi['lookupPublicMarketSymbol']>(async () => undefined),
@@ -32,6 +36,10 @@ export function stubBroker() {
     resolveAccountNumber: vi.fn(),
     renewBrokerMutationLease,
     tastyRequest: vi.fn(),
+    claimMarketRefresh: vi.fn(async () => true),
+    lookupStoredMarketSymbol: vi.fn(async (): Promise<PublicSymbolLookup | undefined> => undefined),
+    loadStoredMarketSnapshot: vi.fn(async (): Promise<MarketSnapshot | undefined> => undefined),
+    loadStoredPublicMarketSnapshot: vi.fn(async (): Promise<PublicMarketSnapshot | undefined> => undefined),
     withBrokerMutationLease: vi.fn(async (_env, operation) => operation({ renew: renewBrokerMutationLease })),
   } satisfies BrokerApi & { renewBrokerMutationLease: typeof renewBrokerMutationLease }
 }

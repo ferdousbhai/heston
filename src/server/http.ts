@@ -1,5 +1,7 @@
 import { type JsonValue } from '../domain/json-payload'
 import { toError } from '../domain/failure'
+import { SPICE_DEPLOYMENT_ID } from '../deployment'
+import { SPICE_DEPLOYMENT_ID_HEADER } from '../domain/deployment'
 import {
   getAuthenticatedIdentity,
   isOwnerEmail,
@@ -21,6 +23,7 @@ export function canonicalHostRedirect(request: Request): Response | undefined {
 export function jsonNoStore(value: JsonValue, init: ResponseInit = {}): Response {
   const headers = new Headers(init.headers)
   headers.set('Cache-Control', 'no-store')
+  headers.set(SPICE_DEPLOYMENT_ID_HEADER, SPICE_DEPLOYMENT_ID)
   return Response.json(value, { ...init, headers })
 }
 
@@ -28,6 +31,7 @@ export function jsonNoStore(value: JsonValue, init: ResponseInit = {}): Response
 export function jsonPublic(value: JsonValue, init: ResponseInit = {}): Response {
   const headers = new Headers(init.headers)
   headers.set('Cache-Control', PUBLIC_RESPONSE_CACHE_CONTROL)
+  headers.set(SPICE_DEPLOYMENT_ID_HEADER, SPICE_DEPLOYMENT_ID)
   return Response.json(value, { ...init, headers })
 }
 

@@ -28,14 +28,14 @@ describe('recent ticker coverage search', () => {
     expect(bind).toHaveBeenCalledWith(
       '2026-08-13T13:30:00.000Z',
       '2026-08-27T13:30:00.000Z',
-      'brief-2026-08-27',
+      'recommendations-2026-08-27',
       '["NVDA","META"]',
     )
     expect(coverage.filter((item) => item.symbol === 'NVDA')).toHaveLength(4)
     expect(coverage).toHaveLength(4)
   })
 
-  it('excludes the current market date so a rerun does not read its own brief as coverage', async () => {
+  it('excludes the current market date so a rerun does not read its own recommendations as coverage', async () => {
     const all = vi.fn().mockResolvedValue({ results: [] })
     const bind = vi.fn(() => ({ ...unsupportedStatement(), all }))
     const prepare = vi.fn(() => ({ ...unsupportedStatement(), bind }))
@@ -43,25 +43,25 @@ describe('recent ticker coverage search', () => {
 
     await searchRecentTickerCoverage({ DB }, ['NVDA'], 14, new Date('2026-08-28T01:00:00.000Z'))
 
-    expect(prepare).toHaveBeenCalledWith(expect.stringContaining('brief.id <> ?'))
+    expect(prepare).toHaveBeenCalledWith(expect.stringContaining('daily.id <> ?'))
     expect(bind).toHaveBeenCalledWith(
       '2026-08-14T01:00:00.000Z',
       '2026-08-28T01:00:00.000Z',
-      'brief-2026-08-27',
+      'recommendations-2026-08-27',
       '["NVDA"]',
     )
   })
 
   it('does not return unrelated rows from a large recent window', async () => {
     const store = sqliteD1([
-      'CREATE TABLE research_briefs (id TEXT PRIMARY KEY, published_at TEXT, payload_json TEXT)',
+      'CREATE TABLE daily_recommendations (id TEXT PRIMARY KEY, published_at TEXT, payload_json TEXT)',
     ])
     const now = new Date('2026-08-27T13:30:00.000Z')
     const insert = store.sqlite.prepare(
-      'INSERT INTO research_briefs (id, published_at, payload_json) VALUES (?, ?, ?)',
+      'INSERT INTO daily_recommendations (id, published_at, payload_json) VALUES (?, ?, ?)',
     )
-    const idea = (symbol: string) => JSON.stringify({
-      ideas: [{
+    const recommendation = (symbol: string) => JSON.stringify({
+      recommendations: [{
         description: `${symbol} description`,
         direction: 'bullish',
         headline: `${symbol} headline`,
@@ -71,9 +71,9 @@ describe('recent ticker coverage search', () => {
     })
     try {
       for (let index = 0; index < 60; index += 1) {
-        insert.run(`meta-${index}`, new Date(now.getTime() - index * 60_000).toISOString(), idea('META'))
+        insert.run(`meta-${index}`, new Date(now.getTime() - index * 60_000).toISOString(), recommendation('META'))
       }
-      insert.run('nvda', '2026-08-26T13:30:00.000Z', idea('NVDA'))
+      insert.run('nvda', '2026-08-26T13:30:00.000Z', recommendation('NVDA'))
 
       await expect(searchRecentTickerCoverage({ DB: store.database }, ['NVDA'], 14, now))
         .resolves.toEqual([expect.objectContaining({ symbol: 'NVDA' })])
@@ -106,7 +106,7 @@ describe('recent ticker coverage search', () => {
       .rejects.toThrow()
   })
 
-  it('fails visibly for the retired legacy idea shape', async () => {
+  it('fails visibly for the retired legacy recommendation shape', async () => {
     const all = vi.fn().mockResolvedValue({ results: [{
       description: null,
       direction: 'bearish',

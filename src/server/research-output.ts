@@ -1,55 +1,68 @@
 import {
-  ResearchIdeaSchema,
-  ResearchReadingLinkSchema,
-  type ResearchBrief,
+  RecommendationSchema,
+  RecommendationLinkSchema,
+  type DailyRecommendations,
 } from '../domain/market'
-import { type DailyResearchSubmission } from './research-agent'
+import { type DailyRecommendationsSubmission } from './research-agent'
 
-type ResearchIdeaCandidate = DailyResearchSubmission['ideas'][number]
-type ReadingLinkCandidate = DailyResearchSubmission['readingList'][number]
-type ProposedPlay = NonNullable<ResearchIdeaCandidate['play']>
+type RecommendationCandidate = DailyRecommendationsSubmission['recommendations'][number]
+type RecommendationLinkCandidate = DailyRecommendationsSubmission['links'][number]
 
-function playLabel(symbol: string, play: ProposedPlay): string {
-  const [, month, day] = play.expiration.split('-').map(Number)
-  const optionType = play.optionType === 'call' ? 'c' : 'p'
-  return `${symbol} ${play.strike}${optionType} ${month}/${day}`
-}
-
-/** Resolve the model's source references and render its typed option expression unchanged. */
-export function researchIdeas(
-  ideas: readonly ResearchIdeaCandidate[],
-  sources: readonly ResearchBrief['sources'][number][],
-): ResearchBrief['ideas'] {
-  return ideas.map((idea, ideaIndex) => {
-    const selected = idea.sourceIndices.map((index) => {
+/** Resolve the model's source references and preserve its validated, non-executable order. */
+export function recommendationsFromCandidates(
+  recommendations: readonly RecommendationCandidate[],
+  sources: readonly DailyRecommendations['sources'][number][],
+): DailyRecommendations['recommendations'] {
+  return recommendations.map((recommendation, recommendationIndex) => {
+    const selected = recommendation.sourceIndices.map((index) => {
       const source = sources[index]
-      if (!source) throw new Error(`DailyResearchOutput:missing-idea-source:${ideaIndex}:${index}`)
+      if (!source) {
+        throw new Error(`DailyResearchOutput:missing-recommendation-source:${recommendationIndex}:${index}`)
+      }
       return source
     })
     const {
       sourceIndices: _sourceIndices,
-      ...publicIdea
-    } = idea
-    return ResearchIdeaSchema.parse({
-      ...publicIdea,
-      play: idea.play ? playLabel(idea.symbol, idea.play) : null,
+      ...publicRecommendation
+    } = recommendation
+    return RecommendationSchema.parse({
+      ...publicRecommendation,
       sources: selected,
     })
   })
 }
 
-/** Bind the editor's ranked reading picks to application-owned evidence URLs. */
-export function readingListFromCandidates(
-  value: readonly ReadingLinkCandidate[],
-  sources: readonly ResearchBrief['sources'][number][],
-): ResearchBrief['readingList'] {
-  return value.map((candidate, candidateIndex) => {
-    const source = sources[candidate.sourceIndex]
-    if (!source) throw new Error(`DailyResearchOutput:missing-reading-source:${candidateIndex}:${candidate.sourceIndex}`)
-    return ResearchReadingLinkSchema.parse({
-      reason: candidate.description,
-      title: candidate.title,
-      url: source.url,
+/** Bind the editor's ranked reader links to application-owned evidence URLs. */
+export function linksFromCandidates(
+  value: readonly RecommendationLinkCandidate[],
+  sources: readonly DailyRecommendations['sources'][number][],
+  recommendationCount: number,
+): DailyRecommendations['links'] {
+  if (value.length !== recommendationCount) {
+    throw new Error(`DailyResearchOutput:link-count-mismatch:${recommendationCount}:${value.length}`)
+  }
+  const recommendationIndices = new Set(value.map((candidate) => candidate.recommendationIndex))
+  if (recommendationIndices.size !== recommendationCount) {
+    throw new Error('DailyResearchOutput:duplicate-recommendation-link')
+  }
+  for (let recommendationIndex = 0; recommendationIndex < recommendationCount; recommendationIndex += 1) {
+    if (!recommendationIndices.has(recommendationIndex)) {
+      throw new Error(`DailyResearchOutput:missing-recommendation-link:${recommendationIndex}`)
+    }
+  }
+  return [...value].sort((left, right) => left.recommendationIndex - right.recommendationIndex)
+    .map((candidate, candidateIndex) => {
+      const source = sources[candidate.sourceIndex]
+      if (!source) {
+        throw new Error(`DailyResearchOutput:missing-link-source:${candidateIndex}:${candidate.sourceIndex}`)
+      }
+      const link = {
+        description: candidate.description,
+        title: candidate.title,
+        url: source.url,
+      }
+      return RecommendationLinkSchema.parse(candidate.previewImageUrl
+        ? { ...link, previewImageUrl: candidate.previewImageUrl }
+        : link)
     })
-  })
 }

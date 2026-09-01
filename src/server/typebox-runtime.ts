@@ -8,7 +8,7 @@ import { Settings } from 'typebox/system'
  * compile throws `Code generation from strings disallowed for this context`.
  *
  * That is a request-time failure no test in Node can reproduce, and it cost the daily
- * brief: the agent runtime compiles a tool's parameter schema on that tool's first call,
+ * recommendations: the agent runtime compiles a tool's parameter schema on its first call,
  * so every client-side research tool errored and the run finished having read nothing.
  *
  * Turning acceleration off takes the interpreted checker instead. It validates the same

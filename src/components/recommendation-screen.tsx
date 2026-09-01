@@ -7,8 +7,9 @@ import { Button } from '#/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '#/components/ui/card'
 import { Empty, EmptyDescription, EmptyHeader } from '#/components/ui/empty'
 import { Spinner } from '#/components/ui/spinner'
-import { loadPreviousResearchBrief } from '../data/research-archive'
-import { type ResearchBrief } from '../domain/market'
+import { loadPreviousDailyRecommendations } from '../data/recommendation-archive'
+import { type DailyRecommendations } from '../domain/market'
+import { recommendedOrderLabel } from '../domain/recommended-order'
 import { DAILY_RESEARCH_SCHEDULE, nextDailyResearchRun } from '../domain/research-schedule'
 
 const issueDate = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -44,7 +45,7 @@ export function researchRunCountdown(now: Date, run: Date): string {
   return `In about ${days} day${days === 1 ? '' : 's'}`
 }
 
-function NextBriefRun({ fixedNow }: { fixedNow?: Date }) {
+function NextRecommendationRun({ fixedNow }: { fixedNow?: Date }) {
   const [now, setNow] = useState(() => fixedNow ?? new Date())
   useEffect(() => {
     if (fixedNow) return
@@ -53,7 +54,7 @@ function NextBriefRun({ fixedNow }: { fixedNow?: Date }) {
   }, [fixedNow])
   const run = nextDailyResearchRun(now)
   return (
-    <section aria-live="polite" className="brief-next-run">
+    <section aria-live="polite" className="recommendation-next-run">
       <Empty>
         <EmptyHeader>
           <h1>Next research run</h1>
@@ -67,7 +68,7 @@ function NextBriefRun({ fixedNow }: { fixedNow?: Date }) {
   )
 }
 
-function BriefNavigation({
+function RecommendationNavigation({
   index,
   loading,
   onNewer,
@@ -81,7 +82,7 @@ function BriefNavigation({
   olderDisabled: boolean
 }) {
   return (
-    <nav aria-label="Brief archive" className="brief-navigation">
+    <nav aria-label="Recommendation archive" className="recommendation-navigation">
       <Button disabled={olderDisabled || loading} onClick={onOlder} size="sm" type="button" variant="ghost">
         {loading ? <Spinner data-icon="inline-start" /> : <ChevronLeft data-icon="inline-start" />}
         Previous
@@ -95,54 +96,54 @@ function BriefNavigation({
   )
 }
 
-function BriefArchive({
+function RecommendationArchive({
   availableSymbols,
   latest,
   now,
   onSymbol,
 }: {
   availableSymbols: ReadonlySet<string>
-  latest?: ResearchBrief
+  latest?: DailyRecommendations
   now?: Date
   onSymbol: (symbol: string) => void
 }) {
-  const [briefs, setBriefs] = useState<ResearchBrief[]>(() => latest ? [latest] : [])
+  const [history, setHistory] = useState<DailyRecommendations[]>(() => latest ? [latest] : [])
   const [index, setIndex] = useState(0)
   const [archiveEnd, setArchiveEnd] = useState(!latest)
   const [archiveError, setArchiveError] = useState<string>()
   const [loading, setLoading] = useState(false)
-  const brief = briefs[index]
-  const showNextRun = !brief || (brief.ideas.length === 0 && brief.readingList.length === 0)
+  const current = history[index]
+  const showNextRun = !current || (current.recommendations.length === 0 && current.links.length === 0)
 
   const openOlder = async () => {
-    const loaded = briefs[index + 1]
+    const loaded = history[index + 1]
     if (loaded) {
       setIndex(index + 1)
       return
     }
-    if (!brief) return
+    if (!current) return
     setArchiveError(undefined)
     setLoading(true)
     try {
-      const previous = await loadPreviousResearchBrief(brief.publishedAt)
+      const previous = await loadPreviousDailyRecommendations(current.publishedAt)
       if (!previous) {
         setArchiveEnd(true)
         return
       }
-      if (previous.publishedAt >= brief.publishedAt) {
-        throw new Error('Research archive returned an out-of-order brief')
+      if (previous.publishedAt >= current.publishedAt) {
+        throw new Error('Recommendation archive returned an out-of-order result')
       }
-      setBriefs((current) => [...current, previous])
+      setHistory((current) => [...current, previous])
       setIndex(index + 1)
     } catch {
-      setArchiveError('Previous brief could not be loaded.')
+      setArchiveError('Previous recommendations could not be loaded.')
     } finally {
       setLoading(false)
     }
   }
   const navigation = latest
     ? (
-        <BriefNavigation
+        <RecommendationNavigation
           index={index}
           loading={loading}
           onNewer={() => {
@@ -150,13 +151,13 @@ function BriefArchive({
             setIndex(Math.max(0, index - 1))
           }}
           onOlder={() => void openOlder()}
-          olderDisabled={archiveEnd && !briefs[index + 1]}
+          olderDisabled={archiveEnd && !history[index + 1]}
         />
       )
     : null
   const archiveFailure = archiveError
     ? (
-        <Alert className="brief-archive-error" variant="destructive">
+        <Alert className="recommendation-archive-error" variant="destructive">
           <AlertTitle>Archive unavailable</AlertTitle>
           <AlertDescription>{archiveError}</AlertDescription>
         </Alert>
@@ -165,69 +166,82 @@ function BriefArchive({
 
   if (showNextRun) {
     return (
-      <div className="brief-screen">
+      <div className="recommendation-screen">
         {navigation}
         {archiveFailure}
-        <NextBriefRun fixedNow={now} />
+        <NextRecommendationRun fixedNow={now} />
       </div>
     )
   }
   return (
-    <div className="brief-screen">
+    <div className="recommendation-screen">
       {navigation}
       {archiveFailure}
-      <header className="brief-cover">
-        <time dateTime={brief.publishedAt}>{issueDate.format(new Date(brief.publishedAt))}</time>
-        <h1>{brief.regime}</h1>
-        <p>{brief.regimeDetail}</p>
-        <p>{brief.summary}</p>
+      <header className="recommendation-cover">
+        <time dateTime={current.publishedAt}>{issueDate.format(new Date(current.publishedAt))}</time>
+        <h1>{current.regime}</h1>
+        <p>{current.regimeDetail}</p>
+        <p>{current.summary}</p>
       </header>
-      <div className="ideas-section">
-        {brief.readingList.length > 0 && (
-          <section aria-label="Sources" className="reading-section">
-            <ol className="reading-list">
-              {brief.readingList.map((item) => (
+      <div className="recommendations-section">
+        {current.links.length > 0 && (
+          <section aria-labelledby="recommendation-links-title" className="recommendation-links-section">
+            <h2 id="recommendation-links-title">Links</h2>
+            <ol className="recommendation-links">
+              {current.links.map((item) => (
                 <li key={item.url}>
-                  <a href={item.url} rel="noreferrer" target="_blank">
+                  <a
+                    data-preview={item.previewImageUrl ? '' : undefined}
+                    href={item.url}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    {item.previewImageUrl && (
+                      <img
+                        alt=""
+                        decoding="async"
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        src={item.previewImageUrl}
+                      />
+                    )}
                     <strong>{item.title}</strong><ArrowUpRight aria-hidden="true" />
-                    <span>{item.reason}</span>
+                    <span>{item.description}</span>
                   </a>
                 </li>
               ))}
             </ol>
           </section>
         )}
-        <div className="idea-stack">
-          {brief.ideas.map((idea) => (
-            <Card className="idea-card" key={`${idea.symbol}-${idea.headline}`} variant="flat">
-              <CardHeader className="idea-top">
-                {availableSymbols.has(idea.symbol)
+        <div className="recommendation-stack">
+          {current.recommendations.map((recommendation) => (
+            <Card className="recommendation-card" key={`${recommendation.symbol}-${recommendation.headline}`} variant="flat">
+              <CardHeader className="recommendation-top">
+                {availableSymbols.has(recommendation.symbol)
                   ? (
-                      <Button onClick={() => onSymbol(idea.symbol)} size="lg" type="button" variant="link">
-                        {idea.symbol}<ArrowUpRight data-icon="inline-end" />
+                      <Button onClick={() => onSymbol(recommendation.symbol)} size="lg" type="button" variant="link">
+                        {recommendation.symbol}<ArrowUpRight data-icon="inline-end" />
                       </Button>
                     )
-                  : <strong className="idea-symbol">{idea.symbol}</strong>}
-                <Badge variant={idea.direction}>{idea.direction}</Badge>
-                <CardTitle>{idea.headline}</CardTitle>
-                <CardDescription>{idea.description}</CardDescription>
+                  : <strong className="recommendation-symbol">{recommendation.symbol}</strong>}
+                <Badge variant={recommendation.direction}>{recommendation.direction}</Badge>
+                <CardTitle>{recommendation.headline}</CardTitle>
+                <CardDescription>{recommendation.description}</CardDescription>
               </CardHeader>
-              {idea.play && (
-                <CardContent className="play-line">
-                  <span>Potential play</span>
-                  <strong>{idea.play}</strong>
-                </CardContent>
-              )}
+              <CardContent className="order-line">
+                <span>Recommended order</span>
+                <strong>{recommendedOrderLabel(recommendation.recommendedOrder)}</strong>
+              </CardContent>
               <CardFooter className="risk-line">
                 <Alert>
                   <ShieldCheck aria-hidden="true" />
                   <AlertTitle>What breaks it</AlertTitle>
-                  <AlertDescription>{idea.risk}</AlertDescription>
+                  <AlertDescription>{recommendation.risk}</AlertDescription>
                 </Alert>
               </CardFooter>
-              {idea.sources.length > 0 && (
-                <CardFooter className="idea-sources">
-                  {idea.sources.map((source) => (
+              {recommendation.sources.length > 0 && (
+                <CardFooter className="recommendation-sources">
+                  {recommendation.sources.map((source) => (
                     <a href={source.url} key={source.url} rel="noreferrer" target="_blank">
                       {source.label}<ArrowUpRight aria-hidden="true" />
                     </a>
@@ -243,22 +257,24 @@ function BriefArchive({
   )
 }
 
-export function BriefScreen({
+export function RecommendationScreen({
   availableSymbols,
-  brief,
+  dailyRecommendations,
   now,
   onSymbol,
 }: {
   availableSymbols: ReadonlySet<string>
-  brief?: ResearchBrief
+  dailyRecommendations?: DailyRecommendations
   now?: Date
   onSymbol: (symbol: string) => void
 }) {
   return (
-    <BriefArchive
+    <RecommendationArchive
       availableSymbols={availableSymbols}
-      key={brief ? `${brief.id}:${brief.publishedAt}` : 'no-brief'}
-      latest={brief}
+      key={dailyRecommendations
+        ? `${dailyRecommendations.id}:${dailyRecommendations.publishedAt}`
+        : 'no-recommendations'}
+      latest={dailyRecommendations}
       now={now}
       onSymbol={onSymbol}
     />

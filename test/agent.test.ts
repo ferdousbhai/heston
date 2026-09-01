@@ -148,10 +148,10 @@ describe('brokerage input boundary', () => {
       kind: 'remove_watchlist_symbols', watchlistName: '../private', symbols: ['NVDA'],
     }).success).toBe(false)
     expect(DirectAccountActionSchema.safeParse({
-      kind: 'delete_watchlist', watchlistName: 'Old ideas',
+      kind: 'delete_watchlist', watchlistName: 'Old recommendations',
     }).success).toBe(false)
     expect(DirectAccountActionSchema.safeParse({
-      kind: 'rename_watchlist', watchlistName: 'Long vol', newName: 'Core ideas',
+      kind: 'rename_watchlist', watchlistName: 'Long vol', newName: 'Core recommendations',
     }).success).toBe(false)
   })
 

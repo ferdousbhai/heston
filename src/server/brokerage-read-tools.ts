@@ -532,7 +532,7 @@ export function createMarketMetricsReadTool(
   }
 }
 
-function createSymbolSearchTool(
+export function createSymbolSearchTool(
   env: AppEnv,
 ): AgentTool<typeof SymbolSearchParameters, SymbolSearchResult> {
   return {

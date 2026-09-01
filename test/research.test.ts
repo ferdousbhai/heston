@@ -3,12 +3,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   resetDailyResearchAgent,
   setDailyResearchAgent,
-  type DailyResearchSubmission,
+  type DailyRecommendationsSubmission,
 } from '../src/server/research-agent'
-import { generateDailyResearch, shouldStartScheduledResearch } from '../src/server/research'
-import { readingListFromCandidates, researchIdeas } from '../src/server/research-output'
+import { generateDailyRecommendations, shouldStartScheduledResearch } from '../src/server/research'
+import { linksFromCandidates, recommendationsFromCandidates } from '../src/server/research-output'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
+import { markdownBrowser } from './fake-browser'
+import { migrationStore } from './sqlite-d1'
 
 const NOW = new Date('2026-08-14T13:30:00.000Z')
 
@@ -21,20 +23,29 @@ function retainedPages(sourceUrl = EVIDENCE_URL) {
 }
 const EVIDENCE_URL = 'https://www.reuters.com/technology/nvidia-supply'
 
-function submission(sourceUrl = EVIDENCE_URL): DailyResearchSubmission {
-  const report: DailyResearchSubmission = {
-    ideas: [{
+function submission(sourceUrl = EVIDENCE_URL): DailyRecommendationsSubmission {
+  const report: DailyRecommendationsSubmission = {
+    catalysts: [],
+    recommendations: [{
       description: 'A signed agreement improves demand visibility while volatility remains usable.',
       direction: 'bullish',
       evidence: [{ quote: 'signed a multi-year supply agreement', sourceIndex: 0 }],
       headline: 'Supply agreement improves visibility',
-      play: { expiration: '2026-10-16', optionType: 'call', strike: 225 },
+      recommendedOrder: {
+        kind: 'equity-option',
+        legs: [{
+          action: 'Buy to Open',
+          contract: { expiry: '2026-10-16', optionType: 'C', strike: 225, underlying: 'NVDA' },
+          instrumentType: 'Equity Option',
+        }],
+      },
       risk: 'Delivery timing slips or volume fails to convert to revenue.',
       sourceIndices: [0],
       symbol: 'NVDA',
     }],
-    readingList: [{
+    links: [{
       description: 'Contains the signed agreement terms.',
+      recommendationIndex: 0,
       sourceIndex: 0,
       title: 'NVIDIA supply agreement',
     }],
@@ -51,8 +62,12 @@ function submission(sourceUrl = EVIDENCE_URL): DailyResearchSubmission {
   return report
 }
 
-function response(report = submission(), retained = retainedPages()) {
-  return Promise.resolve({ retained, submission: report })
+function response(
+  report = submission(),
+  retained = retainedPages(),
+  catalysts: DailyRecommendationsSubmission['catalysts'] = [],
+) {
+  return Promise.resolve({ retained, submission: { ...report, catalysts } })
 }
 
 const broker = stubBroker()
@@ -78,57 +93,72 @@ describe('market-session research schedule', () => {
   })
 })
 
-describe('daily research final boundary', () => {
-  it('publishes the six structured reading links without filtering or rewriting them', () => {
-    const candidates = Array.from({ length: 6 }, (_, sourceIndex) => ({
-      description: `Why source ${sourceIndex} matters.`,
-      sourceIndex,
-      title: `Reference ${sourceIndex}`,
+describe('daily recommendation final boundary', () => {
+  it('orders one structured reader link for each ranked recommendation', () => {
+    const candidates = [2, 0, 1].map((recommendationIndex) => ({
+      recommendationIndex,
+      sourceIndex: recommendationIndex,
+      description: `Why source ${recommendationIndex} matters.`,
+      title: `Reference ${recommendationIndex}`,
     }))
-    const evidence = candidates.map(({ sourceIndex }) => ({
+    const evidence = Array.from({ length: 3 }, (_, sourceIndex) => ({
       label: `Raw source ${sourceIndex}`,
       url: `https://example.com/reference-${sourceIndex}`,
     }))
 
-    const links = readingListFromCandidates(candidates, evidence)
+    const links = linksFromCandidates(candidates, evidence, 3)
 
-    expect(links).toHaveLength(6)
+    expect(links).toHaveLength(3)
     expect(links[0]).toEqual({
-      reason: 'Why source 0 matters.',
+      description: 'Why source 0 matters.',
       title: 'Reference 0',
       url: 'https://example.com/reference-0',
     })
   })
 
   it('leaves a poor source choice visible for transcript auditing', () => {
-    expect(readingListFromCandidates([{
+    expect(linksFromCandidates([{
       description: 'Social post.',
+      recommendationIndex: 0,
       sourceIndex: 0,
       title: 'X post',
     }], [{
       label: 'Social post',
       url: 'https://x.com/company/status/123',
-    }])).toEqual([{
-      reason: 'Social post.',
+    }], 1)).toEqual([{
+      description: 'Social post.',
       title: 'X post',
       url: 'https://x.com/company/status/123',
     }])
   })
 
-  it('renders the model option expression without a second validation pass', () => {
-    const idea = submission().ideas[0]!
+  it('refuses an impossible option expiry at the public recommendation boundary', () => {
+    const recommendation = submission().recommendations[0]!
     const evidence = [{
       label: 'Independent wire · NVIDIA supply agreement',
       url: EVIDENCE_URL,
     }]
 
-    expect(researchIdeas([
-      { ...idea, play: { ...idea.play!, expiration: '2027-02-31' } },
-    ], evidence)[0]?.play).toBe('NVDA 225c 2/31')
+    expect(() => recommendationsFromCandidates([{
+      ...recommendation,
+      recommendedOrder: {
+        kind: 'equity-option',
+        legs: [{
+          action: 'Buy to Open',
+          contract: {
+            expiry: '2027-02-31',
+            optionType: 'C',
+            strike: 225,
+            underlying: 'NVDA',
+          },
+          instrumentType: 'Equity Option',
+        }],
+      },
+    }], evidence)).toThrow('Use a real YYYY-MM-DD date')
   })
 
   it('preserves the model source selection without checking its editorial fit', () => {
-    const idea = submission().ideas[0]!
+    const recommendation = submission().recommendations[0]!
     const evidence = [
       {
         label: 'Independent wire · NVIDIA supply agreement',
@@ -140,7 +170,7 @@ describe('daily research final boundary', () => {
       },
     ]
 
-    expect(researchIdeas([{ ...idea, sourceIndices: [0, 1] }], evidence)[0]?.sources)
+    expect(recommendationsFromCandidates([{ ...recommendation, sourceIndices: [0, 1] }], evidence)[0]?.sources)
       .toEqual([
         { label: 'Independent wire · NVIDIA supply agreement', url: EVIDENCE_URL },
         { label: 'Peer filing · Peer demand', url: 'https://example.com/peer-demand' },
@@ -148,20 +178,63 @@ describe('daily research final boundary', () => {
   })
 
   it('binds source references and publishes the typed model report unchanged', async () => {
-    const brief = await generateDailyResearch({}, NOW, { persist: false })
+    const result = await generateDailyRecommendations({}, NOW, { persist: false })
 
-    expect(brief.ideas).toEqual([expect.objectContaining({
+    expect(result.recommendations).toEqual([expect.objectContaining({
       direction: 'bullish',
-      play: 'NVDA 225c 10/16',
+      recommendedOrder: submission().recommendations[0]!.recommendedOrder,
       symbol: 'NVDA',
     })])
-    expect(brief.readingList).toEqual([expect.objectContaining({ url: EVIDENCE_URL })])
-    expect(brief.sources).toEqual([
+    expect(result.links).toEqual([expect.objectContaining({ url: EVIDENCE_URL })])
+    expect(result.sources).toEqual([
       { label: 'NVIDIA supply agreement', url: EVIDENCE_URL },
       { label: 'NVIDIA supply agreement', url: EVIDENCE_URL },
     ])
     expect(broker.tastyRequest).not.toHaveBeenCalled()
     expect(broker.loadMarketSnapshot).not.toHaveBeenCalled()
+  })
+
+  it('commits the model catalyst, recommendation, and link updates together', async () => {
+    const store = await migrationStore()
+    const catalyst: DailyRecommendationsSubmission['catalysts'][number] = {
+      date: '2026-09-15',
+      description: null,
+      kind: 'investor-event',
+      sourceIndex: 0,
+      symbol: 'NVDA',
+      timing: 'unknown',
+      title: 'NVIDIA investor event',
+    }
+    const retained = retainedPages()
+    retained.set(EVIDENCE_URL, {
+      markdown: '# NVIDIA\n\nThe company signed a multi-year supply agreement.\n\nThe investor event is September 15, 2026.',
+      readAt: NOW.toISOString(),
+    })
+    setDailyResearchAgent({ run: () => response(submission(), retained, [catalyst]) })
+
+    try {
+      const result = await generateDailyRecommendations({
+        BROWSER: markdownBrowser('unused by the stub agent'),
+        DB: store.database,
+      }, NOW)
+
+      expect(store.sqlite.prepare(
+        'SELECT source_provider, symbol FROM catalysts WHERE id = ?',
+      ).get('daily-research:NVDA:investor-event:2026-09-15')).toEqual({
+        source_provider: 'daily-research', symbol: 'NVDA',
+      })
+      expect(store.sqlite.prepare(
+        'SELECT payload_json FROM daily_recommendations WHERE id = ?',
+      ).get(result.id)).toEqual({ payload_json: JSON.stringify(result) })
+      expect(store.sqlite.prepare(
+        'SELECT title, description FROM recommendation_links WHERE url = ?',
+      ).get(EVIDENCE_URL)).toEqual({
+        description: 'Contains the signed agreement terms.',
+        title: 'NVIDIA supply agreement',
+      })
+    } finally {
+      store.close()
+    }
   })
 
   it('maps the structured model source directly into the domain report', async () => {
@@ -170,24 +243,25 @@ describe('daily research final boundary', () => {
       run: () => response(submission(nativeUrl), retainedPages(nativeUrl)),
     })
 
-    const brief = await generateDailyResearch({}, NOW, { persist: false })
-    expect(brief.ideas[0]?.sources).toEqual([{
+    const result = await generateDailyRecommendations({}, NOW, { persist: false })
+    expect(result.recommendations[0]?.sources).toEqual([{
       label: 'NVIDIA supply agreement',
-      url: nativeUrl,
+      url: 'https://example.com/nvidia-primary',
     }])
   })
 
-  it('lets the report domain schema reject a non-HTTPS structured source', async () => {
-    setDailyResearchAgent({ run: () => response(submission('http://example.com/nvidia-primary')) })
+  it('refuses a non-HTTPS source before it can enter the public report', async () => {
+    const sourceUrl = 'http://example.com/nvidia-primary'
+    setDailyResearchAgent({ run: () => response(submission(sourceUrl), retainedPages(sourceUrl)) })
 
-    await expect(generateDailyResearch({}, NOW, { persist: false }))
-      .rejects.toThrow('Use an HTTPS source URL')
+    await expect(generateDailyRecommendations({}, NOW, { persist: false }))
+      .rejects.toThrow('invalid-source-url')
   })
 
   it('uses the narrow market-status read for scheduled runs', async () => {
     broker.tastyRequest.mockResolvedValueOnce({ data: { state: 'Pre-Market' } })
 
-    await expect(generateDailyResearch({}, NOW, { persist: false, requireMarketOpen: true }))
+    await expect(generateDailyRecommendations({}, NOW, { persist: false, requireMarketOpen: true }))
       .rejects.toThrow('DailyResearchMarketNotOpen:Pre-Market')
     expect(broker.tastyRequest).toHaveBeenCalledWith(expect.anything(), '/market-time/equities/sessions/current')
     expect(broker.resolveResearchInstrumentCatalogFromTastytrade).not.toHaveBeenCalled()
@@ -202,7 +276,7 @@ describe('daily research final boundary', () => {
       requestedCount: 2,
     })
 
-    await generateDailyResearch({}, NOW, { persist: false, requireMarketOpen: true })
+    await generateDailyRecommendations({}, NOW, { persist: false, requireMarketOpen: true })
 
     expect(broker.resolveResearchInstrumentCatalogFromTastytrade).toHaveBeenCalledWith({}, NOW)
   })
@@ -212,8 +286,8 @@ describe('daily research final boundary', () => {
     broker.resolveResearchInstrumentCatalogFromTastytrade
       .mockRejectedValueOnce(new Error('TastytradeApi:503:/instruments/equities'))
 
-    await expect(generateDailyResearch({}, NOW, { persist: false, requireMarketOpen: true }))
-      .resolves.toMatchObject({ id: 'brief-2026-08-14' })
+    await expect(generateDailyRecommendations({}, NOW, { persist: false, requireMarketOpen: true }))
+      .resolves.toMatchObject({ id: 'recommendations-2026-08-14' })
   })
 
   it('replays with one transcript identity and publication time', async () => {
@@ -237,8 +311,8 @@ describe('daily research final boundary', () => {
       return result
     }
 
-    const first = await generateDailyResearch({}, NOW, { persist: false, runStep })
-    const replayed = await generateDailyResearch({}, NOW, { persist: false, runStep })
+    const first = await generateDailyRecommendations({}, NOW, { persist: false, runStep })
+    const replayed = await generateDailyRecommendations({}, NOW, { persist: false, runStep })
 
     expect(replayed.publishedAt).toBe(first.publishedAt)
     expect(runIds).toEqual([runIds[0], runIds[0]])

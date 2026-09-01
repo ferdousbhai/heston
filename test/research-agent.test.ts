@@ -1,13 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Compile } from 'typebox/compile'
 
 import { JsonObjectSchema, type JsonObject } from '../src/domain/json-payload'
 import {
-  DailyResearchSubmissionSchema,
+  DailyRecommendationsSubmissionSchema,
   runDailyResearchAgent,
-  type DailyResearchSubmission,
+  type DailyRecommendationsSubmission,
 } from '../src/server/research-agent'
-import { resetMarketMoverResearch, setMarketMoverResearch } from '../src/server/research-market-movers'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
 import { markdownBrowser } from './fake-browser'
@@ -19,8 +18,9 @@ const CITED_URL = 'https://example.com/nvidia-supply'
 /** What the stub browser returns for CITED_URL, so cited quotes have a retained page to match. */
 const CITED_MARKDOWN = '# NVIDIA\n\nNVIDIA signed a multi-year supply agreement with a hyperscaler.'
 
-function submission(): DailyResearchSubmission {
+function submission(): DailyRecommendationsSubmission {
   return {
+    catalysts: [],
     sources: [{
       context: 'A signed supply agreement improves near-term demand visibility.',
       sourceUrl: CITED_URL,
@@ -30,18 +30,26 @@ function submission(): DailyResearchSubmission {
     summary: 'One company-specific setup has a timely catalyst and a falsifiable risk.',
     regime: 'Selective',
     regimeDetail: 'Prefer company-specific catalysts with defined downside.',
-    ideas: [{
+    recommendations: [{
       description: 'The signed agreement improves visibility while option premium remains usable.',
       direction: 'bullish',
       evidence: [{ quote: 'signed a multi-year supply agreement', sourceIndex: 0 }],
       headline: 'Signed supply terms improve demand visibility',
-      play: { expiration: '2026-10-16', optionType: 'call', strike: 225 },
+      recommendedOrder: {
+        kind: 'equity-option',
+        legs: [{
+          action: 'Buy to Open',
+          contract: { expiry: '2026-10-16', optionType: 'C', strike: 225, underlying: 'NVDA' },
+          instrumentType: 'Equity Option',
+        }],
+      },
       risk: 'Delivery timing slips or contracted volume fails to convert to revenue.',
       sourceIndices: [0],
       symbol: 'NVDA',
     }],
-    readingList: [{
+    links: [{
       description: 'Contains the concrete agreement terms.',
+      recommendationIndex: 0,
       sourceIndex: 0,
       title: 'NVIDIA supply agreement',
     }],
@@ -52,9 +60,12 @@ function providerToolCall(
   name: string,
   args: JsonObject,
   status: string | null = 'completed',
+  nativeSearches: { web?: string; x?: string } = {},
 ) {
   const response = {
     output: [
+      ...(nativeSearches.x ? [{ type: 'x_search_call', status: nativeSearches.x }] : []),
+      ...(nativeSearches.web ? [{ type: 'web_search_call', status: nativeSearches.web }] : []),
       { type: 'function_call', call_id: `${name}-1`, name, arguments: JSON.stringify(args) },
     ],
   }
@@ -63,7 +74,7 @@ function providerToolCall(
 
 function providerReport(
   status: string | null = 'completed',
-  report: DailyResearchSubmission = submission(),
+  report: DailyRecommendationsSubmission = submission(),
 ) {
   const response = {
     output: [
@@ -79,31 +90,15 @@ function providerReport(
   return status === null ? response : { ...response, status }
 }
 
-function providerXContext(
-  status: string | null = 'completed',
-  xSearchStatus: string | null = null,
-  serverSideTools = 1,
+function environment(
+  markdown = CITED_MARKDOWN,
+  publishedLinks: Array<{
+    dailyRecommendationsId: string
+    firstPublishedAt: string
+    url: string
+  }> = [],
 ) {
-  const response = {
-    output: [
-      ...(xSearchStatus ? [{ type: 'x_search_call', status: xSearchStatus }] : []),
-      {
-        type: 'message',
-        content: [{
-          type: 'output_text',
-          text: 'NVDA has a scheduled product event worth verifying.',
-        }],
-      },
-    ],
-    usage: { num_server_side_tools_used: serverSideTools },
-  }
-  return status === null ? response : { ...response, status }
-}
-
-function environment() {
   const secret = (value: string): SecretsStoreSecret => ({ get: async () => value })
-  const all = async () => d1Result([])
-  const bind = () => ({ ...unsupportedStatement(), all })
   return {
     AI: {
       ...unsupportedAi(),
@@ -111,8 +106,22 @@ function environment() {
       gateway: () => ({ getUrl: async () => 'https://gateway.example/spice/grok' }) as AiGateway,
     },
     AI_GATEWAY_TOKEN: secret('gateway-token'),
-    BROWSER: markdownBrowser(CITED_MARKDOWN),
-    DB: { ...unsupportedDatabase(), prepare: () => ({ ...unsupportedStatement(), bind }) },
+    BROWSER: markdownBrowser(markdown),
+    DB: {
+      ...unsupportedDatabase(),
+      prepare: (sql: string) => ({
+        ...unsupportedStatement(),
+        bind: () => ({
+          ...unsupportedStatement(),
+          // SAFETY: The agent's only `all` query selects this exact history-row projection;
+          // D1's generic result type is chosen by that caller just as it is in production.
+          all: async <T = unknown>() => d1Result(
+            (sql.includes('FROM recommendation_links') ? publishedLinks : []) as T[],
+          ),
+        }),
+        first: async () => null,
+      }),
+    },
     REDDIT_CLIENT_ID: secret('reddit-id'),
     REDDIT_CLIENT_SECRET: secret('reddit-secret'),
     XAI_API_KEY: secret('xai-key'),
@@ -121,14 +130,15 @@ function environment() {
 
 function agentFetcher(
   status: string | null = 'completed',
-  xSearchStatus: string | null = 'completed',
-  serverSideTools = xSearchStatus === null ? 0 : 1,
+  nativeSearches: { web?: string; x?: string } = { web: 'completed', x: 'completed' },
 ) {
   const providerResponses = [
-    providerXContext(status, xSearchStatus, serverSideTools),
+    providerToolCall('read_daily_recommendations', {}, status, nativeSearches),
+    providerToolCall('read_catalysts', { horizonDays: 180, symbols: ['NVDA'] }, status),
     providerToolCall('read_market_metrics', { symbols: ['NVDA'] }, status),
     providerToolCall('get_recent_coverage', { daysAgo: 14, tickers: ['NVDA'] }, status),
     providerToolCall('read_page', { url: CITED_URL }, status),
+    providerToolCall('check_recommendation_links', { urls: [CITED_URL] }, status),
     providerReport(status),
     providerReport(status),
   ]
@@ -146,29 +156,26 @@ function agentFetcher(
   return { bodies, fetcher }
 }
 
-beforeEach(() => {
-  setMarketMoverResearch({
-    collect: async (now = NOW) => ({
-      fetchedAt: now.toISOString(),
-      movers: [],
-      source: 'yahoo',
-      status: 'available',
-      unavailableCategories: [],
-    }),
-  })
-})
-
 afterEach(() => {
   resetBrokerApi()
-  resetMarketMoverResearch()
 })
 
 describe('daily research Pi agent boundary', () => {
   it('asserts the structured report without cleaning or coercing it', () => {
-    const validator = Compile(DailyResearchSubmissionSchema)
+    const validator = Compile(DailyRecommendationsSubmissionSchema)
 
     expect(() => validator.Parse({ ...submission(), title: 42 })).toThrow()
     expect(() => validator.Parse({ ...submission(), unexpected: true })).toThrow()
+    expect(() => validator.Parse({
+      ...submission(),
+      recommendations: [{
+        ...submission().recommendations[0]!,
+        recommendedOrder: {
+          kind: 'equity',
+          legs: [{ action: 'Buy to Open', instrumentType: 'Equity', symbol: 'NVDA' }],
+        },
+      }],
+    })).not.toThrow()
   })
 
   it('gives Pi Reddit context before it chooses candidates and uses research tools', async () => {
@@ -195,49 +202,63 @@ describe('daily research Pi agent boundary', () => {
       },
     }, fetcher)
 
-    expect(result.submission.ideas[0]?.symbol).toBe('NVDA')
-    expect(bodies).toHaveLength(6)
-    expect(bodies[0]?.tools).toEqual([{ from_date: '2026-03-01', to_date: '2026-08-29', type: 'x_search' }])
-    expect(bodies[0]?.tool_choice).toBe('required')
-    expect(bodies[0]).not.toHaveProperty('text')
-    expect(bodies[1]?.tools).toEqual(expect.arrayContaining([
+    expect(result.submission.recommendations[0]?.symbol).toBe('NVDA')
+    expect(bodies).toHaveLength(8)
+    expect(bodies[0]?.tools).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'web_search' }),
       expect.objectContaining({ type: 'x_search' }),
+      expect.objectContaining({ name: 'read_daily_recommendations', type: 'function' }),
+      expect.objectContaining({ name: 'check_recommendation_links', type: 'function' }),
+      expect.objectContaining({ name: 'read_catalysts', type: 'function' }),
       expect.objectContaining({ name: 'read_market_metrics', type: 'function' }),
+      expect.objectContaining({ name: 'read_price_history', type: 'function' }),
       expect.objectContaining({ name: 'get_recent_coverage', type: 'function' }),
       expect.objectContaining({ name: 'find_option_contracts', type: 'function' }),
       expect.objectContaining({ name: 'read_instrument_quotes', type: 'function' }),
     ]))
-    expect(bodies[1]?.tools).not.toEqual(expect.arrayContaining([
+    expect(bodies[0]?.tools).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ name: 'submit_daily_report', type: 'function' }),
     ]))
     // A research turn carries the tools and no schema; forcing both is what produced a
     // report full of "placeholder" from a model that had decided to use tools.
-    expect(bodies[1]).not.toHaveProperty('text')
-    expect(bodies[1]?.tool_choice).toBe('auto')
-    expect(bodies[5]?.text).toEqual(expect.objectContaining({
-      format: expect.objectContaining({ name: 'daily_research_report', type: 'json_schema' }),
+    expect(bodies[0]).not.toHaveProperty('text')
+    expect(bodies[0]?.tool_choice).toBe('auto')
+    expect(bodies[7]?.text).toEqual(expect.objectContaining({
+      format: expect.objectContaining({ name: 'daily_recommendations', type: 'json_schema' }),
     }))
-    expect(bodies[5]).not.toHaveProperty('tools')
-    expect(bodies[1]?.tools).not.toEqual(expect.arrayContaining([
+    expect(bodies[7]).not.toHaveProperty('tools')
+    expect(bodies[0]?.tools).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ name: 'ingest_wsb', type: 'function' }),
     ]))
-    expect(JSON.stringify(bodies[2]?.input)).toContain('function_call_output')
+    expect(bodies[0]?.tools).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'record_catalyst', type: 'function' }),
+    ]))
+    expect(JSON.stringify(bodies[1]?.input)).toContain('function_call_output')
     // Citations are now bound deterministically after the run, so the prompt no longer has
-    // to be trusted for them: losing that instruction makes the binder drop ideas loudly
+    // to be trusted for them: losing that instruction makes the binder drop recommendations loudly
     // rather than publish unsupported ones. What is still pinned is the rule nothing
     // downstream can enforce — the discovery venues must never surface publicly.
-    expect(JSON.stringify(bodies[1]?.input)).toContain('never appear as public sources')
-    expect(JSON.stringify(bodies[1]?.input)).toContain('reddit_discovery_packet')
-    expect(JSON.stringify(bodies[1]?.input)).toContain('yahoo_mover_packet')
-    expect(JSON.stringify(bodies[1]?.input)).toContain('codex_catalyst_packet')
-    expect(JSON.stringify(bodies[1]?.input)).toContain('x_discovery_packet')
+    expect(JSON.stringify(bodies[0]?.input)).toContain('X and Reddit never appear in public prose or sources')
+    expect(JSON.stringify(bodies[0]?.input)).toContain('reddit_discovery_packet')
+    expect(JSON.stringify(bodies[0]?.input)).toContain('at most 10 ticker candidates')
+    expect(JSON.stringify(bodies[0]?.input)).toContain('Read current state')
+    expect(JSON.stringify(bodies[0]?.input)).toContain('Default to an option order')
+    expect(JSON.stringify(bodies[0]?.input)).toContain('Use equity only')
+    expect(JSON.stringify(bodies[0]?.input)).toContain('recommendedOrder')
+    expect(JSON.stringify(bodies[0]?.input)).toContain('sharp market column')
+    expect(JSON.stringify(bodies[7]?.text)).toContain('catalysts')
+    expect(JSON.stringify(bodies[0]?.input)).not.toContain('yahoo_mover_packet')
+    expect(JSON.stringify(bodies[0]?.input)).not.toContain('codex_catalyst_packet')
+    expect(JSON.stringify(bodies[0]?.input)).not.toContain('x_discovery_packet')
     expect(steps).toEqual([
-      'reddit-context', 'yahoo-movers', 'codex-context', 'x-context',
-      'model-1', 'tool-1-read_market_metrics',
-      'model-2', 'tool-2-get_recent_coverage',
-      'model-3', 'tool-3-read_page',
-      'model-4', 'model-5',
+      'reddit-context',
+      'model-1', 'tool-1-read_daily_recommendations',
+      'model-2', 'tool-2-read_catalysts',
+      'model-3', 'tool-3-read_market_metrics',
+      'model-4', 'tool-4-get_recent_coverage',
+      'model-5', 'tool-5-read_page',
+      'model-6', 'tool-6-check_recommendation_links',
+      'model-7', 'model-8',
     ])
   })
 
@@ -267,7 +288,7 @@ describe('daily research Pi agent boundary', () => {
       second.fetcher,
     )
 
-    expect(replayed.submission.ideas[0]?.symbol).toBe('NVDA')
+    expect(replayed.submission.recommendations[0]?.symbol).toBe('NVDA')
     expect(second.fetcher).not.toHaveBeenCalled()
     expect(broker.tastyRequest).toHaveBeenCalledTimes(1)
     expect([...cached.keys()]).not.toContain(expect.stringContaining('submit_daily_report'))
@@ -283,14 +304,46 @@ describe('daily research Pi agent boundary', () => {
       .resolves.toEqual(expect.objectContaining({ submission: expect.any(Object) }))
   })
 
-  it('accepts dedicated X usage when xAI omits the native call item', async () => {
-    const broker = stubBroker()
-    broker.tastyRequest.mockResolvedValue({ data: { items: [{ symbol: 'NVDA' }] } })
-    setBrokerApi(broker)
-    const { fetcher } = agentFetcher('completed', null, 1)
+  it('returns a page-verified catalyst in the same structured output as recommendations', async () => {
+    setBrokerApi(stubBroker())
+    const withCatalyst: DailyRecommendationsSubmission = {
+      ...submission(),
+      catalysts: [{
+        date: '2026-09-15',
+        description: null,
+        kind: 'investor-event',
+        sourceIndex: 0,
+        symbol: 'NVDA',
+        timing: 'unknown',
+        title: 'NVIDIA investor event',
+      }],
+    }
+    const providerResponses = [
+      providerToolCall('read_page', { url: CITED_URL }, 'completed', {
+        web: 'completed', x: 'completed',
+      }),
+      providerToolCall('check_recommendation_links', { urls: [CITED_URL] }),
+      providerReport(),
+      providerReport('completed', withCatalyst),
+    ]
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.endsWith('/responses')) return Response.json(providerResponses.shift())
+      if (url.includes('/api/v1/access_token')) return Response.json({ access_token: 'reddit-token' })
+      if (url.includes('/r/wallstreetbets/hot')) return Response.json({ data: { children: [] } })
+      throw new Error(`Unexpected request: ${url}`)
+    })
 
-    await expect(runDailyResearchAgent(environment(), { now: NOW, runId: 'daily-run' }, fetcher))
-      .resolves.toEqual(expect.objectContaining({ submission: expect.any(Object) }))
+    const result = await runDailyResearchAgent(
+      environment(`${CITED_MARKDOWN}\n\nThe investor event is September 15, 2026.`),
+      { now: NOW, runId: 'daily-run' },
+      fetcher,
+    )
+
+    expect(result.submission.catalysts).toEqual([expect.objectContaining({
+      date: '2026-09-15',
+      symbol: 'NVDA',
+    })])
   })
 
   it('refuses a submission whose quote is in no page the run read, then fails visibly', async () => {
@@ -301,7 +354,7 @@ describe('daily research Pi agent boundary', () => {
     // told what failed and given two more turns before the run gives up loudly, which is
     // the whole reason the binder runs inside the loop rather than after it.
     const providerResponses = [
-      providerXContext('completed', 'completed', 1),
+      providerToolCall('read_daily_recommendations', {}, 'completed', { web: 'completed', x: 'completed' }),
       providerReport(), providerReport(), providerReport(),
       providerReport(), providerReport(), providerReport(),
     ]
@@ -314,7 +367,168 @@ describe('daily research Pi agent boundary', () => {
     })
 
     await expect(runDailyResearchAgent(environment(), { now: NOW, runId: 'daily-run' }, fetcher))
-      .rejects.toThrow('DailyResearchAgentCitations')
+      .rejects.toThrow('DailyResearchAgentSubmission')
+    expect(providerResponses).toHaveLength(0)
+  })
+
+  it('keeps private discovery venues out of published recommendations and reader links', async () => {
+    setBrokerApi(stubBroker())
+    const socialUrl = 'https://x.com/nvidia/status/123'
+    const socialSubmission: DailyRecommendationsSubmission = {
+      ...submission(),
+      sources: [{ ...submission().sources[0], sourceUrl: socialUrl }],
+    }
+    const providerResponses = [
+      providerToolCall('read_page', { url: socialUrl }, 'completed', {
+        web: 'completed', x: 'completed',
+      }),
+      providerReport(), providerReport('completed', socialSubmission),
+      providerReport(), providerReport('completed', socialSubmission),
+      providerReport(), providerReport('completed', socialSubmission),
+    ]
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.endsWith('/responses')) return Response.json(providerResponses.shift())
+      if (url.includes('/api/v1/access_token')) return Response.json({ access_token: 'reddit-token' })
+      if (url.includes('/r/wallstreetbets/hot')) return Response.json({ data: { children: [] } })
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    await expect(runDailyResearchAgent(environment(), {
+      now: NOW, runId: 'daily-run',
+    }, fetcher)).rejects.toThrow('private discovery venue')
+    expect(providerResponses).toHaveLength(0)
+  })
+
+  it('refuses a reader link that appeared in an earlier daily recommendation', async () => {
+    setBrokerApi(stubBroker())
+    const providerResponses = [
+      providerToolCall('read_page', { url: CITED_URL }, 'completed', {
+        web: 'completed', x: 'completed',
+      }),
+      providerToolCall('check_recommendation_links', { urls: [CITED_URL] }),
+      providerReport(), providerReport(), providerReport(), providerReport(),
+      providerReport(), providerReport(),
+    ]
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.endsWith('/responses')) return Response.json(providerResponses.shift())
+      if (url.includes('/api/v1/access_token')) return Response.json({ access_token: 'reddit-token' })
+      if (url.includes('/r/wallstreetbets/hot')) return Response.json({ data: { children: [] } })
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    await expect(runDailyResearchAgent(environment(CITED_MARKDOWN, [{
+      dailyRecommendationsId: 'recommendations-2026-08-27',
+      firstPublishedAt: '2026-08-27T13:30:00.000Z',
+      url: CITED_URL,
+    }]), { now: NOW, runId: 'daily-run' }, fetcher)).rejects.toThrow('previously published')
+    expect(providerResponses).toHaveLength(0)
+  })
+
+  it('accepts a preview image only when its URL appears on the retained page', async () => {
+    setBrokerApi(stubBroker())
+    const previewImageUrl = 'https://images.example.com/nvidia.jpg'
+    const withPreview: DailyRecommendationsSubmission = {
+      ...submission(),
+      links: [{ ...submission().links[0], previewImageUrl }],
+    }
+    const providerResponses = [
+      providerToolCall('read_page', { url: CITED_URL }, 'completed', {
+        web: 'completed', x: 'completed',
+      }),
+      providerToolCall('check_recommendation_links', { urls: [CITED_URL] }),
+      providerReport(), providerReport('completed', withPreview),
+    ]
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.endsWith('/responses')) return Response.json(providerResponses.shift())
+      if (url.includes('/api/v1/access_token')) return Response.json({ access_token: 'reddit-token' })
+      if (url.includes('/r/wallstreetbets/hot')) return Response.json({ data: { children: [] } })
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    const result = await runDailyResearchAgent(
+      environment(`${CITED_MARKDOWN}\n\n![Factory](${previewImageUrl})`),
+      { now: NOW, runId: 'daily-run' },
+      fetcher,
+    )
+
+    expect(result.submission.links[0]?.previewImageUrl).toBe(previewImageUrl)
+  })
+
+  it('refuses mismatched recommended-order legs and lets the model correct them', async () => {
+    setBrokerApi(stubBroker())
+    const invalid: DailyRecommendationsSubmission = {
+      ...submission(),
+      recommendations: [{
+        ...submission().recommendations[0]!,
+        recommendedOrder: {
+          kind: 'equity',
+          legs: [{ action: 'Buy to Open', instrumentType: 'Equity', symbol: 'META' }],
+        },
+      }],
+    }
+    const providerResponses = [
+      providerToolCall('read_page', { url: CITED_URL }, 'completed', {
+        web: 'completed', x: 'completed',
+      }),
+      providerToolCall('check_recommendation_links', { urls: [CITED_URL] }),
+      providerReport(), providerReport('completed', invalid),
+      providerReport(), providerReport(),
+    ]
+    const bodies: JsonObject[] = []
+    const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/responses')) {
+        bodies.push(JsonObjectSchema.parse(JSON.parse(String(init?.body))))
+        return Response.json(providerResponses.shift())
+      }
+      if (url.includes('/api/v1/access_token')) return Response.json({ access_token: 'reddit-token' })
+      if (url.includes('/r/wallstreetbets/hot')) return Response.json({ data: { children: [] } })
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    const result = await runDailyResearchAgent(environment(), {
+      now: NOW, runId: 'daily-run',
+    }, fetcher)
+
+    expect(result.submission.recommendations[0]?.recommendedOrder.kind).toBe('equity-option')
+    expect(JSON.stringify(bodies[4]?.input)).toContain('equity leg must match the recommendation symbol')
+    expect(providerResponses).toHaveLength(0)
+  })
+
+  it('refuses a report without one reader link per recommendation', async () => {
+    setBrokerApi(stubBroker())
+    const invalid: DailyRecommendationsSubmission = { ...submission(), links: [] }
+    const providerResponses = [
+      providerToolCall('read_page', { url: CITED_URL }, 'completed', {
+        web: 'completed', x: 'completed',
+      }),
+      providerToolCall('check_recommendation_links', { urls: [CITED_URL] }),
+      providerReport(), providerReport('completed', invalid),
+      providerReport(), providerReport(),
+    ]
+    const bodies: JsonObject[] = []
+    const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/responses')) {
+        bodies.push(JsonObjectSchema.parse(JSON.parse(String(init?.body))))
+        return Response.json(providerResponses.shift())
+      }
+      if (url.includes('/api/v1/access_token')) return Response.json({ access_token: 'reddit-token' })
+      if (url.includes('/r/wallstreetbets/hot')) return Response.json({ data: { children: [] } })
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    const result = await runDailyResearchAgent(environment(), {
+      now: NOW, runId: 'daily-run',
+    }, fetcher)
+
+    expect(result.submission.links).toHaveLength(1)
+    expect(JSON.stringify(bodies[4]?.input)).toContain(
+      'links must contain exactly one entry per recommendation',
+    )
     expect(providerResponses).toHaveLength(0)
   })
 
@@ -324,11 +538,11 @@ describe('daily research Pi agent boundary', () => {
     setBrokerApi(broker)
     // A schema-shaped report costs the model nothing to produce. One reached production with
     // "placeholder" in every field on the first turn, no tool call behind it, and published:
-    // sifting no ideas rejected nothing. Concluding the day is quiet requires having looked.
-    const empty: DailyResearchSubmission = {
+    // sifting no recommendations rejected nothing. Concluding the day is quiet requires having looked.
+    const empty: DailyRecommendationsSubmission = {
       ...submission(),
-      ideas: [],
-      readingList: [],
+      recommendations: [],
+      links: [],
       regime: 'placeholder',
       regimeDetail: 'placeholder',
       sources: [],
@@ -336,7 +550,7 @@ describe('daily research Pi agent boundary', () => {
       title: 'placeholder',
     }
     const providerResponses = [
-      providerXContext('completed', 'completed', 1),
+      providerToolCall('read_daily_recommendations', {}, 'completed', { web: 'completed', x: 'completed' }),
       providerReport('completed', empty), providerReport('completed', empty),
       providerReport('completed', empty), providerReport('completed', empty),
       providerReport('completed', empty), providerReport('completed', empty),
@@ -358,16 +572,27 @@ describe('daily research Pi agent boundary', () => {
     const broker = stubBroker()
     broker.tastyRequest.mockResolvedValue({ data: { items: [{ symbol: 'NVDA' }] } })
     setBrokerApi(broker)
-    const { fetcher } = agentFetcher('completed', null)
+    const providerResponses = [
+      providerToolCall('read_daily_recommendations', {}, 'completed', { web: 'completed' }),
+      providerReport(), providerReport(), providerReport(),
+      providerReport(), providerReport(), providerReport(),
+    ]
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.endsWith('/responses')) return Response.json(providerResponses.shift())
+      if (url.includes('/api/v1/access_token')) return Response.json({ access_token: 'reddit-token' })
+      if (url.includes('/r/wallstreetbets/hot')) return Response.json({ data: { children: [] } })
+      throw new Error(`Unexpected request: ${url}`)
+    })
 
     await expect(runDailyResearchAgent(environment(), {
       now: NOW, runId: 'daily-run',
-    }, fetcher)).rejects.toThrow('DailyResearchAgentMissingXSearch')
+    }, fetcher)).rejects.toThrow('native X Search was not completed')
   })
 
   it('fails visibly when the native X call does not complete', async () => {
     setBrokerApi(stubBroker())
-    const { fetcher } = agentFetcher('completed', 'failed')
+    const { fetcher } = agentFetcher('completed', { web: 'completed', x: 'failed' })
 
     await expect(runDailyResearchAgent(environment(), {
       now: NOW, runId: 'daily-run',
@@ -382,7 +607,7 @@ describe('daily research Pi agent boundary', () => {
       ...environment(),
       REDDIT_CLIENT_ID: undefined,
     }, { now: NOW, runId: 'daily-run' }, fetcher)).rejects.toThrow('RedditResearchUnavailable')
-    expect(bodies).toHaveLength(1)
+    expect(bodies).toHaveLength(0)
   })
 
   it('carries on when a research tool refuses a call', async () => {
@@ -392,11 +617,11 @@ describe('daily research Pi agent boundary', () => {
     const { fetcher } = agentFetcher()
 
     // A refused call is a message to the model, not the end of the day. One failure used to
-    // abort the whole brief, which is how a cashtag reaching a tool cost an afternoon's run;
+    // abort the whole daily run, which is how a cashtag reaching a tool cost an afternoon;
     // a provider that keeps failing still stops it once the error budget is spent.
     const agent = await runDailyResearchAgent(environment(), { now: NOW, runId: 'daily-run' }, fetcher)
 
-    expect(agent.submission.ideas).toHaveLength(1)
+    expect(agent.submission.recommendations).toHaveLength(1)
   })
 
   it('rejects a provider response without a completed status', async () => {

@@ -28,7 +28,7 @@ describe('scheduled daily research Workflow', () => {
 
     await expect(startScheduledJob(env, 'daily-research', scheduledAt)).resolves.toBe('workflow-instance')
     expect(create).toHaveBeenCalledWith({
-      id: 'brief-2026-08-14',
+      id: 'recommendations-2026-08-14',
       params: {
         persist: true,
         requireMarketOpen: true,

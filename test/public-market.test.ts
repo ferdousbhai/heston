@@ -229,9 +229,9 @@ describe('public market boundary', () => {
         (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
       VALUES ('NVDA', 'Equity', 'tastytrade-seed', '{}', '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z');
     `)
-    const research = marketSnapshotFixture().research!
+    const research = marketSnapshotFixture().recommendations!
     store.sqlite.prepare(
-      'INSERT INTO research_briefs (id, published_at, payload_json) VALUES (?, ?, ?)',
+      'INSERT INTO daily_recommendations (id, published_at, payload_json) VALUES (?, ?, ?)',
     ).run(research.id, research.publishedAt, JSON.stringify(research))
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
@@ -304,9 +304,9 @@ describe('public market boundary', () => {
       publicPayload: [],
     }))
     await finalizeInternalWatchlist(env, [])
-    const research = marketSnapshotFixture().research!
+    const research = marketSnapshotFixture().recommendations!
     store.sqlite.prepare(
-      'INSERT INTO research_briefs (id, published_at, payload_json) VALUES (?, ?, ?)',
+      'INSERT INTO daily_recommendations (id, published_at, payload_json) VALUES (?, ?, ?)',
     ).run(research.id, research.publishedAt, JSON.stringify(research))
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input))
@@ -354,9 +354,9 @@ describe('public market boundary', () => {
     })
 
     expect(snapshot.watchlists).toHaveLength(1)
-    expect(snapshot.watchlists[0]?.symbols).toHaveLength(100)
+    expect(snapshot.watchlists[0]?.symbols).toHaveLength(symbols.length)
     expect(store.sqlite.prepare('SELECT count(*) AS count FROM internal_watchlist_items').get())
-      .toEqual({ count: 100 })
+      .toEqual({ count: symbols.length })
     expect(JSON.parse(String(store.sqlite.prepare(
       `SELECT payload_json FROM public_market_universe WHERE id = 'primary'`,
     ).get()?.payload_json)).symbols).toHaveLength(symbols.length)
@@ -400,8 +400,8 @@ describe('public market boundary', () => {
           if (sql.includes('FROM public_market_universe')) {
             return { payload_json: JSON.stringify({ symbols: ['BE', 'NVDA'] }) }
           }
-          if (sql.includes('FROM research_briefs')) {
-            return { payload_json: JSON.stringify(marketSnapshotFixture().research) }
+          if (sql.includes('FROM daily_recommendations')) {
+            return { payload_json: JSON.stringify(marketSnapshotFixture().recommendations) }
           }
           throw new Error(`Unexpected first query: ${sql}`)
         },

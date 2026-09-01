@@ -1,8 +1,94 @@
 import { readFile } from 'node:fs/promises'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
+import { DailyRecommendationsSchema } from '../src/domain/market'
 
 describe('brokerage action migrations', () => {
+  it('migrates daily recommendations and durable reader-link history', async () => {
+    const initial = await readFile(new URL('../migrations/0001_spice.sql', import.meta.url), 'utf8')
+    const telegram = await readFile(
+      new URL('../migrations/0018_research_brief_telegram_publications.sql', import.meta.url),
+      'utf8',
+    )
+    const recommendations = await readFile(
+      new URL('../migrations/0022_daily_recommendations_and_link_history.sql', import.meta.url),
+      'utf8',
+    )
+    const db = new DatabaseSync(':memory:')
+    db.exec('PRAGMA foreign_keys = ON')
+    db.exec(initial)
+    db.exec(telegram)
+    const legacy = {
+      id: 'brief-2026-08-31',
+      ideas: [{
+        description: 'Demand remains durable.',
+        direction: 'bullish',
+        headline: 'Demand remains visible',
+        play: 'NVDA 225c 10/16',
+        risk: 'Demand slows.',
+        sources: [{ label: 'Announcement', url: 'https://example.com/announcement' }],
+        symbol: 'NVDA',
+      }],
+      publishedAt: '2026-08-31T13:30:00.000Z',
+      readingList: [{
+        reason: 'Contains the primary details.',
+        title: 'Announcement',
+        url: 'https://example.com/announcement',
+      }],
+      regime: 'Selective',
+      regimeDetail: 'Wait for evidence.',
+      sources: [{ label: 'Announcement', url: 'https://example.com/announcement' }],
+      summary: 'One recommendation.',
+      title: 'Daily recommendations',
+    }
+    db.prepare(
+      'INSERT INTO research_briefs (id, published_at, payload_json) VALUES (?, ?, ?)',
+    ).run(legacy.id, legacy.publishedAt, JSON.stringify(legacy))
+    db.prepare(
+      `INSERT INTO research_brief_telegram_publications
+        (brief_id, message_index, status, telegram_message_id, reserved_at, resolved_at)
+       VALUES (?, 0, 'delivered', 42, ?, ?)`,
+    ).run(legacy.id, legacy.publishedAt, legacy.publishedAt)
+
+    db.exec(recommendations)
+
+    const stored = JSON.parse(String(db.prepare(
+      'SELECT payload_json FROM daily_recommendations WHERE id = ?',
+    ).get('recommendations-2026-08-31')?.payload_json))
+    expect(stored).toMatchObject({
+      id: 'recommendations-2026-08-31',
+      links: [{
+        description: 'Contains the primary details.',
+        title: 'Announcement',
+        url: 'https://example.com/announcement',
+      }],
+      recommendations: [{ symbol: 'NVDA' }],
+    })
+    expect(stored.recommendations[0]).toMatchObject({
+      recommendedOrder: { kind: 'legacy-unstructured', label: 'NVDA 225c 10/16' },
+    })
+    expect(stored.recommendations[0]).not.toHaveProperty('play')
+    expect(DailyRecommendationsSchema.parse(stored).recommendations[0]?.recommendedOrder.kind)
+      .toBe('legacy-unstructured')
+    expect(stored).not.toHaveProperty('ideas')
+    expect(stored).not.toHaveProperty('readingList')
+    expect(db.prepare(
+      `SELECT daily_recommendations_id, telegram_message_id
+       FROM daily_recommendation_telegram_publications`,
+    ).get()).toEqual({
+      daily_recommendations_id: 'recommendations-2026-08-31',
+      telegram_message_id: 42,
+    })
+    expect(db.prepare(
+      `SELECT daily_recommendations_id, description
+       FROM recommendation_links`,
+    ).get()).toEqual({
+      daily_recommendations_id: 'recommendations-2026-08-31',
+      description: 'Contains the primary details.',
+    })
+    db.close()
+  })
+
   it('stores only constrained, per-user favorite symbols and cascades account deletion', async () => {
     const initial = await readFile(new URL('../migrations/0001_spice.sql', import.meta.url), 'utf8')
     const favorites = await readFile(new URL('../migrations/0013_user_favorite_symbols.sql', import.meta.url), 'utf8')
@@ -241,6 +327,10 @@ describe('brokerage action migrations', () => {
       new URL('../migrations/0020_unify_catalyst_store.sql', import.meta.url),
       'utf8',
     )
+    const retireCodexCatalysts = await readFile(
+      new URL('../migrations/0021_retire_codex_web_catalysts.sql', import.meta.url),
+      'utf8',
+    )
     const db = new DatabaseSync(':memory:')
     db.exec(initial)
     db.exec(publicUniverse)
@@ -350,6 +440,24 @@ describe('brokerage action migrations', () => {
         'codex-web:NVDA:conference:2026-11-05', 'dan', 'NVDA', 'conference', 'Mislabelled',
         'Claims a producer its id denies', '2026-11-05', 'unknown', 'estimated',
         'https://example.com/x', 'https://example.com/x', 'now', 'now'
+       )`,
+    ).run()).toThrow()
+
+    db.exec(retireCodexCatalysts)
+
+    expect(db.prepare(
+      'SELECT source_provider FROM catalysts ORDER BY source_provider',
+    ).all()).toEqual([{ source_provider: 'dan' }, { source_provider: 'tastytrade' }])
+    expect(db.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'catalyst_research_runs'",
+    ).get()).toBeUndefined()
+    expect(() => db.prepare(
+      `INSERT INTO catalysts
+        (id, source_provider, symbol, kind, title, event_date, timing, confidence,
+         source_label, source_url, updated_at, last_seen_at)
+       VALUES (
+        'codex-web:NVDA:conference:retired', 'codex-web', 'NVDA', 'conference', 'Retired',
+        '2026-11-06', 'unknown', 'estimated', 'Retired', 'https://example.com', 'now', 'now'
        )`,
     ).run()).toThrow()
     db.close()

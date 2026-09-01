@@ -168,7 +168,7 @@ describe('what a catalyst shows a reader', () => {
 describe('research catalyst storage', () => {
   it('fails when authoritative catalyst storage is unavailable', async () => {
     await expect(persistAndLoadCatalysts({}, [], [], NOW)).rejects.toThrow('CatalystStoreUnavailable')
-    await expect(persistResearchCatalysts({}, 'codex-web', [], NOW)).rejects.toThrow('CatalystStoreUnavailable')
+    await expect(persistResearchCatalysts({}, 'daily-research', [], NOW)).rejects.toThrow('CatalystStoreUnavailable')
   })
 
   it('keeps the maximum accepted bootstrap below D1 query and bind limits', async () => {
@@ -193,7 +193,7 @@ describe('research catalyst storage', () => {
     const catalysts: Catalyst[] = Array.from({ length: 1_000 }, (_, index) => ({
       confidence: 'estimated',
       date: '2026-09-15',
-      id: `codex-web:T${index}:2026-09-15:investor-event`,
+      id: `daily-recommendations:T${index}:2026-09-15:investor-event`,
       kind: 'investor-event',
       source: 'Example Investor Relations',
       sourceUrl: `https://example.com/events/${index}`,
@@ -203,7 +203,7 @@ describe('research catalyst storage', () => {
       updatedAt: NOW.toISOString(),
     }))
 
-    await persistResearchCatalysts({ DB: database }, 'codex-web', catalysts, NOW)
+    await persistResearchCatalysts({ DB: database }, 'daily-research', catalysts, NOW)
 
     expect(batch).toHaveBeenCalledOnce()
     expect(batchStatementCount).toBe(143)

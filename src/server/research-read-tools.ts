@@ -3,11 +3,11 @@ import { Type } from 'typebox'
 
 import { CatalystSchema, marketDate, type Catalyst } from '../domain/catalyst'
 import { equitySymbolFromModelText, EquitySymbolSchema, ModelTextEquitySymbolType } from '../domain/instrument'
-import { type ResearchBrief } from '../domain/market'
+import { type DailyRecommendations } from '../domain/market'
 import { type AppEnv } from './env'
 import { textResult } from './agent-tool-result'
 import { MAX_MARKET_SYMBOLS } from './brokerage-read-contracts'
-import { readLatestResearchBrief } from './research-brief-store'
+import { readLatestDailyRecommendations } from './daily-recommendations-store'
 
 // A catalyst call shares the normal market-read batch budget. The row ceiling is a model-context
 // budget and is observable through `truncated`; the one-year horizon keeps "upcoming" scheduled
@@ -28,7 +28,7 @@ const CatalystReadParameters = Type.Object({
   }),
 }, { additionalProperties: false })
 
-const DailyResearchReadParameters = Type.Object({}, { additionalProperties: false })
+const DailyRecommendationsReadParameters = Type.Object({}, { additionalProperties: false })
 
 export type CatalystReadResult = {
   catalysts: Catalyst[]
@@ -39,10 +39,10 @@ export type CatalystReadResult = {
   truncated: boolean
 }
 
-export type DailyResearchReadResult = {
+export type DailyRecommendationsReadResult = {
   fetchedAt: string
-  source: 'spice-research-store'
-} & ({ brief: ResearchBrief; status: 'ok' } | { status: 'not_found' })
+  source: 'spice-recommendation-store'
+} & ({ dailyRecommendations: DailyRecommendations; status: 'ok' } | { status: 'not_found' })
 
 function endDate(start: string, horizonDays: number): string {
   const [year, month, day] = start.split('-').map(Number)
@@ -94,37 +94,50 @@ export async function readCatalysts(
   }
 }
 
-export async function readLatestResearch(
+export async function readLatestDailyRecommendationsState(
   env: AppEnv,
   now = new Date(),
-): Promise<DailyResearchReadResult> {
+): Promise<DailyRecommendationsReadResult> {
   if (!env.DB) throw new Error('Daily research is unavailable.')
-  const brief = await readLatestResearchBrief(env.DB)
-  if (!brief) {
-    return { fetchedAt: now.toISOString(), source: 'spice-research-store', status: 'not_found' }
+  const dailyRecommendations = await readLatestDailyRecommendations(env.DB)
+  if (!dailyRecommendations) {
+    return { fetchedAt: now.toISOString(), source: 'spice-recommendation-store', status: 'not_found' }
   }
-  return { brief, fetchedAt: now.toISOString(), source: 'spice-research-store', status: 'ok' }
+  return {
+    dailyRecommendations,
+    fetchedAt: now.toISOString(),
+    source: 'spice-recommendation-store',
+    status: 'ok',
+  }
 }
 
-export function createResearchReadTools(env: AppEnv) {
+export function createResearchReadTools(env: AppEnv, now = new Date()) {
   const catalysts: AgentTool<typeof CatalystReadParameters, CatalystReadResult | { error: string }> = {
     description: 'Stored upcoming catalysts; excludes dividends.',
     execute: async (_toolCallId, params) => {
       const symbols = params.symbols.map((symbol) => equitySymbolFromModelText(symbol))
       const unreadable = params.symbols.find((_symbol, index) => symbols[index] === undefined)
       if (unreadable !== undefined) return textResult({ error: `not a ticker symbol: ${unreadable.slice(0, 12)}` })
-      return textResult(await readCatalysts(env, symbols.filter((symbol) => symbol !== undefined), params.horizonDays))
+      return textResult(await readCatalysts(
+        env,
+        symbols.filter((symbol) => symbol !== undefined),
+        params.horizonDays,
+        now,
+      ))
     },
     label: 'Reading catalysts',
     name: 'read_catalysts',
     parameters: CatalystReadParameters,
   }
-  const research: AgentTool<typeof DailyResearchReadParameters, DailyResearchReadResult> = {
-    description: 'Latest stored daily brief.',
-    execute: async () => textResult(await readLatestResearch(env)),
-    label: 'Reading daily research',
-    name: 'read_daily_research',
-    parameters: DailyResearchReadParameters,
+  const dailyRecommendations: AgentTool<
+    typeof DailyRecommendationsReadParameters,
+    DailyRecommendationsReadResult
+  > = {
+    description: 'Latest stored daily recommendations, including their reader links.',
+    execute: async () => textResult(await readLatestDailyRecommendationsState(env, now)),
+    label: 'Reading daily recommendations',
+    name: 'read_daily_recommendations',
+    parameters: DailyRecommendationsReadParameters,
   }
-  return [catalysts, research]
+  return [catalysts, dailyRecommendations]
 }

@@ -30,7 +30,7 @@ beforeEach(async () => {
   const env = { DB: store.database }
   await ensureInternalWatchlistSeeded(env, async () => ({
     privatePayload: { data: { items: [{
-      name: 'Long vol', 'group-name': 'ideas',
+      name: 'Long vol', 'group-name': 'recommendations',
       'watchlist-entries': [
         { symbol: 'SPY', 'instrument-type': 'Equity', note: 'hedge' },
         { symbol: 'NVDA', 'instrument-type': 'Equity' },

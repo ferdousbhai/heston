@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { z } from 'zod'
 
+import { SPICE_DEPLOYMENT_ID_HEADER } from '../src/domain/deployment'
 import { marketSnapshotFixture } from './fixtures/market'
 
 /** `postDataJSON()` hands back an unparsed body; decode it before the route acts on it. */
@@ -22,6 +23,40 @@ function publicSnapshotJson(snapshot: ReturnType<typeof marketSnapshotFixture>):
   })
 }
 
+test('a newer deployment reloads once before restoring the local snapshot', async ({ page }) => {
+  const snapshot = marketSnapshotFixture()
+  snapshot.watchlists = [{
+    id: 'public-options-watch',
+    kind: 'public',
+    name: 'Options Watch',
+    symbols: snapshot.watchlists[0]!.symbols,
+  }]
+  let documentRequests = 0
+  let snapshotRequests = 0
+  page.on('request', (request) => {
+    if (request.resourceType() === 'document') documentRequests += 1
+  })
+  await page.route('**/api/viewer', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ authRequired: true, user: null }),
+  }))
+  await page.route('**/api/public-snapshot*', (route) => {
+    snapshotRequests += 1
+    return route.fulfill({
+      contentType: 'application/json',
+      headers: { [SPICE_DEPLOYMENT_ID_HEADER]: documentRequests === 1 ? 'next-deployment' : 'development' },
+      body: publicSnapshotJson(snapshot),
+    })
+  })
+
+  await page.goto('/')
+
+  await expect.poll(() => documentRequests).toBeGreaterThanOrEqual(2)
+  await expect.poll(() => snapshotRequests).toBeGreaterThanOrEqual(2)
+  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => sessionStorage.getItem('spice.deployment-reload.v1'))).toBeNull()
+})
+
 test('unauthenticated visitors can read market data but Dan stays behind Google sign-in', async ({ page }) => {
   const publicSnapshot = marketSnapshotFixture()
   publicSnapshot.catalysts = publicSnapshot.catalysts.map((catalyst) => (
@@ -40,13 +75,18 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
     contentType: 'application/json',
     body: JSON.stringify({ authRequired: true, user: null }),
   }))
-  await page.route('**/api/public-snapshot', (route) => route.fulfill({
-    contentType: 'application/json',
-    body: publicSnapshotJson(publicSnapshot),
-  }))
+  let publicSnapshotRequests = 0
+  await page.route('**/api/public-snapshot*', (route) => {
+    publicSnapshotRequests += 1
+    return route.fulfill({
+      contentType: 'application/json',
+      body: publicSnapshotJson(publicSnapshot),
+    })
+  })
   await page.addInitScript(() => {
     localStorage.setItem('spice.tickers.v6', 'stale owner ticker rows')
     localStorage.setItem('spice.watchlists.v6', 'stale owner watchlist rows')
+    localStorage.setItem('spice.snapshot.v9.previous-deployment', 'incompatible snapshot')
   })
   await page.goto('/')
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible()
@@ -55,9 +95,10 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
   await expect(page.locator('.premium-data-table [data-slot="badge"]')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /NVDA, NVIDIA, Expensive option premium/ })).toBeVisible()
   expect(await page.evaluate(() => Object.keys(localStorage).filter((key) => (
-    key === 'spice.snapshot.v8'
-      || /^spice\.(?:tickers|watchlists|research|catalysts|sync-state)\.v/.test(key)
-  )))).toEqual(['spice.snapshot.v8'])
+    key.startsWith('spice.snapshot.v')
+      || /^spice\.(?:tickers|watchlists|research|recommendations|catalysts|sync-state)\.v/.test(key)
+  )))).toEqual(['spice.snapshot.v9'])
+  expect(publicSnapshotRequests).toBeGreaterThan(0)
   await expect(page.getByRole('button', { name: 'Manage Options Watch' })).toHaveCount(0)
   await expect(page.getByRole('combobox', { name: 'Watchlist' })).toHaveCount(0)
   await expect(page.locator('.watchlist-title')).toHaveCount(0)
@@ -73,7 +114,7 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
   await expect(page.getByRole('button', { exact: true, name: 'Volume' })).toBeVisible()
   await expect(page.getByRole('button', { exact: true, name: 'Session' })).toHaveCount(0)
   await expect(page.getByRole('button', { exact: true, name: 'Activity' })).toHaveCount(0)
-  await expect(page.locator('.premium-data-table tbody .sparkline')).toHaveCount(0)
+  await expect(page.locator('.premium-data-table tbody .session-sparkline')).toHaveCount(0)
   const nvdaRow = page.locator('.premium-data-table tbody tr', { hasText: 'NVDA' })
   await expect(nvdaRow.locator('.market-cap-cell')).toContainText('$4.7T')
   await expect(nvdaRow.locator('.price-cell')).toContainText('$191.68')
@@ -94,7 +135,7 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
   await expect(page.locator('.story').first()).toContainText('NVDA')
   await expect(page.getByText('Long vol')).toHaveCount(0)
 
-  await page.getByRole('tab', { name: 'Brief' }).click()
+  await page.getByRole('tab', { name: 'Recommendations' }).click()
   await expect(page.getByText('Selective long vol')).toBeVisible()
 
   await page.getByRole('tab', { name: 'Dan' }).click()
@@ -112,7 +153,7 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
   await expect(page.getByRole('link', { name: 'privacy@tryspice.xyz' }).first()).toHaveAttribute('href', 'mailto:privacy@tryspice.xyz')
 })
 
-test('mobile market, research, search, sorting, and agent flows remain coherent', async ({ page, context }) => {
+test('mobile market, recommendations, search, sorting, and agent flows remain coherent', async ({ page, context }) => {
   const snapshot = marketSnapshotFixture()
   let rejectSnapshots = false
   snapshot.catalysts.forEach((catalyst, index) => {
@@ -122,7 +163,7 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
     contentType: 'application/json',
     body: JSON.stringify({ authRequired: true, user: { id: 'owner-1', name: 'Owner', role: 'owner' } }),
   }))
-  await page.route('**/api/snapshot', (route) => {
+  await page.route('**/api/snapshot*', (route) => {
     if (rejectSnapshots) {
       return route.fulfill({ status: 503, body: '{}' })
     }
@@ -199,8 +240,8 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   await expect(page.locator('.selected-symbol')).toHaveText('NVDA')
   await expect(page.locator('.focus-runway')).toContainText('NVDA earnings')
   await expect(page.locator('.focus-runway')).toContainText('earnings \u00b7 After hours \u00b7 estimated')
-  await expect(page.locator('.focus-thesis')).toContainText('Demand checks keep the AI capex thesis alive')
-  await expect(page.locator('.focus-thesis')).toContainText('A guide-down or capex pause would break the demand thesis.')
+  await expect(page.locator('.focus-recommendation')).toContainText('Demand checks keep the AI capex case alive')
+  await expect(page.locator('.focus-recommendation')).toContainText('A guide-down or capex pause would break the demand case.')
   await expect(page.locator('.watchlist-title')).toHaveText('Watchlist')
   await expect(page.getByRole('combobox', { name: 'Watchlist' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /NVDA, NVIDIA, held, Expensive/ })).toBeVisible()
@@ -249,11 +290,11 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   const beRow = page.locator('.premium-data-table tbody tr', { hasText: 'BE' })
   await expect(beRow.locator('.price-cell')).toContainText('$43.16')
   await expect(beRow.locator('.price-cell')).toContainText('+3%')
-  await expect(page.locator('.premium-data-table tbody .sparkline')).toHaveCount(11)
+  await expect(page.locator('.premium-data-table tbody .session-sparkline')).toHaveCount(11)
 
-  await page.getByRole('tab', { name: 'Brief' }).click()
-  await expect(page.getByRole('tab', { name: 'Brief' })).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByText('NVDA 205c 10/16')).toBeVisible()
+  await page.getByRole('tab', { name: 'Recommendations' }).click()
+  await expect(page.getByRole('tab', { name: 'Recommendations' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByText('Buy to Open NVDA 205C · 2026-10-16')).toBeVisible()
   await expect(page.getByText('Selective long vol')).toBeVisible()
   await expect(page.getByRole('button', { name: /NVDA/ })).toBeVisible()
 
@@ -309,7 +350,7 @@ test('authenticated favorites consume only unchanged anonymous staging across ta
       user: signedIn ? { id: 'member-1', name: 'Member', role: 'member' } : null,
     }),
   }))
-  await page.route('**/api/public-snapshot', (route) => route.fulfill({
+  await page.route('**/api/public-snapshot*', (route) => route.fulfill({
     contentType: 'application/json',
     body: publicSnapshotJson(snapshot),
   }))
@@ -353,7 +394,7 @@ test('authenticated favorites consume only unchanged anonymous staging across ta
     contentType: 'application/json',
     body: JSON.stringify({ authRequired: true, user: null }),
   }))
-  await staleAnonymous.route('**/api/public-snapshot', (route) => route.fulfill({
+  await staleAnonymous.route('**/api/public-snapshot*', (route) => route.fulfill({
     contentType: 'application/json',
     body: publicSnapshotJson(snapshot),
   }))
@@ -432,11 +473,11 @@ test('two signed-out devices converge on the account union without granting owne
       user: laptopSignedIn ? { id: 'member-1', name: 'Member', role: 'member' } : null,
     }),
   }))
-  await page.route('**/api/public-snapshot', (route) => route.fulfill({
+  await page.route('**/api/public-snapshot*', (route) => route.fulfill({
     contentType: 'application/json',
     body: publicSnapshotJson(snapshot),
   }))
-  await page.route('**/api/snapshot', (route) => {
+  await page.route('**/api/snapshot*', (route) => {
     ownerSnapshotRequests += 1
     return route.fulfill({ status: 403, body: '{}' })
   })
@@ -483,11 +524,11 @@ test('two signed-out devices converge on the account union without granting owne
       user: mobileSignedIn ? { id: 'member-1', name: 'Member', role: 'member' } : null,
     }),
   }))
-  await mobile.route('**/api/public-snapshot', (route) => route.fulfill({
+  await mobile.route('**/api/public-snapshot*', (route) => route.fulfill({
     contentType: 'application/json',
     body: publicSnapshotJson(snapshot),
   }))
-  await mobile.route('**/api/snapshot', (route) => {
+  await mobile.route('**/api/snapshot*', (route) => {
     ownerSnapshotRequests += 1
     return route.fulfill({ status: 403, body: '{}' })
   })

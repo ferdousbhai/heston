@@ -5,7 +5,6 @@ import {
   InstrumentCatalogItemSchema,
   type InstrumentCatalogItem,
 } from '../domain/instrument'
-import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 import {
   envelopeRows,
   jsonNumber,

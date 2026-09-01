@@ -6,6 +6,8 @@ import {
   CatalystKindSchema,
   CatalystSchema,
   marketDate,
+  MAX_CATALYST_DESCRIPTION_LENGTH,
+  MAX_CATALYST_TITLE_LENGTH,
   type Catalyst,
 } from '../domain/catalyst'
 import { equitySymbolFromModelText, ModelTextEquitySymbolType } from '../domain/instrument'
@@ -15,12 +17,9 @@ import { textResult } from './agent-tool-result'
 import { persistResearchCatalysts, type CatalystProvider } from './catalysts'
 import { type RetainedPage } from './research-agent-tools'
 
-const MAX_CATALYST_TITLE = 120
-const MAX_CATALYST_DESCRIPTION = 500
-
 const CatalystWriteParameters = Type.Object({
   date: Type.String({ description: 'Event date as YYYY-MM-DD; must appear on the page.' }),
-  description: Type.Optional(Type.String({ maxLength: MAX_CATALYST_DESCRIPTION })),
+  description: Type.Optional(Type.String({ maxLength: MAX_CATALYST_DESCRIPTION_LENGTH })),
   // The wire schema is the domain enum itself, so a kind added there is offered here without
   // this file restating the list.
   kind: Type.Unsafe<Catalyst['kind']>({ enum: [...CatalystKindSchema.options] }),
@@ -30,21 +29,22 @@ const CatalystWriteParameters = Type.Object({
     Type.Literal('pre-market'), Type.Literal('intraday'),
     Type.Literal('after-hours'), Type.Literal('unknown'),
   ]),
-  title: Type.String({ maxLength: MAX_CATALYST_TITLE }),
+  title: Type.String({ maxLength: MAX_CATALYST_TITLE_LENGTH }),
 }, { additionalProperties: false })
 
 /**
- * A catalyst an agent writes is held to the bar the Codex importer already meets: the page
- * must have been read in this run, and the event date must appear in what was read. Migration
- * 0019 retired two catalyst tables because their rows could not be re-verified or retracted;
- * these rows carry the page they came from and the provider that wrote them, so both stay
- * possible. Confidence is `estimated` regardless of how a page words it — an agent reading a
- * page is not the company confirming a date.
+ * A catalyst an agent writes must come from a page read in this run, with the event date in
+ * the retained text. Rows carry both their page and producer so they can be refreshed or
+ * retracted. Confidence is `estimated` regardless of how a page words it — an agent reading
+ * a page is not the company confirming a date.
  */
 export function createCatalystWriteTool(
   env: AppEnv,
   provider: CatalystProvider,
-  options: { now?: Date; retained?: ReadonlyMap<string, RetainedPage> } = {},
+  options: {
+    now?: Date
+    retained?: ReadonlyMap<string, RetainedPage>
+  } = {},
 ): AgentTool<typeof CatalystWriteParameters, unknown> {
   const now = options.now ?? new Date()
   return {
@@ -69,7 +69,10 @@ export function createCatalystWriteTool(
         description: params.description,
         id: `${provider}:${symbol}:${params.kind}:${params.date}`,
         kind: params.kind,
-        source: params.sourceUrl,
+        source: [
+          provider === 'dan' ? 'Dan research' : 'Daily research',
+          new URL(params.sourceUrl).hostname.replace(/^www\./, ''),
+        ].join(' · '),
         sourceUrl: params.sourceUrl,
         symbol,
         timing: params.timing,
@@ -77,7 +80,7 @@ export function createCatalystWriteTool(
         updatedAt: now.toISOString(),
       })
       await persistResearchCatalysts(env, provider, [catalyst], now)
-      return textResult({ id: catalyst.id, recorded: true })
+      return textResult({ catalyst, id: catalyst.id, recorded: true })
     },
     label: 'Recording a catalyst',
     name: 'record_catalyst',

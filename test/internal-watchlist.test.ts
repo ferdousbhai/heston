@@ -29,7 +29,7 @@ function payloads() {
     privatePayload: {
       data: { items: [{
         name: 'Long vol',
-        'group-name': 'ideas',
+        'group-name': 'recommendations',
         'order-index': 7,
         custom: { color: 'orange' },
         'watchlist-entries': [
@@ -71,7 +71,7 @@ describe('one-time tastytrade watchlist seed', () => {
     expect(seed.items.map((item) => item.symbol)).toEqual(['NVDA', 'PLTR'])
     expect(seed.sources).toHaveLength(2)
     expect(JSON.parse(seed.sources[0]!.metadataJson)).toMatchObject({
-      name: 'Long vol', 'group-name': 'ideas', 'order-index': 7, custom: { color: 'orange' },
+      name: 'Long vol', 'group-name': 'recommendations', 'order-index': 7, custom: { color: 'orange' },
     })
     expect(JSON.parse(seed.sources[0]!.entries[1]!.metadataJson)).toEqual({
       symbol: 'NVDA  260918C00225000', 'instrument-type': 'Equity Option', quantity: 2,

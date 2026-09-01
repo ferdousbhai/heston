@@ -41,10 +41,6 @@ export const EquitySymbolType = Type.String({ pattern: EQUITY_SYMBOL_PATTERN })
 export const EquitySymbolSchema = z.string().trim().toUpperCase().regex(EQUITY_SYMBOL_REGEX)
 
 /**
- * `TICKER STRIKE(c/p) M/D`, the one human-readable play shorthand the Daily Read renders.
- * It embeds the equity symbol rule so a ticker Spice accepts can never be rejected here.
- */
-/**
  * A ticker arriving from model text may still wear the cashtag X writes it with, and Reddit
  * uses both forms. Search keeps whichever the venue expects; every provider and internal
  * lookup takes the bare symbol, so a symbol crossing out of model text is read here rather
@@ -53,9 +49,6 @@ export const EquitySymbolSchema = z.string().trim().toUpperCase().regex(EQUITY_S
 export function equitySymbolFromModelText(value: string): string | undefined {
   return EquitySymbolSchema.safeParse(value.trim().replace(/^\$/, '').toUpperCase()).data
 }
-
-export const POTENTIAL_PLAY_PATTERN =
-  `^${EQUITY_SYMBOL_BODY} \\d+(?:\\.\\d+)?[cp] (?:1[0-2]|[1-9])\\/(?:3[01]|[12]\\d|[1-9])$`
 
 const OptionalBoolean = z.boolean().nullable()
 

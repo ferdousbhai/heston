@@ -1,15 +1,25 @@
 import { z } from 'zod'
 
-import { CandlePointSchema, MAX_INTRADAY_CANDLES } from '../domain/candle'
+import {
+  CandlePointSchema,
+  CandleSnapshotAccumulator,
+  DXLINK_REMOVE_EVENT,
+  MAX_INTRADAY_CANDLES,
+  MAX_YEAR_CANDLES,
+  type CandleFrame,
+  type CandlePoint,
+} from '../domain/candle'
 import { EquitySymbolSchema } from '../domain/instrument'
 import { jsonNumber, type JsonObject } from '../domain/json-payload'
 import { MAX_LIVE_STREAM_SYMBOLS } from '../domain/watchlist'
 
-export const DXLINK_TX_PENDING = 0x1
-export const DXLINK_REMOVE_EVENT = 0x2
-export const DXLINK_SNAPSHOT_BEGIN = 0x4
-export const DXLINK_SNAPSHOT_END = 0x8
-export const DXLINK_SNAPSHOT_SNIP = 0x10
+export { DXLINK_REMOVE_EVENT }
+export {
+  DXLINK_SNAPSHOT_BEGIN,
+  DXLINK_SNAPSHOT_END,
+  DXLINK_SNAPSHOT_SNIP,
+  DXLINK_TX_PENDING,
+} from '../domain/candle'
 
 const MarketSymbolSchema = EquitySymbolSchema
 
@@ -226,16 +236,165 @@ export class OptionGreeksRequestRegistry {
 }
 
 /**
- * The upstream candle stream is one symbol per aggregation period and session scope, so the
- * suffix is part of the subscription identity. Adds and removes must build it the same way or
- * a remove silently misses and the upstream subscription leaks.
+ * One aggregation period and session scope per subscription. `intraday` is the span a 1D chart
+ * draws, so `tho=true` holds it to the regular session; `daily` carries a year of closes and
+ * takes the default scope, since a daily bar has no session to exclude.
  */
-export function candleStreamerSymbol(symbol: string): string {
-  return `${symbol}{=5m,tho=true}`
+export const CANDLE_FEED_PERIODS = ['intraday', 'daily'] as const
+
+export type CandleFeedPeriod = typeof CANDLE_FEED_PERIODS[number]
+
+export const CANDLE_PERIOD_SUFFIXES = {
+  intraday: '{=5m,tho=true}',
+  daily: '{=d}',
+} as const satisfies Record<CandleFeedPeriod, string>
+
+export const CANDLE_PERIOD_LIMITS = {
+  intraday: MAX_INTRADAY_CANDLES,
+  daily: MAX_YEAR_CANDLES,
+} as const satisfies Record<CandleFeedPeriod, number>
+
+/**
+ * The suffix is part of the subscription identity, and both periods share one upstream channel.
+ * Adds, removes, and inbound routing must build and read it the same way or a remove silently
+ * misses, the upstream subscription leaks, and two periods merge into one corrupted series.
+ */
+export function candleStreamerSymbol(symbol: string, period: CandleFeedPeriod = 'intraday'): string {
+  return `${symbol}${CANDLE_PERIOD_SUFFIXES[period]}`
 }
 
-export function candleSubscription(symbol: string, fromTime: number) {
-  return { type: 'Candle' as const, symbol: candleStreamerSymbol(symbol), fromTime }
+export function candleSubscription(
+  symbol: string,
+  fromTime: number,
+  period: CandleFeedPeriod = 'intraday',
+) {
+  return { type: 'Candle' as const, symbol: candleStreamerSymbol(symbol, period), fromTime }
+}
+
+/** Recover which series an upstream row belongs to, since one channel carries both. */
+export function candleFeedPeriod(streamerSymbol: string): CandleFeedPeriod | undefined {
+  const suffixAt = streamerSymbol.indexOf('{')
+  if (suffixAt < 0) return undefined
+  const suffix = streamerSymbol.slice(suffixAt)
+  return CANDLE_FEED_PERIODS.find((period) => CANDLE_PERIOD_SUFFIXES[period] === suffix)
+}
+
+export const DailyCandlesReadResultSchema = z.object({
+  asOf: z.string().datetime(),
+  series: z.array(z.object({
+    symbol: MarketSymbolSchema,
+    closes: z.array(CandlePointSchema).max(MAX_YEAR_CANDLES),
+  })),
+  source: z.literal('tastytrade-dxlink'),
+})
+
+export type DailyCandlesReadResult = z.infer<typeof DailyCandlesReadResultSchema>
+
+type DailyCandleRequest = {
+  reject: (error: Error) => void
+  resolve: (series: Map<string, CandlePoint[]>) => void
+  series: Map<string, CandlePoint[]>
+  settled: boolean
+  symbols: string[]
+  timeout: ReturnType<typeof setTimeout>
+}
+
+export type DailyCandleLease = {
+  promise: Promise<Map<string, CandlePoint[]>>
+  release: () => void
+}
+
+/**
+ * The year series is read once and cached, not streamed, so this registry holds the bounded
+ * one-shot readers rather than a standing subscription. It mirrors the Greeks registry, but a
+ * daily read completes on a finished snapshot per symbol instead of a single event.
+ */
+export class DailyCandleRequestRegistry {
+  private nextRequestId = 0
+  private readonly requests = new Map<number, DailyCandleRequest>()
+  private readonly symbolRefCounts = new Map<string, number>()
+  private readonly snapshots = new CandleSnapshotAccumulator()
+
+  register(symbols: readonly string[], timeoutMs: number): DailyCandleLease {
+    const requested = parseMarketFeedSymbols(symbols)
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 120_000) {
+      throw new Error('Daily candle timeout must be between 1 and 120000 milliseconds.')
+    }
+    const requestId = ++this.nextRequestId
+    let resolvePromise!: (series: Map<string, CandlePoint[]>) => void
+    let rejectPromise!: (error: Error) => void
+    const promise = new Promise<Map<string, CandlePoint[]>>((resolve, reject) => {
+      resolvePromise = resolve
+      rejectPromise = reject
+    })
+    const request: DailyCandleRequest = {
+      reject: rejectPromise,
+      resolve: resolvePromise,
+      series: new Map(),
+      settled: false,
+      symbols: requested,
+      timeout: setTimeout(() => this.timeout(requestId), timeoutMs),
+    }
+    this.requests.set(requestId, request)
+    for (const symbol of requested) {
+      this.symbolRefCounts.set(symbol, (this.symbolRefCounts.get(symbol) ?? 0) + 1)
+    }
+    let released = false
+    return {
+      promise,
+      release: () => {
+        if (released) return
+        released = true
+        clearTimeout(request.timeout)
+        this.requests.delete(requestId)
+        for (const symbol of requested) {
+          const count = (this.symbolRefCounts.get(symbol) ?? 1) - 1
+          if (count > 0) this.symbolRefCounts.set(symbol, count)
+          else {
+            this.symbolRefCounts.delete(symbol)
+            this.snapshots.forget(symbol)
+          }
+        }
+      },
+    }
+  }
+
+  /** Feed one upstream daily row; a completed snapshot settles every reader waiting on it. */
+  accept(symbol: string, frame: CandleFrame): void {
+    if (!this.symbolRefCounts.has(symbol)) return
+    const result = this.snapshots.accept(symbol, frame, CANDLE_PERIOD_LIMITS.daily)
+    // A daily bar outside a snapshot is that day's close ticking; the cached year does not
+    // need it, so only a finished snapshot settles a reader.
+    if (result.status !== 'complete') return
+    for (const request of this.requests.values()) {
+      if (request.settled || !request.symbols.includes(symbol)) continue
+      request.series.set(symbol, result.points)
+      if (request.series.size !== request.symbols.length) continue
+      request.settled = true
+      clearTimeout(request.timeout)
+      request.resolve(request.series)
+    }
+  }
+
+  demandSymbols(): Set<string> {
+    return new Set(this.symbolRefCounts.keys())
+  }
+
+  reset(): void {
+    this.snapshots.clear()
+  }
+
+  private timeout(requestId: number): void {
+    const request = this.requests.get(requestId)
+    if (!request || request.settled) return
+    request.settled = true
+    // A partial year is still worth caching: the reader keeps what arrived rather than
+    // failing the whole refresh because one thin symbol never completed its snapshot.
+    if (request.series.size) request.resolve(request.series)
+    else {
+      request.reject(new Error(`Timed out waiting for daily candles: ${request.symbols.join(', ')}.`))
+    }
+  }
 }
 
 /** Validate the entire subscription before normalization can change its cardinality. */

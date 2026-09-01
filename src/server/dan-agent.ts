@@ -35,7 +35,8 @@ import { readStoredSecret } from './secrets'
 import { buildPortfolioPolicyContext } from './portfolio-risk'
 import { createMarketResearchTools } from './market-research-tools'
 import { createResearchReadTools } from './research-read-tools'
-import { createResearchAgentTools } from './research-agent-tools'
+import { createResearchAgentTools, type RetainedPage } from './research-agent-tools'
+import { createCatalystWriteTool } from './catalyst-write-tool'
 import { createWatchlistReadTool } from './watchlist-tool'
 import { createExactOptionGreeksReadTool } from './option-greeks-tool'
 import {
@@ -189,6 +190,7 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
       const runtimeContext = JSON.stringify(selectedSymbol
         ? { ...accountContext, selectedSymbol, ...turnContext }
         : { ...accountContext, ...turnContext })
+      const retainedResearchPages = new Map<string, RetainedPage>()
       const tools = [
         brokerageActionTool,
         createBrokerageReconciliationTool(this.env),
@@ -198,12 +200,12 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
         createExactOptionGreeksReadTool(this.env),
         ...createBrokerageReadTools(this.env),
         ...createMarketResearchTools(),
-        // Dan retains what it reads for the length of a turn, so a catalyst it records can
-        // be checked against the page it came from — the same bar the daily run is held to.
         ...createResearchAgentTools(this.env, {
-          catalystProvider: 'dan',
-          retained: new Map(),
+          retained: retainedResearchPages,
         }),
+        // Dan's explicit mutation stays separate from the daily workflow's read-only research
+        // tools. It still requires a page retained during this turn and an exact date in its text.
+        createCatalystWriteTool(this.env, 'dan', { retained: retainedResearchPages }),
         ...createResearchReadTools(this.env),
       ]
       const toolLabel = new Map(tools.map((tool) => [tool.name, tool.label] as const))

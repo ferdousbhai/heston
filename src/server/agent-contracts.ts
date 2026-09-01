@@ -1,15 +1,15 @@
 import { z } from 'zod'
-import { Type } from 'typebox'
 
 import { EquitySymbolSchema } from '../domain/instrument'
 import { ISO_DATE_REGEX } from '../domain/iso-date'
+import { OrderLegActionSchema } from '../domain/recommended-order'
+import { zodTypeBoxSchema } from './zod-typebox'
 
 import {
   AddWatchlistSymbolsSchema,
   RemoveWatchlistSymbolsSchema,
 } from '../domain/watchlist'
 
-const OrderActionSchema = z.enum(['Buy to Open', 'Sell to Open', 'Buy to Close', 'Sell to Close'])
 const OrderIdSchema = z.string().regex(/^\d{1,40}$/)
 const ExpiryDateSchema = z.string().regex(ISO_DATE_REGEX)
 /** Limit prices are whole cents; the broker rejects finer increments. */
@@ -24,7 +24,7 @@ const OptionActionSchema = z.object({
   optionType: z.enum(['C', 'P']),
   strike: z.number().positive(),
   expiry: ExpiryDateSchema,
-  action: OrderActionSchema,
+  action: OrderLegActionSchema,
   quantity: QuantitySchema,
   limitPrice: LimitPriceSchema,
   priceEffect: z.enum(['Debit', 'Credit']),
@@ -33,7 +33,7 @@ const OptionActionSchema = z.object({
 const EquityActionSchema = z.object({
   kind: z.literal('place_equity_order'),
   symbol: EquitySymbolSchema,
-  action: OrderActionSchema,
+  action: OrderLegActionSchema,
   quantity: QuantitySchema,
   limitPrice: LimitPriceSchema,
   priceEffect: z.enum(['Debit', 'Credit']),
@@ -91,15 +91,8 @@ export const FreshOrderPlacementSchema = z.discriminatedUnion('kind', [
 
 export const OrderPlacementSchema = z.union([FreshOrderPlacementSchema, ReplaceOrderActionSchema])
 
-function modelParameters<T extends z.ZodType>(schema: T) {
-  const jsonSchema = { ...z.toJSONSchema(schema) }
-  Reflect.deleteProperty(jsonSchema, '$schema')
-  Reflect.deleteProperty(jsonSchema, '~standard')
-  return Type.Unsafe<z.infer<T>>(jsonSchema)
-}
-
 /** The model and security boundary share one order contract; Zod refinements run again before storage. */
-export const OrderPlacementParameters = modelParameters(OrderPlacementSchema)
+export const OrderPlacementParameters = zodTypeBoxSchema(OrderPlacementSchema)
 
 export const StoredOrderPlacementSchema = z.union([
   FreshOrderPlacementSchema,
@@ -113,7 +106,7 @@ export const DirectAccountActionSchema = z.discriminatedUnion('kind', [
 ])
 
 /** Direct mutations use the same generated tool contract and server-side Zod boundary. */
-export const DirectAccountActionParameters = modelParameters(DirectAccountActionSchema)
+export const DirectAccountActionParameters = zodTypeBoxSchema(DirectAccountActionSchema)
 
 // These are request-envelope abuse bounds: chat is one model turn and the confirmation token is
 // an opaque digest input, not domain data. They do not authorize or constrain trade size.

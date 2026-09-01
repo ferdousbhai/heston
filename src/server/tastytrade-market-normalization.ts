@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { type CandlePoint } from '../domain/candle'
 import { EquitySymbolSchema, type InstrumentCatalogItem } from '../domain/instrument'
 import { isValidIsoDate } from '../domain/iso-date'
 import {
@@ -156,28 +157,6 @@ function assetType(instrument: JsonObject | undefined): Ticker['assetType'] {
   if (isIndex) return 'index'
   if (isEtf) return 'etf'
   return isIndex === false && isEtf === false ? 'stock' : undefined
-}
-
-export function equityCandleFromTime(payload: JsonValue, now = Date.now()): number {
-  const body = jsonObject(payload)
-  const session = jsonObject(body?.data ?? payload)
-  if (!session) throw new Error('TastytradeCandleSession:invalid-response')
-  const currentOpen = sessionOpenTime(session['open-at'], 'current')
-  if (currentOpen !== undefined && currentOpen <= now) return currentOpen
-  const previous = jsonObject(session['previous-session'])
-  if (!previous) throw new Error('TastytradeCandleSession:invalid-previous-session')
-  const previousOpen = sessionOpenTime(previous['open-at'], 'previous')
-  if (previousOpen !== undefined && previousOpen <= now) return previousOpen
-  throw new Error('TastytradeCandleSession:no-open-session')
-}
-
-function sessionOpenTime(value: JsonValue, session: 'current' | 'previous'): number | undefined {
-  if (unreported(value)) return undefined
-  const openTime = Date.parse(jsonText(value) ?? '')
-  if (!Number.isFinite(openTime)) {
-    throw new Error(`TastytradeCandleSession:invalid-${session}-open`)
-  }
-  return openTime
 }
 
 export function strictTastytradeRows(payload: JsonValue, label: string): JsonObject[] {
@@ -337,6 +316,53 @@ export function liveTickerFromRecords(
   instrument?: JsonObject,
 ): Ticker {
   return normalizeTastytradeMarketTicker(symbol, metrics, quote, position, instrument).ticker
+}
+
+/**
+ * Rebuild the UI read model from what the store already holds, so a visitor can be served a
+ * snapshot without any call reaching the provider. The stored records are the normalized facts
+ * `normalizeTastytradeMarketTicker` produced, so this re-derives only what the tables do not
+ * carry: the instrument identity, and the move against the previous close.
+ */
+export function tickerFromStoredRecords(
+  symbol: string,
+  metric: TastytradeMarketMetricRecord | undefined,
+  quote: TastytradeMarketQuoteRecord,
+  position: boolean,
+  instrument?: JsonObject,
+  yearCloses?: readonly CandlePoint[],
+): Ticker {
+  const change = quote.price - quote.previousClose
+  return {
+    symbol,
+    name: optionalText(
+      instrument?.description ?? instrument?.['short-description'],
+      'instrument-name',
+    ) ?? symbol,
+    assetType: assetType(instrument),
+    lendability: optionalText(instrument?.lendability, 'lendability'),
+    marketCap: metric?.marketCap,
+    price: quote.price,
+    change,
+    changePercent: quote.previousClose > 0 ? (change / quote.previousClose) * 100 : 0,
+    // Candle history is live-only state; a stored snapshot carries no intraday chart.
+    sparkline: [],
+    yearCloses: yearCloses?.length ? [...yearCloses] : undefined,
+    ivRank: metric?.ivRank,
+    ivPercentile: metric?.ivPercentile,
+    ivIndex: metric?.ivIndex,
+    ivIndex5DayChange: metric?.ivIndex5DayChange,
+    historicalVolatility30Day: metric?.historicalVolatility30Day,
+    ivHistoricalVolatility30DayDifference: metric?.ivHistoricalVolatility30DayDifference,
+    ivTermStructure: metric?.ivTermStructure,
+    liquidity: metric?.liquidity,
+    volume: quote.volume,
+    yearHigh: quote.yearHigh,
+    yearLow: quote.yearLow,
+    earningsDate: metric?.earningsDate ?? null,
+    position,
+    updatedAt: quote.providerUpdatedAt,
+  }
 }
 
 export function catalogTickerInstrument(item: InstrumentCatalogItem | undefined): JsonObject | undefined {

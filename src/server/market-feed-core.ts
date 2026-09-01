@@ -3,11 +3,15 @@ import { z } from 'zod'
 import { MAX_INTRADAY_CANDLES, type CandlePoint, updateCandleSeries } from '../domain/candle'
 import { toError } from '../domain/failure'
 import { EquitySymbolSchema } from '../domain/instrument'
+import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 import { type AppEnv } from './env'
 import {
   DXLINK_REMOVE_EVENT,
   DXLINK_SNAPSHOT_BEGIN,
-  candleStreamerSymbol,
+  DailyCandleRequestRegistry,
+  type DailyCandlesReadResult,
+  DailyCandlesReadResultSchema,
+  candleFeedPeriod,
   candleSubscription,
   type LiveMarketEvent,
   MarketFeedSymbolsSchema,
@@ -16,6 +20,7 @@ import {
   OptionGreeksReadResultSchema,
   OptionGreeksRequestRegistry,
   optionGreeksFromRow,
+  parseMarketFeedSymbols,
   parseOptionStreamerSymbols,
   parseRequestedSymbols,
 } from './market-feed-contracts'
@@ -24,12 +29,17 @@ import {
 import { JsonArraySchema, jsonNumber, JsonObjectSchema, type JsonObject, type JsonValue } from '../domain/json-payload'
 import { brokerApi } from './tastytrade'
 
-const SocketAttachmentSchema = z.object({ symbols: MarketFeedSymbolsSchema }).strict()
+const SocketAttachmentSchema = z.object({
+  seenAt: z.number().int().nonnegative().optional(),
+  symbols: MarketFeedSymbolsSchema,
+}).strict()
 type SocketAttachment = z.infer<typeof SocketAttachmentSchema>
 const SubscriptionFrameSchema = z.object({
   symbols: MarketFeedSymbolsSchema,
   type: z.literal('subscribe'),
 }).strict()
+/** A reader saying it is still there. Any inbound frame proves liveness; this one costs nothing. */
+const HeartbeatFrameSchema = z.object({ type: z.literal('heartbeat') }).strict()
 const TextFrameSchema = z.string()
 
 const CHANNELS = { Quote: 1, Trade: 3, Candle: 5, Greeks: 7 } as const
@@ -44,10 +54,33 @@ type FeedType = keyof typeof FIELDS
 
 const FEED_TYPES = ['Quote', 'Trade', 'Candle', 'Greeks'] as const satisfies readonly FeedType[]
 
+/**
+ * A browser that crashes, sleeps, or loses its network never sends a close frame, so the relay
+ * would otherwise keep an upstream connection open for a reader who is no longer there. Clients
+ * announce themselves on this cadence and are dropped after missing several in a row.
+ */
+const CLIENT_HEARTBEAT_MS = 30_000
+const CLIENT_IDLE_TIMEOUT_MS = 3 * CLIENT_HEARTBEAT_MS
+// One connection can still carry too many subscriptions: this bounds the union across readers.
+const MAX_RELAYED_SYMBOLS = MAX_WATCHLIST_SYMBOLS
 // These bound one interactive read/setup attempt; the persistent relay reconnects separately.
 const OPTION_GREEKS_TIMEOUT_MS = 10_000
 const UPSTREAM_SETUP_TIMEOUT_MS = 15_000
 // Durable alarms provide bounded exponential reconnects while any client or Greeks read remains.
+// Reaches past a weekend plus a holiday, so the backfill always clears the bar cap even on a
+// Monday morning. The cap, not this window, decides how much of the series survives.
+const CANDLE_BACKFILL_MS = 4 * 24 * 60 * 60 * 1_000
+// A year of closes, with slack so the oldest week is not clipped by an inclusive boundary.
+const YEAR_CANDLE_BACKFILL_MS = 372 * 24 * 60 * 60 * 1_000
+// A year of daily bars for a whole watchlist is a large snapshot, so this waits longer than
+// the interactive Greeks read. Nothing blocks on it: the caller is a background refresh.
+const DAILY_CANDLE_TIMEOUT_MS = 60_000
+/**
+ * A quote token outlives a single connection, and re-fetching one on every reconnect turns a
+ * dropped websocket into a REST call. Held well inside the provider's documented lifetime, and
+ * discarded the moment the upstream rejects it, so a stale token costs one failed handshake.
+ */
+const QUOTE_TOKEN_TTL_MS = 12 * 60 * 60 * 1_000
 const RECONNECT_BASE_DELAY_SECONDS = 1
 const RECONNECT_MAX_DELAY_SECONDS = 60
 const RECONNECT_MAX_EXPONENT = 6
@@ -75,12 +108,6 @@ function streamRows(type: FeedType, values: JsonValue): JsonObject[] {
   return rows
 }
 
-function parseCandleFromTime(value: number): number {
-  const timestamp = z.number().int().positive().safe().parse(value)
-  if (timestamp > Date.now()) throw new FeedFrameError('Candle session starts in the future.')
-  return timestamp
-}
-
 function isPresent<T>(value: T | undefined): value is T {
   return value !== undefined
 }
@@ -99,6 +126,8 @@ export type FeedClientSocket = {
   /** Hibernation hands the attachment back undecoded; `socketSymbols` parses it. */
   deserializeAttachment(): JsonValue
   send(message: string): void
+  /** Present on every accepted socket; optional so a test fake may omit it. */
+  serializeAttachment?(attachment: JsonValue): void
 }
 
 export type FeedControlSocket = FeedClientSocket & {
@@ -221,7 +250,9 @@ export class MarketFeedCore {
   private setupTimeout?: ReturnType<typeof setTimeout>
   private candleFromTime?: number
   private candles = new Map<string, CandlePoint[]>()
+  private quoteToken?: { credentials: { token: string; url: string }; expiresAt: number }
   private readonly greekRequests = new OptionGreeksRequestRegistry()
+  private readonly dailyRequests = new DailyCandleRequestRegistry()
   private feedState: MarketFeedStatus['state'] = 'connecting'
 
   constructor(
@@ -243,7 +274,7 @@ export class MarketFeedCore {
     const pair = new WebSocketPair()
     const [client, server] = Object.values(pair)
     this.ctx.acceptWebSocket(server)
-    server.serializeAttachment({ symbols } satisfies SocketAttachment)
+    server.serializeAttachment({ seenAt: Date.now(), symbols } satisfies SocketAttachment)
     this.sendStatus(server, this.feedState)
     await this.reconcile()
     this.replayCandles(server, symbols)
@@ -268,18 +299,45 @@ export class MarketFeedCore {
     }
   }
 
+  /**
+   * Read a year of daily closes once, for the caller to cache. This is deliberately not a
+   * streamed series: a daily bar changes once a session, so replaying it to every client on
+   * every connect would cost far more than storing it.
+   */
+  async readDailyCandles(requestedSymbols: readonly string[]): Promise<DailyCandlesReadResult> {
+    const symbols = parseMarketFeedSymbols(requestedSymbols)
+    const lease = this.dailyRequests.register(symbols, DAILY_CANDLE_TIMEOUT_MS)
+    try {
+      await this.reconcile()
+      const series = await lease.promise
+      return DailyCandlesReadResultSchema.parse({
+        asOf: new Date().toISOString(),
+        series: [...series].map(([symbol, closes]) => ({ symbol, closes })),
+        source: 'tastytrade-dxlink',
+      })
+    } finally {
+      lease.release()
+      await this.reconcile().catch((cause: unknown) => this.logError('MarketFeedCleanupFailed', toError(cause)))
+    }
+  }
+
   async webSocketMessage(socket: FeedControlSocket, message: string | ArrayBuffer): Promise<void> {
     let symbols: string[]
     try {
       const frame = TextFrameSchema.parse(message)
-      const payload = SubscriptionFrameSchema.parse(JSON.parse(frame))
-      symbols = [...new Set(payload.symbols)]
+      const payload: JsonValue = JSON.parse(frame)
+      if (HeartbeatFrameSchema.safeParse(payload).success) {
+        this.markSeen(socket)
+        return
+      }
+      const subscription = SubscriptionFrameSchema.parse(payload)
+      symbols = [...new Set(subscription.symbols)]
     } catch {
       this.sendStatus(socket, 'degraded', 'Invalid subscription request')
       try { socket.close(1008, 'Invalid subscription request') } catch { /* Already closed. */ }
       return
     }
-    socket.serializeAttachment({ symbols } satisfies SocketAttachment)
+    socket.serializeAttachment({ seenAt: Date.now(), symbols } satisfies SocketAttachment)
     await this.reconcile()
   }
 
@@ -290,16 +348,25 @@ export class MarketFeedCore {
     await this.reconcile()
   }
 
+  /**
+   * Each socket is capped on its own, but the union across them was not, so enough readers on
+   * different watchlists could put an unbounded number of subscriptions on the one upstream
+   * connection. Sorting before the cut keeps the retained set stable across reconciles, so a
+   * crowded relay does not churn subscriptions on and off every time a socket joins or leaves.
+   */
   private downstreamSymbols(): Set<string> {
     const symbols = new Set<string>()
     for (const socket of this.ctx.getWebSockets()) {
       for (const symbol of this.socketSymbols(socket)) symbols.add(symbol)
     }
-    return symbols
+    if (symbols.size <= MAX_RELAYED_SYMBOLS) return symbols
+    return new Set([...symbols].sort().slice(0, MAX_RELAYED_SYMBOLS))
   }
 
   private hasDemand(): boolean {
-    return this.downstreamSymbols().size > 0 || this.greekRequests.demandSymbols().size > 0
+    return this.downstreamSymbols().size > 0
+      || this.greekRequests.demandSymbols().size > 0
+      || this.dailyRequests.demandSymbols().size > 0
   }
 
   private desiredSymbols(type: FeedType): Set<string> {
@@ -354,15 +421,20 @@ export class MarketFeedCore {
     }
   }
 
+  /** Reuse a live token rather than spending a REST call on every reconnect. */
+  private async credentials(): Promise<{ token: string; url: string }> {
+    const cached = this.quoteToken
+    if (cached && cached.expiresAt > Date.now()) return cached.credentials
+    const credentials = await brokerApi().loadQuoteToken(this.env)
+    this.quoteToken = { credentials, expiresAt: Date.now() + QUOTE_TOKEN_TTL_MS }
+    return credentials
+  }
+
   private async openUpstream(): Promise<void> {
     this.broadcastStatus('connecting')
-    const [credentials, rawCandleFromTime] = await Promise.all([
-      brokerApi().loadQuoteToken(this.env),
-      brokerApi().loadEquityCandleFromTime(this.env),
-    ])
-    const candleFromTime = parseCandleFromTime(rawCandleFromTime)
+    const credentials = await this.credentials()
     if (!this.hasDemand() || (this.upstream && this.upstream.readyState <= WebSocket.OPEN)) return
-    this.candleFromTime = candleFromTime
+    this.candleFromTime = Date.now() - CANDLE_BACKFILL_MS
     const socket = new WebSocket(credentials.url)
     this.upstream = socket
     this.upstreamAuthorization = 'awaiting'
@@ -429,15 +501,20 @@ export class MarketFeedCore {
       for (const channel of Object.values(CHANNELS)) {
         if (!await this.sendToUpstream(socket, { type: 'CHANNEL_REQUEST', channel, service: 'FEED', parameters: { contract: 'AUTO' } })) return
       }
+      // The object cannot hibernate while the upstream socket is open, so one interval can
+      // carry both the upstream keepalive and the downstream liveness sweep.
       this.keepalive = setInterval(() => {
         this.track(this.sendToUpstream(socket, { type: 'KEEPALIVE', channel: 0 }).then(() => undefined))
-      }, 30_000)
+        this.track(this.reapIdleSockets())
+      }, CLIENT_HEARTBEAT_MS)
       return
     }
     if (messageType === 'AUTH_STATE') {
       if (messageChannel !== 0 || message.state !== 'UNAUTHORIZED') throw new FeedFrameError('Malformed auth state.')
       if (this.upstreamAuthorization === 'awaiting') {
         this.upstreamAuthorization = 'initial-unauthorized'
+        // The token the handshake just used is the suspect; the next attempt buys a fresh one.
+        this.quoteToken = undefined
         return
       }
       // Provider frames are untrusted and may echo credentials or private payloads.
@@ -503,28 +580,42 @@ export class MarketFeedCore {
     throw new FeedFrameError('Unexpected upstream message.')
   }
 
+  /**
+   * Keyed by the exact upstream streamer symbol, so the two candle periods stay distinct
+   * subscriptions and a remove always names what the matching add named.
+   */
+  private desiredSubscriptions(type: FeedType): Map<string, JsonObject> {
+    if (type !== 'Candle') {
+      return new Map([...this.desiredSymbols(type)].map((symbol) => [symbol, { symbol, type }]))
+    }
+    const entries = new Map<string, JsonObject>()
+    if (this.candleFromTime !== undefined) {
+      for (const symbol of this.downstreamSymbols()) {
+        const subscription = candleSubscription(symbol, this.candleFromTime, 'intraday')
+        entries.set(subscription.symbol, subscription)
+      }
+    }
+    const yearFromTime = Date.now() - YEAR_CANDLE_BACKFILL_MS
+    for (const symbol of this.dailyRequests.demandSymbols()) {
+      const subscription = candleSubscription(symbol, yearFromTime, 'daily')
+      entries.set(subscription.symbol, subscription)
+    }
+    return entries
+  }
+
   private async syncSubscriptions(socket: WebSocket): Promise<void> {
     for (const type of FEED_TYPES) {
       const channel = CHANNELS[type]
       if (!this.openedChannels.has(channel)) continue
-      const next = this.desiredSymbols(type)
+      const next = this.desiredSubscriptions(type)
       const current = this.subscribedByType.get(type) ?? new Set<string>()
-      const added = [...next].filter((symbol) => !current.has(symbol))
+      const added = [...next.keys()].filter((symbol) => !current.has(symbol))
       const removed = [...current].filter((symbol) => !next.has(symbol))
       const frame: JsonObject = { type: 'FEED_SUBSCRIPTION', channel }
-      if (added.length) {
-        if (type === 'Candle') {
-          const fromTime = this.candleFromTime
-          if (fromTime === undefined) throw new FeedFrameError('Candle session is unavailable.')
-          frame.add = added.map((symbol) => candleSubscription(symbol, fromTime))
-        } else frame.add = added.map((symbol) => ({ symbol, type }))
-      }
-      if (removed.length) frame.remove = removed.map((symbol) => ({
-        symbol: type === 'Candle' ? candleStreamerSymbol(symbol) : symbol,
-        type,
-      }))
+      if (added.length) frame.add = added.map((symbol) => next.get(symbol)!)
+      if (removed.length) frame.remove = removed.map((symbol) => ({ symbol, type }))
       if ((added.length || removed.length) && !await this.sendToUpstream(socket, frame)) return
-      this.subscribedByType.set(type, next)
+      this.subscribedByType.set(type, new Set(next.keys()))
     }
   }
 
@@ -551,7 +642,10 @@ export class MarketFeedCore {
       for (const event of events) this.greekRequests.accept(event)
       return
     }
-    const mapped = rows.map((row) => eventFromRow(type, row))
+    // One upstream channel carries both candle periods, so the year series is split off here
+    // rather than merging into the intraday series that shares its symbol.
+    const live = type === 'Candle' ? rows.filter((row) => !this.acceptDailyRow(row)) : rows
+    const mapped = live.map((row) => eventFromRow(type, row))
     if (mapped.some((event) => event === undefined)) {
       throw new FeedFrameError(`Malformed upstream ${type} row.`)
     }
@@ -565,6 +659,16 @@ export class MarketFeedCore {
         }
       }
     }
+  }
+
+  /** Returns true when the row belongs to the year series and has been consumed. */
+  private acceptDailyRow(row: JsonObject): boolean {
+    const streamerSymbol = TextFrameSchema.safeParse(row.eventSymbol).data
+    if (!streamerSymbol || candleFeedPeriod(streamerSymbol) !== 'daily') return false
+    const event = eventFromRow('Candle', row)
+    if (event === undefined) throw new FeedFrameError('Malformed upstream Candle row.')
+    if (event !== null && event.candle) this.dailyRequests.accept(event.symbol, event.candle)
+    return true
   }
 
   private cacheCandle(event: LiveMarketEvent): void {
@@ -606,6 +710,9 @@ export class MarketFeedCore {
     this.openedChannels.clear()
     this.configuredChannels.clear()
     this.subscribedByType.clear()
+    // A half-delivered snapshot cannot be resumed across a reconnect; the resubscribe replays
+    // it from the beginning, so the partial run is dropped rather than spliced onto the new one.
+    this.dailyRequests.reset()
     this.clearSetupTimeout()
     if (this.keepalive) clearInterval(this.keepalive)
     this.keepalive = undefined
@@ -646,6 +753,37 @@ export class MarketFeedCore {
   }
 
   /** Invalid hibernation state is closed instead of turning a subscribed client into no demand. */
+  private markSeen(socket: FeedClientSocket): void {
+    const attachment = SocketAttachmentSchema.safeParse(socket.deserializeAttachment())
+    if (!attachment.success || !socket.serializeAttachment) return
+    socket.serializeAttachment({ ...attachment.data, seenAt: Date.now() } satisfies SocketAttachment)
+  }
+
+  /**
+   * Drop readers that have stopped announcing themselves, then reconcile: when the last one
+   * goes, `hasDemand` turns false and the upstream connection closes with it. This is what
+   * stops the relay streaming a market nobody is watching after a browser dies mid-connection.
+   */
+  private async reapIdleSockets(): Promise<void> {
+    const now = Date.now()
+    let reaped = false
+    for (const socket of this.ctx.getWebSockets()) {
+      const attachment = SocketAttachmentSchema.safeParse(socket.deserializeAttachment())
+      if (!attachment.success) continue
+      const seenAt = attachment.data.seenAt
+      // A socket accepted before this field existed is given one cycle to prove itself rather
+      // than being closed for a silence that was never its fault.
+      if (seenAt === undefined) {
+        this.markSeen(socket)
+        continue
+      }
+      if (now - seenAt <= CLIENT_IDLE_TIMEOUT_MS) continue
+      try { socket.close(1000, 'Idle reader') } catch { /* Already closed. */ }
+      reaped = true
+    }
+    if (reaped) await this.reconcile()
+  }
+
   private socketSymbols(socket: FeedClientSocket): string[] {
     const attachment = SocketAttachmentSchema.safeParse(socket.deserializeAttachment())
     if (attachment.success) return [...new Set(attachment.data.symbols)]

@@ -6,14 +6,13 @@ import {
   issuerName,
   MarketSnapshotSchema,
   marketSnapshotFromPublic,
-  parseStoredResearchBrief,
+  parseStoredDailyRecommendations,
   PublicMarketSnapshotSchema,
   volatilityVerdict,
 } from '../src/domain/market'
 import { MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
 import { marketSnapshotFixture } from './fixtures/market'
 import {
-  equityCandleFromTime,
   liveTickerFromRecords,
   selectSnapshotSymbols,
 } from '../src/server/tastytrade'
@@ -124,15 +123,15 @@ describe('snapshot contract', () => {
     expect(marketSnapshotFixture().watchlists[0]!.symbols).not.toContain('MUTATED')
   })
 
-  it('rejects the pre-evidence D1 brief shape instead of manufacturing current output', () => {
+  it('rejects the pre-evidence recommendation shape instead of manufacturing current output', () => {
     const legacy = {
       id: 'brief-2026-08-12',
       publishedAt: '2026-08-12T13:35:00.000Z',
-      title: 'Legacy daily brief',
-      summary: 'A stored brief from the earlier research contract.',
+      title: 'Legacy daily recommendations',
+      summary: 'A stored recommendation from the earlier research contract.',
       regime: 'Selective',
       regimeDetail: 'Defined risk',
-      ideas: [{
+      recommendations: [{
         symbol: 'NVDA',
         direction: 'bullish',
         setup: 'Defined-risk call spread',
@@ -143,18 +142,17 @@ describe('snapshot contract', () => {
       sources: [{ label: 'tastytrade market metrics', url: 'https://example.com/metrics' }],
     }
 
-    expect(() => parseStoredResearchBrief(legacy)).toThrow()
+    expect(() => parseStoredDailyRecommendations(legacy)).toThrow()
   })
 
-  it('rejects non-HTTPS links in historical briefs before they reach anchor elements', () => {
+  it('rejects non-HTTPS links in historical recommendations before they reach anchor elements', () => {
     const legacy = {
-      ...marketSnapshotFixture().research,
+      ...marketSnapshotFixture().recommendations,
       sources: [{ label: 'Untrusted legacy source', url: 'javascript:alert(1)' }],
     }
 
-    expect(() => parseStoredResearchBrief(legacy)).toThrow(/HTTPS source URL/)
+    expect(() => parseStoredDailyRecommendations(legacy)).toThrow(/HTTPS source URL/)
   })
-
 })
 
 describe('tastytrade normalization', () => {
@@ -301,45 +299,5 @@ describe('tastytrade normalization', () => {
       yearHigh: 710,
       yearLow: 480,
     })
-  })
-
-  it('starts candle history at the current or most recent equity session open', () => {
-    const now = Date.parse('2026-08-13T14:00:00.000Z')
-    expect(equityCandleFromTime({
-      data: {
-        'open-at': '2026-08-13T13:30:00.000Z',
-        'previous-session': { 'open-at': '2026-08-12T13:30:00.000Z' },
-      },
-    }, now)).toBe(Date.parse('2026-08-13T13:30:00.000Z'))
-    expect(equityCandleFromTime({
-      data: {
-        'open-at': '2026-08-14T13:30:00.000Z',
-        'previous-session': { 'open-at': '2026-08-13T13:30:00.000Z' },
-      },
-    }, now)).toBe(Date.parse('2026-08-13T13:30:00.000Z'))
-    expect(equityCandleFromTime({
-      data: {
-        state: 'PreMarket',
-        'open-at': '2026-08-13T14:30:00.000Z',
-        'previous-session': { 'open-at': '2026-08-12T13:30:00.000Z' },
-      },
-    }, now)).toBe(Date.parse('2026-08-12T13:30:00.000Z'))
-    expect(equityCandleFromTime({
-      data: {
-        state: 'Closed',
-        'previous-session': { 'open-at': '2026-08-12T13:30:00.000Z' },
-      },
-    }, now)).toBe(Date.parse('2026-08-12T13:30:00.000Z'))
-    expect(() => equityCandleFromTime({
-      data: {
-        'open-at': 'not-a-date',
-        'previous-session': { 'open-at': '2026-08-12T13:30:00.000Z' },
-      },
-    }, now)).toThrow('invalid-current-open')
-    expect(() => equityCandleFromTime({ data: { state: 'Closed' } }, now))
-      .toThrow('invalid-previous-session')
-    expect(() => equityCandleFromTime({
-      data: { 'open-at': '2026-08-14T13:30:00.000Z', 'previous-session': {} },
-    }, now)).toThrow('no-open-session')
   })
 })

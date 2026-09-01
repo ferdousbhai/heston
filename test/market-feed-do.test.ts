@@ -23,6 +23,11 @@ const QUOTE_FIELDS = [
   'askTime', 'askExchangeCode', 'bidPrice', 'askPrice', 'bidSize', 'askSize',
 ]
 
+const CANDLE_FIELDS = [
+  'eventSymbol', 'eventTime', 'eventFlags', 'index', 'time', 'sequence', 'count', 'volume',
+  'vwap', 'bidVolume', 'askVolume', 'impVolatility', 'openInterest', 'open', 'high', 'low', 'close',
+]
+
 const TRADE_FIELDS = [
   'eventSymbol', 'eventTime', 'time', 'timeNanoPart', 'sequence', 'exchangeCode',
   'dayId', 'tickDirection', 'extendedTradingHours', 'price', 'change', 'size',
@@ -82,7 +87,7 @@ class FakeContext implements FeedContext {
   readonly tasks: Promise<unknown>[] = []
   readonly storage = { deleteAlarm: this.deleteAlarm, setAlarm: this.setAlarm }
 
-  constructor(private readonly clients: FeedClientSocket[]) {}
+  constructor(readonly clients: FeedClientSocket[]) {}
 
   getWebSockets(): FeedClientSocket[] {
     return this.clients
@@ -97,16 +102,18 @@ class FakeContext implements FeedContext {
   }
 }
 
-function downstream(symbols: string[]): FeedClientSocket {
+function downstream(symbols: string[], seenAt = Date.now()): FeedClientSocket {
+  let attachment: JsonValue = { seenAt, symbols }
   return {
     close: vi.fn(),
-    deserializeAttachment: () => ({ symbols }),
+    deserializeAttachment: () => attachment,
     send: vi.fn(),
+    serializeAttachment: vi.fn((next: JsonValue) => { attachment = next }),
   }
 }
 
 function controlSocket(symbols: string[]): FeedControlSocket {
-  let attachment: JsonValue = { symbols }
+  let attachment: JsonValue = { seenAt: Date.now(), symbols }
   return {
     close: vi.fn(),
     deserializeAttachment: () => attachment,
@@ -134,7 +141,6 @@ beforeEach(() => {
   FakeUpstreamWebSocket.instances = []
   vi.stubGlobal('WebSocket', FakeUpstreamWebSocket)
   tasty.loadQuoteToken.mockResolvedValue({ token: 'quote-token', url: 'wss://streamer.test' })
-  tasty.loadEquityCandleFromTime.mockResolvedValue(1_786_000_000_000)
 })
 
 describe('MarketFeed option Greeks RPC', () => {
@@ -165,12 +171,12 @@ describe('MarketFeed option Greeks RPC', () => {
     expect(oversized.close).toHaveBeenCalledWith(1008, 'Invalid subscription request')
   })
 
-  it('stays visibly degraded when the current candle session cannot be loaded', async () => {
-    tasty.loadEquityCandleFromTime.mockRejectedValueOnce(new Error('malformed-session'))
+  it('stays visibly degraded when the quote token cannot be loaded', async () => {
+    tasty.loadQuoteToken.mockRejectedValueOnce(new Error('quote-token-unavailable'))
     const client = downstream(['SPY'])
     const context = new FakeContext([client])
     new MarketFeedCore(context, liveEnvironment())
-    await vi.waitFor(() => expect(tasty.loadEquityCandleFromTime).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(tasty.loadQuoteToken).toHaveBeenCalledTimes(1))
     await context.drain()
 
     expect(FakeUpstreamWebSocket.instances).toHaveLength(0)
@@ -179,20 +185,6 @@ describe('MarketFeed option Greeks RPC', () => {
       const status = JsonObjectSchema.parse(JSON.parse(frame))
       return status.type === 'feed-status' && status.state === 'degraded'
     })).toBe(true)
-  })
-
-  it('does not connect when the candle session timestamp is malformed', async () => {
-    tasty.loadEquityCandleFromTime.mockResolvedValueOnce(Date.now() + 60_000)
-    const client = downstream(['SPY'])
-    const context = new FakeContext([client])
-    new MarketFeedCore(context, liveEnvironment())
-    await vi.waitFor(() => expect(tasty.loadEquityCandleFromTime).toHaveBeenCalledTimes(1))
-    await context.drain()
-
-    expect(FakeUpstreamWebSocket.instances).toHaveLength(0)
-    expect(vi.mocked(client.send).mock.calls.some(([frame]) => (
-      JsonObjectSchema.parse(JSON.parse(frame)).state === 'degraded'
-    ))).toBe(true)
   })
 
   it('single-flights concurrent reads, completes both, unsubscribes, and ignores stale close callbacks', async () => {
@@ -302,6 +294,125 @@ describe('MarketFeed option Greeks RPC', () => {
     expect(marketFrame).toMatchObject({ price: 700, symbol: 'SPY', type: 'market' })
     expect(marketFrame).not.toHaveProperty('change')
     socket.close()
+    await context.drain()
+  })
+
+  it('keeps the year series off the intraday chart while both ride one candle channel', async () => {
+    const client = downstream(['SPY'])
+    const context = new FakeContext([client])
+    const feed = new MarketFeedCore(context, liveEnvironment())
+    await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(1))
+    const socket = FakeUpstreamWebSocket.instances[0]!
+    socket.open()
+    await context.drain()
+    socket.message({ type: 'SETUP', channel: 0, version: '0.1-test' })
+    await context.drain()
+    socket.message({ type: 'AUTH_STATE', channel: 0, state: 'AUTHORIZED' })
+    await context.drain()
+    socket.message({ type: 'CHANNEL_OPENED', channel: 5, service: 'FEED', parameters: { contract: 'AUTO' } })
+    await context.drain()
+    socket.message({
+      type: 'FEED_CONFIG', channel: 5, aggregationPeriod: 0.25,
+      dataFormat: 'COMPACT', eventFields: { Candle: CANDLE_FIELDS },
+    })
+    await context.drain()
+
+    const yearRead = feed.readDailyCandles(['SPY'])
+    await context.drain()
+    const candleAdds = socket.sent
+      .map((frame) => JsonObjectSchema.parse(JSON.parse(frame)))
+      .filter((frame) => frame.type === 'FEED_SUBSCRIPTION' && frame.channel === 5)
+      .flatMap((frame) => Array.isArray(frame.add) ? frame.add : [])
+      .map((entry) => JsonObjectSchema.parse(entry).symbol)
+    expect(candleAdds).toContain('SPY{=5m,tho=true}')
+    expect(candleAdds).toContain('SPY{=d}')
+
+    // One batch carrying both periods: the daily row is a complete snapshot (BEGIN | END).
+    socket.message({
+      type: 'FEED_DATA',
+      channel: 5,
+      data: ['Candle', [
+        'SPY{=5m,tho=true}', 1_786_629_600_000, 0, 0, 1_786_629_600_000, 1, 1, 100,
+        null, null, null, null, null, 699, 701, 698, 700,
+        'SPY{=d}', 1_786_543_200_000, 0xC, 0, 1_786_543_200_000, 0, 1, 100,
+        null, null, null, null, null, 690, 695, 689, 694,
+      ]],
+    })
+    await context.drain()
+
+    const year = await yearRead
+    expect(year.series).toEqual([{ symbol: 'SPY', closes: [{ close: 694, sequence: 0, time: 1_786_543_200_000 }] }])
+
+    const candleFrames = vi.mocked(client.send).mock.calls
+      .map(([frame]) => JsonObjectSchema.parse(JSON.parse(frame)))
+      .filter((frame) => frame.type === 'market' && frame.candle)
+      .map((frame) => JsonObjectSchema.parse(frame.candle))
+    expect(candleFrames.map((candle) => candle.close)).toEqual([700])
+
+    socket.close()
+    await context.drain()
+  })
+
+  it('drops a reader that stopped announcing itself and closes the upstream with it', async () => {
+    vi.useFakeTimers()
+    // The fake clock starts at the epoch, so pin a real instant before deriving a past one.
+    vi.setSystemTime(new Date('2026-08-28T14:00:00.000Z'))
+    // A browser that crashed or slept never sends a close frame, so its socket looks attached.
+    const abandoned = downstream(['SPY'], Date.now() - 5 * 60_000)
+    const context = new FakeContext([abandoned])
+    const feed = new MarketFeedCore(context, liveEnvironment())
+    await vi.advanceTimersByTimeAsync(0)
+    const socket = FakeUpstreamWebSocket.instances[0]!
+    socket.open()
+    await context.drain()
+    socket.message({ type: 'SETUP', channel: 0, version: '0.1-test' })
+    await context.drain()
+    socket.message({ type: 'AUTH_STATE', channel: 0, state: 'AUTHORIZED' })
+    await context.drain()
+    // The handshake has to finish, or the setup timeout closes the upstream before the sweep.
+    const handshake = [
+      [1, 'Quote', QUOTE_FIELDS],
+      [3, 'Trade', TRADE_FIELDS],
+      [5, 'Candle', CANDLE_FIELDS],
+      [7, 'Greeks', GREEKS_FIELDS],
+    ] as const
+    for (const [channel, type, fields] of handshake) {
+      socket.message({ type: 'CHANNEL_OPENED', channel, service: 'FEED', parameters: { contract: 'AUTO' } })
+      await context.drain()
+      socket.message({
+        type: 'FEED_CONFIG', channel, aggregationPeriod: 0.25,
+        dataFormat: 'COMPACT', eventFields: { [type]: fields },
+      })
+      await context.drain()
+    }
+    expect(socket.readyState).toBe(FakeUpstreamWebSocket.OPEN)
+
+    // The sweep rides the keepalive interval; the socket is still attached, just silent.
+    await vi.advanceTimersByTimeAsync(30_000)
+    await context.drain()
+    expect(abandoned.close).toHaveBeenCalledWith(1000, 'Idle reader')
+
+    // The runtime retires a closed socket and reports it; that is what drops the last demand.
+    context.clients.length = 0
+    await feed.webSocketClose()
+    await context.drain()
+    expect(socket.readyState).toBe(FakeUpstreamWebSocket.CLOSED)
+    vi.useRealTimers()
+  })
+
+  it('keeps a reader that is still announcing itself', async () => {
+    const live = controlSocket(['SPY'])
+    const context = new FakeContext([live])
+    const feed = new MarketFeedCore(context, liveEnvironment())
+    await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(1))
+
+    await feed.webSocketMessage(live, JSON.stringify({ type: 'heartbeat' }))
+
+    // A heartbeat is liveness only: it must never be mistaken for a subscription change.
+    expect(live.close).not.toHaveBeenCalled()
+    expect(vi.mocked(live.serializeAttachment).mock.calls.at(-1)?.[0])
+      .toMatchObject({ symbols: ['SPY'] })
+    FakeUpstreamWebSocket.instances[0]!.close()
     await context.drain()
   })
 

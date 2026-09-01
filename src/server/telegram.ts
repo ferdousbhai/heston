@@ -4,17 +4,17 @@ import { readBoundedJson } from './bounded-response'
 import { type AppEnv } from './env'
 import { readBoundSecret } from './secrets'
 
-// Telegram's sendMessage contract accepts at most 4,096 characters after entity parsing.
-export const TELEGRAM_MESSAGE_MAX_CHARACTERS = 4_096
+// Telegram's Rich Message contract accepts at most 32,768 UTF-8 text characters.
+export const TELEGRAM_RICH_MESSAGE_MAX_CHARACTERS = 32_768
 // A successful response echoes the sent message. This budget covers that envelope
 // without allowing an untrusted provider response to grow without bound.
-const TELEGRAM_RESPONSE_MAX_BYTES = 32 * 1_024
+const TELEGRAM_RESPONSE_MAX_BYTES = TELEGRAM_RICH_MESSAGE_MAX_CHARACTERS * 2
 
 const TelegramBotTokenSchema = z.string().regex(/^\d+:[A-Za-z0-9_-]+$/)
 // Telegram chat identifiers fit within 52 significant bits; public channel usernames
 // are accepted too.
 const TelegramChatIdSchema = z.string().regex(/^(?:-?[1-9]\d{0,15}|@[A-Za-z0-9_]{1,32})$/)
-const TelegramMessageTextSchema = z.string().min(1).max(TELEGRAM_MESSAGE_MAX_CHARACTERS)
+const TelegramRichMessageHtmlSchema = z.string().min(1).max(TELEGRAM_RICH_MESSAGE_MAX_CHARACTERS)
 
 const TelegramBotResponseSchema = z.discriminatedUnion('ok', [
   z.object({
@@ -46,6 +46,10 @@ export interface TelegramDeliveryConfiguration {
   chatId: string
 }
 
+export interface TelegramRichMessage {
+  html: string
+}
+
 /** Validate the secret credential and public channel destination before reserving a send. */
 export function telegramDeliveryConfiguration(
   env: Pick<AppEnv, 'TELEGRAM_BOT_TOKEN' | 'TELEGRAM_LONG_VOL_CHAT_ID'>,
@@ -70,22 +74,21 @@ async function cancelResponseBody(response: Response): Promise<void> {
   }
 }
 
-/** Send plain text so model-authored punctuation is never interpreted as Telegram markup. */
+/** Send a finalized Rich Message; scheduled channel publication never streams a draft. */
 export async function sendTelegramMessage(
   configuration: TelegramDeliveryConfiguration,
-  text: string,
+  input: TelegramRichMessage,
   fetcher: typeof fetch = fetch,
 ): Promise<number> {
   const botToken = TelegramBotTokenSchema.parse(configuration.botToken)
   const chatId = TelegramChatIdSchema.parse(configuration.chatId)
-  const message = TelegramMessageTextSchema.parse(text)
+  const html = TelegramRichMessageHtmlSchema.parse(input.html)
   let response: Response
   try {
-    response = await fetcher(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    response = await fetcher(`https://api.telegram.org/bot${botToken}/sendRichMessage`, {
       body: JSON.stringify({
         chat_id: chatId,
-        link_preview_options: { is_disabled: true },
-        text: message,
+        rich_message: { html },
       }),
       headers: { 'content-type': 'application/json' },
       method: 'POST',

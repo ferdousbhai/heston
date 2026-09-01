@@ -20,7 +20,7 @@ const CATALYST_ROWS_PER_STATEMENT = rowsPerD1Statement(CATALYST_BOUND_PARAMETERS
  */
 export type CatalystProvider = 'tastytrade' | 'daily-research' | 'dan' | 'exa'
 
-function catalystUpsertStatements(
+export function catalystUpsertStatements(
   db: D1Database,
   provider: CatalystProvider,
   catalysts: readonly Catalyst[],
@@ -125,6 +125,20 @@ export function earningsDateFromMetric(metric: JsonObject | undefined, now = new
   return upcomingEarningsDate(earnings, marketDate(now)) ?? null
 }
 
+const UPCOMING_CATALYSTS_QUERY =
+  `SELECT id, symbol, kind, title, description, event_date AS date, timing, confidence,
+      source_label AS source, source_url AS "sourceUrl", updated_at AS "updatedAt"
+     FROM upcoming_catalysts
+     WHERE event_date >= ?
+     ORDER BY event_date ASC, symbol ASC`
+
+/** The same read `persistAndLoadCatalysts` ends with, for a caller that must not write. */
+export async function readUpcomingCatalysts(env: AppEnv, now = new Date()): Promise<Catalyst[]> {
+  if (!env.DB) throw new Error('CatalystStoreUnavailable')
+  const result = await env.DB.prepare(UPCOMING_CATALYSTS_QUERY).bind(marketDate(now)).all()
+  return CatalystSchema.array().parse(result.results ?? [])
+}
+
 export async function persistAndLoadCatalysts(
   env: AppEnv,
   observed: readonly Catalyst[],
@@ -143,13 +157,7 @@ export async function persistAndLoadCatalysts(
   }
   statements.push(...catalystUpsertStatements(env.DB, 'tastytrade', observed, now.toISOString()))
   if (statements.length) await env.DB.batch(statements)
-  const result = await env.DB.prepare(
-    `SELECT id, symbol, kind, title, description, event_date AS date, timing, confidence,
-      source_label AS source, source_url AS "sourceUrl", updated_at AS "updatedAt"
-     FROM upcoming_catalysts
-     WHERE event_date >= ?
-     ORDER BY event_date ASC, symbol ASC`,
-  ).bind(marketDate(now)).all()
+  const result = await env.DB.prepare(UPCOMING_CATALYSTS_QUERY).bind(marketDate(now)).all()
   return CatalystSchema.array().parse(result.results ?? [])
 }
 

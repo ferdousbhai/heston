@@ -4,8 +4,10 @@ import {
   applyLiveMarketEvent,
   hydrateCollections,
   offlineSnapshotCollection,
+  OFFLINE_SNAPSHOT_STORAGE_KEY,
   OFFLINE_SNAPSHOT_VERSION,
   restoreOfflineSnapshot,
+  retireLegacySnapshotStorage,
   selectLiveMarketSymbols,
   tickerCollection,
 } from '../src/data/collections'
@@ -25,6 +27,30 @@ describe('default market focus', () => {
 })
 
 describe('offline snapshot boundary', () => {
+  it('retires legacy snapshot storage without deleting user-authored browser state', () => {
+    const rows = new Map([
+      ['spice.snapshot.v8', 'old schema'],
+      ['spice.snapshot.v9.previous-build', 'old deployment'],
+      ['spice.tickers.v6', 'old split snapshot'],
+      [OFFLINE_SNAPSHOT_STORAGE_KEY, 'current schema'],
+      ['spice.preferences.v2', 'preferences'],
+      ['spice.favorite-stage.v1', 'favorite staging'],
+    ])
+    const storage = {
+      get length() { return rows.size },
+      key: (index: number) => [...rows.keys()][index] ?? null,
+      removeItem: (key: string) => { rows.delete(key) },
+    }
+
+    retireLegacySnapshotStorage(storage)
+
+    expect([...rows.keys()]).toEqual([
+      OFFLINE_SNAPSHOT_STORAGE_KEY,
+      'spice.preferences.v2',
+      'spice.favorite-stage.v1',
+    ])
+  })
+
   it('persists the audience and full server snapshot as one versioned record', async () => {
     const snapshot = marketSnapshotFixture()
 

@@ -13,11 +13,11 @@ import { useAudienceMarket } from '../data/use-audience-market'
 import { useWorkspaceFavorites } from '../data/use-workspace-favorites'
 import { AgentScreen } from './agent-screen'
 import { OwnerAccessScreen, type Viewer, useViewer } from './auth-gate'
-import { BriefScreen } from './brief-screen'
+import { RecommendationScreen } from './recommendation-screen'
 import { MarketScreen } from './market-screen'
 import { TopBar } from './top-bar'
 
-const TabSchema = z.enum(['market', 'brief', 'agent'])
+const TabSchema = z.enum(['market', 'recommendations', 'agent'])
 
 type Tab = z.infer<typeof TabSchema>
 export function SpiceApp() {
@@ -44,7 +44,7 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
   const snapshotReady = Boolean(snapshot)
   const catalysts = snapshot?.catalysts ?? []
   const watchlists = snapshot?.watchlists ?? []
-  const research = snapshot?.research
+  const dailyRecommendations = snapshot?.recommendations
   const [tab, setTab] = useState<Tab>('market')
   // One D1-backed watchlist reaches each audience; the preference only survives
   // so a stale stored id cannot outrank the list the snapshot actually carries.
@@ -119,7 +119,7 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
                 onSelectTicker={chooseSymbol}
                 onTogglePinned={favorites.togglePinned}
                 pinnedSymbols={favorites.pinnedSymbols}
-                research={research}
+                dailyRecommendations={dailyRecommendations}
                 selected={selected}
                 tickers={tickers}
               />
@@ -127,8 +127,12 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
             {snapshotReady && tab === 'market' && (!selected || !activeWatchlist) && (
               <MarketState message="No market symbols are available." />
             )}
-            {snapshotReady && tab === 'brief' && (
-              <BriefScreen availableSymbols={loadedSymbols} brief={research} onSymbol={chooseSymbol} />
+            {snapshotReady && tab === 'recommendations' && (
+              <RecommendationScreen
+                availableSymbols={loadedSymbols}
+                dailyRecommendations={dailyRecommendations}
+                onSymbol={chooseSymbol}
+              />
             )}
             {owner && !snapshotReady && tab === 'agent' && (
               <MarketState loading={!market.bootstrapComplete} message={market.bootstrapComplete ? 'Account market data is unavailable.' : 'Loading account context…'} />
@@ -139,7 +143,7 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
         </TabsContent>
         <TabsList aria-label="Primary navigation" className="bottom-nav">
           <TabsTrigger value="market"><Gauge /><span>Watch</span></TabsTrigger>
-          <TabsTrigger value="brief"><Newspaper /><span>Brief</span></TabsTrigger>
+          <TabsTrigger value="recommendations"><Newspaper /><span>Recommendations</span></TabsTrigger>
           <TabsTrigger value="agent"><Bot /><span>Dan</span></TabsTrigger>
         </TabsList>
       </Tabs>

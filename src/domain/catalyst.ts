@@ -6,11 +6,13 @@ import { addDays, isValidIsoDate } from './iso-date'
 export { isValidIsoDate } from './iso-date'
 
 /**
- * How far ahead a catalyst may be scheduled and still be worth carrying. The importer
- * refuses a finding dated past it, the research context reads no further, and the local
- * runner asks for nothing beyond it; all three read this rather than restating the number.
+ * How far ahead a catalyst may be scheduled and still be worth carrying. The write
+ * boundary refuses a finding dated past it, and the unified research run reads and asks
+ * for nothing beyond it; each boundary reads this rather than restating the number.
  */
 export const CATALYST_HORIZON_DAYS = 180
+export const MAX_CATALYST_DESCRIPTION_LENGTH = 500
+export const MAX_CATALYST_TITLE_LENGTH = 120
 
 export const CatalystKindSchema = z.enum([
   'earnings', 'investor-event', 'product-event', 'regulatory', 'clinical',
@@ -23,8 +25,8 @@ export const CatalystSchema = z.object({
   id: z.string(),
   symbol: EquitySymbolSchema,
   kind: CatalystKindSchema,
-  title: z.string(),
-  description: z.string().min(1).max(500).nullable().optional(),
+  title: z.string().min(1).max(MAX_CATALYST_TITLE_LENGTH),
+  description: z.string().min(1).max(MAX_CATALYST_DESCRIPTION_LENGTH).nullable().optional(),
   date: z.string().refine(isValidIsoDate, 'Use a real YYYY-MM-DD date'),
   timing: CatalystTimingSchema,
   confidence: CatalystConfidenceSchema,
@@ -181,6 +183,3 @@ export function catalystTimingLabel(timing: Catalyst['timing']): string | undefi
     'pre-market': 'Pre-market', intraday: 'Intraday', 'after-hours': 'After hours', unknown: undefined,
   } satisfies Record<Catalyst['timing'], string | undefined>)[timing]
 }
-
-/** Every local Codex finding is keyed by this prefix; the D1 table CHECKs the same GLOB. */
-export const CODEX_WEB_CATALYST_ID_PREFIX = 'codex-web:'

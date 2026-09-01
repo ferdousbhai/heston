@@ -498,7 +498,7 @@ function pruneStatement(
          WHEN origin <> 'tastytrade-seed' THEN 2
          WHEN private_member THEN 3
          WHEN volume_rank IS NOT NULL THEN 4
-         ELSE 5
+         ELSE 6
        END,
        coalesce(volume_rank, 9223372036854775807), updated_at DESC, symbol ASC
        LIMIT ${boundedLimit}

@@ -8,7 +8,6 @@ import {
   EquitySymbolSchema,
   MAX_EQUITY_SYMBOL_LENGTH,
   MODEL_TEXT_EQUITY_SYMBOL_PATTERN,
-  POTENTIAL_PLAY_PATTERN,
 } from '../src/domain/instrument'
 import { DirectAccountActionParameters } from '../src/server/agent-contracts'
 import {
@@ -22,6 +21,7 @@ import {
 import { PriceHistoryReadParameters } from '../src/server/market-research-contracts'
 import { ExactOptionGreeksReadParameters } from '../src/server/option-greeks-tool'
 import { WatchlistReadParameters } from '../src/server/watchlist-tool'
+import { RecommendedOrderSubmissionSchema } from '../src/server/research-agent'
 
 type SchemaNode = {
   anyOf?: SchemaNode[]
@@ -60,6 +60,7 @@ describe('equity symbol rule', () => {
       AccountHistoryReadParameters, InstrumentQuoteReadParameters, MarketMetricsReadParameters,
       OptionContractFindParameters, SymbolSearchParameters, DirectAccountActionParameters,
       ExactOptionGreeksReadParameters, PriceHistoryReadParameters, WatchlistReadParameters,
+      RecommendedOrderSubmissionSchema,
     ].flatMap((contract) => advertisedPatterns(SchemaNodeSchema.parse(contract)))
 
     const equityPatterns = patterns.filter((pattern) => {
@@ -78,10 +79,6 @@ describe('equity symbol rule', () => {
 
   it('shares the compiled rule with the brokerage response guard', () => {
     expect(EQUITY_SYMBOL).toBe(EQUITY_SYMBOL_REGEX)
-  })
-
-  it('embeds the same symbol rule in the Daily Read play shorthand', () => {
-    expect(POTENTIAL_PLAY_PATTERN.startsWith(EQUITY_SYMBOL_PATTERN.slice(0, -1))).toBe(true)
   })
 
   it('normalizes case and surrounding whitespace before matching', () => {

@@ -1,12 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { readCatalysts, readLatestResearch } from '../src/server/research-read-tools'
+import {
+  readCatalysts,
+  readLatestDailyRecommendationsState,
+} from '../src/server/research-read-tools'
 import { unsupportedDatabase, unsupportedStatement } from './fake-d1'
 
-const brief = {
+const dailyRecommendations = {
   id: 'daily-1', publishedAt: '2026-08-13T13:30:00.000Z', title: 'Wait for the pitch',
   summary: 'Liquidity is thin.', regime: 'Cautious', regimeDetail: 'Keep dry powder.',
-  ideas: [], readingList: [], sources: [],
+  recommendations: [], links: [], sources: [],
 }
 
 function d1WithResults(results: unknown[]) {
@@ -41,21 +44,27 @@ describe('Dan research read tools', () => {
     expect(db.prepare).not.toHaveBeenCalled()
   })
 
-  it('strictly parses the latest stored daily brief', async () => {
-    const db = d1WithResults([{ payload_json: JSON.stringify(brief) }])
-    await expect(readLatestResearch(db.env, new Date('2026-08-13T14:00:00.000Z'))).resolves.toMatchObject({
-      brief, source: 'spice-research-store', status: 'ok',
+  it('strictly parses the latest stored daily recommendations', async () => {
+    const db = d1WithResults([{ payload_json: JSON.stringify(dailyRecommendations) }])
+    await expect(readLatestDailyRecommendationsState(
+      db.env,
+      new Date('2026-08-13T14:00:00.000Z'),
+    )).resolves.toMatchObject({
+      dailyRecommendations: dailyRecommendations, source: 'spice-recommendation-store', status: 'ok',
     })
 
     const broken = d1WithResults([{ payload_json: '{}' }])
-    await expect(readLatestResearch(broken.env)).rejects.toThrow()
+    await expect(readLatestDailyRecommendationsState(broken.env)).rejects.toThrow()
   })
 
-  it('reports an absent brief without manufacturing research', async () => {
+  it('reports an absent dailyRecommendations without manufacturing research', async () => {
     const db = d1WithResults([])
-    await expect(readLatestResearch(db.env, new Date('2026-08-13T14:00:00.000Z'))).resolves.toEqual({
+    await expect(readLatestDailyRecommendationsState(
+      db.env,
+      new Date('2026-08-13T14:00:00.000Z'),
+    )).resolves.toEqual({
       fetchedAt: '2026-08-13T14:00:00.000Z',
-      source: 'spice-research-store',
+      source: 'spice-recommendation-store',
       status: 'not_found',
     })
   })

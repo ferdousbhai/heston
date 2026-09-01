@@ -3,6 +3,7 @@ import { useLiveQuery } from '@tanstack/react-db'
 
 import { toError } from '../domain/failure'
 import { type MarketSnapshot, type Ticker } from '../domain/market'
+import { DeploymentMismatchError, reloadForDeployment } from './deployment'
 import {
   offlineSnapshotCollection,
   preferenceCollection,
@@ -79,6 +80,12 @@ export function useAudienceMarket(audience: SnapshotAudience) {
     } catch (cause: unknown) {
       const failure = toError(cause)
       if (signal?.aborted || failure?.name === 'AbortError') return
+      if (failure instanceof DeploymentMismatchError) {
+        if (!reloadForDeployment(failure.receivedDeploymentId)) {
+          setWarning('Spice detected a newer version but could not load it automatically. Close and reopen the app.')
+        }
+        return
+      }
       setWarning(navigator.onLine
         ? 'Latest market data could not be synchronized. Showing saved data when available.'
         : 'Live market updates are paused while offline. Showing saved data when available.')

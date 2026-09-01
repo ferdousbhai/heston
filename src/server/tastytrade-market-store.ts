@@ -1,3 +1,6 @@
+import { z } from 'zod'
+
+import { MarketStateSchema, type MarketSnapshot } from '../domain/market'
 import { type AppEnv } from './env'
 import { rowsPerD1Statement } from './d1-limits'
 
@@ -109,4 +112,175 @@ export async function persistTastytradeMarketSnapshot(
       ])))
   }
   await env.DB.batch(statements)
+}
+
+const StoredMetricRowSchema = z.object({
+  symbol: z.string(),
+  iv_index_percent: z.number().nullable(),
+  iv_rank_percent: z.number().nullable(),
+  iv_percentile_percent: z.number().nullable(),
+  iv_index_5_day_change_points: z.number().nullable(),
+  historical_volatility_30_day_percent: z.number().nullable(),
+  iv_hv_30_day_difference_points: z.number().nullable(),
+  front_expiration: z.string().nullable(),
+  front_iv_percent: z.number().nullable(),
+  back_expiration: z.string().nullable(),
+  back_iv_percent: z.number().nullable(),
+  liquidity_rating: z.number().nullable(),
+  market_cap: z.number().nullable(),
+  earnings_date: z.string().nullable(),
+  observed_at: z.string(),
+})
+
+const StoredQuoteRowSchema = z.object({
+  symbol: z.string(),
+  price: z.number(),
+  previous_close: z.number(),
+  volume: z.number().nullable(),
+  year_low: z.number().nullable(),
+  year_high: z.number().nullable(),
+  provider_updated_at: z.string(),
+  observed_at: z.string(),
+})
+
+const SQL_SYMBOL_CHUNK_SIZE = 90
+
+function optional(value: number | null): number | undefined {
+  return value === null ? undefined : value
+}
+
+function storedMetricRecord(row: z.infer<typeof StoredMetricRowSchema>): TastytradeMarketMetricRecord {
+  const term = row.front_expiration !== null && row.front_iv_percent !== null
+    && row.back_expiration !== null && row.back_iv_percent !== null
+    ? {
+      backExpiration: row.back_expiration,
+      backIv: row.back_iv_percent,
+      frontExpiration: row.front_expiration,
+      frontIv: row.front_iv_percent,
+    }
+    : undefined
+  return {
+    earningsDate: row.earnings_date,
+    historicalVolatility30Day: optional(row.historical_volatility_30_day_percent),
+    ivHistoricalVolatility30DayDifference: optional(row.iv_hv_30_day_difference_points),
+    ivIndex: optional(row.iv_index_percent),
+    ivIndex5DayChange: optional(row.iv_index_5_day_change_points),
+    ivPercentile: optional(row.iv_percentile_percent),
+    ivRank: optional(row.iv_rank_percent),
+    ivTermStructure: term,
+    liquidity: optional(row.liquidity_rating),
+    marketCap: optional(row.market_cap),
+    symbol: row.symbol,
+  }
+}
+
+export type StoredMarketRecords = {
+  metrics: Map<string, TastytradeMarketMetricRecord>
+  /** The oldest reading in the set, which is what bounds how stale the snapshot is. */
+  observedAt?: string
+  quotes: Map<string, TastytradeMarketQuoteRecord>
+}
+
+/**
+ * Read back what `persistTastytradeMarketSnapshot` wrote. A row that no longer parses is
+ * skipped rather than fatal: the caller decides whether the remaining coverage is enough,
+ * and one poisoned row must not deny every visitor a snapshot.
+ */
+export async function readStoredMarketRecords(
+  env: AppEnv,
+  symbols: readonly string[],
+): Promise<StoredMarketRecords> {
+  if (!env.DB) throw new Error('TastytradeMarketStore:unavailable')
+  const metrics = new Map<string, TastytradeMarketMetricRecord>()
+  const quotes = new Map<string, TastytradeMarketQuoteRecord>()
+  let observedAt: string | undefined
+  const observe = (value: string): void => {
+    if (observedAt === undefined || value < observedAt) observedAt = value
+  }
+  for (let start = 0; start < symbols.length; start += SQL_SYMBOL_CHUNK_SIZE) {
+    const chunk = symbols.slice(start, start + SQL_SYMBOL_CHUNK_SIZE)
+    if (!chunk.length) continue
+    const placeholders = chunk.map(() => '?').join(', ')
+    const [metricResult, quoteResult] = await Promise.all([
+      env.DB.prepare(`SELECT * FROM tastytrade_market_metrics WHERE symbol IN (${placeholders})`)
+        .bind(...chunk).all(),
+      env.DB.prepare(`SELECT * FROM tastytrade_market_quotes WHERE symbol IN (${placeholders})`)
+        .bind(...chunk).all(),
+    ])
+    for (const result of metricResult.results) {
+      const row = StoredMetricRowSchema.safeParse(result)
+      if (!row.success) continue
+      metrics.set(row.data.symbol, storedMetricRecord(row.data))
+      observe(row.data.observed_at)
+    }
+    for (const result of quoteResult.results) {
+      const row = StoredQuoteRowSchema.safeParse(result)
+      if (!row.success) continue
+      quotes.set(row.data.symbol, {
+        previousClose: row.data.previous_close,
+        price: row.data.price,
+        providerUpdatedAt: row.data.provider_updated_at,
+        symbol: row.data.symbol,
+        volume: optional(row.data.volume),
+        yearHigh: optional(row.data.year_high),
+        yearLow: optional(row.data.year_low),
+      })
+      observe(row.data.observed_at)
+    }
+  }
+  return { metrics, observedAt, quotes }
+}
+
+/**
+ * Claim the exclusive right to refresh, without queueing. D1 applies one statement atomically,
+ * so exactly one caller sees a changed row and every other caller serves the stored copy instead
+ * of piling a second fan-out onto the provider. The claim expires on its own, so a refresh that
+ * dies partway through cannot wedge the lease shut.
+ */
+export async function claimMarketRefresh(
+  env: AppEnv,
+  leaseMs: number,
+  now = new Date(),
+  id = 'public-snapshot',
+): Promise<boolean> {
+  if (!env.DB) return false
+  const nowIso = now.toISOString()
+  const claimedUntil = new Date(now.getTime() + leaseMs).toISOString()
+  // Upsert rather than update, so a resource claimed for the first time needs no seeded row.
+  // The guard on the conflict branch is what makes a held claim reject a second caller.
+  const result = await env.DB.prepare(
+    `INSERT INTO market_refresh_lease (id, expires_at) VALUES (?, ?)
+     ON CONFLICT(id) DO UPDATE SET expires_at = excluded.expires_at
+       WHERE market_refresh_lease.expires_at <= ?`,
+  ).bind(id, claimedUntil, nowIso).run()
+  return result.meta.changes === 1
+}
+
+
+const StoredSessionRowSchema = z.object({ state: z.string(), observed_at: z.string() })
+
+export type StoredMarketSession = { observedAt: string; state: MarketSnapshot['marketState'] }
+
+export async function readStoredMarketSession(env: AppEnv): Promise<StoredMarketSession | undefined> {
+  if (!env.DB) return undefined
+  const result = await env.DB.prepare(
+    "SELECT state, observed_at FROM market_session WHERE id = 'equities'",
+  ).first()
+  if (!result) return undefined
+  const row = StoredSessionRowSchema.safeParse(result)
+  if (!row.success) return undefined
+  const state = MarketStateSchema.safeParse(row.data.state)
+  return state.success ? { observedAt: row.data.observed_at, state: state.data } : undefined
+}
+
+export async function persistMarketSession(
+  env: AppEnv,
+  state: MarketSnapshot['marketState'],
+  observedAt = new Date(),
+): Promise<void> {
+  if (!env.DB) return
+  await env.DB.prepare(
+    `INSERT INTO market_session (id, state, observed_at) VALUES ('equities', ?, ?)
+     ON CONFLICT(id) DO UPDATE SET state = excluded.state, observed_at = excluded.observed_at`,
+  ).bind(state, observedAt.toISOString()).run()
 }

@@ -4,7 +4,7 @@ import { routeAgentRequest } from 'agents'
 import { type AppEnv } from './server/env'
 import { authorizePersonalRequest, canonicalHostRedirect } from './server/http'
 import { shouldStartScheduledResearch } from './server/research'
-import { startScheduledJob } from './server/scheduled-jobs'
+import { refreshYearCandles, startScheduledJob } from './server/scheduled-jobs'
 import { configureTypeboxRuntime } from './server/typebox-runtime'
 
 configureTypeboxRuntime()
@@ -31,5 +31,17 @@ export default {
     if (shouldStartScheduledResearch(scheduledAt)) {
       context.waitUntil(startScheduledJob(env, 'daily-research', scheduledAt).then(() => undefined))
     }
+    // The year chart is decoration over live prices, so a failed refresh leaves the last good
+    // series in place rather than failing the tick that also starts research. Record the
+    // degraded run without logging symbols or provider content.
+    context.waitUntil(refreshYearCandles(env, scheduledAt)
+      .then((symbolCount) => console.info(JSON.stringify({
+        event: 'YearCandlesRefreshed',
+        symbolCount,
+      })))
+      .catch((cause: unknown) => console.error(
+        'YearCandleRefreshFailed',
+        cause instanceof Error ? cause.name : 'UnknownError',
+      )))
   },
 }

@@ -1,10 +1,14 @@
 import { z } from 'zod'
 
 import { CatalystSchema } from './catalyst'
-import { CandlePointSchema } from './candle'
+import { CandlePointSchema, MAX_YEAR_CANDLES } from './candle'
 import { EquitySymbolSchema } from './instrument'
 import { isValidIsoDate } from './iso-date'
 import { type JsonValue } from './json-payload'
+import {
+  RecommendedOrderSchema,
+  recommendedOrderIssues,
+} from './recommended-order'
 
 // One list, two audiences: `private` is the owner's authoritative D1 internal
 // watchlist, `public` its published projection. The kind still gates the manage
@@ -42,6 +46,9 @@ export const TickerSchema = z.object({
   // REST quotes do not contain candle history. Keep this empty until real DXLink
   // candles arrive instead of drawing a synthetic move from previous close.
   sparkline: z.array(CandlePointSchema),
+  // A year of daily closes, cached rather than streamed: it changes once a session, so it
+  // rides the snapshot. Absent until the refresh has run for this symbol.
+  yearCloses: z.array(CandlePointSchema).max(MAX_YEAR_CANDLES).optional(),
   ivRank: z.number().optional(),
   ivPercentile: z.number().optional(),
   ivIndex: z.number().optional(),
@@ -61,11 +68,7 @@ export const TickerSchema = z.object({
 /** The public wire contract cannot represent account-derived position membership. */
 export const PublicTickerSchema = TickerSchema.omit({ position: true }).strict()
 
-// Daily research has already validated the structured play before rendering this label.
-// Reinterpreting the label here would create a second model-output policy.
-const PotentialPlaySchema = z.string()
-
-const ResearchIdeaFields = {
+const RecommendationFields = {
   symbol: EquitySymbolSchema,
   direction: z.enum(['bullish', 'bearish', 'neutral']),
   headline: z.string().min(1).max(100),
@@ -75,48 +78,62 @@ const ResearchIdeaFields = {
 
 const ResearchSourceLinkSchema = z.object({
   label: z.string(),
-  // Stored briefs predate the current evidence binder. Only web citations may
+  // Stored recommendations predate the current evidence binder. Only web citations may
   // cross that persistence boundary into owner or public anchor elements.
   url: z.string().url().refine((url) => new URL(url).protocol === 'https:', 'Use an HTTPS source URL'),
 })
 
-export const ResearchIdeaSchema = z.object({
-  ...ResearchIdeaFields,
-  play: PotentialPlaySchema.nullable(),
+export const RecommendationSchema = z.object({
+  ...RecommendationFields,
+  recommendedOrder: RecommendedOrderSchema,
   sources: z.array(ResearchSourceLinkSchema),
+}).superRefine((recommendation, context) => {
+  if (recommendation.recommendedOrder.kind === 'legacy-unstructured') return
+  for (const message of recommendedOrderIssues(
+    recommendation.recommendedOrder,
+    recommendation.symbol,
+    recommendation.direction,
+  )) {
+    context.addIssue({ code: 'custom', message, path: ['recommendedOrder'] })
+  }
 })
 
-export const ResearchReadingLinkSchema = z.object({
-  reason: z.string().min(1).max(180),
+export const RecommendationLinkSchema = z.object({
+  description: z.string().min(1).max(180),
+  previewImageUrl: z.string().url()
+    .refine((url) => new URL(url).protocol === 'https:', 'Use an HTTPS preview image URL')
+    .optional(),
   title: z.string().min(1).max(180),
   url: z.string().url().refine((url) => new URL(url).protocol === 'https:', 'Use an HTTPS source URL'),
 })
 
-export const ResearchBriefSchema = z.object({
+export const DailyRecommendationsSchema = z.object({
   id: z.string(),
   publishedAt: z.string(),
   title: z.string(),
   summary: z.string(),
   regime: z.string(),
   regimeDetail: z.string(),
-  ideas: z.array(ResearchIdeaSchema),
-  readingList: z.array(ResearchReadingLinkSchema),
+  recommendations: z.array(RecommendationSchema),
+  links: z.array(RecommendationLinkSchema),
   sources: z.array(ResearchSourceLinkSchema),
 })
 
-/** D1 stores the current public research contract; incompatible rows fail visibly. */
-export function parseStoredResearchBrief(value: JsonValue): ResearchBrief {
-  return ResearchBriefSchema.parse(value)
+/** D1 stores the current public recommendation contract; incompatible rows fail visibly. */
+export function parseStoredDailyRecommendations(value: JsonValue): DailyRecommendations {
+  return DailyRecommendationsSchema.parse(value)
 }
+
+export const MarketStateSchema = z.enum(['open', 'closed', 'pre', 'after', 'unknown'])
 
 export const MarketSnapshotSchema = z.object({
   source: z.literal('tastytrade'),
   syncedAt: z.string(),
-  marketState: z.enum(['open', 'closed', 'pre', 'after', 'unknown']),
+  marketState: MarketStateSchema,
   watchlists: z.array(WatchlistSchema).length(1),
   tickers: z.array(TickerSchema),
   catalysts: z.array(CatalystSchema),
-  research: ResearchBriefSchema.optional(),
+  recommendations: DailyRecommendationsSchema.optional(),
 })
 
 const PublicWatchlistSchema = WatchlistSchema.extend({ kind: z.literal('public') }).strict()
@@ -124,11 +141,11 @@ const PublicWatchlistSchema = WatchlistSchema.extend({ kind: z.literal('public')
 export const PublicMarketSnapshotSchema = z.strictObject({
   source: z.literal('tastytrade'),
   syncedAt: z.string(),
-  marketState: z.enum(['open', 'closed', 'pre', 'after', 'unknown']),
+  marketState: MarketStateSchema,
   watchlists: z.array(PublicWatchlistSchema).length(1),
   tickers: z.array(PublicTickerSchema),
   catalysts: z.array(CatalystSchema),
-  research: ResearchBriefSchema.optional(),
+  recommendations: DailyRecommendationsSchema.optional(),
 })
 
 /**
@@ -148,7 +165,7 @@ export type PublicSymbolLookup = z.infer<typeof PublicSymbolLookupSchema>
 export type Watchlist = z.infer<typeof WatchlistSchema>
 export type Ticker = z.infer<typeof TickerSchema>
 export type IvTermStructure = z.infer<typeof IvTermStructureSchema>
-export type ResearchBrief = z.infer<typeof ResearchBriefSchema>
+export type DailyRecommendations = z.infer<typeof DailyRecommendationsSchema>
 export type MarketSnapshot = z.infer<typeof MarketSnapshotSchema>
 export type PublicMarketSnapshot = z.infer<typeof PublicMarketSnapshotSchema>
 export type PublicTicker = z.infer<typeof PublicTickerSchema>
@@ -275,4 +292,3 @@ export function issuerName(name: string): string {
   const named = issuer === issuer.toUpperCase() ? issuer.replace(TAPE_CLASS, '') : issuer
   return named || described
 }
-

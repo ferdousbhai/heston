@@ -21,7 +21,7 @@ function DisclosuresPage() {
       </section>
       <section>
         <h2>Not a broker or adviser</h2>
-        <p>Spice Must Flow is a software tool. It is not a broker-dealer, investment adviser, exchange, tax adviser, or fiduciary. Research, scores, summaries, risk estimates, trade ideas, and agent responses are informational and may not be suitable for your circumstances.</p>
+        <p>Spice Must Flow is a software tool. It is not a broker-dealer, investment adviser, exchange, tax adviser, or fiduciary. Research, scores, summaries, risk estimates, recommendations, and agent responses are informational and may not be suitable for your circumstances.</p>
       </section>
       <section>
         <h2>Data and models have limits</h2>

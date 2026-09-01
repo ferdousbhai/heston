@@ -16,7 +16,8 @@ import {
   TableRow,
 } from '#/components/ui/table'
 import { cn } from '#/lib/utils'
-import { type CandlePoint } from '../domain/candle'
+import { latestSessionCandles, REGULAR_SESSION_MS, type CandlePoint } from '../domain/candle'
+import { recommendedOrderLabel } from '../domain/recommended-order'
 import {
   CATALYST_KIND_NAMES,
   catalystCountdown,
@@ -37,7 +38,7 @@ import {
   termStructureSpread,
   volatilityVerdict,
   type IvTermStructure,
-  type ResearchBrief,
+  type DailyRecommendations,
   type Ticker,
   type VolatilityVerdict,
   type Watchlist,
@@ -96,7 +97,20 @@ const SORT_COLUMNS: { defaultDirection: SortDirection; key: SortKey; label: stri
   { defaultDirection: 'desc', key: 'liquidity', label: 'Liquidity' },
 ]
 
-function Sparkline({ points }: { points: readonly CandlePoint[] }) {
+/** Percent move across the cached year, which is what the 1Y column sorts on. */
+function yearReturn(ticker: Pick<Ticker, 'yearCloses'>): number | undefined {
+  const closes = ticker.yearCloses
+  if (!closes || closes.length < 2) return undefined
+  const first = closes[0]!.close
+  return first > 0 ? ((closes[closes.length - 1]!.close - first) / first) * 100 : undefined
+}
+
+/**
+ * A year of daily closes reads on its own elapsed span rather than a fixed one: the series is
+ * whatever the cache holds, so stretching it to the full width is honest here in a way it is
+ * not for a session that has barely started.
+ */
+function YearSparkline({ points }: { points: readonly CandlePoint[] }) {
   const closes = points.map((point) => point.close)
   const low = Math.min(...closes)
   const span = Math.max(...closes) - low || 1
@@ -105,7 +119,28 @@ function Sparkline({ points }: { points: readonly CandlePoint[] }) {
     .map((close, index) => `${(index * step).toFixed(2)},${(23 - ((close - low) / span) * 21).toFixed(2)}`)
     .join(' ')
   return (
-    <svg aria-hidden="true" className="sparkline" preserveAspectRatio="none" viewBox="0 0 100 26">
+    <svg aria-hidden="true" className="sparkline year-sparkline" preserveAspectRatio="none" viewBox="0 0 100 26">
+      <polyline points={line} />
+    </svg>
+  )
+}
+
+function Sparkline({ points }: { points: readonly CandlePoint[] }) {
+  const session = latestSessionCandles(points)
+  const closes = session.map((point) => point.close)
+  const low = Math.min(...closes)
+  const span = Math.max(...closes) - low || 1
+  // The axis is the whole session rather than the data it has so far, so a partial morning
+  // draws a short line at the left instead of stretching a few bars across the full width.
+  const openedAt = session[0]!.time
+  const line = session
+    .map((point) => {
+      const x = Math.min(100, ((point.time - openedAt) / REGULAR_SESSION_MS) * 100)
+      return `${x.toFixed(2)},${(23 - ((point.close - low) / span) * 21).toFixed(2)}`
+    })
+    .join(' ')
+  return (
+    <svg aria-hidden="true" className="sparkline session-sparkline" preserveAspectRatio="none" viewBox="0 0 100 26">
       <polyline points={line} />
     </svg>
   )
@@ -114,6 +149,7 @@ function Sparkline({ points }: { points: readonly CandlePoint[] }) {
 const SORT_METRICS = {
   marketCap: (ticker) => ticker.marketCap,
   price: (ticker) => ticker.price,
+  year: yearReturn,
   volume: (ticker) => ticker.volume,
   premium: premiumScore,
   liquidity: (ticker) => ticker.liquidity,
@@ -183,20 +219,23 @@ function searchEmptyMessage(query: string, status: SymbolSearchState['status']):
 
 const CATALYST_SCOPE = `${CATALYST_KIND_NAMES.slice(0, -1).join(', ')} and ${CATALYST_KIND_NAMES.at(-1)}`
 
-function ThesisPanel({ idea }: { idea: ResearchBrief['ideas'][number] }) {
+function RecommendationPanel({ recommendation }: { recommendation: DailyRecommendations['recommendations'][number] }) {
   return (
-    <section className="focus-thesis" aria-labelledby="focus-thesis-title">
+    <section className="focus-recommendation" aria-labelledby="focus-recommendation-title">
       <header className="focus-eyebrow">
-        <h3 id="focus-thesis-title">Thesis</h3>
-        <Badge variant={idea.direction}>{idea.direction}</Badge>
+        <h3 id="focus-recommendation-title">Recommendation</h3>
+        <Badge variant={recommendation.direction}>{recommendation.direction}</Badge>
       </header>
-      <p className="thesis-headline">{idea.headline}</p>
-      <p className="thesis-body">{idea.description}</p>
-      <p className="thesis-risk"><span>What breaks it</span>{idea.risk}</p>
-      {idea.play && <p className="thesis-play"><span>Illustrative play</span><strong>{idea.play}</strong></p>}
-      {idea.sources.length > 0 && (
-        <p className="thesis-sources">
-          {idea.sources.map((source) => (
+      <p className="recommendation-headline">{recommendation.headline}</p>
+      <p className="recommendation-body">{recommendation.description}</p>
+      <p className="recommendation-risk"><span>What breaks it</span>{recommendation.risk}</p>
+      <p className="recommendation-order">
+        <span>Recommended order</span>
+        <strong>{recommendedOrderLabel(recommendation.recommendedOrder)}</strong>
+      </p>
+      {recommendation.sources.length > 0 && (
+        <p className="recommendation-sources">
+          {recommendation.sources.map((source) => (
             <a href={source.url} key={source.url} rel="noreferrer" target="_blank">
               {source.label}<ArrowUpRight aria-hidden="true" />
             </a>
@@ -357,6 +396,14 @@ const MarketTickerRow = memo(function MarketTickerRow({
           ? null
           : <Progress className="price-range" aria-label={`${Math.round(rangePosition)}% of 52-week range`} value={rangePosition} />}
       </TableCell>
+      {/* The year series is cached, not streamed, so it is absent until the scheduled refresh
+          has reached this symbol. The column is hidden below the laptop breakpoint. */}
+      <TableCell className="year-cell">
+        {ticker.yearCloses && ticker.yearCloses.length > 1
+          ? <YearSparkline points={ticker.yearCloses} />
+          : null}
+        <strong>{formatSignedMetric(yearReturn(ticker), '%')}</strong>
+      </TableCell>
       {/* tastytrade reports equity day share volume here, not 24-hour or option-contract
           volume. */}
       <TableCell className="volume-cell">
@@ -383,7 +430,7 @@ export function MarketScreen({
   onSelectTicker,
   onTogglePinned,
   pinnedSymbols,
-  research,
+  dailyRecommendations,
   selected,
   tickers,
 }: {
@@ -392,7 +439,7 @@ export function MarketScreen({
   onSelectTicker: (symbol: string) => void
   onTogglePinned: (symbol: string) => void
   pinnedSymbols: readonly string[]
-  research?: ResearchBrief
+  dailyRecommendations?: DailyRecommendations
   selected: Ticker
   tickers: Ticker[]
 }) {
@@ -447,7 +494,9 @@ export function MarketScreen({
   const selectedCopy = verdictCopy[selectedVerdict]
   const selectedPremiumScore = premiumScore(selected)
   const selectedAsset = assetLabel(selected)
-  const selectedIdea = research?.ideas.find((idea) => idea.symbol === selected.symbol)
+  const selectedRecommendation = dailyRecommendations?.recommendations.find(
+    (recommendation) => recommendation.symbol === selected.symbol,
+  )
   const selectedTape = focusTape(selected)
 
   return (
@@ -467,7 +516,7 @@ export function MarketScreen({
             </div>
           </div>
           {/* The premium verdict keeps the product's gradient axis, at a scale that
-              leaves the thesis and the runway as the panel's primary reading. */}
+              leaves the recommendation and the runway as the panel's primary reading. */}
           <div className="premium-gauge">
             <span>Option premium</span>
             <strong className="premium-verdict">{selectedCopy.label}</strong>
@@ -522,6 +571,7 @@ export function MarketScreen({
               {SORT_COLUMNS.map((column) => (
                 <TableHead
                   aria-sort={sort.key === column.key ? (sort.direction === 'asc' ? 'ascending' : 'descending') : undefined}
+                  className={column.key === 'year' ? 'year-cell' : undefined}
                   key={column.key}
                 >
                   <button className="sort-button" onClick={() => toggleSort(column)} type="button">

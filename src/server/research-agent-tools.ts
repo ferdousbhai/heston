@@ -2,6 +2,7 @@ import { type AgentTool } from '@earendil-works/pi-agent-core'
 import { Type } from 'typebox'
 import { z } from 'zod'
 
+import { marketDate } from '../domain/catalyst'
 import { equitySymbolFromModelText, ModelTextEquitySymbolType } from '../domain/instrument'
 import { textResult } from './agent-tool-result'
 import { MAX_MARKET_SYMBOLS } from './brokerage-read-contracts'
@@ -13,15 +14,19 @@ import {
   searchRecentTickerCoverage,
   type RecentTickerCoverage,
 } from './research-coverage'
-import { createCatalystWriteTool } from './catalyst-write-tool'
-import { type CatalystProvider } from './catalysts'
 import { collectRedditSources, type RedditDiscussion } from './research-reddit'
 import { readStoredSecret } from './secrets'
 import {
   createInstrumentQuoteReadTool,
   createMarketMetricsReadTool,
   createOptionContractFindTool,
+  createSymbolSearchTool,
 } from './brokerage-read-tools'
+import { createMarketResearchTools } from './market-research-tools'
+import { createRecommendationLinkHistoryTool } from './recommendation-links'
+import { dailyRecommendationsId, MAX_RESEARCH_PAGE_READS } from './research-contracts'
+import { createResearchReadTools } from './research-read-tools'
+import { recommendationLinkKey } from './research-url'
 
 const RedditSearchParameters = Type.Object({}, { additionalProperties: false })
 const RecentCoverageParameters = Type.Object({
@@ -63,37 +68,20 @@ const RetainedPageSchema = z.object({
  * through this tool leaves its text behind, and the binder afterwards refuses any citation
  * or quote absent from it.
  *
- * A brief cites at most three ideas' sources plus six reading links, so twice that bounds a
- * run while leaving room for pages the model reads and then discards. Markdown is capped far
- * inside the durable workflow step output so a retained page survives replay intact.
+ * Daily recommendations publish at most three ranked source/link pairs. The larger page-read
+ * budget leaves room for competing candidates and counterevidence that the editor discards.
+ * Markdown is capped far inside the durable workflow step output so a retained page survives replay intact.
  */
-const MAX_PAGE_READS = 30
 const MAX_PAGE_MARKDOWN_CHARS = 120_000
 const MAX_PAGE_RESPONSE_BYTES = 4_000_000
 
 /** A page is retained and cited under one spelling, so both sides agree what "same page" is. */
 export function retentionKey(value: string): string | undefined {
-  return readablePageUrl(value)?.toString()
-}
-
-function readablePageUrl(value: string): URL | undefined {
-  let url: URL
-  try {
-    url = new URL(value)
-  } catch {
-    return undefined
-  }
-  if (url.protocol !== 'https:' || url.username || url.password) return undefined
-  if (url.port !== '' && url.port !== '443') return undefined
-  // A published source is never a literal address, and that shape is what turns a reading
-  // tool into a probe of somewhere it was never meant to reach.
-  if (/^\[|^\d{1,3}(\.\d{1,3}){3}$/.test(url.hostname)) return undefined
-  return url
+  return recommendationLinkKey(value)
 }
 
 export interface ResearchAgentToolOptions {
-  /** Names the producer for catalysts this agent records; without it, it records none. */
-  catalystProvider?: CatalystProvider
+  checkedRecommendationLinks?: Map<string, boolean>
   fetcher?: typeof fetch
   retained?: Map<string, RetainedPage>
   includeReddit?: boolean
@@ -127,6 +115,8 @@ export function createResearchAgentTools(
   const runRead = <T>(name: string, task: () => Promise<T>): Promise<T> => (
     options.runStep ? options.runStep(name, task) : task()
   )
+  const retained = options.retained
+  const checkedRecommendationLinks = options.checkedRecommendationLinks
   // A page is retained from what the step returned, not from inside it. A workflow replay
   // serves a cached step result without running its closure, so retaining inside would leave
   // the map empty on replay and every citation would fail to bind through no fault of the
@@ -154,6 +144,31 @@ export function createResearchAgentTools(
       ),
     }
   }
+  const withRecommendationLinkCheck = (tool: AgentTool): AgentTool => {
+    if (tool.name !== 'check_recommendation_links' || !checkedRecommendationLinks) return tool
+    const execute = tool.execute
+    return {
+      ...tool,
+      execute: async (toolCallId, params, signal, onUpdate) => {
+        const result = await execute(toolCallId, params, signal, onUpdate)
+        const parsed = z.object({
+          checkedUrls: z.string().array(),
+          previouslyPublished: z.object({
+            dailyRecommendationsId: z.string(),
+            firstPublishedAt: z.string(),
+            url: z.string(),
+          }).array(),
+        }).safeParse(result.details).data
+        if (parsed) {
+          const previouslyPublished = new Set(parsed.previouslyPublished.map((row) => row.url))
+          for (const url of parsed.checkedUrls) {
+            checkedRecommendationLinks.set(url, previouslyPublished.has(url))
+          }
+        }
+        return result
+      },
+    }
+  }
   const reddit: AgentTool<typeof RedditSearchParameters, RedditResearchResult> = {
     description: 'Ingest current WallStreetBets hot posts with their text and top comments. Takes no query.',
     execute: async () => textResult(await searchRedditResearch(env, now, options.fetcher)),
@@ -161,16 +176,14 @@ export function createResearchAgentTools(
     name: 'ingest_wsb',
     parameters: RedditSearchParameters,
   }
-  const retained = options.retained
   const readPage: AgentTool<typeof ReadPageParameters, JsonValue> = {
     description: 'Read a page as Markdown. Cite only pages read this way.',
     execute: async (_toolCallId, params) => {
-      const url = readablePageUrl(params.url)
-      if (!url) return textResult({ error: 'not a readable https page address' })
-      const key = url.toString()
+      const key = recommendationLinkKey(params.url)
+      if (!key) return textResult({ error: 'not a readable https page address' })
       const already = retained?.get(key)
       if (already) return textResult({ markdown: already.markdown, url: key })
-      if (retained && retained.size >= MAX_PAGE_READS) {
+      if (retained && retained.size >= MAX_RESEARCH_PAGE_READS) {
         return textResult({ error: 'no page reads left in this run' })
       }
       // A browser that times out, a session limit, or a body past the cap all mean the same
@@ -195,12 +208,12 @@ export function createResearchAgentTools(
     parameters: ReadPageParameters,
   }
   const coverage: AgentTool<typeof RecentCoverageParameters, RecentTickerCoverage[] | { error: string }> = {
-    description: 'Prior Spice ideas for these tickers within daysAgo; today is excluded.',
+    description: 'Prior Spice recommendations for these tickers within daysAgo; today is excluded.',
     execute: async (_toolCallId, params) => {
       // X writes tickers as cashtags, and the discovery packet carries them that way, so a
       // leading $ is a convention to read rather than a defect to reject. Today's preview run
       // died on exactly that: $NXE reached this tool, the symbol rule threw, and the whole
-      // brief was lost to one argument. Anything still unreadable after that is reported to
+      // daily output was lost to one argument. Anything still unreadable after that is reported to
       // the model, which can correct a symbol, instead of ending the run.
       const tickers = params.tickers.map((ticker) => equitySymbolFromModelText(ticker))
       const unreadable = params.tickers.find((_ticker, index) => tickers[index] === undefined)
@@ -213,18 +226,18 @@ export function createResearchAgentTools(
     name: 'get_recent_coverage',
     parameters: RecentCoverageParameters,
   }
-  // Recording a catalyst is only possible for an agent that retains what it reads: the write
-  // tool checks the date against the page, so without the map there is nothing to check.
-  const catalystWrite = retained && options.catalystProvider
-    ? [createCatalystWriteTool(env, options.catalystProvider, { now, retained })]
-    : []
   return [
     ...(options.includeReddit === false ? [] : [reddit]),
     ...(env.BROWSER ? [readPage] : []),
-    ...catalystWrite,
     coverage,
+    ...createResearchReadTools(env, now),
+    ...(checkedRecommendationLinks
+      ? [createRecommendationLinkHistoryTool(env, dailyRecommendationsId(marketDate(now)))]
+      : []),
+    createSymbolSearchTool(env),
     createMarketMetricsReadTool(env),
+    ...createMarketResearchTools(),
     createOptionContractFindTool(env),
     createInstrumentQuoteReadTool(env),
-  ].map(withRunStep).map(withRetention)
+  ].map(withRunStep).map(withRetention).map(withRecommendationLinkCheck)
 }

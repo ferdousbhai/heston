@@ -1,9 +1,9 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers'
 import { z } from 'zod'
 
-import { generateDailyResearch } from './research'
+import { generateDailyRecommendations } from './research'
 import { type AppEnv, type DailyResearchWorkflowParams } from './env'
-import { publishResearchBriefToTelegram } from './research-telegram-publication'
+import { publishDailyRecommendationsToTelegram } from './recommendation-telegram-publication'
 
 const DailyResearchWorkflowParameters = z.object({
   persist: z.boolean(),
@@ -33,24 +33,24 @@ export class DailyResearchWorkflow extends WorkflowEntrypoint<AppEnv, DailyResea
       // SAFETY: Workflow replay preserves the exact value returned by this generic task.
       return result as Promise<T>
     }
-    const brief = await generateDailyResearch(this.env, now, {
+    const dailyRecommendations = await generateDailyRecommendations(this.env, now, {
       persist: params.persist,
       requireMarketOpen: params.requireMarketOpen,
       runStep,
     })
-    // Previews are deliberately non-publishing. A production brief reaches the
+    // Previews are deliberately non-publishing. Production recommendations reach the
     // channel only after its public D1 record has committed successfully.
     const telegramMessageCount = params.persist
       ? await runStep(
         'publish-telegram',
-        () => publishResearchBriefToTelegram(this.env, brief),
+        () => publishDailyRecommendationsToTelegram(this.env, dailyRecommendations),
       )
       : 0
     return {
-      briefId: brief.id,
-      ideaCount: brief.ideas.length,
-      publishedAt: brief.publishedAt,
-      readingCount: brief.readingList.length,
+      dailyRecommendationsId: dailyRecommendations.id,
+      recommendationCount: dailyRecommendations.recommendations.length,
+      publishedAt: dailyRecommendations.publishedAt,
+      linkCount: dailyRecommendations.links.length,
       telegramMessageCount,
     }
   }

@@ -11,9 +11,10 @@ import {
 } from '../domain/market'
 import { type AppEnv } from './env'
 import { readBoundedJson } from './bounded-response'
-import { catalystsFromMarketMetrics, persistAndLoadCatalysts } from './catalysts'
+import { catalystsFromMarketMetrics, persistAndLoadCatalysts, readUpcomingCatalysts } from './catalysts'
 import {
   ensureInternalWatchlistSeeded,
+  ensureInternalWatchlistSymbols,
   previewInternalWatchlistSeed,
   pruneInternalWatchlistToFocus,
   readInternalWatchlist,
@@ -45,9 +46,9 @@ import { persistTastytradeMarketSnapshot } from './tastytrade-market-store'
 import {
   activeEquityPositionSymbols,
   catalogTickerInstrument,
-  equityCandleFromTime,
   liveTickerFromRecords,
   marketStateFromTastytradeSession,
+  tickerFromStoredRecords,
   normalizeTastytradeMarketTicker,
   selectSnapshotSymbols,
   strictTastytradeRows,
@@ -56,9 +57,17 @@ import {
 import { defineSeam, type SeamValue } from './seam'
 import { searchInstrumentCatalog, symbolCandidate } from './symbol-search'
 import { loadStoredPublicMarketUniverse, publishInternalWatchlistUniverse } from './public-market-universe'
-import { readLatestResearchBrief } from './research-brief-store'
+import { readLatestDailyRecommendations } from './daily-recommendations-store'
+import { readYearCandles, type YearCandleSeries } from './year-candle-store'
+import {
+  claimMarketRefresh,
+  persistMarketSession,
+  readStoredMarketRecords,
+  readStoredMarketSession,
+  type TastytradeMarketQuoteRecord,
+} from './tastytrade-market-store'
 
-export { equityCandleFromTime, liveTickerFromRecords, selectSnapshotSymbols }
+export { liveTickerFromRecords, selectSnapshotSymbols }
 
 const USER_AGENT = 'Spice/0.1'
 // tastytrade names every requested symbol in the query string. This is the symbol count
@@ -230,13 +239,9 @@ async function loadQuoteToken(env: AppEnv): Promise<{ token: string; url: string
   return { token, url }
 }
 
-async function loadEquityCandleFromTime(env: AppEnv): Promise<number> {
-  return equityCandleFromTime(await tastyRequest(env, '/market-time/equities/sessions/current'))
-}
-
-async function loadStoredResearch(env: AppEnv): Promise<MarketSnapshot['research']> {
+async function loadStoredDailyRecommendations(env: AppEnv): Promise<MarketSnapshot['recommendations']> {
   if (!env.DB) throw new Error('TastytradeResearch:store-unavailable')
-  return readLatestResearchBrief(env.DB)
+  return readLatestDailyRecommendations(env.DB)
 }
 
 type MarketSnapshotOptions = {
@@ -265,6 +270,21 @@ async function loadMarketRows(
   return { metrics, quotes }
 }
 
+async function readOptionalYearCandles(
+  env: AppEnv,
+  symbols: readonly string[],
+): Promise<Map<string, YearCandleSeries>> {
+  if (!env.DB) return new Map()
+  try {
+    return await readYearCandles(env.DB, symbols)
+  } catch (cause) {
+    // The missing chart is visible in the response; keep the live price path available while
+    // recording only the failure class, never a provider or database body.
+    console.error('YearCandleCacheReadFailed', cause instanceof Error ? cause.name : 'UnknownError')
+    return new Map()
+  }
+}
+
 async function loadMarketFacts(
   env: AppEnv,
   symbols: readonly string[],
@@ -274,8 +294,6 @@ async function loadMarketFacts(
     loadMarketRows(env, symbols),
     readInstrumentCatalog(env, symbols),
   ])
-  const metrics = strictTastytradeRows(metricsPayload, 'TastytradeMetrics')
-  const quotes = strictTastytradeRows(marketDataPayload, 'TastytradeMarketData')
   const metricBySymbol = tastytradeRowsByRequestedSymbol(metrics, symbols, 'TastytradeMetrics')
   const quoteBySymbol = tastytradeRowsByRequestedSymbol(quotes, symbols, 'TastytradeMarketData')
   if (instrumentCatalog.size !== symbols.length) throw new Error('InstrumentCatalog:incomplete')
@@ -286,6 +304,13 @@ async function loadMarketFacts(
     positionSymbols.has(symbol),
     catalogTickerInstrument(instrumentCatalog.get(symbol)),
   ))
+  // Read-only: the year series is refreshed on the schedule, so a symbol the refresh has not
+  // reached yet simply carries no year chart rather than delaying the whole market read.
+  const yearCandles = await readOptionalYearCandles(env, symbols)
+  for (const item of normalized) {
+    const cached = yearCandles.get(item.ticker.symbol)
+    if (cached?.closes.length) item.ticker.yearCloses = cached.closes
+  }
   const allCatalysts = await persistAndLoadCatalysts(
     env,
     catalystsFromMarketMetrics(metrics),
@@ -464,6 +489,7 @@ async function loadMarketSnapshot(
   await refreshMissingTastytradeInstruments(env, symbols)
   const { catalysts, tickers } = await loadMarketFacts(env, symbols, new Set(positionSymbols))
   const marketState = marketStateFromTastytradeSession(sessionPayload)
+  await cacheMarketSession(env, marketState)
 
   const syncedAt = new Date().toISOString()
   const snapshot = MarketSnapshotSchema.parse({
@@ -473,7 +499,7 @@ async function loadMarketSnapshot(
     watchlists,
     tickers,
     catalysts,
-    research: await loadStoredResearch(env),
+    recommendations: await loadStoredDailyRecommendations(env),
   })
   await publishInternalWatchlistUniverse(env, new Date(syncedAt))
   return snapshot
@@ -564,6 +590,8 @@ export async function loadPublicMarketSnapshot(
     loadMarketFacts(env, publicSymbols, new Set()),
   ])
   const syncedAt = new Date().toISOString()
+  const marketState = marketStateFromTastytradeSession(sessionResult)
+  await cacheMarketSession(env, marketState)
   const watchlists = [{
     id: 'public-options-watch',
     kind: 'public' as const,
@@ -573,11 +601,115 @@ export async function loadPublicMarketSnapshot(
   return PublicMarketSnapshotSchema.parse({
     source: 'tastytrade',
     syncedAt,
-    marketState: marketStateFromTastytradeSession(sessionResult),
+    marketState,
     watchlists,
     tickers: marketFacts.tickers.map(publicTickerFromTicker),
     catalysts: marketFacts.catalysts,
-    research: await loadStoredResearch(env),
+    recommendations: await loadStoredDailyRecommendations(env),
+  })
+}
+
+/**
+ * Caching the session is best-effort: it is a read optimization for later visitors, never a
+ * reason to fail the live build that already has the answer in hand.
+ */
+async function cacheMarketSession(env: AppEnv, marketState: MarketSnapshot['marketState']): Promise<void> {
+  try {
+    await persistMarketSession(env, marketState)
+  } catch (error) {
+    console.error('MarketSessionCacheWriteFailed', error instanceof Error ? error.message : 'UnknownError')
+  }
+}
+
+/**
+ * Build the public snapshot entirely from the store, so an ordinary visitor never causes a
+ * provider request. Absence is returned rather than thrown: a cold store has nothing to serve
+ * and the caller falls back to one guarded live build.
+ */
+async function loadStoredPublicMarketSnapshot(env: AppEnv): Promise<PublicMarketSnapshot | undefined> {
+  if (!env.DB) return undefined
+  const storedUniverse = await loadStoredPublicMarketUniverse(env)
+  const symbols = [...new Set(storedUniverse.symbols)]
+  if (!symbols.length) return undefined
+  const [records, catalog, yearCandles, catalysts, session, recommendations] = await Promise.all([
+    readStoredMarketRecords(env, symbols),
+    readInstrumentCatalog(env, symbols),
+    readYearCandles(env.DB, symbols),
+    readUpcomingCatalysts(env),
+    readStoredMarketSession(env),
+    loadStoredDailyRecommendations(env),
+  ])
+  // A quote is what makes a row renderable; a symbol the store has never seen is left out
+  // rather than shown at a price of zero.
+  const tickers = symbols
+    .map((symbol) => ({ quote: records.quotes.get(symbol), symbol }))
+    .filter((entry): entry is { quote: TastytradeMarketQuoteRecord; symbol: string } => Boolean(entry.quote))
+    .map(({ quote, symbol }) => tickerFromStoredRecords(
+      symbol,
+      records.metrics.get(symbol),
+      quote,
+      false,
+      catalogTickerInstrument(catalog.get(symbol)),
+      yearCandles.get(symbol)?.closes,
+    ))
+  if (!tickers.length || !records.observedAt) return undefined
+  return PublicMarketSnapshotSchema.parse({
+    source: 'tastytrade',
+    syncedAt: records.observedAt,
+    marketState: session?.state ?? 'unknown',
+    watchlists: [{
+      id: 'public-options-watch',
+      kind: 'public' as const,
+      name: 'Options Watch',
+      symbols: storedUniverse.symbols,
+    }],
+    tickers: tickers.map(publicTickerFromTicker),
+    catalysts,
+    recommendations,
+  })
+}
+
+/**
+ * The owner's default view, served from the same store. Only account state is still read live:
+ * a stale holding is a lie the UI would tell about the reader's own money, which cached market
+ * data is not.
+ */
+async function loadStoredMarketSnapshot(env: AppEnv): Promise<MarketSnapshot | undefined> {
+  if (!env.DB) return undefined
+  const accountNumber = await resolveAccountNumber(env)
+  const positionPayload = await tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/positions`)
+  const positionSymbols = activeEquityPositionSymbols(strictTastytradeRows(positionPayload, 'TastytradePositions'))
+  const held = new Set(positionSymbols)
+  const { kept: focusSymbols } = await pruneInternalWatchlistToFocus(env, MAX_WATCHLIST_SYMBOLS)
+  const symbols = selectSnapshotSymbols(positionSymbols, [], focusSymbols)
+  const [records, catalog, yearCandles, catalysts, session, recommendations] = await Promise.all([
+    readStoredMarketRecords(env, symbols),
+    readInstrumentCatalog(env, symbols),
+    readYearCandles(env.DB, symbols),
+    readUpcomingCatalysts(env),
+    readStoredMarketSession(env),
+    loadStoredDailyRecommendations(env),
+  ])
+  const tickers = symbols
+    .map((symbol) => ({ quote: records.quotes.get(symbol), symbol }))
+    .filter((entry): entry is { quote: TastytradeMarketQuoteRecord; symbol: string } => Boolean(entry.quote))
+    .map(({ quote, symbol }) => tickerFromStoredRecords(
+      symbol,
+      records.metrics.get(symbol),
+      quote,
+      held.has(symbol),
+      catalogTickerInstrument(catalog.get(symbol)),
+      yearCandles.get(symbol)?.closes,
+    ))
+  if (!tickers.length || !records.observedAt) return undefined
+  return MarketSnapshotSchema.parse({
+    source: 'tastytrade',
+    syncedAt: records.observedAt,
+    marketState: session?.state ?? 'unknown',
+    watchlists: [{ id: 'watchlist', kind: 'private' as const, name: 'Watchlist', symbols: focusSymbols }],
+    tickers,
+    catalysts,
+    recommendations,
   })
 }
 
@@ -588,7 +720,6 @@ export async function loadPublicMarketSnapshot(
  * implementation above, so the contract type cannot drift from the real signatures.
  */
 const brokerApiSeam = defineSeam(() => ({
-  loadEquityCandleFromTime,
   loadMarketSnapshot,
   loadPublicMarketSnapshot,
   claimMarketRefresh,

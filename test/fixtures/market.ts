@@ -1,6 +1,6 @@
 import { type Catalyst } from '../../src/domain/catalyst'
 import { type CandlePoint } from '../../src/domain/candle'
-import { type MarketSnapshot, type ResearchBrief, type Ticker, type Watchlist } from '../../src/domain/market'
+import { type MarketSnapshot, type DailyRecommendations, type Ticker, type Watchlist } from '../../src/domain/market'
 
 const UPDATED_AT = '2026-08-13T13:31:00.000Z'
 const FIVE_MINUTES = 5 * 60 * 1_000
@@ -41,17 +41,17 @@ const catalysts: Catalyst[] = [
   { id: 'tastytrade:AAPL:earnings', symbol: 'AAPL', kind: 'earnings', title: 'AAPL earnings', date: '2026-10-29', timing: 'after-hours', confidence: 'estimated', source: 'tastytrade market metrics', sourceUrl: 'https://developer.tastytrade.com/open-api-spec/market-metrics/', updatedAt: UPDATED_AT },
 ]
 
-const research: ResearchBrief = {
-  id: 'brief-2026-08-13',
+const dailyRecommendations: DailyRecommendations = {
+  id: 'recommendations-2026-08-13',
   publishedAt: '2026-08-13T13:35:00.000Z',
   title: 'Calm index tape, expensive single-name stories',
   summary: 'Index volatility remains subdued while event premium concentrates in semiconductors and high-beta growth.',
   regime: 'Selective long vol',
   regimeDetail: 'Cheap index protection · rich event volatility',
-  ideas: [
-    { symbol: 'NVDA', direction: 'bullish', headline: 'Demand checks keep the AI capex thesis alive', description: 'Channel discussion points to durable accelerator demand. Expensive premium argues for patience and strict sizing.', play: 'NVDA 205c 10/16', risk: 'A guide-down or capex pause would break the demand thesis.', sources: [] },
+  recommendations: [
+    { symbol: 'NVDA', direction: 'bullish', headline: 'Demand checks keep the AI capex case alive', description: 'Channel discussion points to durable accelerator demand. Expensive premium argues for patience and strict sizing.', recommendedOrder: { kind: 'equity-option', legs: [{ action: 'Buy to Open', contract: { expiry: '2026-10-16', optionType: 'C', strike: 205, underlying: 'NVDA' }, instrumentType: 'Equity Option' }] }, risk: 'A guide-down or capex pause would break the demand case.', sources: [] },
   ],
-  readingList: [],
+  links: [],
   sources: [{ label: 'tastytrade market metrics', url: 'https://developer.tastytrade.com/open-api-spec/market-metrics/' }],
 }
 
@@ -63,6 +63,6 @@ export function marketSnapshotFixture(): MarketSnapshot {
     watchlists: marketWatchlistsFixture,
     tickers: marketTickersFixture,
     catalysts,
-    research,
+    recommendations: dailyRecommendations,
   })
 }

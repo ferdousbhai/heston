@@ -10,6 +10,7 @@ import {
 import { BrokerageSubmissionUnknownError, TastytradeOrderWarningError } from '../src/server/brokerage'
 import { PendingActionStateError } from '../src/server/agent'
 import { OptionContractUnavailableError } from '../src/server/option-contract'
+import { SPICE_DEPLOYMENT_ID_HEADER } from '../src/domain/deployment'
 
 describe('canonical host redirect', () => {
   it('preserves the path and query when redirecting www to the canonical host', () => {
@@ -99,5 +100,6 @@ describe('public responses', () => {
   it('allows only a short shared cache window for account-free market data', () => {
     const response = jsonPublic({ status: 'ok' })
     expect(response.headers.get('cache-control')).toBe('public, max-age=30, s-maxage=60')
+    expect(response.headers.get(SPICE_DEPLOYMENT_ID_HEADER)).toBe('test')
   })
 })

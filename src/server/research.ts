@@ -1,47 +1,52 @@
-import { marketDate } from '../domain/catalyst'
+import { CatalystSchema, marketDate, type Catalyst } from '../domain/catalyst'
 import { toError } from '../domain/failure'
-import { ResearchBriefSchema, type ResearchBrief } from '../domain/market'
+import { DailyRecommendationsSchema, type DailyRecommendations } from '../domain/market'
 import { shouldStartDailyResearch } from '../domain/research-schedule'
 import { readMarketStatus } from './brokerage-read-tools'
+import { catalystUpsertStatements } from './catalysts'
 import { type AppEnv } from './env'
-import { researchBriefId } from './research-contracts'
-import { upsertResearchBrief } from './research-brief-store'
+import { dailyRecommendationsId } from './research-contracts'
+import { dailyRecommendationsUpsertStatement } from './daily-recommendations-store'
 import { brokerApi } from './tastytrade'
-import { bindBriefCitations } from './research-citation-binding'
+import { bindRecommendationCitations } from './research-citation-binding'
+import { bindCatalystCandidates } from './research-catalyst-output'
+import { recommendationLinkUpsertStatements } from './recommendation-links'
 import {
-  readingListFromCandidates,
-  researchIdeas,
+  linksFromCandidates,
+  recommendationsFromCandidates,
 } from './research-output'
-import { dailyResearchAgent, type DailyResearchSubmission } from './research-agent'
+import { dailyResearchAgent, type DailyRecommendationsSubmission } from './research-agent'
+import { recommendationLinkKey } from './research-url'
 
 export function shouldStartScheduledResearch(date: Date): boolean {
   return shouldStartDailyResearch(date)
 }
 
-/** Publish only sources the editor selected for an idea or the reading list. */
-function researchSourceLinks(
-  ideas: ResearchBrief['ideas'],
-  readingList: ResearchBrief['readingList'],
-): ResearchBrief['sources'] {
+/** Publish only sources the editor selected for a recommendation or the reader links. */
+function recommendationSourceLinks(
+  recommendations: DailyRecommendations['recommendations'],
+  links: DailyRecommendations['links'],
+): DailyRecommendations['sources'] {
   return [
-    ...ideas.flatMap((idea) => idea.sources),
-    ...readingList.map((item) => ({ label: item.title, url: item.url })),
+    ...recommendations.flatMap((recommendation) => recommendation.sources),
+    ...links.map((item) => ({ label: item.title, url: item.url })),
   ]
 }
 
-export interface GenerateDailyResearchOptions {
+export interface GenerateDailyRecommendationsOptions {
   persist?: boolean
   requireMarketOpen?: boolean
   runStep?: <T>(name: string, task: () => Promise<T>) => Promise<T>
 }
 
 function bindSubmissionSources(
-  sources: readonly DailyResearchSubmission['sources'][number][],
-): ResearchBrief['sources'] {
-  return sources.map((candidate) => ({
-    label: candidate.title,
-    url: candidate.sourceUrl,
-  }))
+  sources: readonly DailyRecommendationsSubmission['sources'][number][],
+): DailyRecommendations['sources'] {
+  return sources.map((candidate, index) => {
+    const url = recommendationLinkKey(candidate.sourceUrl)
+    if (!url) throw new Error(`DailyResearchOutput:invalid-source-url:${index}`)
+    return { label: candidate.title, url }
+  })
 }
 
 async function resolveResearchInstrumentCatalog(env: AppEnv, now: Date) {
@@ -69,20 +74,33 @@ async function resolveResearchInstrumentCatalog(env: AppEnv, now: Date) {
   }
 }
 
-async function persistDailyResearch(
+async function persistDailyRecommendations(
   env: AppEnv,
-  brief: ResearchBrief,
+  dailyRecommendations: DailyRecommendations,
+  catalysts: readonly Catalyst[],
 ): Promise<void> {
   if (!env.DB) throw new Error('DailyResearchPersistenceUnavailable')
-  await upsertResearchBrief(env.DB, brief)
+  // The recommendations and every catalyst learned during their transcript become visible together.
+  // Both writes are deterministic upserts, so Workflow replay returns one committed result
+  // instead of exposing catalysts from recommendations that later failed their final boundary.
+  await env.DB.batch([
+    ...catalystUpsertStatements(
+      env.DB,
+      'daily-research',
+      catalysts,
+      dailyRecommendations.publishedAt,
+    ),
+    dailyRecommendationsUpsertStatement(env.DB, dailyRecommendations),
+    ...recommendationLinkUpsertStatements(env.DB, dailyRecommendations),
+  ])
 }
 
-/** One autonomous Pi agent discovers, researches, and submits the typed daily report. */
-export async function generateDailyResearch(
+/** One autonomous Pi agent discovers, researches, and submits the typed daily recommendations. */
+export async function generateDailyRecommendations(
   env: AppEnv,
   now = new Date(),
-  options: GenerateDailyResearchOptions = {},
-): Promise<ResearchBrief> {
+  options: GenerateDailyRecommendationsOptions = {},
+): Promise<DailyRecommendations> {
   const persist = options.persist ?? true
   const runTask = <T>(name: string, task: () => Promise<T>): Promise<T> => (
     options.runStep ? options.runStep(name, task) : task()
@@ -90,7 +108,7 @@ export async function generateDailyResearch(
   if (options.requireMarketOpen) {
     const status = await runTask('market-status', () => readMarketStatus(env, now))
     // Tastytrade capitalises the session state ("Open"), which this guard compared verbatim
-    // until it cost a scheduled brief: `DailyResearchMarketNotOpen:Open`. Reading the
+    // until it cost scheduled recommendations: `DailyResearchMarketNotOpen:Open`. Reading the
     // provider's capitalisation is parsing, not repair, and the snapshot path already
     // lowercases the same field. The raw state still reaches the error, so a genuinely
     // closed market says which state it was in.
@@ -105,8 +123,8 @@ export async function generateDailyResearch(
   const today = marketDate(now)
   // Workflow replay must keep one transcript identity for every provider turn.
   const gatewayRunId = await runTask('run-id', async () => crypto.randomUUID())
-  // Without page reading nothing can be cited, so every idea would be refused and an empty
-  // brief would publish as though the day had nothing in it. A missing binding fails closed.
+  // Without page reading nothing can be cited, so every recommendation would be refused and empty
+  // recommendations would publish as though the day had nothing in it. A missing binding fails closed.
   if (persist && !env.BROWSER) throw new Error('DailyResearch:page-reading-unavailable')
   const agent = await dailyResearchAgent().run(env, {
     now,
@@ -114,43 +132,56 @@ export async function generateDailyResearch(
     runStep: options.runStep,
   })
   const { submission } = agent
+  const catalystBinding = bindCatalystCandidates(
+    submission.catalysts,
+    submission.sources,
+    agent.retained,
+    now,
+  )
+  if (catalystBinding.rejected.length) {
+    throw new Error(`DailyResearchCatalystBinding:${catalystBinding.rejected.join('; ')}`)
+  }
+  const catalysts = CatalystSchema.array().parse(catalystBinding.catalysts)
   const sources = bindSubmissionSources(submission.sources)
   console.info(JSON.stringify({
     event: 'DailyResearchModelCompleted',
     runId: gatewayRunId,
   }))
-  // An idea has to point at a page this run actually read and quote it. Both checks read
+  // A recommendation has to point at a page this run actually read and quote it. Both checks read
   // only the retained text and the submission, so a workflow replay reaches the same verdict.
-  const bound = bindBriefCitations(submission.ideas, submission.sources, agent.retained)
+  const bound = bindRecommendationCitations(submission.recommendations, submission.sources, agent.retained)
   console.info(JSON.stringify({
     event: 'DailyResearchCitationBinding',
-    kept: bound.ideas.length,
+    kept: bound.recommendations.length,
     pagesRead: agent.retained.size,
-    proposed: submission.ideas.length,
+    proposed: submission.recommendations.length,
     rejected: bound.rejected,
     runId: gatewayRunId,
   }))
-  const ideas = researchIdeas(bound.ideas, sources)
-  const readingList = readingListFromCandidates(submission.readingList, sources)
+  if (bound.rejected.length) {
+    throw new Error(`DailyResearchCitationBinding:${bound.rejected.join('; ')}`)
+  }
+  const recommendations = recommendationsFromCandidates(submission.recommendations, sources)
+  const links = linksFromCandidates(submission.links, sources, recommendations.length)
   // Persist the completion time so replay cannot return a timestamp different from D1.
   const publishedAt = await runTask('published-at', async () => new Date().toISOString())
-  const brief = ResearchBriefSchema.parse({
+  const dailyRecommendations = DailyRecommendationsSchema.parse({
     title: submission.title,
     summary: submission.summary,
     regime: submission.regime,
     regimeDetail: submission.regimeDetail,
-    ideas,
-    readingList,
-    id: researchBriefId(today),
-    // Dated when the brief exists, not when the single agent run started.
+    recommendations,
+    links,
+    id: dailyRecommendationsId(today),
+    // Dated when the daily recommendations exist, not when the agent run started.
     publishedAt,
-    sources: researchSourceLinks(ideas, readingList),
+    sources: recommendationSourceLinks(recommendations, links),
   })
   if (persist) {
-    await runTask('persist-report', async () => {
-      await persistDailyResearch(env, brief)
+    await runTask('persist-recommendations', async () => {
+      await persistDailyRecommendations(env, dailyRecommendations, catalysts)
       return true
     })
   }
-  return brief
+  return dailyRecommendations
 }

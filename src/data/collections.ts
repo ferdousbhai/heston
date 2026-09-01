@@ -24,11 +24,44 @@ import {
 } from '../domain/market'
 import { MAX_FAVORITE_SYMBOLS } from '../domain/favorites'
 import { MAX_LIVE_STREAM_SYMBOLS } from '../domain/watchlist'
+import { OWNER_SNAPSHOT_URL, PUBLIC_SNAPSHOT_URL } from '../deployment'
+import { browserStorage, type EnumerableStorage } from './browser-storage'
+import { clearDeploymentReload, validateResponseDeployment } from './deployment'
 
 // One versioned row now commits the audience and complete server snapshot together.
 // Earlier versions spread one snapshot across five independently persisted collections.
-export const OFFLINE_SNAPSHOT_VERSION = 8 as const
+export const OFFLINE_SNAPSHOT_VERSION = 9 as const
 export type SnapshotAudience = 'owner' | 'public'
+
+const OFFLINE_SNAPSHOT_STORAGE_PREFIX = 'spice.snapshot.v'
+export const OFFLINE_SNAPSHOT_STORAGE_KEY = `${OFFLINE_SNAPSHOT_STORAGE_PREFIX}${OFFLINE_SNAPSHOT_VERSION}`
+
+type SnapshotStorage = Pick<EnumerableStorage, 'key' | 'length' | 'removeItem'>
+
+const LEGACY_SNAPSHOT_STORAGE_PREFIXES = [
+  'spice.catalysts.v',
+  'spice.research.v',
+  'spice.recommendations.v',
+  'spice.sync-state.v',
+  'spice.tickers.v',
+  'spice.watchlists.v',
+]
+
+export function retireLegacySnapshotStorage(storage: SnapshotStorage): void {
+  // Deployments keep the same offline row when its schema remains compatible. Only an
+  // explicit schema bump retires it; split generations are always obsolete now that the
+  // snapshot commits atomically. Preferences and favorite staging are user-authored.
+  for (let index = storage.length - 1; index >= 0; index -= 1) {
+    const key = storage.key(index)
+    if (key === null) continue
+    const obsoleteAtomicSnapshot = key.startsWith(OFFLINE_SNAPSHOT_STORAGE_PREFIX)
+      && key !== OFFLINE_SNAPSHOT_STORAGE_KEY
+    const obsoleteSplitSnapshot = LEGACY_SNAPSHOT_STORAGE_PREFIXES.some((prefix) => key.startsWith(prefix))
+    if (obsoleteAtomicSnapshot || obsoleteSplitSnapshot) {
+      storage.removeItem(key)
+    }
+  }
+}
 
 const PreferenceSchema = z.object({
   // New anonymous edits get an identity independent of their symbol set. The
@@ -44,15 +77,6 @@ const PreferenceSchema = z.object({
 
 export type Preference = z.infer<typeof PreferenceSchema>
 
-const LEGACY_SNAPSHOT_STORAGE_PREFIXES = [
-  'spice.catalysts.v',
-  'spice.research.v',
-  'spice.sync-state.v',
-  'spice.tickers.v',
-  'spice.watchlists.v',
-]
-const LEGACY_ATOMIC_SNAPSHOT_STORAGE_KEYS = ['spice.snapshot.v7']
-
 const OfflineSnapshotSchema = z.object({
   audience: z.enum(['owner', 'public']),
   id: z.literal('snapshot'),
@@ -63,7 +87,8 @@ const OfflineSnapshotSchema = z.object({
 export const offlineSnapshotCollection = createCollection(
   localStorageCollectionOptions({
     id: 'spice-offline-snapshot',
-    storageKey: `spice.snapshot.v${OFFLINE_SNAPSHOT_VERSION}`,
+    storageKey: OFFLINE_SNAPSHOT_STORAGE_KEY,
+    storage: browserStorage,
     schema: OfflineSnapshotSchema,
     getKey: (record) => record.id,
     startSync: true,
@@ -86,6 +111,7 @@ export const preferenceCollection = createCollection(
   localStorageCollectionOptions({
     id: 'spice-preferences',
     storageKey: 'spice.preferences.v2',
+    storage: browserStorage,
     schema: PreferenceSchema,
     getKey: (preference) => preference.id,
     startSync: true,
@@ -150,18 +176,7 @@ async function preloadSnapshotCollections(): Promise<void> {
     tickerCollection.preload(),
     preferenceCollection.preload(),
   ])
-  const storage = globalThis.window?.localStorage
-  if (storage) {
-    for (const key of LEGACY_ATOMIC_SNAPSHOT_STORAGE_KEYS) storage.removeItem(key)
-    // Retire every split-snapshot generation after the atomic collection is ready.
-    // This removes stale owner rows without touching preferences or favorite staging.
-    for (let index = storage.length - 1; index >= 0; index -= 1) {
-      const key = storage.key(index)
-      if (key && LEGACY_SNAPSHOT_STORAGE_PREFIXES.some((prefix) => key.startsWith(prefix))) {
-        storage.removeItem(key)
-      }
-    }
-  }
+  retireLegacySnapshotStorage(browserStorage)
 }
 
 async function persistOfflineSnapshot(snapshot: MarketSnapshot, audience: SnapshotAudience): Promise<void> {
@@ -268,8 +283,9 @@ export async function syncFromCloud(
   // The root document preloads the public snapshot as a fetch. Any extra request header
   // here would miss that preload and refetch it, so the public read sends none.
   const response = audience === 'owner'
-    ? await fetch('/api/snapshot', { headers: { Accept: 'application/json' }, signal })
-    : await fetch('/api/public-snapshot', { signal })
+    ? await fetch(OWNER_SNAPSHOT_URL, { headers: { Accept: 'application/json' }, signal })
+    : await fetch(PUBLIC_SNAPSHOT_URL, { signal })
+  validateResponseDeployment(response)
   if (!response.ok) throw new Error(`Snapshot sync failed (${response.status})`)
   const payload: unknown = await response.json()
   const snapshot = audience === 'owner'
@@ -277,6 +293,7 @@ export async function syncFromCloud(
     : marketSnapshotFromPublic(PublicMarketSnapshotSchema.parse(payload))
   if (signal?.aborted || !isCurrent()) throw new DOMException('Snapshot was superseded', 'AbortError')
   await hydrateCollections(snapshot, audience)
+  clearDeploymentReload()
   return snapshot
 }
 

@@ -25,7 +25,7 @@ export const Route = createFileRoute('/api/jobs/$jobKind')({
         }
         try {
           const runAt = new Date()
-          // A preview gets its own Workflow identity and never writes the public brief,
+          // A preview gets its own Workflow identity and never writes public recommendations,
           // catalyst tables, scheduled watchlist origins, or the daily Cron receipt.
           const instanceId = await startDailyResearchWorkflow(appEnv, {
             persist: false,

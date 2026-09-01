@@ -1,4 +1,4 @@
-import { type OptionGreeksReadResult } from './market-feed-contracts'
+import { type DailyCandlesReadResult, type OptionGreeksReadResult } from './market-feed-contracts'
 
 export interface DailyResearchWorkflowParams {
   persist?: boolean
@@ -19,6 +19,7 @@ interface BrokerGateNamespace {
 
 interface MarketFeedRpcStub {
   fetch(request: Request): Promise<Response>
+  readDailyCandles(symbols: readonly string[]): Promise<DailyCandlesReadResult>
   readOptionGreeks(streamerSymbols: readonly string[]): Promise<OptionGreeksReadResult>
 }
 

@@ -4,13 +4,23 @@ import { appEnv } from '../server/worker-env'
 import { authorizePersonalRequest, jsonNoStore } from '../server/http'
 import { brokerApi } from '../server/tastytrade'
 
+/**
+ * The owner reads the same stored snapshot every visitor does, so an ordinary page load costs
+ * the provider nothing. `?live=1` is the explicit escape hatch that rebuilds from tastytrade,
+ * and it also refreshes the store for everyone behind it.
+ */
 export const Route = createFileRoute('/api/snapshot')({
   server: {
     handlers: {
       GET: async ({ request }) => {
         const unauthorized = await authorizePersonalRequest(request, appEnv)
         if (unauthorized) return unauthorized
+        const live = new URL(request.url).searchParams.get('live') === '1'
         try {
+          if (!live) {
+            const stored = await brokerApi().loadStoredMarketSnapshot(appEnv)
+            if (stored) return jsonNoStore(stored)
+          }
           return jsonNoStore(await brokerApi().loadMarketSnapshot(appEnv))
         } catch (error) {
           console.error('MarketSnapshotUnavailable', error instanceof Error ? error.message : 'UnknownError')

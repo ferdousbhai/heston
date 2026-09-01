@@ -59,7 +59,7 @@ function environment(greeks: ReturnType<typeof observation>[]) {
     impliedVolatilityUnit: 'decimal_ratio',
     source: 'tastytrade-dxlink',
   })
-  const getByName = vi.fn(() => ({ fetch: vi.fn(), readOptionGreeks }))
+  const getByName = vi.fn(() => ({ fetch: vi.fn(), readDailyCandles: vi.fn(), readOptionGreeks }))
   const env: AppEnv = { MARKET_FEED: { get: vi.fn(), getByName, idFromName: vi.fn() } }
   return { env, getByName, readOptionGreeks }
 }

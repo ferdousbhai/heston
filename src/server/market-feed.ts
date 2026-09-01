@@ -2,7 +2,7 @@ import { DurableObject } from 'cloudflare:workers'
 
 import { type AppEnv } from './env'
 import { MarketFeedCore } from './market-feed-core'
-import { type OptionGreeksReadResult } from './market-feed-contracts'
+import { type DailyCandlesReadResult, type OptionGreeksReadResult } from './market-feed-contracts'
 
 /**
  * The Durable Object the Workers runtime instantiates. It owns nothing but the
@@ -23,6 +23,10 @@ export class MarketFeed extends DurableObject<AppEnv> {
 
   readOptionGreeks(streamerSymbols: readonly string[]): Promise<OptionGreeksReadResult> {
     return this.core.readOptionGreeks(streamerSymbols)
+  }
+
+  readDailyCandles(symbols: readonly string[]): Promise<DailyCandlesReadResult> {
+    return this.core.readDailyCandles(symbols)
   }
 
   override webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): Promise<void> {
