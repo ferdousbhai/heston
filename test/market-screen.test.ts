@@ -102,7 +102,7 @@ describe('watchlist market data', () => {
     const html = renderMarket(snapshot, { symbol: 'NVDA' })
     const header = html.match(/<thead[^>]*>(.*?)<\/thead>/s)?.[1]
 
-    expect(header).toMatch(/Market cap.*Price.*Share volume/)
+    expect(header).toMatch(/Market cap.*Price.*Volume/)
     expect(html).toContain('price-range')
     expect(html).toContain('Easy To Borrow')
     expect(html).not.toContain('borrow')

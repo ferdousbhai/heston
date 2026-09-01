@@ -81,15 +81,15 @@ function assetLabel(ticker: Pick<Ticker, 'assetType'>): string | undefined {
 }
 
 type SortDirection = 'asc' | 'desc'
-type SortKey = 'symbol' | 'marketCap' | 'price' | 'volume' | 'premium' | 'rank' | 'liquidity'
+type SortKey = 'symbol' | 'marketCap' | 'price' | 'year' | 'volume' | 'premium' | 'liquidity'
 
 const SORT_COLUMNS: { defaultDirection: SortDirection; key: SortKey; label: string }[] = [
   { defaultDirection: 'asc', key: 'symbol', label: 'Instrument' },
   { defaultDirection: 'desc', key: 'marketCap', label: 'Market cap' },
   { defaultDirection: 'desc', key: 'price', label: 'Price' },
-  { defaultDirection: 'desc', key: 'volume', label: 'Share volume' },
+  { defaultDirection: 'desc', key: 'year', label: '1Y' },
+  { defaultDirection: 'desc', key: 'volume', label: 'Volume' },
   { defaultDirection: 'desc', key: 'premium', label: 'Option premium' },
-  { defaultDirection: 'desc', key: 'rank', label: 'IV rank' },
   { defaultDirection: 'desc', key: 'liquidity', label: 'Liquidity' },
 ]
 
@@ -113,7 +113,6 @@ const SORT_METRICS = {
   price: (ticker) => ticker.price,
   volume: (ticker) => ticker.volume,
   premium: premiumScore,
-  rank: (ticker) => ticker.ivRank,
   liquidity: (ticker) => ticker.liquidity,
 } satisfies Record<Exclude<SortKey, 'symbol'>, (ticker: Ticker) => number | undefined>
 
@@ -327,17 +326,16 @@ const MarketTickerRow = memo(function MarketTickerRow({
           : <Progress className="price-range" aria-label={`${Math.round(rangePosition)}% of 52-week range`} value={rangePosition} />}
       </TableCell>
       {/* tastytrade reports equity day share volume here, not 24-hour or option-contract
-          volume; the column heading carries the unit so the rows need not repeat it. */}
+          volume. */}
       <TableCell className="volume-cell">
         <strong>{compactMetric(ticker.volume)}</strong>
       </TableCell>
+      {/* IV rank rides along as the premium cell's third line rather than a column of its own,
+          so the verdict keeps the reading that produced it next to it. */}
       <TableCell className={`premium-cell ${verdict}`}>
         <strong>{copy.label}</strong>
         <small>{formatIfReported(ticker.ivIndex, (iv) => `${formatMarketMetric(iv)}% IV`) ?? '—'}</small>
-      </TableCell>
-      <TableCell className="rank-cell">
-        <strong>{ivRank}</strong>
-        <small>{formatIfReported(ticker.ivPercentile, (percentile) => `${formatMarketMetric(percentile)} pct`) ?? '—'}</small>
+        <small>{formatIfReported(ticker.ivRank, (rank) => `${formatMarketMetric(rank)} rank`) ?? '—'}</small>
       </TableCell>
       <TableCell className="liquidity-cell">
         <strong>{formatIfReported(ticker.liquidity, (liquidity) => `${formatMarketMetric(liquidity)}/5`) ?? '—'}</strong>

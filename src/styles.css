@@ -308,16 +308,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .ticker-table-button > small { width: 100%; overflow: hidden; color: var(--ink-faint); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .ticker-table-button > small:last-child:not(:nth-child(2)) { color: var(--spice); }
 .premium-data-table .volume-cell { width: 10%; min-width: 84px; text-align: right; }
-.premium-data-table .premium-cell, .premium-data-table .rank-cell, .premium-data-table .liquidity-cell { width: 11%; min-width: 92px; text-align: right; }
-.premium-data-table .market-cap-cell strong, .premium-data-table .price-cell strong, .premium-data-table .premium-cell strong, .premium-data-table .rank-cell strong, .premium-data-table .liquidity-cell strong, .premium-data-table .volume-cell strong { display: block; font-variant-numeric: tabular-nums; }
+.premium-data-table .premium-cell, .premium-data-table .liquidity-cell { width: 11%; min-width: 92px; text-align: right; }
+.premium-data-table .market-cap-cell strong, .premium-data-table .price-cell strong, .premium-data-table .premium-cell strong, .premium-data-table .liquidity-cell strong, .premium-data-table .volume-cell strong { display: block; font-variant-numeric: tabular-nums; }
 .premium-data-table .premium-cell strong { font-size: 12px; }
 .premium-data-table .premium-cell.cheap strong { color: var(--cheap); }
 .premium-data-table .premium-cell.fair strong { color: var(--fair-tone); }
 .premium-data-table .premium-cell.rich strong { color: var(--rich); }
-.premium-data-table .rank-cell strong { font-size: 14px; }
 .premium-data-table .market-cap-cell strong, .premium-data-table .price-cell strong, .premium-data-table .liquidity-cell strong, .premium-data-table .volume-cell strong { font-size: 12px; }
-.premium-data-table .price-cell small, .premium-data-table .premium-cell small, .premium-data-table .rank-cell small, .premium-data-table .liquidity-cell small, .premium-data-table .volume-cell small { color: var(--ink-faint); font-size: 10px; font-variant-numeric: tabular-nums; }
-.premium-data-table .premium-cell > small, .premium-data-table .rank-cell > small, .premium-data-table .liquidity-cell > small, .premium-data-table .volume-cell > small { display: block; margin-top: 4px; }
+.premium-data-table .price-cell small, .premium-data-table .premium-cell small, .premium-data-table .liquidity-cell small, .premium-data-table .volume-cell small { color: var(--ink-faint); font-size: 10px; font-variant-numeric: tabular-nums; }
+.premium-data-table .premium-cell > small, .premium-data-table .liquidity-cell > small, .premium-data-table .volume-cell > small { display: block; margin-top: 4px; }
 .watch-empty { min-height: 100px; margin: 0; display: grid; place-items: center; color: var(--ink-muted); font-size: 11px; }
 
 .bottom-nav { position: fixed; z-index: 20; left: 50%; bottom: 0; transform: translateX(-50%); width: 100%; height: calc(71px + env(safe-area-inset-bottom)); padding: 6px 18px env(safe-area-inset-bottom); background: rgba(13, 14, 19, .84); backdrop-filter: blur(28px) saturate(150%); border-top: 1px solid var(--hairline); display: grid; grid-template-columns: repeat(3, 1fr); }
