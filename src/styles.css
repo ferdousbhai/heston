@@ -254,6 +254,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .runway-detail { margin: 6px 0 0; max-width: 72ch; color: var(--ink-muted); font-size: 11px; line-height: 1.55; }
 .runway-body > a { margin-top: 8px; }
 .runway-empty { margin: 14px 0 0; max-width: 72ch; color: var(--ink-muted); font-size: 11px; line-height: 1.62; }
+.runway-empty p { margin: 0; }
+.runway-empty button { margin-top: 11px; }
 .runway-empty strong { color: var(--text); }
 
 .focus-tape { margin: 22px 0 0; padding: 12px 0 18px; border-top: 1px solid var(--hairline); display: flex; flex-wrap: wrap; row-gap: 6px; font: 10px/1.4 var(--mono); font-variant-numeric: tabular-nums; }

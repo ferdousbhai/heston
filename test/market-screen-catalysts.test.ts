@@ -30,11 +30,12 @@ function catalyst(symbol: string, daysAhead: number): Catalyst {
   }
 }
 
-function renderMarket(symbol: string, catalysts: readonly Catalyst[]): void {
+function renderMarket(symbol: string, catalysts: readonly Catalyst[], owner = false): void {
   const snapshot = marketSnapshotFixture()
   render(createElement(MarketScreen, {
     activeWatchlist: { ...snapshot.watchlists[0]!, kind: 'public' as const },
     catalysts: [...catalysts],
+    owner,
     onSelectTicker: () => undefined,
     onTogglePinned: () => undefined,
     pinnedSymbols: [],
@@ -78,5 +79,23 @@ describe('reviewing a symbol with an empty calendar', () => {
     renderMarket('META', [])
 
     await waitFor(() => expect(screen.getByText(/none are scheduled/)).toBeTruthy())
+  })
+})
+
+describe('owner catalyst refresh', () => {
+  it('offers the owner another search on an empty calendar, and never a visitor', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ catalysts: [], ran: true }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderMarket('BE', [])
+    await screen.findByText('Nothing is on the calendar.')
+    // A visitor cannot spend a search: the call costs money and the window that bounds
+    // incidental attention is the only thing standing between it and every reader.
+    expect(screen.queryByRole('button', { name: 'Search again' })).toBeNull()
+
+    cleanup()
+    renderMarket('BE', [], true)
+    await screen.findByText('Nothing is on the calendar.')
+    expect(await screen.findByRole('button', { name: 'Search again' })).toBeTruthy()
   })
 })

@@ -124,6 +124,7 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
               <MarketScreen
                 activeWatchlist={activeWatchlist}
                 catalysts={catalysts}
+                owner={owner}
                 onSelectTicker={chooseSymbol}
                 onTogglePinned={favorites.togglePinned}
                 pinnedSymbols={favorites.pinnedSymbols}

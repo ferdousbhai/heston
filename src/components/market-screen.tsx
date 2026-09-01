@@ -247,7 +247,17 @@ function RecommendationPanel({ recommendation }: { recommendation: DailyRecommen
 }
 
 /** An empty calendar is either one nobody has searched yet or one with nothing on it. */
-function RunwayEmpty({ searching, symbol }: { searching: boolean; symbol: string }) {
+function RunwayEmpty({
+  onRefresh,
+  refreshing,
+  searching,
+  symbol,
+}: {
+  onRefresh?: () => void
+  refreshing: boolean
+  searching: boolean
+  symbol: string
+}) {
   const [heading, detail] = searching
     ? [
         'Looking for what’s coming.',
@@ -258,21 +268,32 @@ function RunwayEmpty({ searching, symbol }: { searching: boolean; symbol: string
         ` Spice tracks ${CATALYST_SCOPE} dates for ${symbol}, and none are scheduled. A re-rating from here would have to come from something unannounced.`,
       ]
   return (
-    <p className="runway-empty" aria-live="polite">
-      <strong>{heading}</strong>
-      {detail}
-    </p>
+    <div className="runway-empty" aria-live="polite">
+      <p><strong>{heading}</strong>{detail}</p>
+      {/* A search runs at most once a month for any symbol, so a calendar can read empty long
+          after the web has something to say. Spending another one costs money per call, which
+          is why only the owner may. What it finds is stored, so every reader gets it. */}
+      {onRefresh && (
+        <Button disabled={refreshing} onClick={onRefresh} size="sm" type="button" variant="outline">
+          {refreshing ? 'Searching…' : 'Search again'}
+        </Button>
+      )}
+    </div>
   )
 }
 
 function CatalystRunway({
   catalysts,
   now,
+  onRefresh,
+  refreshing,
   searching,
   symbol,
 }: {
   catalysts: readonly Catalyst[]
   now: Date
+  onRefresh?: () => void
+  refreshing: boolean
   searching: boolean
   symbol: string
 }) {
@@ -313,7 +334,7 @@ function CatalystRunway({
               })}
             </ol>
           )
-        : <RunwayEmpty searching={searching} symbol={symbol} />}
+        : <RunwayEmpty onRefresh={onRefresh} refreshing={refreshing} searching={searching} symbol={symbol} />}
     </section>
   )
 }
@@ -427,6 +448,7 @@ const MarketTickerRow = memo(function MarketTickerRow({
 export function MarketScreen({
   activeWatchlist,
   catalysts,
+  owner,
   onSelectTicker,
   onTogglePinned,
   pinnedSymbols,
@@ -436,6 +458,7 @@ export function MarketScreen({
 }: {
   activeWatchlist: Watchlist
   catalysts: Catalyst[]
+  owner: boolean
   onSelectTicker: (symbol: string) => void
   onTogglePinned: (symbol: string) => void
   pinnedSymbols: readonly string[]
@@ -530,6 +553,8 @@ export function MarketScreen({
           <CatalystRunway
             catalysts={visibleCatalysts}
             now={now}
+            onRefresh={owner ? catalystSearch.refresh : undefined}
+            refreshing={catalystSearch.forcing}
             searching={catalystSearch.searching}
             symbol={selected.symbol}
           />

@@ -31,9 +31,9 @@ export type CatalystRefresh = {
  * fresh receipt and does not buy a second search; a run that dies mid-flight leaves a
  * receipt that ages out on its own rather than a lock nothing releases.
  */
-async function claimRun(env: AppEnv, symbol: string, now: Date): Promise<boolean> {
+async function claimRun(env: AppEnv, symbol: string, now: Date, forced: boolean): Promise<boolean> {
   if (!env.DB) throw new Error('CatalystRunStoreUnavailable')
-  const stored = await env.DB.prepare(
+  const stored = forced ? undefined : await env.DB.prepare(
     'SELECT ran_at FROM catalyst_runs WHERE symbol = ? AND source_provider = ?',
   ).bind(symbol, CATALYST_PROVIDER).first()
   if (stored) {
@@ -75,18 +75,24 @@ async function recordRun(
  * Run a catalyst search for one symbol unless one was already run for it inside the refresh
  * window. The symbol must be a resolved instrument this Worker already knows, so attention
  * paid to something the catalog cannot name buys nothing.
+ *
+ * `forced` spends a search the window would have refused. Incidental attention must stay
+ * bounded, but an owner asking on purpose is a different signal, and without it a symbol
+ * searched once reads as empty for a month with no way to ask again. The receipt is still
+ * written, so a forced run resets the window for everyone rather than escaping it.
  */
 export async function refreshCatalystsForSymbol(
   env: AppEnv,
   untrustedSymbol: string,
   now = new Date(),
+  forced = false,
 ): Promise<CatalystRefresh> {
   const symbol = EquitySymbolSchema.parse(untrustedSymbol)
   const instrument = (await readInstrumentCatalog(env, [symbol])).get(symbol)
   if (!instrument || instrument.resolutionStatus !== 'resolved') {
     return { catalysts: [], ran: false, reason: 'unknown-symbol' }
   }
-  if (!await claimRun(env, symbol, now)) return { catalysts: [], ran: false, reason: 'fresh' }
+  if (!await claimRun(env, symbol, now, forced)) return { catalysts: [], ran: false, reason: 'fresh' }
 
   try {
     const run = await runExaCatalystSearch(

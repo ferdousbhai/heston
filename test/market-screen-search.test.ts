@@ -17,6 +17,7 @@ function renderMarket(): void {
   render(createElement(MarketScreen, {
     activeWatchlist: { ...snapshot.watchlists[0]!, kind: 'public' as const },
     catalysts: snapshot.catalysts,
+    owner: false,
     onSelectTicker: () => undefined,
     onTogglePinned: () => undefined,
     pinnedSymbols: [],

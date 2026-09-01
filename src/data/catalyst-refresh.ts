@@ -4,6 +4,7 @@ import {
   CatalystRefreshSchema,
   hasNearTermCatalyst,
   type Catalyst,
+  type CatalystRefresh,
 } from '../domain/catalyst'
 import { EquitySymbolSchema } from '../domain/instrument'
 
@@ -12,14 +13,14 @@ import { EquitySymbolSchema } from '../domain/instrument'
  * does looking at one whose next month is empty. The server owns the window that decides
  * whether a search is actually bought, so asking is cheap and asking twice costs nothing.
  */
-export async function requestCatalystRefresh(symbol: string): Promise<Catalyst[]> {
+export async function requestCatalystRefresh(symbol: string, force = false): Promise<CatalystRefresh> {
   const response = await fetch('/api/public-catalyst-refresh', {
-    body: JSON.stringify({ symbol: EquitySymbolSchema.parse(symbol) }),
+    body: JSON.stringify({ force, symbol: EquitySymbolSchema.parse(symbol) }),
     headers: { 'content-type': 'application/json' },
     method: 'POST',
   })
   if (!response.ok) throw new Error(`Catalyst refresh failed (${response.status})`)
-  return CatalystRefreshSchema.parse(await response.json()).catalysts
+  return CatalystRefreshSchema.parse(await response.json())
 }
 
 /**
@@ -31,6 +32,9 @@ export async function requestCatalystRefresh(symbol: string): Promise<Catalyst[]
  * `revision` is what every subscriber watches; it moves when a search starts or answers.
  */
 const searches = new Set<string>()
+const forcing = new Set<string>()
+/** Symbols a search actually ran for, as opposed to ones a receipt merely refused. */
+const searched = new Set<string>()
 const answers = new Map<string, Catalyst[]>()
 const listeners = new Set<() => void>()
 let revision = 0
@@ -50,22 +54,50 @@ function subscribe(listener: () => void): () => void {
   }
 }
 
+function record(symbol: string, refresh: CatalystRefresh): void {
+  answers.set(symbol, refresh.catalysts)
+  // Only a search that actually ran can say the calendar is empty. A refusal leaves the
+  // question open, so the reader is not told nothing is coming on the strength of a receipt.
+  if (refresh.ran) searched.add(symbol)
+  else searched.delete(symbol)
+  notify()
+}
+
 function searchOnce(symbol: string): void {
   if (searches.has(symbol)) return
   searches.add(symbol)
   // A failed search reads as "nothing found": the reader is looking at a calendar, not at
   // the state of our research, and the server keeps its own record of what went wrong.
   void requestCatalystRefresh(symbol)
-    .catch(() => [])
-    .then((rows) => {
-      answers.set(symbol, rows)
-      notify()
-    })
+    .catch((): CatalystRefresh => ({ catalysts: [], ran: false }))
+    .then((refresh) => record(symbol, refresh))
   notify()
+}
+
+/**
+ * Spend a search the window would have refused. The owner asked for this one on purpose, so
+ * it runs whatever the receipt says, and a second click while one is in flight is ignored.
+ */
+export async function forceCatalystSearch(symbol: string): Promise<void> {
+  if (forcing.has(symbol)) return
+  forcing.add(symbol)
+  notify()
+  try {
+    record(symbol, await requestCatalystRefresh(symbol, true))
+  } catch {
+    record(symbol, { catalysts: [], ran: false })
+  } finally {
+    forcing.delete(symbol)
+    notify()
+  }
 }
 
 export type CatalystSearchState = {
   catalysts: readonly Catalyst[]
+  /** True once a search has run and bound nothing, which is not the same as never having looked. */
+  confirmedEmpty: boolean
+  forcing: boolean
+  refresh: () => void
   searching: boolean
 }
 
@@ -90,6 +122,9 @@ export function useCatalystSearch(
   const answer = answers.get(symbol)
   return {
     catalysts: answer ?? NO_CATALYSTS,
-    searching: answer === undefined && searches.has(symbol),
+    confirmedEmpty: searched.has(symbol) && (answer?.length ?? 0) === 0,
+    forcing: forcing.has(symbol),
+    refresh: () => void forceCatalystSearch(symbol),
+    searching: (answer === undefined && searches.has(symbol)) || forcing.has(symbol),
   }
 }
