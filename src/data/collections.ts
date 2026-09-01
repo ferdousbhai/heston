@@ -26,7 +26,7 @@ import { MAX_FAVORITE_SYMBOLS } from '../domain/favorites'
 import { MAX_LIVE_STREAM_SYMBOLS } from '../domain/watchlist'
 import { OWNER_SNAPSHOT_URL, PUBLIC_SNAPSHOT_URL } from '../deployment'
 import { browserStorage, type EnumerableStorage } from './browser-storage'
-import { clearDeploymentReload, validateResponseDeployment } from './deployment'
+import { clearDeploymentReload, DeploymentMismatchError, newerResponseDeployment } from './deployment'
 
 // One versioned row now commits the audience and complete server snapshot together.
 // Earlier versions spread one snapshot across five independently persisted collections.
@@ -295,14 +295,27 @@ export async function syncFromCloud(
   const response = audience === 'owner'
     ? await fetch(OWNER_SNAPSHOT_URL, { headers: { Accept: 'application/json' }, signal })
     : await fetch(PUBLIC_SNAPSHOT_URL, { signal })
-  validateResponseDeployment(response)
+  // A failed request is a failed request; reading a deployment header off one only disguised
+  // the status that actually explains it.
   if (!response.ok) throw new Error(`Snapshot sync failed (${response.status})`)
   const payload: unknown = await response.json()
-  const snapshot = audience === 'owner'
-    ? MarketSnapshotSchema.parse(payload)
-    : marketSnapshotFromPublic(PublicMarketSnapshotSchema.parse(payload))
+  const newerDeployment = newerResponseDeployment(response)
+  let snapshot: MarketSnapshot
+  try {
+    snapshot = audience === 'owner'
+      ? MarketSnapshotSchema.parse(payload)
+      : marketSnapshotFromPublic(PublicMarketSnapshotSchema.parse(payload))
+  } catch (cause) {
+    // A payload this bundle cannot read is the only real incompatibility, and a newer
+    // deployment is the reason worth naming for it.
+    if (newerDeployment) throw new DeploymentMismatchError(newerDeployment)
+    throw cause
+  }
   if (signal?.aborted || !isCurrent()) throw new DOMException('Snapshot was superseded', 'AbortError')
+  // Readable data is worth showing even when a newer build exists: the reader gets the market
+  // while the page refreshes itself underneath them, instead of an empty screen and a notice.
   await hydrateCollections(snapshot, audience)
+  if (newerDeployment) throw new DeploymentMismatchError(newerDeployment, true)
   clearDeploymentReload()
   return snapshot
 }

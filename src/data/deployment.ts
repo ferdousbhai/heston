@@ -4,34 +4,31 @@ import { SPICE_DEPLOYMENT_ID_HEADER } from '../domain/deployment'
 export const DEPLOYMENT_RELOAD_STORAGE_KEY = 'spice.deployment-reload.v1'
 
 export class DeploymentMismatchError extends Error {
-  constructor(readonly receivedDeploymentId: string) {
+  /**
+   * `hydrated` says whether the reader is looking at data despite the newer build. Only an
+   * unreadable payload leaves the screen empty, and only that is worth telling them about.
+   */
+  constructor(readonly receivedDeploymentId: string, readonly hydrated = false) {
     super(`A newer Spice deployment is available (${receivedDeploymentId})`)
     this.name = 'DeploymentMismatchError'
   }
 }
 
-export class DeploymentMetadataUnavailableError extends Error {
-  constructor() {
-    super('The Spice deployment identifier is missing')
-    this.name = 'DeploymentMetadataUnavailableError'
-  }
-}
-
 type ReloadStorage = Pick<Storage, 'getItem' | 'removeItem' | 'setItem'>
 
-export function validateResponseDeployment(
+/**
+ * The id of a newer deployment, when the response came from one. It reports rather than
+ * refuses: a deployment id is a proxy for compatibility, and the schema parse is the real
+ * check. Treating the proxy as the verdict turned every deploy into a coin flip for every open
+ * tab, and threw away payloads this bundle could read perfectly well.
+ */
+export function newerResponseDeployment(
   response: Pick<Response, 'headers'>,
   deploymentId = SPICE_DEPLOYMENT_ID,
-  metadataRequired = import.meta.env.PROD,
-): void {
+): string | undefined {
   const receivedDeploymentId = response.headers.get(SPICE_DEPLOYMENT_ID_HEADER)
-  if (!receivedDeploymentId) {
-    // Production must prove that the response and running bundle belong to the same
-    // deployment. Dev permits headerless route fixtures and local proxy responses.
-    if (metadataRequired) throw new DeploymentMetadataUnavailableError()
-    return
-  }
-  if (receivedDeploymentId !== deploymentId) throw new DeploymentMismatchError(receivedDeploymentId)
+  if (!receivedDeploymentId || receivedDeploymentId === deploymentId) return undefined
+  return receivedDeploymentId
 }
 
 export function clearDeploymentReload(storage?: ReloadStorage): void {
@@ -43,17 +40,26 @@ export function clearDeploymentReload(storage?: ReloadStorage): void {
   }
 }
 
+/**
+ * How long a failed reload suppresses the next one. A broken intermediary must not spin the
+ * page, but iOS restores tabs across app restarts, so session storage there is effectively
+ * permanent — a latch that never expired turned one bad deploy into a device that could never
+ * load the app again, and the banner's "close and reopen" does not clear it.
+ */
+export const DEPLOYMENT_RELOAD_COOLDOWN_MS = 10 * 60 * 1_000
+
 export function reloadForDeployment(
-  deploymentId: string,
   storage?: ReloadStorage,
   reload: () => void = () => globalThis.location.reload(),
+  now: number = Date.now(),
 ): boolean {
   try {
-    // A broken intermediary can keep returning mismatched responses. Remember one
-    // attempt until a current response succeeds, then end in a warning instead of a loop.
     const reloadStorage = storage ?? globalThis.sessionStorage
-    if (reloadStorage.getItem(DEPLOYMENT_RELOAD_STORAGE_KEY)) return false
-    reloadStorage.setItem(DEPLOYMENT_RELOAD_STORAGE_KEY, deploymentId)
+    const attemptedAt = Number(reloadStorage.getItem(DEPLOYMENT_RELOAD_STORAGE_KEY))
+    if (Number.isFinite(attemptedAt) && attemptedAt > 0 && now - attemptedAt < DEPLOYMENT_RELOAD_COOLDOWN_MS) {
+      return false
+    }
+    reloadStorage.setItem(DEPLOYMENT_RELOAD_STORAGE_KEY, String(now))
     reload()
     return true
   } catch {

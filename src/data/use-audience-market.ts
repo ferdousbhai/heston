@@ -81,8 +81,12 @@ export function useAudienceMarket(audience: SnapshotAudience) {
       const failure = toError(cause)
       if (signal?.aborted || failure?.name === 'AbortError') return
       if (failure instanceof DeploymentMismatchError) {
-        if (!reloadForDeployment(failure.receivedDeploymentId)) {
-          setWarning('Spice detected a newer version but could not load it automatically. Close and reopen the app.')
+        // The snapshot has already been hydrated when it could be read, so a reload that is
+        // declined costs the reader nothing and is not worth a banner. Only a payload this
+        // bundle could not parse leaves the screen empty, and the message names the one thing
+        // that actually clears it — closing the tab, not the app, which iOS restores.
+        if (!reloadForDeployment() && !failure.hydrated) {
+          setWarning('Spice needs a newer version. Close this tab and open the site again.')
         }
         return
       }

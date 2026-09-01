@@ -1,12 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  DEPLOYMENT_RELOAD_COOLDOWN_MS,
   DEPLOYMENT_RELOAD_STORAGE_KEY,
-  DeploymentMetadataUnavailableError,
-  DeploymentMismatchError,
   clearDeploymentReload,
+  newerResponseDeployment,
   reloadForDeployment,
-  validateResponseDeployment,
 } from '../src/data/deployment'
 import { deploymentScopedPath, SPICE_DEPLOYMENT_ID_HEADER } from '../src/domain/deployment'
 
@@ -26,30 +25,31 @@ describe('deployment-aware snapshot recovery', () => {
       .toBe('/api/public-snapshot?source=reader&app=build+2')
   })
 
-  it('accepts the current deployment and identifies a different one', () => {
+  it('reports a newer deployment rather than refusing the response', () => {
     const current = new Response(null, { headers: { [SPICE_DEPLOYMENT_ID_HEADER]: 'current' } })
-    expect(() => validateResponseDeployment(current, 'current', true)).not.toThrow()
+    expect(newerResponseDeployment(current, 'current')).toBeUndefined()
 
     const newer = new Response(null, { headers: { [SPICE_DEPLOYMENT_ID_HEADER]: 'newer' } })
-    expect(() => validateResponseDeployment(newer, 'current', true))
-      .toThrow(new DeploymentMismatchError('newer'))
+    expect(newerResponseDeployment(newer, 'current')).toBe('newer')
+
+    // A response without the header says nothing about compatibility, and blocking on its
+    // absence took the app down for anything that stripped the header.
+    expect(newerResponseDeployment(new Response(), 'current')).toBeUndefined()
   })
 
-  it('requires deployment metadata in production', () => {
-    expect(() => validateResponseDeployment(new Response(), 'current', true))
-      .toThrow(DeploymentMetadataUnavailableError)
-    expect(() => validateResponseDeployment(new Response(), 'current', false)).not.toThrow()
-  })
-
-  it('reloads at most once until the current deployment succeeds', () => {
+  it('retries a declined reload once the cooldown passes', () => {
     const storage = memoryStorage()
     const reload = vi.fn()
+    const start = Date.parse('2026-09-01T12:00:00.000Z')
 
-    expect(reloadForDeployment('newer', storage, reload)).toBe(true)
-    expect(reloadForDeployment('newer', storage, reload)).toBe(false)
-    expect(reloadForDeployment('newest', storage, reload)).toBe(false)
+    expect(reloadForDeployment(storage, reload, start)).toBe(true)
+    expect(reloadForDeployment(storage, reload, start + 1_000)).toBe(false)
     expect(reload).toHaveBeenCalledTimes(1)
-    expect(storage.values.get(DEPLOYMENT_RELOAD_STORAGE_KEY)).toBe('newer')
+
+    // iOS restores tabs, so session storage there outlives the "close and reopen" advice. A
+    // latch that never expired left such a device unable to load the app again at all.
+    expect(reloadForDeployment(storage, reload, start + DEPLOYMENT_RELOAD_COOLDOWN_MS + 1)).toBe(true)
+    expect(reload).toHaveBeenCalledTimes(2)
 
     clearDeploymentReload(storage)
     expect(storage.values.has(DEPLOYMENT_RELOAD_STORAGE_KEY)).toBe(false)
@@ -63,7 +63,7 @@ describe('deployment-aware snapshot recovery', () => {
     }
     const reload = vi.fn()
 
-    expect(reloadForDeployment('newer', blockedStorage, reload)).toBe(false)
+    expect(reloadForDeployment(blockedStorage, reload)).toBe(false)
     expect(() => clearDeploymentReload(blockedStorage)).not.toThrow()
     expect(reload).not.toHaveBeenCalled()
   })

@@ -1,0 +1,8 @@
+# Hashed filenames change whenever their contents do, so a copy is good forever.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The recovery worker only retires an obsolete offline shell if a browser fetches it, and a
+# stale copy is the one thing that keeps such a browser from ever reaching current code.
+/sw.js
+  Cache-Control: no-cache
