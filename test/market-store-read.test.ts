@@ -8,6 +8,7 @@ import {
   readStoredMarketRecords,
   readStoredMarketSession,
 } from '../src/server/tastytrade-market-store'
+import { unsupportedDatabase } from './fake-d1'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 
 const metric = {
@@ -104,6 +105,16 @@ describe('stored market read model', () => {
     await expect(claimMarketRefresh(env, 30_000, now, 'symbol:AAPL')).resolves.toBe(false)
     // A different resource is unaffected, and needs no seeded row to be claimable.
     await expect(claimMarketRefresh(env, 30_000, now, 'symbol:NVDA')).resolves.toBe(true)
+  })
+
+  it('grants the claim when the store cannot answer, rather than denying every visitor', async () => {
+    // The lease only exists to spare the provider. A store outage or a schema still catching
+    // up must degrade to one extra refresh, never to a public page that cannot be served.
+    // Every call on this database throws, which is how a missing table or a D1 outage reads.
+    const unavailable = unsupportedDatabase()
+
+    await expect(claimMarketRefresh({ DB: unavailable }, 30_000)).resolves.toBe(true)
+    await expect(claimMarketRefresh({}, 30_000)).resolves.toBe(true)
   })
 
   it('caches the provider session state for visitors that never call the provider', async () => {

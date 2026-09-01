@@ -243,17 +243,26 @@ export async function claimMarketRefresh(
   now = new Date(),
   id = 'public-snapshot',
 ): Promise<boolean> {
-  if (!env.DB) return false
+  // The lease is an optimization, so it fails open. A store that cannot answer must not be
+  // able to deny every visitor a snapshot: losing the claim means "serve what you have", and
+  // with nothing stored that ends in a 502. The cost of guessing wrong is one extra provider
+  // refresh; the cost of failing closed is the whole public page.
+  if (!env.DB) return true
   const nowIso = now.toISOString()
   const claimedUntil = new Date(now.getTime() + leaseMs).toISOString()
-  // Upsert rather than update, so a resource claimed for the first time needs no seeded row.
-  // The guard on the conflict branch is what makes a held claim reject a second caller.
-  const result = await env.DB.prepare(
-    `INSERT INTO market_refresh_lease (id, expires_at) VALUES (?, ?)
-     ON CONFLICT(id) DO UPDATE SET expires_at = excluded.expires_at
-       WHERE market_refresh_lease.expires_at <= ?`,
-  ).bind(id, claimedUntil, nowIso).run()
-  return result.meta.changes === 1
+  try {
+    // Upsert rather than update, so a resource claimed for the first time needs no seeded row.
+    // The guard on the conflict branch is what makes a held claim reject a second caller.
+    const result = await env.DB.prepare(
+      `INSERT INTO market_refresh_lease (id, expires_at) VALUES (?, ?)
+       ON CONFLICT(id) DO UPDATE SET expires_at = excluded.expires_at
+         WHERE market_refresh_lease.expires_at <= ?`,
+    ).bind(id, claimedUntil, nowIso).run()
+    return result.meta.changes === 1
+  } catch (error) {
+    console.error('MarketRefreshLeaseUnavailable', error instanceof Error ? error.message : 'UnknownError')
+    return true
+  }
 }
 
 
