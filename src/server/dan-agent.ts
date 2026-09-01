@@ -241,9 +241,10 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
         clock: newYorkClock(),
         marketSession: liveMarketSession,
         portfolioPolicy,
-        // What the owner is deliberately monitoring. Absent, rather than empty, when the
-        // store could not answer — an empty list is a real fact about the owner.
-        ...(starredSymbols ? { starredSymbols } : {}),
+        // What the owner is deliberately monitoring. Undefined when the store could not
+        // answer, which serialization drops — absent, rather than empty, because an empty
+        // list is a real fact about the owner.
+        starredSymbols,
       }
       const runtimeContext = JSON.stringify(selectedSymbol
         ? { ...accountContext, selectedSymbol, ...turnContext }
