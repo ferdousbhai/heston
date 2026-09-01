@@ -55,19 +55,21 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
     ?? tickers.find((ticker) => ticker.symbol === fallbackSymbol)
   const loadedSymbols = new Set(tickers.map((ticker) => ticker.symbol))
   const streamSymbols = selectLiveMarketSymbols(selected?.symbol, activeWatchlist?.symbols ?? [], loadedSymbols)
-  const liveMarket = useLiveMarket(streamSymbols, snapshotReady && owner)
+  // Called for the subscription it opens; its transient states are no longer surfaced.
+  useLiveMarket(streamSymbols, snapshotReady && owner)
   const collectionFailed = market.collectionFailed || favorites.collectionFailed
-  // An opening handshake is not stale data. Only a feed that degraded or dropped after
-  // connecting has anything to report, and those states carry the reason with them, so a
-  // feed that keeps failing still surfaces on its next attempt rather than going quiet.
-  const liveWarning = liveMarket.state === 'degraded' || liveMarket.state === 'reconnecting'
-    ? liveMarket.detail ?? `Live market feed is ${liveMarket.state}.`
-    : undefined
+  // A reconnect is the feed healing itself, and it happens whenever a tab wakes or a socket
+  // drops. Alerting on it made the banner flash on and off over nothing. Feed health is now
+  // told by how old the data is, and only a failure the reader must act on interrupts them.
   const visibleSnapshotWarning = [
     collectionFailed ? 'Browser market storage failed. Reload to inspect the current state.' : undefined,
     market.warning,
-    liveWarning,
   ].filter((warning): warning is string => Boolean(warning)).join(' ') || undefined
+  // Live ticks move a ticker's own instant past the snapshot's, so the freshest reading in
+  // hand is what the reader is actually looking at.
+  const lastUpdatedAt = [snapshot?.syncedAt, ...tickers.map((ticker) => ticker.updatedAt)]
+    .filter((at): at is string => Boolean(at))
+    .reduce<string | undefined>((newest, at) => (newest === undefined || at > newest ? at : newest), undefined)
   const visibleFavoriteError = favorites.error
 
   // Stable row callbacks keep the memoized market rows from re-rendering on every
@@ -91,6 +93,7 @@ function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Vie
       >
         {!ownerAgentOpen && (
           <TopBar
+            lastUpdatedAt={lastUpdatedAt}
             viewerName={viewer?.name}
           />
         )}

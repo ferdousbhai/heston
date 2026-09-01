@@ -86,9 +86,10 @@ export function useAudienceMarket(audience: SnapshotAudience) {
         }
         return
       }
-      setWarning(navigator.onLine
-        ? 'Latest market data could not be synchronized. Showing saved data when available.'
-        : 'Live market updates are paused while offline. Showing saved data when available.')
+      // A failed sync is not something to interrupt a reader over: the saved data is still on
+      // screen and the last-updated time already says how old it is. Only a failure the reader
+      // must act on gets a banner.
+      setWarning(undefined)
     }
   }, [synchronize])
 
@@ -110,7 +111,7 @@ export function useAudienceMarket(audience: SnapshotAudience) {
     })()
     const online = () => void synchronizeWithWarning(controller.signal)
     const offline = () => {
-      setWarning('Live market updates are paused while offline. Showing saved data when available.')
+      setWarning(undefined)
     }
     const refreshVisible = () => {
       if (document.visibilityState === 'visible') void synchronizeWithWarning(controller.signal)
