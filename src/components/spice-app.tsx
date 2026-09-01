@@ -6,7 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import { Empty, EmptyDescription, EmptyHeader } from '#/components/ui/empty'
 import { Skeleton } from '#/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
-import { selectLiveMarketSymbols } from '../data/collections'
+import { selectLiveMarketSymbols, type SnapshotAudience } from '../data/collections'
 import { mostActiveSymbol } from '../domain/market'
 import { useLiveMarket } from '../data/live-market'
 import { useAudienceMarket } from '../data/use-audience-market'
@@ -22,22 +22,30 @@ const TabSchema = z.enum(['market', 'recommendations', 'agent'])
 type Tab = z.infer<typeof TabSchema>
 export function SpiceApp() {
   const auth = useViewer()
-  // Boot the source-neutral public surface while the session check is in flight
-  // instead of holding the whole app behind it. If the viewer turns out to be the
-  // owner, the audience-tagged atomic snapshot keeps public rows from ever being
-  // rendered as the private snapshot; the workspace re-syncs for that audience.
+  // The audience stays unknown until the session check answers. Booting the public surface on
+  // a guess discarded the owner's stored snapshot on every refresh — the record belongs to one
+  // audience, and restoring for the other throws it away — so a page that already had the
+  // market on disk went blank and fetched it again, twice.
   return (
     <SpiceWorkspace
+      audience={auth.phase === 'ready' ? (auth.user?.role === 'owner' ? 'owner' : 'public') : undefined}
       authError={auth.phase === 'error' ? auth.message : undefined}
       viewer={auth.phase === 'ready' ? auth.user : null}
     />
   )
 }
 
-function SpiceWorkspace({ authError, viewer }: { authError?: string; viewer: Viewer | null }) {
+function SpiceWorkspace({
+  audience,
+  authError,
+  viewer,
+}: {
+  audience?: SnapshotAudience
+  authError?: string
+  viewer: Viewer | null
+}) {
   const owner = viewer?.role === 'owner'
   const viewerId = viewer?.id
-  const audience = owner ? 'owner' : 'public'
   const market = useAudienceMarket(audience)
   const { chooseSymbol: saveSelectedSymbol, preference, snapshot, synchronize, tickers } = market
   const favorites = useWorkspaceFavorites(viewerId, preference)

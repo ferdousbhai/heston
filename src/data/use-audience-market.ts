@@ -38,7 +38,14 @@ export function audienceMarketView<TSnapshot extends MarketSnapshot, TTicker ext
   return { snapshot, tickers: snapshot ? [...tickers] : [] }
 }
 
-export function useAudienceMarket(audience: SnapshotAudience) {
+/**
+ * `audience` is undefined until the session check resolves. Guessing "public" in the meantime
+ * cost the owner their whole view on every refresh: the stored snapshot belongs to one
+ * audience, and restoring for the other discards it, so a page that already had the market on
+ * disk went blank and refetched. Waiting one session check is cheaper than that, and it also
+ * spares the owner a full public sync they never see.
+ */
+export function useAudienceMarket(audience: SnapshotAudience | undefined) {
   const tickerQuery = useLiveQuery((query) => query.from({ ticker: tickerCollection }))
   const snapshotQuery = useLiveQuery((query) => query.from({ snapshot: offlineSnapshotCollection }))
   const preferenceQuery = useLiveQuery((query) => query.from({ preference: preferenceCollection }))
@@ -46,13 +53,15 @@ export function useAudienceMarket(audience: SnapshotAudience) {
   const [warning, setWarning] = useState<string>()
   const syncOperation = useRef<SnapshotSyncOperation | undefined>(undefined)
   const { snapshot, tickers } = audienceMarketView(
-    audience,
+    audience ?? 'public',
     snapshotQuery.data ?? [],
     tickerQuery.data ?? [],
   )
   const preference = (preferenceQuery.data ?? [])[0]
 
   const synchronize = useCallback(async (signal?: AbortSignal, force = false): Promise<void> => {
+    // Nothing may be fetched before the session check names the audience it belongs to.
+    if (!audience) return
     if (!navigator.onLine) throw new Error('Market synchronization is unavailable while offline')
     const active = syncOperation.current
     if (active) {
@@ -98,6 +107,7 @@ export function useAudienceMarket(audience: SnapshotAudience) {
   }, [synchronize])
 
   useEffect(() => {
+    if (!audience) return
     const controller = new AbortController()
 
     void (async () => {
@@ -142,7 +152,9 @@ export function useAudienceMarket(audience: SnapshotAudience) {
   }, [])
 
   return {
-    bootstrapComplete: bootstrappedAudience === audience,
+    // An unknown audience has not bootstrapped anything. Comparing two undefined values read
+    // as finished, which would report an empty market as unavailable during the session check.
+    bootstrapComplete: audience !== undefined && bootstrappedAudience === audience,
     chooseSymbol,
     collectionFailed: tickerQuery.isError || snapshotQuery.isError || preferenceQuery.isError,
     preference,
