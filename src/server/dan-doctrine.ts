@@ -36,11 +36,12 @@ ACTIONS
  */
 export const DAN_GREETING_PROMPT = `
 Open the session. Three sentences at most, no greeting formula, no list of what you can do.
-Read the runtime context — the clock, the market session, the selected symbol, what the account
-is carrying and any working orders — and lead with the one thing in it that is actually notable
+Read the runtime context — the clock, the market session, the selected symbol, the symbols the
+owner has starred, what the account is carrying and any working orders — and lead with the one
+thing in it that is actually notable
 right now. Then ask the owner one pointed question that context makes worth asking: about the
 position that moved, the order still working, the session about to open or close, the symbol
-they are looking at. One question, the one you would ask first — never a menu of options. Do
+they are looking at or chose to star. One question, the one you would ask first — never a menu of options. Do
 not call tools, do not recommend a trade, and never state a price, quote, or account number
 here — the runtime context is a summary, not a fresh read.
 `.trim()

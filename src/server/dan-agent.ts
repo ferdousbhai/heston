@@ -28,6 +28,7 @@ import { createBrokerageReadTools, readMarketStatus } from './brokerage-read-too
 import { buildAgentRuntimeContext, loadBrokerageContext } from './brokerage-context'
 import { createBrokerageReconciliationTool } from './brokerage-reconciliation'
 import { DAN_GREETING_PROMPT, DAN_SYSTEM_PROMPT } from './dan-doctrine'
+import { readOwnerFavoriteSymbols } from './favorites'
 import { type AppEnv } from './env'
 import { createPiRuntime } from './pi-runtime'
 import { grokGatewayBaseUrl } from './ai-gateway'
@@ -165,6 +166,20 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
     this.ctx.waitUntil(run)
   }
 
+  /**
+   * Starred tickers are context, not ground truth for a trade, so a store that cannot answer
+   * costs the turn its garnish and not its life.
+   */
+  private async readStarredSymbols(): Promise<string[] | undefined> {
+    if (!this.env.DB) return undefined
+    try {
+      return await readOwnerFavoriteSymbols(this.env.DB)
+    } catch (error) {
+      console.error('DanStarredSymbolsUnavailable', error instanceof Error ? error.message : 'UnknownError')
+      return undefined
+    }
+  }
+
   private sendEvent(event: DanAgentEvent) {
     this.broadcast(JSON.stringify(event))
   }
@@ -184,9 +199,10 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
     this.abortController = controller
     let turnFailure: string | undefined
     try {
-      const [account, liveMarketSession] = await Promise.all([
+      const [account, liveMarketSession, starredSymbols] = await Promise.all([
         loadBrokerageContext(this.env),
         readMarketStatus(this.env),
+        this.readStarredSymbols(),
       ])
       const portfolioPolicy = await buildPortfolioPolicyContext(this.env, account)
       const [apiKey, gatewayToken, gatewayBaseUrl] = await Promise.all([
@@ -221,7 +237,14 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
         parameters: OrderPlacementParameters,
       }
       const accountContext = buildAgentRuntimeContext(account)
-      const turnContext = { clock: newYorkClock(), marketSession: liveMarketSession, portfolioPolicy }
+      const turnContext = {
+        clock: newYorkClock(),
+        marketSession: liveMarketSession,
+        portfolioPolicy,
+        // What the owner is deliberately monitoring. Absent, rather than empty, when the
+        // store could not answer — an empty list is a real fact about the owner.
+        ...(starredSymbols ? { starredSymbols } : {}),
+      }
       const runtimeContext = JSON.stringify(selectedSymbol
         ? { ...accountContext, selectedSymbol, ...turnContext }
         : { ...accountContext, ...turnContext })

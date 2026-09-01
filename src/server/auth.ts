@@ -3,7 +3,7 @@ import { betterAuth } from 'better-auth'
 import { type AppEnv } from './env'
 import { readBoundSecret } from './secrets'
 
-const OWNER_EMAIL = 'ferdousbd@gmail.com'
+export const OWNER_EMAIL = 'ferdousbd@gmail.com'
 
 export function isOwnerEmail(email: string): boolean {
   return email.toLowerCase() === OWNER_EMAIL

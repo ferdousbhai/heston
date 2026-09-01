@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { stagedFavoriteSymbols } from '../src/data/favorites'
-import { mergeFavoriteSymbols, readFavoriteSymbols, removeFavoriteSymbols } from '../src/server/favorites'
+import { mergeFavoriteSymbols, readOwnerFavoriteSymbols, readFavoriteSymbols, removeFavoriteSymbols } from '../src/server/favorites'
 import { migrationStore } from './sqlite-d1'
 
 const preference = {
@@ -48,6 +48,32 @@ describe('D1 favorite synchronization', () => {
     expect(await removeFavoriteSymbols(store.database, 'user-a', ['META']))
       .toEqual(['AAPL', 'NVDA'])
     expect(await readFavoriteSymbols(store.database, 'user-b')).toEqual(['TSLA'])
+    store.close()
+  })
+})
+
+describe('owner starred symbols for the agent', () => {
+  it('resolves the owner by identity, case-insensitively, and no one else', async () => {
+    const store = await migrationStore()
+    store.sqlite.prepare(
+      `INSERT INTO "user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
+       VALUES (?, ?, ?, 1, ?, ?)`,
+    ).run('owner-1', 'Ferdous', 'Ferdousbd@Gmail.com', 'now', 'now')
+    store.sqlite.prepare(
+      `INSERT INTO "user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
+       VALUES (?, ?, ?, 1, ?, ?)`,
+    ).run('member-1', 'Member', 'member@example.com', 'now', 'now')
+    await mergeFavoriteSymbols(store.database, 'owner-1', ['HOOD', 'PCG'])
+    await mergeFavoriteSymbols(store.database, 'member-1', ['TSLA'])
+
+    // A member's stars are their own; Dan's context carries only what the owner is watching.
+    await expect(readOwnerFavoriteSymbols(store.database)).resolves.toEqual(['HOOD', 'PCG'])
+    store.close()
+  })
+
+  it('reads as empty, not as failure, when the owner has never signed in', async () => {
+    const store = await migrationStore()
+    await expect(readOwnerFavoriteSymbols(store.database)).resolves.toEqual([])
     store.close()
   })
 })
