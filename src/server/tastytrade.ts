@@ -59,7 +59,7 @@ import { defineSeam, type SeamValue } from './seam'
 import { searchInstrumentCatalog, symbolCandidate } from './symbol-search'
 import { loadStoredPublicMarketUniverse, publishInternalWatchlistUniverse } from './public-market-universe'
 import { readLatestDailyRecommendations } from './daily-recommendations-store'
-import { readYearCandles, type YearCandleSeries } from './year-candle-store'
+import { readYearAgoCloses } from './year-candle-store'
 import {
   claimMarketRefresh,
   persistMarketSession,
@@ -274,10 +274,10 @@ async function loadMarketRows(
 async function readOptionalYearCandles(
   env: AppEnv,
   symbols: readonly string[],
-): Promise<Map<string, YearCandleSeries>> {
+): Promise<Map<string, number>> {
   if (!env.DB) return new Map()
   try {
-    return await readYearCandles(env.DB, symbols)
+    return await readYearAgoCloses(env.DB, symbols)
   } catch (cause) {
     // The missing chart is visible in the response; keep the live price path available while
     // recording only the failure class, never a provider or database body.
@@ -310,7 +310,7 @@ async function loadMarketFacts(
   const yearCandles = await readOptionalYearCandles(env, symbols)
   for (const item of normalized) {
     const cached = yearCandles.get(item.ticker.symbol)
-    if (cached?.closes.length) item.ticker.yearCloses = cached.closes
+    if (cached !== undefined) item.ticker.yearAgoClose = cached
   }
   const allCatalysts = await persistAndLoadCatalysts(
     env,
@@ -546,7 +546,7 @@ async function lookupStoredMarketSymbol(
   const [records, catalog, yearCandles, catalysts] = await Promise.all([
     readStoredMarketRecords(env, [symbol]),
     readInstrumentCatalog(env, [symbol]),
-    readYearCandles(env.DB, [symbol]),
+    readYearAgoCloses(env.DB, [symbol]),
     readUpcomingCatalysts(env),
   ])
   const quote = records.quotes.get(symbol)
@@ -557,7 +557,7 @@ async function lookupStoredMarketSymbol(
     quote,
     false,
     catalogTickerInstrument(catalog.get(symbol)),
-    yearCandles.get(symbol)?.closes,
+    yearCandles.get(symbol),
   )
   return {
     catalysts: catalysts.filter((catalyst) => catalyst.symbol === symbol),
@@ -643,7 +643,7 @@ async function loadStoredPublicMarketSnapshot(env: AppEnv): Promise<PublicMarket
   const [records, catalog, yearCandles, catalysts, session, recommendations] = await Promise.all([
     readStoredMarketRecords(env, symbols),
     readInstrumentCatalog(env, symbols),
-    readYearCandles(env.DB, symbols),
+    readYearAgoCloses(env.DB, symbols),
     readUpcomingCatalysts(env),
     readStoredMarketSession(env),
     loadStoredDailyRecommendations(env),
@@ -659,7 +659,7 @@ async function loadStoredPublicMarketSnapshot(env: AppEnv): Promise<PublicMarket
       quote,
       false,
       catalogTickerInstrument(catalog.get(symbol)),
-      yearCandles.get(symbol)?.closes,
+      yearCandles.get(symbol),
     ))
   if (!tickers.length || !records.observedAt) return undefined
   return PublicMarketSnapshotSchema.parse({
@@ -695,7 +695,7 @@ async function loadStoredMarketSnapshot(env: AppEnv): Promise<MarketSnapshot | u
   const [records, catalog, yearCandles, catalysts, session, recommendations] = await Promise.all([
     readStoredMarketRecords(env, symbols),
     readInstrumentCatalog(env, symbols),
-    readYearCandles(env.DB, symbols),
+    readYearAgoCloses(env.DB, symbols),
     readUpcomingCatalysts(env),
     readStoredMarketSession(env),
     loadStoredDailyRecommendations(env),
@@ -709,7 +709,7 @@ async function loadStoredMarketSnapshot(env: AppEnv): Promise<MarketSnapshot | u
       quote,
       held.has(symbol),
       catalogTickerInstrument(catalog.get(symbol)),
-      yearCandles.get(symbol)?.closes,
+      yearCandles.get(symbol),
     ))
   if (!tickers.length || !records.observedAt) return undefined
   return MarketSnapshotSchema.parse({

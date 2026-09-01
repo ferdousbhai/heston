@@ -46,9 +46,10 @@ export const TickerSchema = z.object({
   // REST quotes do not contain candle history. Keep this empty until real DXLink
   // candles arrive instead of drawing a synthetic move from previous close.
   sparkline: z.array(CandlePointSchema),
-  // A year of daily closes, cached rather than streamed: it changes once a session, so it
-  // rides the snapshot. Absent until the refresh has run for this symbol.
-  yearCloses: z.array(CandlePointSchema).max(MAX_YEAR_CANDLES).optional(),
+  // Where this symbol's year began. Enough to sort by return and print the move; the closes
+  // themselves are large enough that carrying them here cost every reader a year of history
+  // per tab focus, including the ones whose screens never draw the chart.
+  yearAgoClose: z.number().positive().optional(),
   ivRank: z.number().optional(),
   ivPercentile: z.number().optional(),
   ivIndex: z.number().optional(),
@@ -123,6 +124,20 @@ export const DailyRecommendationsSchema = z.object({
 export function parseStoredDailyRecommendations(value: JsonValue): DailyRecommendations {
   return DailyRecommendationsSchema.parse(value)
 }
+
+/**
+ * A year of daily closes, oldest first. Only the closes travel: the year chart spaces points
+ * by index because a daily grid is near-uniform, so the instants would be sent and never read.
+ */
+export const YearCandlesSchema = z.object({
+  asOf: z.string(),
+  series: z.array(z.object({
+    closes: z.array(z.number().finite().positive()).max(MAX_YEAR_CANDLES),
+    symbol: EquitySymbolSchema,
+  })),
+})
+
+export type YearCandles = z.infer<typeof YearCandlesSchema>
 
 export const MarketStateSchema = z.enum(['open', 'closed', 'pre', 'after', 'unknown'])
 

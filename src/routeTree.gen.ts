@@ -21,6 +21,7 @@ import { Route as ApiPublicCatalystRefreshRouteImport } from './routes/api.publi
 import { Route as ApiPublicDailyRecommendationsRouteImport } from './routes/api.public-daily-recommendations'
 import { Route as ApiPublicSnapshotRouteImport } from './routes/api.public-snapshot'
 import { Route as ApiPublicSymbolSearchRouteImport } from './routes/api.public-symbol-search'
+import { Route as ApiPublicYearCandlesRouteImport } from './routes/api.public-year-candles'
 import { Route as ApiSnapshotRouteImport } from './routes/api.snapshot'
 import { Route as ApiStreamRouteImport } from './routes/api.stream'
 import { Route as ApiViewerRouteImport } from './routes/api.viewer'
@@ -90,6 +91,11 @@ const ApiPublicSymbolSearchRoute = ApiPublicSymbolSearchRouteImport.update({
   path: '/api/public-symbol-search',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicYearCandlesRoute = ApiPublicYearCandlesRouteImport.update({
+  id: '/api/public-year-candles',
+  path: '/api/public-year-candles',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiSnapshotRoute = ApiSnapshotRouteImport.update({
   id: '/api/snapshot',
   path: '/api/snapshot',
@@ -134,6 +140,7 @@ export interface FileRoutesByFullPath {
   '/api/public-daily-recommendations': typeof ApiPublicDailyRecommendationsRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
   '/api/public-symbol-search': typeof ApiPublicSymbolSearchRoute
+  '/api/public-year-candles': typeof ApiPublicYearCandlesRoute
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
   '/api/viewer': typeof ApiViewerRoute
@@ -154,6 +161,7 @@ export interface FileRoutesByTo {
   '/api/public-daily-recommendations': typeof ApiPublicDailyRecommendationsRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
   '/api/public-symbol-search': typeof ApiPublicSymbolSearchRoute
+  '/api/public-year-candles': typeof ApiPublicYearCandlesRoute
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
   '/api/viewer': typeof ApiViewerRoute
@@ -175,6 +183,7 @@ export interface FileRoutesById {
   '/api/public-daily-recommendations': typeof ApiPublicDailyRecommendationsRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
   '/api/public-symbol-search': typeof ApiPublicSymbolSearchRoute
+  '/api/public-year-candles': typeof ApiPublicYearCandlesRoute
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
   '/api/viewer': typeof ApiViewerRoute
@@ -197,6 +206,7 @@ export interface FileRouteTypes {
     | '/api/public-daily-recommendations'
     | '/api/public-snapshot'
     | '/api/public-symbol-search'
+    | '/api/public-year-candles'
     | '/api/snapshot'
     | '/api/stream'
     | '/api/viewer'
@@ -217,6 +227,7 @@ export interface FileRouteTypes {
     | '/api/public-daily-recommendations'
     | '/api/public-snapshot'
     | '/api/public-symbol-search'
+    | '/api/public-year-candles'
     | '/api/snapshot'
     | '/api/stream'
     | '/api/viewer'
@@ -237,6 +248,7 @@ export interface FileRouteTypes {
     | '/api/public-daily-recommendations'
     | '/api/public-snapshot'
     | '/api/public-symbol-search'
+    | '/api/public-year-candles'
     | '/api/snapshot'
     | '/api/stream'
     | '/api/viewer'
@@ -258,6 +270,7 @@ export interface RootRouteChildren {
   ApiPublicDailyRecommendationsRoute: typeof ApiPublicDailyRecommendationsRoute
   ApiPublicSnapshotRoute: typeof ApiPublicSnapshotRoute
   ApiPublicSymbolSearchRoute: typeof ApiPublicSymbolSearchRoute
+  ApiPublicYearCandlesRoute: typeof ApiPublicYearCandlesRoute
   ApiSnapshotRoute: typeof ApiSnapshotRoute
   ApiStreamRoute: typeof ApiStreamRoute
   ApiViewerRoute: typeof ApiViewerRoute
@@ -352,6 +365,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicSymbolSearchRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public-year-candles': {
+      id: '/api/public-year-candles'
+      path: '/api/public-year-candles'
+      fullPath: '/api/public-year-candles'
+      preLoaderRoute: typeof ApiPublicYearCandlesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/snapshot': {
       id: '/api/snapshot'
       path: '/api/snapshot'
@@ -410,6 +430,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicDailyRecommendationsRoute: ApiPublicDailyRecommendationsRoute,
   ApiPublicSnapshotRoute: ApiPublicSnapshotRoute,
   ApiPublicSymbolSearchRoute: ApiPublicSymbolSearchRoute,
+  ApiPublicYearCandlesRoute: ApiPublicYearCandlesRoute,
   ApiSnapshotRoute: ApiSnapshotRoute,
   ApiStreamRoute: ApiStreamRoute,
   ApiViewerRoute: ApiViewerRoute,

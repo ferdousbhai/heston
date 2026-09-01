@@ -1,6 +1,5 @@
 import { z } from 'zod'
 
-import { type CandlePoint } from '../domain/candle'
 import { EquitySymbolSchema, type InstrumentCatalogItem } from '../domain/instrument'
 import { isValidIsoDate } from '../domain/iso-date'
 import {
@@ -330,7 +329,7 @@ export function tickerFromStoredRecords(
   quote: TastytradeMarketQuoteRecord,
   position: boolean,
   instrument?: JsonObject,
-  yearCloses?: readonly CandlePoint[],
+  yearAgoClose?: number,
 ): Ticker {
   const change = quote.price - quote.previousClose
   return {
@@ -347,7 +346,7 @@ export function tickerFromStoredRecords(
     changePercent: quote.previousClose > 0 ? (change / quote.previousClose) * 100 : 0,
     // Candle history is live-only state; a stored snapshot carries no intraday chart.
     sparkline: [],
-    yearCloses: yearCloses?.length ? [...yearCloses] : undefined,
+    yearAgoClose,
     ivRank: metric?.ivRank,
     ivPercentile: metric?.ivPercentile,
     ivIndex: metric?.ivIndex,

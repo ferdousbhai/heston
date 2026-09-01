@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react'
+import { memo, useMemo, useState, useSyncExternalStore } from 'react'
 import { ArrowDown, ArrowUp, ArrowUpRight, Search, Star } from 'lucide-react'
 import { matchSorter } from 'match-sorter'
 
@@ -45,6 +45,7 @@ import {
   type Watchlist,
 } from '../domain/market'
 import { useCatalystSearch } from '../data/catalyst-refresh'
+import { useYearCandles } from '../data/year-candles'
 import { useSymbolSearch, type SymbolSearchState } from '../data/symbol-search'
 import { CatalystStories } from './catalyst-stories'
 
@@ -88,6 +89,23 @@ function assetLabel(ticker: Pick<Ticker, 'assetType'>): string | undefined {
 type SortDirection = 'asc' | 'desc'
 type SortKey = 'symbol' | 'marketCap' | 'price' | 'year' | 'volume' | 'premium' | 'liquidity'
 
+/** The breakpoint the year column appears at, so nothing loads history a screen cannot show. */
+const WIDE_VIEWPORT = '(min-width: 1120px)'
+
+function useWideViewport(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      // A renderer without matchMedia — jsdom, or a server pass — reports a narrow viewport,
+      // so nothing asks for history behind a column it was never going to draw.
+      const query = window.matchMedia?.(WIDE_VIEWPORT)
+      query?.addEventListener('change', onChange)
+      return () => query?.removeEventListener('change', onChange)
+    },
+    () => window.matchMedia?.(WIDE_VIEWPORT).matches ?? false,
+    () => false,
+  )
+}
+
 const SORT_COLUMNS: { defaultDirection: SortDirection; key: SortKey; label: string }[] = [
   { defaultDirection: 'asc', key: 'symbol', label: 'Instrument' },
   { defaultDirection: 'desc', key: 'marketCap', label: 'Market cap' },
@@ -98,12 +116,14 @@ const SORT_COLUMNS: { defaultDirection: SortDirection; key: SortKey; label: stri
   { defaultDirection: 'desc', key: 'liquidity', label: 'Liquidity' },
 ]
 
-/** Percent move across the cached year, which is what the 1Y column sorts on. */
-function yearReturn(ticker: Pick<Ticker, 'yearCloses'>): number | undefined {
-  const closes = ticker.yearCloses
-  if (!closes || closes.length < 2) return undefined
-  const first = closes[0]!.close
-  return first > 0 ? ((closes[closes.length - 1]!.close - first) / first) * 100 : undefined
+/**
+ * Percent move across the cached year. The anchor rides the snapshot and the current price is
+ * live, so sorting and the label work without the series the chart draws from.
+ */
+function yearReturn(ticker: Pick<Ticker, 'price' | 'yearAgoClose'>): number | undefined {
+  const first = ticker.yearAgoClose
+  if (first === undefined || first <= 0) return undefined
+  return ((ticker.price - first) / first) * 100
 }
 
 /**
@@ -111,8 +131,7 @@ function yearReturn(ticker: Pick<Ticker, 'yearCloses'>): number | undefined {
  * whatever the cache holds, so stretching it to the full width is honest here in a way it is
  * not for a session that has barely started.
  */
-function YearSparkline({ points }: { points: readonly CandlePoint[] }) {
-  const closes = points.map((point) => point.close)
+function YearSparkline({ closes }: { closes: readonly number[] }) {
   const low = Math.min(...closes)
   const span = Math.max(...closes) - low || 1
   const step = closes.length > 1 ? 100 / (closes.length - 1) : 0
@@ -348,6 +367,7 @@ const MarketTickerRow = memo(function MarketTickerRow({
   onSelectTicker,
   onTogglePinned,
   ticker,
+  yearCloses,
 }: {
   catalyst: Catalyst | undefined
   isPinned: boolean
@@ -356,6 +376,7 @@ const MarketTickerRow = memo(function MarketTickerRow({
   onSelectTicker: (symbol: string) => void
   onTogglePinned: (symbol: string) => void
   ticker: Ticker
+  yearCloses?: readonly number[]
 }) {
   const verdict = volatilityVerdict(ticker)
   const copy = verdictCopy[verdict]
@@ -415,12 +436,10 @@ const MarketTickerRow = memo(function MarketTickerRow({
           ? null
           : <Progress className="price-range" aria-label={`${Math.round(rangePosition)}% of 52-week range`} value={rangePosition} />}
       </TableCell>
-      {/* The year series is cached, not streamed, so it is absent until the scheduled refresh
-          has reached this symbol. The column is hidden below the laptop breakpoint. */}
+      {/* The series is fetched on its own, only where the column is drawn, so it is absent
+          until that request answers. The move beside it needs only the snapshot's anchor. */}
       <TableCell className="year-cell">
-        {ticker.yearCloses && ticker.yearCloses.length > 1
-          ? <YearSparkline points={ticker.yearCloses} />
-          : null}
+        {yearCloses && yearCloses.length > 1 ? <YearSparkline closes={yearCloses} /> : null}
         <strong>{formatSignedMetric(yearReturn(ticker), '%')}</strong>
       </TableCell>
       {/* tastytrade reports equity day share volume here, not 24-hour or option-contract
@@ -495,6 +514,9 @@ export function MarketScreen({
   // Looking at a symbol with an empty month asks the server to go and find out. What comes
   // back joins the calendar on this visit rather than waiting for the next snapshot.
   const catalystSearch = useCatalystSearch(selected.symbol, catalysts, now)
+  // The year column only exists at the wide breakpoint, so its history is only fetched there.
+  // A phone never spends a request on a chart it has no room to draw.
+  const yearCloses = useYearCandles(useWideViewport())
   // The search state is a new object on every render, so the merge watches the catalysts a
   // found symbol carried rather than the state that carried them, and holds between searches.
   const looked = search.status === 'found' ? search.lookup.catalysts : undefined
@@ -617,6 +639,7 @@ export function MarketScreen({
                 onSelectTicker={onSelectTicker}
                 onTogglePinned={onTogglePinned}
                 ticker={ticker}
+                yearCloses={yearCloses.get(ticker.symbol)}
               />
             ))}
             {!watchTickers.length && (
