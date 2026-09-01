@@ -46,7 +46,7 @@ import {
   type DanAgentState,
   type PendingAction,
 } from '../domain/agent-chat'
-import { volatilityVerdict, type Ticker } from '../domain/market'
+import { type Ticker } from '../domain/market'
 
 /** The relay delivers text frames; binary frames are not part of the agent protocol. */
 const RelayFrameSchema = z.string()
@@ -398,12 +398,6 @@ export function AgentScreen({
   const resolved = (messageId: string, status: string) => {
     agent.send(JSON.stringify({ messageId, status, type: 'action_resolved' }))
   }
-  const suggestions = [
-    `Why is ${selected.symbol} vol ${volatilityVerdict(selected)}?`,
-    'Show my active positions',
-    'Explain the safest bullish structure',
-  ]
-  const hasUserMessage = state?.messages.some((message) => message.role === 'user')
   const messageGroups = useMemo(() => (state?.messages ?? []).reduce<AgentChatMessage[][]>((groups, message) => {
     const current = groups.at(-1)
     if (current?.[0]?.role === message.role) current.push(message)
@@ -482,7 +476,6 @@ export function AgentScreen({
         </MessageScroller>
       </MessageScrollerProvider>
 
-      {!hasUserMessage && <div className="suggestion-row">{suggestions.map((suggestion) => <Button disabled={!connected} onClick={() => send(suggestion)} key={suggestion} size="sm" type="button" variant="outline">{suggestion}</Button>)}</div>}
       <div className="composer-shell">
         <form className="composer-form" onSubmit={submit}>
           <FieldGroup>

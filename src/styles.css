@@ -424,9 +424,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .action-buttons button:disabled { opacity: .5; }
 .action-status { margin-top: 9px; display: flex; gap: 6px; align-items: center; padding: 9px 11px; color: #bdc5b4; background: rgba(200, 255, 98, .06); font-size: 10px; }
 .agent-runtime-error { margin: 10px 0 22px; padding: 10px 12px; border-left: 2px solid var(--rich); background: rgba(255, 107, 120, .07); color: #dca1a8; font: 11px/1.45 var(--mono); }
-.suggestion-row { display: flex; overflow-x: auto; scrollbar-width: none; gap: 7px; padding: 7px max(14px, calc((100% - 680px) / 2)) 6px; }
 .suggestion-row button { min-height: 34px; flex: 0 0 auto; padding: 0 12px; border: 1px solid var(--hairline); background: var(--surface); color: #a9abb3; font-size: 11px; cursor: pointer; }
-.suggestion-row button:disabled { opacity: .45; }
 .composer-shell { padding: 7px 12px 9px; border-top: 1px solid var(--hairline); background: rgba(13, 14, 19, .94); }
 .chat-composer { width: min(100%, 680px); min-height: 52px; margin: 0 auto; border: 1px solid rgba(255, 255, 255, .11); background: #15171d; display: flex; align-items: flex-end; padding: 5px 5px 5px 13px; }
 .chat-composer:focus-within { border-color: rgba(255, 171, 74, .34); }

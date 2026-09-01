@@ -76,6 +76,12 @@ export class DanAgent extends Agent<AppEnv & Cloudflare.Env, DanAgentState> {
         error: 'The previous run was interrupted before it could finish.',
         status: 'error',
       })
+      return
+    }
+    // The fixed welcome paragraph predates the generated opener. A transcript holding only it
+    // is an empty conversation wearing old copy; clearing it lets the opener take over.
+    if (this.state.messages.length === 1 && this.state.messages[0]?.id === 'welcome') {
+      this.setState({ ...this.state, messages: [] })
     }
   }
 

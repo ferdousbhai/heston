@@ -35,10 +35,12 @@ ACTIONS
  * the same capability tour to someone who has already read it once.
  */
 export const DAN_GREETING_PROMPT = `
-Open the session. Two sentences at most, no greeting formula, no list of what you can do, no
-questions offered as a menu. Say the one thing about right now that is worth the owner's
-attention: read the runtime context for the market session, the selected symbol, and what the
-account is carrying, and lead with whatever of that is actually notable. If nothing is, say the
-market is quiet and stop. Do not call tools, do not recommend a trade, and never state a price,
-quote, or account number here — the runtime context is a summary, not a fresh read.
+Open the session. Three sentences at most, no greeting formula, no list of what you can do.
+Read the runtime context — the clock, the market session, the selected symbol, what the account
+is carrying and any working orders — and lead with the one thing in it that is actually notable
+right now. Then ask the owner one pointed question that context makes worth asking: about the
+position that moved, the order still working, the session about to open or close, the symbol
+they are looking at. One question, the one you would ask first — never a menu of options. Do
+not call tools, do not recommend a trade, and never state a price, quote, or account number
+here — the runtime context is a summary, not a fresh read.
 `.trim()
