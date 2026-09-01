@@ -416,6 +416,48 @@ describe('MarketFeed option Greeks RPC', () => {
     await context.drain()
   })
 
+  it('survives a quiet candle bucket instead of tearing the feed down', async () => {
+    const client = downstream(['SPY'])
+    const context = new FakeContext([client])
+    new MarketFeedCore(context, liveEnvironment())
+    await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(1))
+    const socket = FakeUpstreamWebSocket.instances[0]!
+    socket.open()
+    await context.drain()
+    socket.message({ type: 'SETUP', channel: 0, version: '0.1-test' })
+    await context.drain()
+    socket.message({ type: 'AUTH_STATE', channel: 0, state: 'AUTHORIZED' })
+    await context.drain()
+    socket.message({ type: 'CHANNEL_OPENED', channel: 5, service: 'FEED', parameters: { contract: 'AUTO' } })
+    await context.drain()
+    socket.message({
+      type: 'FEED_CONFIG', channel: 5, aggregationPeriod: 0.25,
+      dataFormat: 'COMPACT', eventFields: { Candle: CANDLE_FIELDS },
+    })
+    await context.drain()
+
+    // A days-long backfill crosses buckets where nothing traded: no close, and a snapshot
+    // boundary marker carries no instant either. Both must be survivable.
+    socket.message({
+      type: 'FEED_DATA',
+      channel: 5,
+      data: ['Candle', [
+        'SPY{=5m,tho=true}', 1_786_629_600_000, 0, 0, 1_786_629_600_000, 1, 0, 0,
+        null, null, null, null, null, null, null, null, null,
+        'SPY{=5m,tho=true}', 0, 0x8, 0, 0, 0, 0, 0,
+        null, null, null, null, null, null, null, null, null,
+      ]],
+    })
+    await context.drain()
+
+    expect(socket.readyState).toBe(FakeUpstreamWebSocket.OPEN)
+    expect(vi.mocked(client.send).mock.calls.some(([frame]) => (
+      JsonObjectSchema.parse(JSON.parse(frame)).state === 'degraded'
+    ))).toBe(false)
+    socket.close()
+    await context.drain()
+  })
+
   it('reconnects when the upstream never completes setup', async () => {
     vi.useFakeTimers()
     const context = new FakeContext([downstream(['SPY'])])

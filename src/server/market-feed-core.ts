@@ -196,8 +196,10 @@ function eventFromRow(type: Exclude<FeedType, 'Greeks'>, row: JsonObject): LiveM
     return { type: 'market', symbol, price: (bid + ask) / 2, bid, ask, timestamp: quotedAt }
   }
   const timestamp = eventTimestamp(row)
-  if (!timestamp) return undefined
   if (type === 'Trade') {
+    // A trade without an instant is malformed; a candle decides for itself below, because it
+    // can legitimately carry none.
+    if (!timestamp) return undefined
     const price = jsonNumber(row.price)
     const change = jsonNumber(row.change)
     // A change field that is present but unreadable breaks the contract; a trade with no
@@ -216,7 +218,12 @@ function eventFromRow(type: Exclude<FeedType, 'Greeks'>, row: JsonObject): LiveM
     || sequence === undefined || sequence < 0 || !Number.isSafeInteger(sequence)
     || eventFlags === undefined || eventFlags < 0 || !Number.isSafeInteger(eventFlags)
     || (candleClose === undefined && !compactValueIsAbsent(row.close))) return undefined
-  if (!(eventFlags & DXLINK_REMOVE_EVENT) && !(candleClose && candleClose > 0)) return undefined
+  // A backfill reaching back days crosses buckets in which nothing traded, and dxFeed marks
+  // snapshot boundaries the same way: no close, sometimes no instant at all. Those are ordinary
+  // frames with nothing to publish. Reading them as a broken contract tore the whole feed down
+  // over a quiet five minutes.
+  if (!timestamp) return null
+  if (!(eventFlags & DXLINK_REMOVE_EVENT) && !(candleClose && candleClose > 0)) return null
   return {
     type: 'market',
     symbol,

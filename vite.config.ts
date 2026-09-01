@@ -11,7 +11,15 @@ function dataDeploymentId(command: 'build' | 'serve'): string {
   if (command === 'serve') return 'development'
   // Workers Builds supplies a fresh UUID for every build, including a rebuild of the
   // same commit. Local production builds need the same deploy-scoped behavior.
-  return process.env.WORKERS_CI_BUILD_UUID?.trim() || randomUUID()
+  const supplied = process.env.WORKERS_CI_BUILD_UUID?.trim()
+  if (supplied) return supplied
+  // One build evaluates this config once per environment, and the client and server
+  // environments can be separate processes. Minting a UUID per call therefore stamped each
+  // bundle with a different id, so every response looked like a newer deployment to the
+  // client and the app never loaded. Publishing the first one back into the environment is
+  // what makes the whole build agree on a single id.
+  process.env.SPICE_BUILD_UUID ||= randomUUID()
+  return process.env.SPICE_BUILD_UUID
 }
 
 const config = defineConfig(({ command }) => ({
