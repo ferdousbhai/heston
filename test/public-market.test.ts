@@ -8,6 +8,7 @@ import {
   unresolvedInstrumentCatalogItem,
 } from '../src/server/instrument-catalog'
 import { ensureInternalWatchlistSeeded, finalizeInternalWatchlist } from '../src/server/internal-watchlist'
+import { MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
 import { marketSnapshotFixture } from './fixtures/market'
 import {
   loadStoredPublicMarketUniverse,
@@ -78,7 +79,10 @@ describe('public market boundary', () => {
     await expect(loadStoredPublicMarketUniverse({ DB: store.database })).rejects.toThrow()
 
     store.sqlite.prepare(`DELETE FROM public_market_universe WHERE id = 'primary'`).run()
-    const symbols = Array.from({ length: 101 }, (_, index) => equitySymbolAt(index))
+    const symbols = Array.from(
+      { length: MAX_WATCHLIST_SYMBOLS + 1 },
+      (_, index) => equitySymbolAt(index),
+    )
     const insert = store.sqlite.prepare(
       `INSERT INTO internal_watchlist_items
         (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
@@ -287,7 +291,7 @@ describe('public market boundary', () => {
     store.close()
   })
 
-  it('reduces a restored seed universe when the owner has no active positions', async () => {
+  it('keeps a restored seed universe whole and pages the market read into broker-sized requests', async () => {
     vi.resetModules()
     const store = await migrationStore()
     const symbols = Array.from({ length: 105 }, (_, index) => equitySymbolAt(index))
@@ -355,7 +359,14 @@ describe('public market boundary', () => {
       .toEqual({ count: 100 })
     expect(JSON.parse(String(store.sqlite.prepare(
       `SELECT payload_json FROM public_market_universe WHERE id = 'primary'`,
-    ).get()?.payload_json)).symbols).toHaveLength(100)
+    ).get()?.payload_json)).symbols).toHaveLength(symbols.length)
+    // A list longer than one broker request is read in pages, so no single URL
+    // has to name every symbol on it.
+    const metricSymbolCounts = fetchMock.mock.calls
+      .map(([input]) => new URL(String(input)))
+      .filter((url) => url.pathname.endsWith('/market-metrics'))
+      .map((url) => (url.searchParams.get('symbols') ?? '').split(',').length)
+    expect(metricSymbolCounts).toEqual([100, 5])
     store.close()
   })
 

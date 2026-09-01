@@ -10,7 +10,7 @@ import {
   tickerCollection,
 } from '../src/data/collections'
 import { mostActiveSymbol } from '../src/domain/market'
-import { MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
+import { MAX_LIVE_STREAM_SYMBOLS, MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
 import { marketSnapshotFixture } from './fixtures/market'
 
 describe('default market focus', () => {
@@ -145,17 +145,21 @@ describe('offline snapshot boundary', () => {
 
 describe('live market subscriptions', () => {
   it('keeps the selected loaded symbol first, drops unloaded symbols, and deduplicates', () => {
-    const loaded = Array.from({ length: MAX_WATCHLIST_SYMBOLS }, (_, index) => `S${index}`)
+    const loaded = Array.from({ length: MAX_LIVE_STREAM_SYMBOLS }, (_, index) => `S${index}`)
     const symbols = selectLiveMarketSymbols('S10', ['S1', 'MISSING', 'S10', ...loaded], loaded)
 
-    expect(symbols).toHaveLength(MAX_WATCHLIST_SYMBOLS)
+    expect(symbols).toHaveLength(MAX_LIVE_STREAM_SYMBOLS)
     expect(symbols.slice(0, 3)).toEqual(['S10', 'S1', 'S0'])
     expect(symbols).not.toContain('MISSING')
   })
 
-  it('rejects a live subscription overflow instead of dropping symbols', () => {
-    const loaded = Array.from({ length: MAX_WATCHLIST_SYMBOLS + 1 }, (_, index) => `S${index}`)
-    expect(() => selectLiveMarketSymbols(undefined, loaded, loaded)).toThrow('too-many-symbols')
+  it('subscribes to the selected symbol first when the watchlist outgrows the stream limit', () => {
+    const loaded = Array.from({ length: MAX_WATCHLIST_SYMBOLS }, (_, index) => `S${index}`)
+    const symbols = selectLiveMarketSymbols('S499', loaded, loaded)
+
+    expect(symbols).toHaveLength(MAX_LIVE_STREAM_SYMBOLS)
+    expect(symbols[0]).toBe('S499')
+    expect(symbols).toContain('S0')
   })
 
   it('keeps the newest quote and recomputes the daily move from the prior close', async () => {

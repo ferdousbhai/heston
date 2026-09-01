@@ -11,6 +11,7 @@ import {
 } from '../domain/json-payload'
 import { EquitySymbolSchema } from '../domain/instrument'
 import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
+import { D1_MAX_BOUND_PARAMETERS } from './d1-limits'
 import { type AppEnv } from './env'
 import { MAX_INSTRUMENT_CATALOG_ITEMS } from './instrument-catalog'
 import { publishInternalWatchlistUniverse } from './public-market-universe'
@@ -454,7 +455,9 @@ function pruneStatement(
   onlyWhileUnfinalized = false,
 ): D1PreparedStatement {
   const boundedLimit = Math.min(MAX_WATCHLIST_SYMBOLS, Math.max(1, Math.trunc(limit)))
-  const priority = normalizedSymbols(prioritySymbols).slice(0, MAX_WATCHLIST_SYMBOLS)
+  // Every priority symbol is a bound parameter, so this list is capped by D1 rather
+  // than by the watchlist: the rest still rank by origin and recency.
+  const priority = normalizedSymbols(prioritySymbols).slice(0, D1_MAX_BOUND_PARAMETERS)
   const dynamicPriority = priority.length
     ? `WHEN symbol IN (${priority.map(() => '?').join(', ')}) THEN 0`
     : ''

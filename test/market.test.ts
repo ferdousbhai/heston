@@ -10,6 +10,7 @@ import {
   PublicMarketSnapshotSchema,
   volatilityVerdict,
 } from '../src/domain/market'
+import { MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
 import { marketSnapshotFixture } from './fixtures/market'
 import {
   equityCandleFromTime,
@@ -166,7 +167,10 @@ describe('tastytrade normalization', () => {
   })
 
   it('rejects a snapshot symbol overflow instead of slicing it', () => {
-    const symbols = Array.from({ length: 101 }, (_, index) => `A${index.toString(36).toUpperCase()}`)
+    const symbols = Array.from(
+      { length: MAX_WATCHLIST_SYMBOLS + 1 },
+      (_, index) => `A${index.toString(36).toUpperCase()}`,
+    )
     expect(() => selectSnapshotSymbols([], symbols, [])).toThrow('too-many-symbols')
   })
 

@@ -13,6 +13,7 @@ import {
   removeInternalWatchlistSymbols,
   selectInternalWatchlistFocus,
 } from '../src/server/internal-watchlist'
+import { MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 
 let store: SqliteD1Store
@@ -219,7 +220,7 @@ describe('one-time tastytrade watchlist seed', () => {
 
   it('prunes only the maintained list and does not repopulate an explicit deletion', async () => {
     const boundedStore = await migrationStore()
-    const symbols = Array.from({ length: 105 }, (_, index) => symbolAt(index))
+    const symbols = Array.from({ length: MAX_WATCHLIST_SYMBOLS + 5 }, (_, index) => symbolAt(index))
     const env = { DB: boundedStore.database }
     await ensureInternalWatchlistSeeded(env, async () => ({
       privatePayload: [{
@@ -230,16 +231,16 @@ describe('one-time tastytrade watchlist seed', () => {
     }))
 
     await expect(finalizeInternalWatchlist(env, [])).resolves.toMatchObject({ finalized: true })
-    expect(await readInternalWatchlist(env)).toHaveLength(100)
+    expect(await readInternalWatchlist(env)).toHaveLength(MAX_WATCHLIST_SYMBOLS)
     expect(boundedStore.sqlite.prepare('SELECT count(*) AS count FROM internal_watchlist_seed_entries').get())
-      .toEqual({ count: 105 })
+      .toEqual({ count: MAX_WATCHLIST_SYMBOLS + 5 })
 
     await removeInternalWatchlistSymbols(env, [symbols[0]!])
-    await expect(pruneInternalWatchlistToFocus(env, 100)).resolves.toMatchObject({
+    await expect(pruneInternalWatchlistToFocus(env, MAX_WATCHLIST_SYMBOLS)).resolves.toMatchObject({
       kept: expect.not.arrayContaining([symbols[0]!]),
       removedCount: 0,
     })
-    expect(await readInternalWatchlist(env)).toHaveLength(99)
+    expect(await readInternalWatchlist(env)).toHaveLength(MAX_WATCHLIST_SYMBOLS - 1)
     boundedStore.close()
   })
 
@@ -311,10 +312,11 @@ describe('one-time tastytrade watchlist seed', () => {
     const env = { DB: store.database }
     await ensureInternalWatchlistSeeded(env, async () => payloads())
     await finalizeInternalWatchlist(env, [])
-    const ownerSymbols = Array.from({ length: 100 }, (_, index) => symbolAt(index))
+    const ownerSymbols = Array.from({ length: MAX_WATCHLIST_SYMBOLS }, (_, index) => symbolAt(index))
     await expect(ensureInternalWatchlistSymbols(env, [...ownerSymbols, 'ZZZ'], 'owner'))
       .rejects.toThrow('too-many-symbols')
-    await expect(ensureInternalWatchlistSymbols(env, ownerSymbols, 'owner')).resolves.toHaveLength(100)
+    await expect(ensureInternalWatchlistSymbols(env, ownerSymbols, 'owner'))
+      .resolves.toHaveLength(MAX_WATCHLIST_SYMBOLS)
 
     await expect(ensureInternalWatchlistSymbols(env, ['A'], 'scheduled-research'))
       .resolves.toEqual(['A'])
@@ -324,7 +326,7 @@ describe('one-time tastytrade watchlist seed', () => {
       .resolves.toEqual([])
 
     const items = await readInternalWatchlist(env)
-    expect(items).toHaveLength(100)
+    expect(items).toHaveLength(MAX_WATCHLIST_SYMBOLS)
     expect(items.find((item) => item.symbol === 'A')?.origin).toBe('owner')
     expect(items.some((item) => item.symbol === 'ZZZ')).toBe(false)
     const publicRow = store.sqlite.prepare(

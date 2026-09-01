@@ -16,9 +16,11 @@ import {
 import { type AppEnv } from './env'
 import { D1_MAX_BOUND_PARAMETERS, rowsPerD1Statement } from './d1-limits'
 
-const CATALOG_REFRESH_CHUNK_SIZE = MAX_WATCHLIST_SYMBOLS
+// One refresh chunk: the symbols a loader may carry in a single provider request, and
+// the rows one D1 batch persists. The stored catalog is far larger than either.
+const CATALOG_REFRESH_CHUNK_SIZE = 100
 const SQL_SYMBOL_CHUNK_SIZE = D1_MAX_BOUND_PARAMETERS
-// The one-time seed can retain far more provenance than the live 100-name list;
+// The one-time seed can retain far more provenance than the live watchlist;
 // this rejects an unexpected provider fan-out before it consumes a Worker isolate.
 export const MAX_INSTRUMENT_CATALOG_ITEMS = 10_000
 const CATALOG_BOUND_PARAMETERS_PER_ROW = 32

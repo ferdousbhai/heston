@@ -26,6 +26,7 @@ import {
   jsonObject,
   jsonObjectOrEmpty,
   jsonText,
+  type JsonObject,
   type JsonValue,
 } from '../domain/json-payload'
 import { readStoredSecret } from './secrets'
@@ -58,6 +59,10 @@ import { readLatestResearchBrief } from './research-brief-store'
 export { equityCandleFromTime, liveTickerFromRecords, selectSnapshotSymbols }
 
 const USER_AGENT = 'Spice/0.1'
+// tastytrade names every requested symbol in the query string. This is the symbol count
+// one such request carries, and it is deliberately independent of how long the
+// watchlist grows: the list is paged into requests, never sent as one URL.
+const BROKER_SYMBOL_CHUNK_SIZE = 100
 // Provider JSON is buffered for strict parsing; stay within the Worker isolate memory budget
 // while allowing the catalog endpoints, which are substantially larger than normal reads.
 const MAX_TASTYTRADE_RESPONSE_BYTES = 16 * 1024 * 1024
@@ -236,18 +241,35 @@ type MarketSnapshotOptions = {
   symbols?: readonly string[]
 }
 
+/** Both market reads name every symbol in the query string, so a long watchlist is
+ *  fetched in request-sized chunks rather than in one URL the provider would reject. */
+async function loadMarketRows(
+  env: AppEnv,
+  symbols: readonly string[],
+): Promise<{ metrics: JsonObject[]; quotes: JsonObject[] }> {
+  const metrics: JsonObject[] = []
+  const quotes: JsonObject[] = []
+  for (let start = 0; start < symbols.length; start += BROKER_SYMBOL_CHUNK_SIZE) {
+    const chunk = symbols.slice(start, start + BROKER_SYMBOL_CHUNK_SIZE)
+    const metricQuery = chunk.map(encodeURIComponent).join(',')
+    const marketDataQuery = chunk.map((symbol) => `equity=${encodeURIComponent(symbol)}`).join('&')
+    const [metricsPayload, marketDataPayload] = await Promise.all([
+      tastyRequest(env, `/market-metrics?symbols=${metricQuery}`),
+      tastyRequest(env, `/market-data/by-type?${marketDataQuery}`),
+    ])
+    metrics.push(...strictTastytradeRows(metricsPayload, 'TastytradeMetrics'))
+    quotes.push(...strictTastytradeRows(marketDataPayload, 'TastytradeMarketData'))
+  }
+  return { metrics, quotes }
+}
+
 async function loadMarketFacts(
   env: AppEnv,
   symbols: readonly string[],
   positionSymbols: ReadonlySet<string>,
 ): Promise<Pick<MarketSnapshot, 'catalysts' | 'tickers'>> {
-  const metricQuery = symbols.map(encodeURIComponent).join(',')
-  const marketDataQuery = symbols.map((symbol) => `equity=${encodeURIComponent(symbol)}`).join('&')
-  const [[metricsPayload, marketDataPayload], instrumentCatalog] = await Promise.all([
-    Promise.all([
-      symbols.length ? tastyRequest(env, `/market-metrics?symbols=${metricQuery}`) : Promise.resolve([]),
-      symbols.length ? tastyRequest(env, `/market-data/by-type?${marketDataQuery}`) : Promise.resolve([]),
-    ]),
+  const [{ metrics, quotes }, instrumentCatalog] = await Promise.all([
+    loadMarketRows(env, symbols),
     readInstrumentCatalog(env, symbols),
   ])
   const metrics = strictTastytradeRows(metricsPayload, 'TastytradeMetrics')
@@ -336,7 +358,7 @@ async function internalInstrumentCatalogChunk(
   if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('InstrumentCatalog:invalid-offset')
   const symbols = await readInternalWatchlistCatalogCandidates(env)
   if (offset > symbols.length) throw new Error('InstrumentCatalog:invalid-offset')
-  const chunk = symbols.slice(offset, offset + MAX_WATCHLIST_SYMBOLS)
+  const chunk = symbols.slice(offset, offset + BROKER_SYMBOL_CHUNK_SIZE)
   const loaded = await loadTastytradeInstrumentCatalog(env, chunk, now)
   if (persist) {
     await persistInstrumentCatalog(env, [

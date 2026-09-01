@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { CandlePointSchema, MAX_INTRADAY_CANDLES } from '../domain/candle'
 import { EquitySymbolSchema } from '../domain/instrument'
 import { jsonNumber, type JsonObject } from '../domain/json-payload'
-import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
+import { MAX_LIVE_STREAM_SYMBOLS } from '../domain/watchlist'
 
 export const DXLINK_TX_PENDING = 0x1
 export const DXLINK_REMOVE_EVENT = 0x2
@@ -15,7 +15,7 @@ const MarketSymbolSchema = EquitySymbolSchema
 
 export const MarketFeedSymbolsSchema = z.array(MarketSymbolSchema)
   .min(1)
-  .max(MAX_WATCHLIST_SYMBOLS)
+  .max(MAX_LIVE_STREAM_SYMBOLS)
 
 export const LiveMarketEventSchema = z.object({
   type: z.literal('market'),

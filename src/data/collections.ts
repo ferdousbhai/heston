@@ -22,7 +22,8 @@ import {
   type MarketSnapshot,
   type Ticker,
 } from '../domain/market'
-import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
+import { MAX_FAVORITE_SYMBOLS } from '../domain/favorites'
+import { MAX_LIVE_STREAM_SYMBOLS } from '../domain/watchlist'
 
 // One versioned row now commits the audience and complete server snapshot together.
 // Earlier versions spread one snapshot across five independently persisted collections.
@@ -35,7 +36,7 @@ const PreferenceSchema = z.object({
   favoriteStageVersion: z.string().uuid().optional(),
   favoriteUserId: z.string().min(1).max(256).optional(),
   id: z.literal('primary'),
-  pinnedSymbols: z.array(EquitySymbolSchema).max(MAX_WATCHLIST_SYMBOLS),
+  pinnedSymbols: z.array(EquitySymbolSchema).max(MAX_FAVORITE_SYMBOLS),
   selectedByUser: z.boolean().optional(),
   selectedSymbol: z.string(),
   selectedWatchlistId: z.string(),
@@ -99,10 +100,11 @@ export function selectLiveMarketSymbols(
   loadedSymbols: Iterable<string>,
 ): string[] {
   const loaded = new Set(loadedSymbols)
-  const symbols = [...new Set([...(selectedSymbol ? [selectedSymbol] : []), ...watchlistSymbols])]
+  // The watchlist may hold more names than one browser should subscribe to. The
+  // selected symbol leads, so the row the reader is actually reading always streams.
+  return [...new Set([...(selectedSymbol ? [selectedSymbol] : []), ...watchlistSymbols])]
     .filter((symbol) => loaded.has(symbol))
-  if (symbols.length > MAX_WATCHLIST_SYMBOLS) throw new Error('LiveMarket:too-many-symbols')
-  return symbols
+    .slice(0, MAX_LIVE_STREAM_SYMBOLS)
 }
 
 async function replaceLiveTickers(
