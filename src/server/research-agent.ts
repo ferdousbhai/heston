@@ -55,6 +55,8 @@ const MAX_RESPONSE_BYTES = 900_000
 // Cloudflare Workflows persists a non-stream step result up to 1 MiB. The margin covers the
 // difference between the bytes read from the provider and the bytes the engine stores.
 const MAX_STEP_RESULT_BYTES = 1_000_000
+// Above the longest legitimate model turn observed in production; a call this old is stalled.
+const MODEL_TURN_TIMEOUT_MS = 300_000
 // The daily surface is intentionally selective, not a screener dump.
 const MAX_DAILY_RECOMMENDATIONS = 3
 // A refused tool call costs one provider turn, so a handful of corrections is affordable
@@ -550,7 +552,13 @@ function grokStream(
               }),
               'Content-Type': 'application/json',
             },
-            signal: options?.signal,
+            // Twice a turn has returned 200 and then stalled mid-body until the engine killed
+            // the step minutes later with its opaque internal error. The timeout covers the
+            // body read too, so a stall becomes a named failure the step retries — sized above
+            // the longest legitimate turn observed (233s of reasoning), not above patience.
+            signal: options?.signal
+              ? AbortSignal.any([options.signal, AbortSignal.timeout(MODEL_TURN_TIMEOUT_MS)])
+              : AbortSignal.timeout(MODEL_TURN_TIMEOUT_MS),
             body: JSON.stringify({
               model: model.id,
               include: ['no_inline_citations'],
