@@ -24,10 +24,13 @@ export class DailyResearchWorkflow extends WorkflowEntrypoint<AppEnv, DailyResea
       }
       const result = step.do(
         `${++call}-${name}`,
-        // A repeated model or provider turn is a different research run. Keep the
-        // original failure for AI Gateway inspection instead of silently paying for
-        // and accepting a second answer.
-        { retries: { delay: 0, limit: 0 } },
+        // Refusing retries was defending the wrong thing: a step that succeeded is never
+        // re-run, so a retry only ever follows a failure, where nothing was accepted and
+        // nothing was paid for twice on purpose. The engine reports its own transient faults
+        // as an opaque internal error, and one of those was enough to discard nine turns of
+        // paid research and the day's output. The original failure still reaches the AI
+        // Gateway log either way, and a deterministic failure simply fails three times.
+        { retries: { backoff: 'exponential', delay: '10 seconds', limit: 2 } },
         execute,
       )
       // SAFETY: Workflow replay preserves the exact value returned by this generic task.

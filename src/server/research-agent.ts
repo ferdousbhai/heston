@@ -52,6 +52,9 @@ import { zodTypeBoxSchema } from './zod-typebox'
 
 // Workflow step results must remain below Cloudflare's durable 1 MiB output limit.
 const MAX_RESPONSE_BYTES = 900_000
+// Cloudflare Workflows persists a non-stream step result up to 1 MiB. The margin covers the
+// difference between the bytes read from the provider and the bytes the engine stores.
+const MAX_STEP_RESULT_BYTES = 1_000_000
 // The daily surface is intentionally selective, not a screener dump.
 const MAX_DAILY_RECOMMENDATIONS = 3
 // A refused tool call costs one provider turn, so a handful of corrections is affordable
@@ -592,7 +595,21 @@ function grokStream(
             await response.body?.cancel()
             throw new Error(`DailyResearchAgentProvider:${response.status}`)
           }
-          return readBoundedJson(response, MAX_RESPONSE_BYTES, 'DailyResearchAgentProvider')
+          const payload = await readBoundedJson(response, MAX_RESPONSE_BYTES, 'DailyResearchAgentProvider')
+          // Only these two are ever read: `status` gates completion, and `output` carries the
+          // turn's items, which are fed back verbatim as the next turn's input. The rest of the
+          // envelope — usage, model, id — is persisted as durable step state for nobody. The
+          // projection happens inside the step, so what is stored and what replay returns are
+          // the same value by construction; the interior of `output` is never touched, because
+          // the provider needs its reasoning and search items intact to continue the thread.
+          const projected = { output: jsonObjectOrEmpty(payload).output, status: jsonObject(payload)?.status }
+          // The engine reports its own limit as an opaque internal error, minutes in and after
+          // the turn is paid for. Naming it here means a run that outgrows the step fails where
+          // the size is actually known.
+          if (JSON.stringify(projected).length > MAX_STEP_RESULT_BYTES) {
+            throw new Error('DailyResearchAgentProvider:step-result-too-large')
+          }
+          return projected
         }
         const turn = capture.providerTurns + 1
         const payload = request.runStep
@@ -641,6 +658,11 @@ export async function runDailyResearchAgent(
   }
   let toolCall = 0
   const workflowStep = request.runStep
+  // Step identity is its name, so the counter must be assigned in the same order on replay as
+  // it was live. That holds only because the dispatcher calls this synchronously, once per tool
+  // call, at dispatch. An `await` before the call, or a second call inside a tool, would let a
+  // replay — where earlier steps resolve instantly — interleave differently, shift every later
+  // name, and make the engine re-execute steps it thinks are new, side effects and all.
   const runToolStep = workflowStep
     ? <T>(name: string, task: () => Promise<T>): Promise<T> => workflowStep(
         `tool-${++toolCall}-${name}`,
