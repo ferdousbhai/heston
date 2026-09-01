@@ -6,6 +6,7 @@ import {
   hydrateCollections,
   offlineSnapshotCollection,
   preferenceCollection,
+  previewPublicSnapshot,
   OFFLINE_SNAPSHOT_STORAGE_KEY,
   OFFLINE_SNAPSHOT_VERSION,
   restoreOfflineSnapshot,
@@ -13,6 +14,7 @@ import {
   selectLiveMarketSymbols,
   tickerCollection,
 } from '../src/data/collections'
+import { audienceMarketView } from '../src/data/use-audience-market'
 import { mostActiveSymbol } from '../src/domain/market'
 import { MAX_LIVE_STREAM_SYMBOLS, MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
 import { marketSnapshotFixture } from './fixtures/market'
@@ -227,6 +229,24 @@ describe('live market subscriptions', () => {
       price: original.price + 10,
       updatedAt: timestamp,
     })
+  })
+
+  it('draws a visitor\'s cache during the session check but never an owner\'s', async () => {
+    const snapshot = marketSnapshotFixture()
+    await hydrateCollections(snapshot, 'public')
+    await previewPublicSnapshot()
+    expect(tickerCollection.size).toBeGreaterThan(0)
+
+    // An owner record must wait for the check: on a shared device the person looking may have
+    // signed out, and the audience tag is what keeps the last session out of their view. The
+    // preview leaves the record for the real restore rather than consuming or clearing it.
+    await hydrateCollections(snapshot, 'owner')
+    await previewPublicSnapshot()
+    const stored = offlineSnapshotCollection.get('snapshot')
+    expect(stored?.audience).toBe('owner')
+    // Nothing owner-tagged is renderable to a viewer the check has not claimed yet.
+    expect(audienceMarketView('public', stored ? [stored] : [], [...tickerCollection.values()]).snapshot)
+      .toBeUndefined()
   })
 
   it('keeps a stored snapshot that a later session check will claim', async () => {

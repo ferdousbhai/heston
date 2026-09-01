@@ -7,6 +7,7 @@ import { DeploymentMismatchError, reloadForDeployment } from './deployment'
 import {
   offlineSnapshotCollection,
   preferenceCollection,
+  previewPublicSnapshot,
   restoreOfflineSnapshot,
   selectTicker,
   syncFromCloud,
@@ -105,6 +106,13 @@ export function useAudienceMarket(audience: SnapshotAudience | undefined) {
       setWarning(undefined)
     }
   }, [synchronize])
+
+  // A visitor's own cached market has no bearing on who they turn out to be, so it is drawn
+  // while the session check runs. An owner's cache waits for the answer.
+  useEffect(() => {
+    if (audience) return
+    void previewPublicSnapshot().catch(() => undefined)
+  }, [audience])
 
   useEffect(() => {
     if (!audience) return

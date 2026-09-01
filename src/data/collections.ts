@@ -281,6 +281,25 @@ async function restoreOfflineSnapshotImmediately(audience: SnapshotAudience): Pr
   await replaceLiveTickers([], true)
 }
 
+async function previewPublicSnapshotImmediately(): Promise<void> {
+  await preloadSnapshotCollections()
+  const record = offlineSnapshotCollection.get('snapshot')
+  // Only a public record may be drawn before the session check names the viewer. An owner
+  // record is the one thing that must wait: on a shared device the person looking may have
+  // signed out, and the audience tag exists so they never see what the last session held.
+  if (record?.audience !== 'public') return
+  pendingCandleSnapshots.clear()
+  await replaceLiveTickers(record.snapshot.tickers, true)
+}
+
+/**
+ * Draw what a visitor may already have while the session check runs, so an anonymous reader
+ * is not made to wait on a question that has no bearing on what they can see.
+ */
+export function previewPublicSnapshot(): Promise<void> {
+  return queueSnapshotOperation(previewPublicSnapshotImmediately)
+}
+
 export function restoreOfflineSnapshot(audience: SnapshotAudience = 'owner'): Promise<void> {
   return queueSnapshotOperation(() => restoreOfflineSnapshotImmediately(audience))
 }
