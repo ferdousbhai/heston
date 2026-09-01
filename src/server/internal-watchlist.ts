@@ -54,6 +54,9 @@ const MAX_SEED_MEMBERSHIPS_PER_SYMBOL = 2 * MAX_SOURCE_LISTS_PER_KIND
 const SymbolSchema = EquitySymbolSchema
 const INTERNAL_WATCHLIST_ORIGINS = [
   'tastytrade-seed',
+  // A reader's lookup is the weakest live provenance: any other origin overwrites it,
+  // and it overwrites none, so a searched symbol can never outrank a researched one.
+  'visitor-search',
   'scheduled-research',
   'agent-discussion',
   'position-sync',
@@ -481,7 +484,7 @@ function pruneStatement(
        LEFT JOIN volume_symbols v ON v.symbol = i.symbol
      )
      DELETE FROM internal_watchlist_items
-     WHERE origin = 'tastytrade-seed'
+     WHERE origin IN ('tastytrade-seed', 'visitor-search')
        ${onlyWhileUnfinalized ? `AND EXISTS (
          SELECT 1 FROM internal_watchlist_seed
          WHERE id = 'primary' AND status = 'ready' AND finalized_at IS NULL
@@ -491,6 +494,7 @@ function pruneStatement(
        ORDER BY CASE
          ${dynamicPriority}
          WHEN origin = 'owner' THEN 1
+         WHEN origin = 'visitor-search' THEN 5
          WHEN origin <> 'tastytrade-seed' THEN 2
          WHEN private_member THEN 3
          WHEN volume_rank IS NOT NULL THEN 4
@@ -715,11 +719,15 @@ export function selectInternalWatchlistFocus(
     ? 0
     : item.origin === 'owner'
       ? 1
-      : item.origin !== 'tastytrade-seed'
-        ? 2
-        : hasPrivateSeedMembership(item)
-          ? 3
-          : volumeRank.has(item.symbol) ? 4 : 5
+      : item.origin === 'visitor-search'
+        // A reader's lookup earns its place on the list but yields to every curated
+        // name on it, so trimming the list back drops the searches first.
+        ? 5
+        : item.origin !== 'tastytrade-seed'
+          ? 2
+          : hasPrivateSeedMembership(item)
+            ? 3
+            : volumeRank.has(item.symbol) ? 4 : 6
   return [...items]
     .sort((left, right) => priority(left) - priority(right)
       || (volumeRank.get(left.symbol) ?? Number.MAX_SAFE_INTEGER)

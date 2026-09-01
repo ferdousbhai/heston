@@ -41,6 +41,8 @@ import {
   type VolatilityVerdict,
   type Watchlist,
 } from '../domain/market'
+import { useCatalystSearch } from '../data/catalyst-refresh'
+import { useSymbolSearch, type SymbolSearchState } from '../data/symbol-search'
 import { CatalystStories } from './catalyst-stories'
 
 const verdictCopy = {
@@ -168,6 +170,14 @@ function focusTape(ticker: Ticker): Array<[label: string, value: string]> {
     if (value !== undefined) tape.push([label, value])
   }
   return tape
+}
+
+/** What an empty table says depends on how far the search got, not just that it found nothing. */
+function searchEmptyMessage(query: string, status: SymbolSearchState['status']): string {
+  if (!query) return 'No option metrics are available for this list.'
+  if (status === 'searching') return `Searching every listed symbol for "${query}"\u2026`
+  if (status === 'failed') return 'Symbol search is unavailable. Showing the loaded list only.'
+  return 'No listed symbol matches your search.'
 }
 
 const CATALYST_SCOPE = `${CATALYST_KIND_NAMES.slice(0, -1).join(', ')} and ${CATALYST_KIND_NAMES.at(-1)}`
@@ -374,12 +384,20 @@ export function MarketScreen({
   const [query, setQuery] = useState('')
   const pinned = new Set(pinnedSymbols)
   const trimmedQuery = query.trim()
-  const universe = trimmedQuery
+  const matched = trimmedQuery
     ? matchSorter(tickers, trimmedQuery, { keys: ['symbol', 'name'] })
     : activeWatchlist.symbols.flatMap((symbol) => {
         const ticker = tickers.find((candidate) => candidate.symbol === symbol)
         return ticker ? [ticker] : []
       })
+  // The loaded list is a slice of the market, so a search it cannot answer is put to the
+  // catalog instead of being reported as nothing. What comes back has joined the
+  // maintained list, so it is an ordinary row that later snapshots keep carrying.
+  const unlisted = Boolean(trimmedQuery) && !matched.length
+  const search = useSymbolSearch(trimmedQuery, unlisted)
+  const universe = unlisted && search.status === 'found'
+    ? [{ ...search.lookup.ticker, position: false }]
+    : matched
   const watchTickers = [...universe].sort((left, right) =>
     Number(pinned.has(right.symbol)) - Number(pinned.has(left.symbol))
     || compareBySort(left, right, sort)
@@ -496,7 +514,7 @@ export function MarketScreen({
                   <Empty className="watch-empty">
                     <EmptyHeader>
                       <EmptyDescription>
-                        {trimmedQuery ? 'No loaded symbol matches your search.' : 'No option metrics are available for this list.'}
+                        {searchEmptyMessage(trimmedQuery, search.status)}
                       </EmptyDescription>
                     </EmptyHeader>
                   </Empty>

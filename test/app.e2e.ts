@@ -131,6 +131,34 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
       body: JSON.stringify(snapshot),
     })
   })
+  // The loaded list is a slice of the market: a search it cannot answer reaches the
+  // server, which resolves the symbol and admits it to the maintained list.
+  const symbolSearches: string[] = []
+  await page.route('**/api/public-symbol-search*', (route) => {
+    const query = new URL(route.request().url()).searchParams.get('q') ?? ''
+    symbolSearches.push(query)
+    if (!query.toUpperCase().startsWith('TQQQ')) {
+      return route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"none"}' })
+    }
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        catalysts: [],
+        watchlisted: true,
+        ticker: {
+          symbol: 'TQQQ', name: 'ProShares UltraPro QQQ', assetType: 'etf',
+          price: 92.4, change: 1.2, changePercent: 1.32, sparkline: [],
+          ivRank: 41, ivPercentile: 47, ivIndex: 52.6,
+          earningsDate: null, updatedAt: '2026-09-01T13:31:00.000Z',
+        },
+      }),
+    })
+  })
+  const catalystRefreshes: string[] = []
+  await page.route('**/api/public-catalyst-refresh', async (route) => {
+    catalystRefreshes.push(String(route.request().postDataJSON().symbol))
+    await route.fulfill({ contentType: 'application/json', body: '{"ran":true,"catalystCount":0}' })
+  })
   const ownerFavorites = new Set<string>()
   await page.route('**/api/favorites', async (route) => {
     if (route.request().method() === 'POST') {
@@ -190,7 +218,20 @@ test('mobile market, research, search, sorting, and agent flows remain coherent'
   await page.reload()
   await expect(selectedSymbol).toHaveText('INTC')
   await search.fill('zzzz')
-  await expect(page.getByText('No loaded symbol matches your search.')).toBeVisible()
+  await expect(page.getByText('No listed symbol matches your search.')).toBeVisible()
+
+  // A symbol outside the loaded list arrives as an ordinary row, and favoriting it is
+  // what asks the server to seed its catalysts.
+  await search.fill('TQQQ')
+  const searchedRow = page.getByRole('button', { name: /TQQQ, ProShares UltraPro QQQ/ })
+  await expect(searchedRow).toBeVisible()
+  await page.getByRole('button', { name: 'Pin TQQQ' }).click()
+  // Attention is what asks: the two favorites pinned earlier, then INTC — selected above
+  // with nothing on its calendar, and asked for again after the reload that restored it —
+  // and finally the searched symbol as it is favorited. The server's own window decides
+  // which of these actually buys a search.
+  await expect.poll(() => catalystRefreshes).toEqual(['NVDA', 'TSLA', 'INTC', 'INTC', 'TQQQ'])
+  expect(symbolSearches).toEqual(['zzzz', 'TQQQ'])
   await search.fill('')
 
   const rows = page.locator('.premium-data-table tbody tr')

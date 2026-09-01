@@ -17,8 +17,10 @@ import { Route as SupportRouteImport } from './routes/support'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as ApiFavoritesRouteImport } from './routes/api.favorites'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
-import { Route as ApiPublicResearchBriefRouteImport } from './routes/api.public-research-brief'
+import { Route as ApiPublicCatalystRefreshRouteImport } from './routes/api.public-catalyst-refresh'
+import { Route as ApiPublicDailyRecommendationsRouteImport } from './routes/api.public-daily-recommendations'
 import { Route as ApiPublicSnapshotRouteImport } from './routes/api.public-snapshot'
+import { Route as ApiPublicSymbolSearchRouteImport } from './routes/api.public-symbol-search'
 import { Route as ApiSnapshotRouteImport } from './routes/api.snapshot'
 import { Route as ApiStreamRouteImport } from './routes/api.stream'
 import { Route as ApiViewerRouteImport } from './routes/api.viewer'
@@ -66,14 +68,26 @@ const ApiHealthRoute = ApiHealthRouteImport.update({
   path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiPublicResearchBriefRoute = ApiPublicResearchBriefRouteImport.update({
-  id: '/api/public-research-brief',
-  path: '/api/public-research-brief',
-  getParentRoute: () => rootRouteImport,
-} as any)
+const ApiPublicCatalystRefreshRoute =
+  ApiPublicCatalystRefreshRouteImport.update({
+    id: '/api/public-catalyst-refresh',
+    path: '/api/public-catalyst-refresh',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicDailyRecommendationsRoute =
+  ApiPublicDailyRecommendationsRouteImport.update({
+    id: '/api/public-daily-recommendations',
+    path: '/api/public-daily-recommendations',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicSnapshotRoute = ApiPublicSnapshotRouteImport.update({
   id: '/api/public-snapshot',
   path: '/api/public-snapshot',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicSymbolSearchRoute = ApiPublicSymbolSearchRouteImport.update({
+  id: '/api/public-symbol-search',
+  path: '/api/public-symbol-search',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiSnapshotRoute = ApiSnapshotRouteImport.update({
@@ -116,8 +130,10 @@ export interface FileRoutesByFullPath {
   '/terms': typeof TermsRoute
   '/api/favorites': typeof ApiFavoritesRoute
   '/api/health': typeof ApiHealthRoute
-  '/api/public-research-brief': typeof ApiPublicResearchBriefRoute
+  '/api/public-catalyst-refresh': typeof ApiPublicCatalystRefreshRoute
+  '/api/public-daily-recommendations': typeof ApiPublicDailyRecommendationsRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
+  '/api/public-symbol-search': typeof ApiPublicSymbolSearchRoute
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
   '/api/viewer': typeof ApiViewerRoute
@@ -134,8 +150,10 @@ export interface FileRoutesByTo {
   '/terms': typeof TermsRoute
   '/api/favorites': typeof ApiFavoritesRoute
   '/api/health': typeof ApiHealthRoute
-  '/api/public-research-brief': typeof ApiPublicResearchBriefRoute
+  '/api/public-catalyst-refresh': typeof ApiPublicCatalystRefreshRoute
+  '/api/public-daily-recommendations': typeof ApiPublicDailyRecommendationsRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
+  '/api/public-symbol-search': typeof ApiPublicSymbolSearchRoute
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
   '/api/viewer': typeof ApiViewerRoute
@@ -153,8 +171,10 @@ export interface FileRoutesById {
   '/terms': typeof TermsRoute
   '/api/favorites': typeof ApiFavoritesRoute
   '/api/health': typeof ApiHealthRoute
-  '/api/public-research-brief': typeof ApiPublicResearchBriefRoute
+  '/api/public-catalyst-refresh': typeof ApiPublicCatalystRefreshRoute
+  '/api/public-daily-recommendations': typeof ApiPublicDailyRecommendationsRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
+  '/api/public-symbol-search': typeof ApiPublicSymbolSearchRoute
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
   '/api/viewer': typeof ApiViewerRoute
@@ -173,8 +193,10 @@ export interface FileRouteTypes {
     | '/terms'
     | '/api/favorites'
     | '/api/health'
-    | '/api/public-research-brief'
+    | '/api/public-catalyst-refresh'
+    | '/api/public-daily-recommendations'
     | '/api/public-snapshot'
+    | '/api/public-symbol-search'
     | '/api/snapshot'
     | '/api/stream'
     | '/api/viewer'
@@ -191,8 +213,10 @@ export interface FileRouteTypes {
     | '/terms'
     | '/api/favorites'
     | '/api/health'
-    | '/api/public-research-brief'
+    | '/api/public-catalyst-refresh'
+    | '/api/public-daily-recommendations'
     | '/api/public-snapshot'
+    | '/api/public-symbol-search'
     | '/api/snapshot'
     | '/api/stream'
     | '/api/viewer'
@@ -209,8 +233,10 @@ export interface FileRouteTypes {
     | '/terms'
     | '/api/favorites'
     | '/api/health'
-    | '/api/public-research-brief'
+    | '/api/public-catalyst-refresh'
+    | '/api/public-daily-recommendations'
     | '/api/public-snapshot'
+    | '/api/public-symbol-search'
     | '/api/snapshot'
     | '/api/stream'
     | '/api/viewer'
@@ -228,8 +254,10 @@ export interface RootRouteChildren {
   TermsRoute: typeof TermsRoute
   ApiFavoritesRoute: typeof ApiFavoritesRoute
   ApiHealthRoute: typeof ApiHealthRoute
-  ApiPublicResearchBriefRoute: typeof ApiPublicResearchBriefRoute
+  ApiPublicCatalystRefreshRoute: typeof ApiPublicCatalystRefreshRoute
+  ApiPublicDailyRecommendationsRoute: typeof ApiPublicDailyRecommendationsRoute
   ApiPublicSnapshotRoute: typeof ApiPublicSnapshotRoute
+  ApiPublicSymbolSearchRoute: typeof ApiPublicSymbolSearchRoute
   ApiSnapshotRoute: typeof ApiSnapshotRoute
   ApiStreamRoute: typeof ApiStreamRoute
   ApiViewerRoute: typeof ApiViewerRoute
@@ -296,11 +324,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public-research-brief': {
-      id: '/api/public-research-brief'
-      path: '/api/public-research-brief'
-      fullPath: '/api/public-research-brief'
-      preLoaderRoute: typeof ApiPublicResearchBriefRouteImport
+    '/api/public-catalyst-refresh': {
+      id: '/api/public-catalyst-refresh'
+      path: '/api/public-catalyst-refresh'
+      fullPath: '/api/public-catalyst-refresh'
+      preLoaderRoute: typeof ApiPublicCatalystRefreshRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public-daily-recommendations': {
+      id: '/api/public-daily-recommendations'
+      path: '/api/public-daily-recommendations'
+      fullPath: '/api/public-daily-recommendations'
+      preLoaderRoute: typeof ApiPublicDailyRecommendationsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public-snapshot': {
@@ -308,6 +343,13 @@ declare module '@tanstack/react-router' {
       path: '/api/public-snapshot'
       fullPath: '/api/public-snapshot'
       preLoaderRoute: typeof ApiPublicSnapshotRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public-symbol-search': {
+      id: '/api/public-symbol-search'
+      path: '/api/public-symbol-search'
+      fullPath: '/api/public-symbol-search'
+      preLoaderRoute: typeof ApiPublicSymbolSearchRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/snapshot': {
@@ -364,8 +406,10 @@ const rootRouteChildren: RootRouteChildren = {
   TermsRoute: TermsRoute,
   ApiFavoritesRoute: ApiFavoritesRoute,
   ApiHealthRoute: ApiHealthRoute,
-  ApiPublicResearchBriefRoute: ApiPublicResearchBriefRoute,
+  ApiPublicCatalystRefreshRoute: ApiPublicCatalystRefreshRoute,
+  ApiPublicDailyRecommendationsRoute: ApiPublicDailyRecommendationsRoute,
   ApiPublicSnapshotRoute: ApiPublicSnapshotRoute,
+  ApiPublicSymbolSearchRoute: ApiPublicSymbolSearchRoute,
   ApiSnapshotRoute: ApiSnapshotRoute,
   ApiStreamRoute: ApiStreamRoute,
   ApiViewerRoute: ApiViewerRoute,

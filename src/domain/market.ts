@@ -131,6 +131,20 @@ export const PublicMarketSnapshotSchema = z.strictObject({
   research: ResearchBriefSchema.optional(),
 })
 
+/**
+ * One symbol the loaded watchlist did not carry, resolved on demand. It arrives with the
+ * same rows a snapshot ticker has, so the market table renders it as an ordinary row
+ * rather than as a second kind of thing. `watchlisted` reports whether the maintained
+ * list kept it, which is what decides if it is still here on the next snapshot.
+ */
+export const PublicSymbolLookupSchema = z.strictObject({
+  catalysts: z.array(CatalystSchema),
+  ticker: PublicTickerSchema,
+  watchlisted: z.boolean(),
+})
+
+export type PublicSymbolLookup = z.infer<typeof PublicSymbolLookupSchema>
+
 export type Watchlist = z.infer<typeof WatchlistSchema>
 export type Ticker = z.infer<typeof TickerSchema>
 export type IvTermStructure = z.infer<typeof IvTermStructureSchema>

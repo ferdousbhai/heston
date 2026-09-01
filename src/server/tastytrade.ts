@@ -7,6 +7,7 @@ import {
   type PublicMarketSnapshot,
   type Watchlist,
   publicTickerFromTicker,
+  type PublicSymbolLookup,
 } from '../domain/market'
 import { type AppEnv } from './env'
 import { readBoundedJson } from './bounded-response'
@@ -53,6 +54,7 @@ import {
   tastytradeRowsByRequestedSymbol,
 } from './tastytrade-market-normalization'
 import { defineSeam, type SeamValue } from './seam'
+import { searchInstrumentCatalog, symbolCandidate } from './symbol-search'
 import { loadStoredPublicMarketUniverse, publishInternalWatchlistUniverse } from './public-market-universe'
 import { readLatestResearchBrief } from './research-brief-store'
 
@@ -478,6 +480,77 @@ async function loadMarketSnapshot(
 }
 
 /**
+ * Resolve a symbol the loaded watchlist does not carry yet: the instrument catalog
+ * answers first, an unknown ticker is put to the broker once, and whatever resolves is
+ * admitted to the maintained list so the row keeps arriving with every later snapshot.
+ * Account-free like the public snapshot around it — `position` is always false.
+ */
+async function lookupPublicMarketSymbol(
+  env: AppEnv,
+  query: string,
+): Promise<PublicSymbolLookup | undefined> {
+  const symbol = await resolveSearchedSymbol(env, query)
+  if (!symbol) return undefined
+  const retained = await ensureInternalWatchlistSymbols(env, [symbol], 'visitor-search')
+  const facts = await loadMarketFacts(env, [symbol], new Set())
+  const ticker = facts.tickers[0]
+  if (!ticker) return undefined
+  return {
+    catalysts: facts.catalysts,
+    ticker: publicTickerFromTicker(ticker),
+    watchlisted: retained.includes(symbol),
+  }
+}
+
+/**
+ * The same lookup, answered from the store. Every successful live lookup persists its symbol
+ * through `loadMarketFacts`, so a symbol anyone has already searched can be served again
+ * without a provider call.
+ */
+async function lookupStoredMarketSymbol(
+  env: AppEnv,
+  query: string,
+): Promise<PublicSymbolLookup | undefined> {
+  if (!env.DB) return undefined
+  const symbol = await resolveSearchedSymbol(env, query)
+  if (!symbol) return undefined
+  const [records, catalog, yearCandles, catalysts] = await Promise.all([
+    readStoredMarketRecords(env, [symbol]),
+    readInstrumentCatalog(env, [symbol]),
+    readYearCandles(env.DB, [symbol]),
+    readUpcomingCatalysts(env),
+  ])
+  const quote = records.quotes.get(symbol)
+  if (!quote) return undefined
+  const ticker = tickerFromStoredRecords(
+    symbol,
+    records.metrics.get(symbol),
+    quote,
+    false,
+    catalogTickerInstrument(catalog.get(symbol)),
+    yearCandles.get(symbol)?.closes,
+  )
+  return {
+    catalysts: catalysts.filter((catalyst) => catalyst.symbol === symbol),
+    ticker: publicTickerFromTicker(ticker),
+    // A stored answer says nothing about maintained-list membership, which only the live
+    // lookup decides; claiming otherwise would tell the reader their search was retained.
+    watchlisted: false,
+  }
+}
+
+async function resolveSearchedSymbol(env: AppEnv, query: string): Promise<string | undefined> {
+  const [match] = await searchInstrumentCatalog(env, query, 1)
+  if (match) return match.symbol
+  const candidate = symbolCandidate(query)
+  if (!candidate) return undefined
+  // The catalog has never carried this ticker. One broker lookup decides whether it is a
+  // tradable equity at all; an unresolved answer is stored as such and answers nothing.
+  await refreshMissingTastytradeInstruments(env, [candidate])
+  return (await searchInstrumentCatalog(env, candidate, 1))[0]?.symbol
+}
+
+/**
  * Account-free public surface. Its read-only watchlist universe is published by owner/server sync;
  * this path never calls account, position, or private-watchlist endpoints. `position` is always false.
  */
@@ -518,6 +591,11 @@ const brokerApiSeam = defineSeam(() => ({
   loadEquityCandleFromTime,
   loadMarketSnapshot,
   loadPublicMarketSnapshot,
+  claimMarketRefresh,
+  loadStoredMarketSnapshot,
+  loadStoredPublicMarketSnapshot,
+  lookupPublicMarketSymbol,
+  lookupStoredMarketSymbol,
   loadQuoteToken,
   resolveResearchInstrumentCatalogFromTastytrade,
   resolveAccountNumber,

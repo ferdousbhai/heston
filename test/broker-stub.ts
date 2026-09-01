@@ -22,6 +22,7 @@ export function stubBroker() {
     loadEquityCandleFromTime: vi.fn(),
     loadMarketSnapshot: vi.fn(),
     loadPublicMarketSnapshot: vi.fn(),
+    lookupPublicMarketSymbol: vi.fn<BrokerApi['lookupPublicMarketSymbol']>(async () => undefined),
     loadQuoteToken: vi.fn(),
     resolveResearchInstrumentCatalogFromTastytrade: vi.fn<BrokerApi['resolveResearchInstrumentCatalogFromTastytrade']>(async () => ({
       missingSymbols: [],
