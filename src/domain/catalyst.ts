@@ -149,6 +149,19 @@ const KIND_NAMES = {
   shareholder: 'shareholder vote',
 } satisfies Record<Catalyst['kind'], string>
 
+/**
+ * What a reader can open, if anything. A row's id names the producer that wrote it, and the
+ * broker's earnings feed cites the API specification that documents the field — a page no
+ * reader has any use for — so those rows carry no link at all. Everything else shows the
+ * host it was read from: the producer's own name is an implementation detail of ours, not
+ * something a reader is looking at when they check where a date came from.
+ */
+export function catalystSourceLink(catalyst: Catalyst): { host: string; url: string } | undefined {
+  if (catalyst.id.startsWith('tastytrade:')) return undefined
+  const url = new URL(catalyst.sourceUrl)
+  return { host: url.hostname.replace(/^www\./, ''), url: catalyst.sourceUrl }
+}
+
 export function catalystKindName(kind: Catalyst['kind']): string {
   return KIND_NAMES[kind]
 }

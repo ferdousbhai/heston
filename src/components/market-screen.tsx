@@ -22,6 +22,7 @@ import {
   catalystCountdown,
   catalystKindName,
   catalystLabel,
+  catalystSourceLink,
   catalystTimingLabel,
   marketDate,
   nextCatalystsBySymbol,
@@ -243,29 +244,34 @@ function CatalystRunway({
       {upcoming.length
         ? (
             <ol className="runway">
-              {upcoming.map((catalyst, index) => (
-                <li className={cn('runway-event', catalyst.confidence, index === 0 && 'next')} key={catalyst.id}>
-                  <div className="runway-when">
-                    <strong>{catalystCountdown(catalyst, now)}</strong>
-                    <time dateTime={catalyst.date}>
-                      {catalystDateFormatter.format(new Date(`${catalyst.date}T00:00:00Z`))}
-                    </time>
-                  </div>
-                  <span aria-hidden="true" className="runway-mark" />
-                  <div className="runway-body">
-                    <p className="runway-kind">
-                      {[catalystKindName(catalyst.kind), catalystTimingLabel(catalyst.timing), catalyst.confidence]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </p>
-                    <strong>{catalyst.title}</strong>
-                    {catalyst.description && <p className="runway-detail">{catalyst.description}</p>}
-                    <a href={catalyst.sourceUrl} rel="noreferrer" target="_blank">
-                      {catalyst.source}<ArrowUpRight aria-hidden="true" />
-                    </a>
-                  </div>
-                </li>
-              ))}
+              {upcoming.map((catalyst, index) => {
+                const source = catalystSourceLink(catalyst)
+                return (
+                  <li className={cn('runway-event', catalyst.confidence, index === 0 && 'next')} key={catalyst.id}>
+                    <div className="runway-when">
+                      <strong>{catalystCountdown(catalyst, now)}</strong>
+                      <time dateTime={catalyst.date}>
+                        {catalystDateFormatter.format(new Date(`${catalyst.date}T00:00:00Z`))}
+                      </time>
+                    </div>
+                    <span aria-hidden="true" className="runway-mark" />
+                    <div className="runway-body">
+                      <p className="runway-kind">
+                        {[catalystKindName(catalyst.kind), catalystTimingLabel(catalyst.timing), catalyst.confidence]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </p>
+                      <strong>{catalyst.title}</strong>
+                      {catalyst.description && <p className="runway-detail">{catalyst.description}</p>}
+                      {source && (
+                        <a href={source.url} rel="noreferrer" target="_blank">
+                          {source.host}<ArrowUpRight aria-hidden="true" />
+                        </a>
+                      )}
+                    </div>
+                  </li>
+                )
+              })}
             </ol>
           )
         : <RunwayEmpty searching={searching} symbol={symbol} />}
