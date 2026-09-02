@@ -1,5 +1,5 @@
 import { sift, type Verdict } from '../domain/sift'
-import { type DailyRecommendationsSubmission } from './research-agent'
+import { type DailyRecommendationsSubmission } from './research-submission'
 import { retentionKey, type RetainedPage } from './research-agent-tools'
 
 /*

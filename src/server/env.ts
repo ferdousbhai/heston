@@ -1,10 +1,5 @@
 import { type DailyCandlesReadResult, type OptionGreeksReadResult } from './market-feed-contracts'
 
-export interface DailyResearchWorkflowParams {
-  persist?: boolean
-  requireMarketOpen?: boolean
-  scheduledAt: string
-}
 
 interface BrokerGateRpcStub {
   acquire(): Promise<void>
@@ -37,7 +32,6 @@ export interface AppEnv {
   BROKER_GATE?: BrokerGateNamespace
   BROWSER?: BrowserRun
   DB?: D1Database
-  DAILY_RESEARCH_WORKFLOW?: Workflow<DailyResearchWorkflowParams>
   DanAgent?: DurableObjectNamespace
   EXA_API_KEY?: SecretsStoreSecret
   GOOGLE_CLIENT_ID?: string

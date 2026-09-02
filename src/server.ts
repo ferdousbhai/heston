@@ -5,10 +5,9 @@ import { SPICE_DEPLOYMENT_ID } from './deployment'
 import { SPICE_DEPLOYMENT_ID_HEADER } from './domain/deployment'
 import { type AppEnv } from './server/env'
 import { authorizePersonalRequest, canonicalHostRedirect } from './server/http'
-import { shouldStartScheduledResearch } from './server/research'
 import { handleMcpRequest } from './server/mcp'
 import { watchDailyBrief } from './server/research-watchdog'
-import { refreshYearCandles, startScheduledJob } from './server/scheduled-jobs'
+import { refreshYearCandles } from './server/scheduled-jobs'
 import { configureTypeboxRuntime } from './server/typebox-runtime'
 
 configureTypeboxRuntime()
@@ -16,7 +15,6 @@ configureTypeboxRuntime()
 export { DanAgent } from './server/dan-agent'
 export { BrokerGate } from './server/broker-gate'
 export { MarketFeed } from './server/market-feed'
-export { DailyResearchWorkflow } from './server/daily-research-workflow'
 
 export default {
   async fetch(request: Request, env: AppEnv, ctx: ExecutionContext) {
@@ -53,9 +51,6 @@ export default {
           cause instanceof Error ? cause.name : 'UnknownError',
         )))
       return
-    }
-    if (shouldStartScheduledResearch(scheduledAt)) {
-      context.waitUntil(startScheduledJob(env, 'daily-research', scheduledAt).then(() => undefined))
     }
     // The year chart is decoration over live prices, so a failed refresh leaves the last good
     // series in place rather than failing the tick that also starts research. Record the

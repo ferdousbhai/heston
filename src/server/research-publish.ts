@@ -1,6 +1,6 @@
 import { Compile } from 'typebox/compile'
 
-import { CatalystSchema, marketDate } from '../domain/catalyst'
+import { CatalystSchema, marketDate, type Catalyst } from '../domain/catalyst'
 import { DailyRecommendationsSchema, type DailyRecommendations } from '../domain/market'
 import { type AppEnv } from './env'
 import { type JsonValue } from '../domain/json-payload'
@@ -9,14 +9,9 @@ import {
   type PublishDailyRecommendationsToTelegramOptions,
 } from './recommendation-telegram-publication'
 import {
-  bindSubmissionSources,
-  persistDailyRecommendations,
-  recommendationSourceLinks,
-} from './research'
-import {
   DailyRecommendationsSubmissionSchema,
   type DailyRecommendationsSubmission,
-} from './research-agent'
+} from './research-submission'
 import {
   readResearchPageMarkdown,
   retentionKey,
@@ -24,6 +19,10 @@ import {
 } from './research-agent-tools'
 import { bindCatalystCandidates } from './research-catalyst-output'
 import { bindRecommendationCitations } from './research-citation-binding'
+import { catalystUpsertStatements } from './catalysts'
+import { dailyRecommendationsUpsertStatement } from './daily-recommendations-store'
+import { recommendationLinkUpsertStatements } from './recommendation-links'
+import { recommendationLinkKey } from './research-url'
 import { dailyRecommendationsId, MAX_RESEARCH_PAGE_READS } from './research-contracts'
 import { linksFromCandidates, recommendationsFromCandidates } from './research-output'
 
@@ -42,6 +41,48 @@ import { linksFromCandidates, recommendationsFromCandidates } from './research-o
  */
 
 const SubmissionValidator = Compile(DailyRecommendationsSubmissionSchema)
+
+/** Publish only sources the editor selected for a recommendation or the reader links. */
+function recommendationSourceLinks(
+  recommendations: DailyRecommendations['recommendations'],
+  links: DailyRecommendations['links'],
+): DailyRecommendations['sources'] {
+  return [
+    ...recommendations.flatMap((recommendation) => recommendation.sources),
+    ...links.map((item) => ({ label: item.title, url: item.url })),
+  ]
+}
+
+function bindSubmissionSources(
+  sources: readonly DailyRecommendationsSubmission['sources'][number][],
+): DailyRecommendations['sources'] {
+  return sources.map((candidate, index) => {
+    const url = recommendationLinkKey(candidate.sourceUrl)
+    if (!url) throw new Error(`DailyResearchOutput:invalid-source-url:${index}`)
+    return { label: candidate.title, url }
+  })
+}
+
+async function persistDailyRecommendations(
+  env: AppEnv,
+  dailyRecommendations: DailyRecommendations,
+  catalysts: readonly Catalyst[],
+): Promise<void> {
+  if (!env.DB) throw new Error('DailyResearchPersistenceUnavailable')
+  // The recommendations and every catalyst learned for them become visible together: both
+  // writes are deterministic upserts in one batch, so a reader never sees catalysts from a
+  // brief that failed its final boundary.
+  await env.DB.batch([
+    ...catalystUpsertStatements(
+      env.DB,
+      'daily-research',
+      catalysts,
+      dailyRecommendations.publishedAt,
+    ),
+    dailyRecommendationsUpsertStatement(env.DB, dailyRecommendations),
+    ...recommendationLinkUpsertStatements(env.DB, dailyRecommendations),
+  ])
+}
 
 export type DailyRecommendationsPublication =
   | {

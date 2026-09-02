@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { type DailyRecommendationsSubmission } from '../src/server/research-agent'
+import { type DailyRecommendationsSubmission } from '../src/server/research-submission'
 import { bindRecommendationCitations } from '../src/server/research-citation-binding'
 
 const PAGE = 'https://ir.example.com/events'

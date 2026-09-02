@@ -27,7 +27,6 @@ import { Route as ApiStreamRouteImport } from './routes/api.stream'
 import { Route as ApiViewerRouteImport } from './routes/api.viewer'
 import { Route as ApiActionsActionIdRouteImport } from './routes/api.actions.$actionId'
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
-import { Route as ApiJobsJobKindRouteImport } from './routes/api.jobs.$jobKind'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -121,11 +120,6 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiJobsJobKindRoute = ApiJobsJobKindRouteImport.update({
-  id: '/api/jobs/$jobKind',
-  path: '/api/jobs/$jobKind',
-  getParentRoute: () => rootRouteImport,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -146,7 +140,6 @@ export interface FileRoutesByFullPath {
   '/api/viewer': typeof ApiViewerRoute
   '/api/actions/$actionId': typeof ApiActionsActionIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/jobs/$jobKind': typeof ApiJobsJobKindRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -167,7 +160,6 @@ export interface FileRoutesByTo {
   '/api/viewer': typeof ApiViewerRoute
   '/api/actions/$actionId': typeof ApiActionsActionIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/jobs/$jobKind': typeof ApiJobsJobKindRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -189,7 +181,6 @@ export interface FileRoutesById {
   '/api/viewer': typeof ApiViewerRoute
   '/api/actions/$actionId': typeof ApiActionsActionIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/jobs/$jobKind': typeof ApiJobsJobKindRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -212,7 +203,6 @@ export interface FileRouteTypes {
     | '/api/viewer'
     | '/api/actions/$actionId'
     | '/api/auth/$'
-    | '/api/jobs/$jobKind'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -233,7 +223,6 @@ export interface FileRouteTypes {
     | '/api/viewer'
     | '/api/actions/$actionId'
     | '/api/auth/$'
-    | '/api/jobs/$jobKind'
   id:
     | '__root__'
     | '/'
@@ -254,7 +243,6 @@ export interface FileRouteTypes {
     | '/api/viewer'
     | '/api/actions/$actionId'
     | '/api/auth/$'
-    | '/api/jobs/$jobKind'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -276,7 +264,6 @@ export interface RootRouteChildren {
   ApiViewerRoute: typeof ApiViewerRoute
   ApiActionsActionIdRoute: typeof ApiActionsActionIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
-  ApiJobsJobKindRoute: typeof ApiJobsJobKindRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -407,13 +394,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/jobs/$jobKind': {
-      id: '/api/jobs/$jobKind'
-      path: '/api/jobs/$jobKind'
-      fullPath: '/api/jobs/$jobKind'
-      preLoaderRoute: typeof ApiJobsJobKindRouteImport
-      parentRoute: typeof rootRouteImport
-    }
   }
 }
 
@@ -436,7 +416,6 @@ const rootRouteChildren: RootRouteChildren = {
   ApiViewerRoute: ApiViewerRoute,
   ApiActionsActionIdRoute: ApiActionsActionIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
-  ApiJobsJobKindRoute: ApiJobsJobKindRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

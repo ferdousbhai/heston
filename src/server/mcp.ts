@@ -14,7 +14,7 @@ import {
 import { type AppEnv } from './env'
 import { createExactOptionGreeksReadTool } from './option-greeks-tool'
 import { createRecentCoverageTool, createRedditIngestTool } from './research-agent-tools'
-import { DailyRecommendationsSubmissionSchema } from './research-agent'
+import { DailyRecommendationsSubmissionSchema } from './research-submission'
 import { publishSubmittedDailyRecommendations } from './research-publish'
 import { createResearchReadTools } from './research-read-tools'
 import { readStoredSecret } from './secrets'

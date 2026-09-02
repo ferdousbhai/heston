@@ -21,7 +21,7 @@ import {
 import { PriceHistoryReadParameters } from '../src/server/market-research-contracts'
 import { ExactOptionGreeksReadParameters } from '../src/server/option-greeks-tool'
 import { WatchlistReadParameters } from '../src/server/watchlist-tool'
-import { RecommendedOrderSubmissionSchema } from '../src/server/research-agent'
+import { RecommendedOrderSubmissionSchema } from '../src/server/research-submission'
 
 type SchemaNode = {
   anyOf?: SchemaNode[]

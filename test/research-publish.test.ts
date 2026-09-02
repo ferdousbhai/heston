@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { publishSubmittedDailyRecommendations } from '../src/server/research-publish'
-import { type DailyRecommendationsSubmission } from '../src/server/research-agent'
+import { type DailyRecommendationsSubmission } from '../src/server/research-submission'
 import { markdownBrowser } from './fake-browser'
 import { migrationStore } from './sqlite-d1'
 

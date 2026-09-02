@@ -3,7 +3,7 @@ import {
   RecommendationLinkSchema,
   type DailyRecommendations,
 } from '../domain/market'
-import { type DailyRecommendationsSubmission } from './research-agent'
+import { type DailyRecommendationsSubmission } from './research-submission'
 
 type RecommendationCandidate = DailyRecommendationsSubmission['recommendations'][number]
 type RecommendationLinkCandidate = DailyRecommendationsSubmission['links'][number]
