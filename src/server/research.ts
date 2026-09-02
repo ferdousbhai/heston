@@ -23,7 +23,7 @@ export function shouldStartScheduledResearch(date: Date): boolean {
 }
 
 /** Publish only sources the editor selected for a recommendation or the reader links. */
-function recommendationSourceLinks(
+export function recommendationSourceLinks(
   recommendations: DailyRecommendations['recommendations'],
   links: DailyRecommendations['links'],
 ): DailyRecommendations['sources'] {
@@ -39,7 +39,7 @@ export interface GenerateDailyRecommendationsOptions {
   runStep?: <T>(name: string, task: () => Promise<T>) => Promise<T>
 }
 
-function bindSubmissionSources(
+export function bindSubmissionSources(
   sources: readonly DailyRecommendationsSubmission['sources'][number][],
 ): DailyRecommendations['sources'] {
   return sources.map((candidate, index) => {
@@ -74,7 +74,7 @@ async function resolveResearchInstrumentCatalog(env: AppEnv, now: Date) {
   }
 }
 
-async function persistDailyRecommendations(
+export async function persistDailyRecommendations(
   env: AppEnv,
   dailyRecommendations: DailyRecommendations,
   catalysts: readonly Catalyst[],

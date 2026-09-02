@@ -88,6 +88,7 @@ describe('MCP tool surface', () => {
         'read_market_metrics', 'read_instrument_quotes', 'search_symbols',
         'find_option_contracts', 'read_catalysts', 'read_daily_recommendations',
         'prepare_brokerage_action',
+        'publish_daily_recommendations',
       ]) {
         expect(names).toContain(expected)
       }

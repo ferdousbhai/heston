@@ -13,6 +13,8 @@ import {
 } from './brokerage-read-tools'
 import { type AppEnv } from './env'
 import { createExactOptionGreeksReadTool } from './option-greeks-tool'
+import { DailyRecommendationsSubmissionSchema } from './research-agent'
+import { publishSubmittedDailyRecommendations } from './research-publish'
 import { createResearchReadTools } from './research-read-tools'
 import { readStoredSecret } from './secrets'
 import { createWatchlistReadTool } from './watchlist-tool'
@@ -33,6 +35,13 @@ import { createWatchlistReadTool } from './watchlist-tool'
  */
 function orderPlacementJsonSchema(): JsonSchemaType {
   const schema: unknown = OrderPlacementParameters
+  // SAFETY: see above — the runtime value is the JSON Schema the type hides.
+  return schema as JsonSchemaType
+}
+
+/** SAFETY: as above — the submission schema's TUnsafe members are plain JSON Schema on the wire. */
+function submissionJsonSchema(): JsonSchemaType {
+  const schema: unknown = DailyRecommendationsSubmissionSchema
   // SAFETY: see above — the runtime value is the JSON Schema the type hides.
   return schema as JsonSchemaType
 }
@@ -95,6 +104,24 @@ export function createSpiceMcpServer(env: AppEnv): McpServer {
           type: 'text' as const,
         }],
       }
+    },
+  )
+
+  server.registerTool(
+    'publish_daily_recommendations',
+    {
+      description: 'Submit the day\'s finished research brief for publication. The server '
+        + 'reads every cited page itself and refuses any quote or catalyst date it cannot '
+        + 'find in that text; a rejected submission returns the exact reasons so citations '
+        + 'can be fixed and the brief submitted again. Publishing replaces the current '
+        + 'market date\'s brief and posts it to the public channel.',
+      inputSchema: fromJsonSchema(submissionJsonSchema()),
+    },
+    async (params) => {
+      // SAFETY: `publishSubmittedDailyRecommendations` re-parses its input with the same
+      // submission schema at the trust boundary regardless of what the transport checked.
+      const publication = await publishSubmittedDailyRecommendations(env, params as never)
+      return { content: [{ text: JSON.stringify(publication), type: 'text' as const }] }
     },
   )
 

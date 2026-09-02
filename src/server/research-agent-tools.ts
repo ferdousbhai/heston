@@ -80,6 +80,27 @@ export function retentionKey(value: string): string | undefined {
   return recommendationLinkKey(value)
 }
 
+/**
+ * One page read through the Worker's browser, shared by the transcript's read_page tool and
+ * the publish boundary so a citation is always checked against text fetched the same way.
+ * A browser timeout, session limit, or oversized body all return undefined: the caller's
+ * contract is "cite something else", never a run-ending error.
+ */
+export async function readResearchPageMarkdown(
+  browser: NonNullable<AppEnv['BROWSER']>,
+  key: string,
+): Promise<string | undefined> {
+  try {
+    const response = await browser.quickAction('markdown', { url: key })
+    if (!response.ok) return undefined
+    const payload = await readBoundedJson(response, MAX_PAGE_RESPONSE_BYTES, 'ResearchReadPage')
+    const parsed = z.object({ result: z.string(), success: z.literal(true) }).safeParse(payload).data
+    return parsed?.result.slice(0, MAX_PAGE_MARKDOWN_CHARS)
+  } catch {
+    return undefined
+  }
+}
+
 export interface ResearchAgentToolOptions {
   checkedRecommendationLinks?: Map<string, boolean>
   fetcher?: typeof fetch
@@ -186,21 +207,10 @@ export function createResearchAgentTools(
       if (retained && retained.size >= MAX_RESEARCH_PAGE_READS) {
         return textResult({ error: 'no page reads left in this run' })
       }
-      // A browser that times out, a session limit, or a body past the cap all mean the same
-      // thing to the model — cite something else — so none of them may escape as an error
-      // that ends the run.
-      const parsed = await (async () => {
-        try {
-          const response = await env.BROWSER!.quickAction('markdown', { url: key })
-          if (!response.ok) return undefined
-          const payload = await readBoundedJson(response, MAX_PAGE_RESPONSE_BYTES, 'ResearchReadPage')
-          return z.object({ result: z.string(), success: z.literal(true) }).safeParse(payload).data
-        } catch {
-          return undefined
-        }
-      })()
-      if (!parsed) return textResult({ error: 'the page did not open' })
-      const markdown = parsed.result.slice(0, MAX_PAGE_MARKDOWN_CHARS)
+      // SAFETY: this tool is only registered when env.BROWSER is bound, in this factory's
+      // return statement below.
+      const markdown = await readResearchPageMarkdown(env.BROWSER as NonNullable<AppEnv['BROWSER']>, key)
+      if (markdown === undefined) return textResult({ error: 'the page did not open' })
       return textResult({ markdown, readAt: now.toISOString(), url: key })
     },
     label: 'Reading a source page',
