@@ -25,6 +25,7 @@
     "@earendil-works/pi-agent-core": "0.84.3",
     "@earendil-works/pi-ai": "0.84.3",
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "@shadcn/react": "^0.3.0",
     "@tanstack/query-core": "^5.102.7",
     "@tanstack/query-db-collection": "1.2.2",

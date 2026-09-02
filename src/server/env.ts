@@ -46,6 +46,7 @@ export interface AppEnv {
   REDDIT_CLIENT_ID?: SecretsStoreSecret
   REDDIT_CLIENT_SECRET?: SecretsStoreSecret
   TASTYTRADE_API_BASE?: string
+  SPICE_MCP_TOKEN?: SecretsStoreSecret
   TASTYTRADE_CLIENT_SECRET?: SecretsStoreSecret
   TASTYTRADE_REFRESH_TOKEN?: SecretsStoreSecret
   TELEGRAM_BOT_TOKEN?: string

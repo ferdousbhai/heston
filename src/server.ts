@@ -6,6 +6,7 @@ import { SPICE_DEPLOYMENT_ID_HEADER } from './domain/deployment'
 import { type AppEnv } from './server/env'
 import { authorizePersonalRequest, canonicalHostRedirect } from './server/http'
 import { shouldStartScheduledResearch } from './server/research'
+import { handleMcpRequest } from './server/mcp'
 import { refreshYearCandles, startScheduledJob } from './server/scheduled-jobs'
 import { configureTypeboxRuntime } from './server/typebox-runtime'
 
@@ -17,9 +18,12 @@ export { MarketFeed } from './server/market-feed'
 export { DailyResearchWorkflow } from './server/daily-research-workflow'
 
 export default {
-  async fetch(request: Request, env: AppEnv) {
+  async fetch(request: Request, env: AppEnv, ctx: ExecutionContext) {
     const canonicalRedirect = canonicalHostRedirect(request)
     if (canonicalRedirect) return canonicalRedirect
+    // The tool surface for the agent on the owner's machine. Bearer-authed inside the
+    // handler; the session/cookie path stays untouched and the token opens nothing else.
+    if (new URL(request.url).pathname === '/mcp') return handleMcpRequest(request, env, ctx)
     if (new URL(request.url).pathname.startsWith('/agents/')) {
       const unauthorized = await authorizePersonalRequest(request, env, true)
       if (unauthorized) return unauthorized
