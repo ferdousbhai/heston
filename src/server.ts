@@ -7,6 +7,7 @@ import { type AppEnv } from './server/env'
 import { authorizePersonalRequest, canonicalHostRedirect } from './server/http'
 import { shouldStartScheduledResearch } from './server/research'
 import { handleMcpRequest } from './server/mcp'
+import { watchDailyBrief } from './server/research-watchdog'
 import { refreshYearCandles, startScheduledJob } from './server/scheduled-jobs'
 import { configureTypeboxRuntime } from './server/typebox-runtime'
 
@@ -42,6 +43,17 @@ export default {
   },
   scheduled(controller: ScheduledController, env: AppEnv, context: ExecutionContext) {
     const scheduledAt = new Date(controller.scheduledTime)
+    // Late-morning New York: the local research run should have published by now, and this
+    // Worker's only view of that machine is whether today's brief exists.
+    if (controller.cron === '30 15 * * 1-5') {
+      context.waitUntil(watchDailyBrief(env, scheduledAt)
+        .then((result) => console.info(JSON.stringify({ event: 'DailyBriefWatchdog', result })))
+        .catch((cause: unknown) => console.error(
+          'DailyBriefWatchdogFailed',
+          cause instanceof Error ? cause.name : 'UnknownError',
+        )))
+      return
+    }
     if (shouldStartScheduledResearch(scheduledAt)) {
       context.waitUntil(startScheduledJob(env, 'daily-research', scheduledAt).then(() => undefined))
     }
