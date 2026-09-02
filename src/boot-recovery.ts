@@ -1,9 +1,16 @@
 import { DEPLOYMENT_RELOAD_COOLDOWN_MS } from './data/deployment'
+import { STORAGE_PURGE_COOKIE } from './domain/storage-purge'
 
 /** Long enough that a slow first paint is never mistaken for a build that cannot load. */
 export const BOOT_RECOVERY_DELAY_MS = 10_000
 
 export const BOOT_RECOVERY_STORAGE_KEY = 'spice.boot-recovery.v1'
+
+/**
+ * How long the cleanup may hold the reload. Unregistering a worker takes a healthy browser
+ * well under a second; a wedged one never answers, and the reload is what fixes it.
+ */
+export const BOOT_RECOVERY_CLEANUP_TIMEOUT_MS = 3_000
 
 /**
  * The body is empty until the app hydrates, so anything that stops the entry module from
@@ -20,14 +27,21 @@ export const BOOT_RECOVERY_STORAGE_KEY = 'spice.boot-recovery.v1'
  * restarts, so session storage there is effectively permanent, and a latch that never expired
  * would turn one failed attempt into a tab that never tries again. Storage that cannot be read
  * cannot bound a loop either, so it counts as an attempt in progress.
+ *
+ * The reload is the part that must happen. The registration and cache APIs it waits on live
+ * in the same worker process that may be the problem, so the wait is bounded, and the purge
+ * receipt is dropped first so the reloaded document asks the browser itself to clear the
+ * origin (see `finalizeDocumentResponse`) — a path that needs no answer from that process.
  */
 export function bootRecoveryScript(
   delayMs: number = BOOT_RECOVERY_DELAY_MS,
   cooldownMs: number = DEPLOYMENT_RELOAD_COOLDOWN_MS,
+  cleanupTimeoutMs: number = BOOT_RECOVERY_CLEANUP_TIMEOUT_MS,
 ): string {
   return `(function(){
   var KEY='${BOOT_RECOVERY_STORAGE_KEY}';
   var COOLDOWN=${cooldownMs};
+  var PURGE_COOKIE='${STORAGE_PURGE_COOKIE}';
   function attemptedAt(){ try { return Number(sessionStorage.getItem(KEY)) } catch (error) { return Infinity } }
   function remember(){ try { sessionStorage.setItem(KEY, String(Date.now())) } catch (error) {} }
   window.__spiceBooted=function(){ clearTimeout(timer); try { sessionStorage.removeItem(KEY) } catch (error) {} };
@@ -35,7 +49,14 @@ export function bootRecoveryScript(
     var at=attemptedAt();
     if (at > 0 && Date.now() - at < COOLDOWN) return;
     remember();
-    var reload=function(){ location.reload() };
+    var reloaded=false;
+    var reload=function(){
+      if (reloaded) return;
+      reloaded=true;
+      try { document.cookie=PURGE_COOKIE+'=; Max-Age=0; Path=/' } catch (error) {}
+      location.reload();
+    };
+    setTimeout(reload, ${cleanupTimeoutMs});
     var work=[];
     if (navigator.serviceWorker) work.push(navigator.serviceWorker.getRegistrations().then(function(all){
       return Promise.all(all.map(function(one){ return one.unregister() }));

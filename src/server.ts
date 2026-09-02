@@ -1,10 +1,8 @@
 import handler from '@tanstack/react-start/server-entry'
 import { routeAgentRequest } from 'agents'
 
-import { SPICE_DEPLOYMENT_ID } from './deployment'
-import { SPICE_DEPLOYMENT_ID_HEADER } from './domain/deployment'
 import { type AppEnv } from './server/env'
-import { authorizePersonalRequest, canonicalHostRedirect } from './server/http'
+import { authorizePersonalRequest, canonicalHostRedirect, finalizeDocumentResponse } from './server/http'
 import { handleMcpRequest } from './server/mcp'
 import { watchDailyBrief } from './server/research-watchdog'
 import { refreshYearCandles } from './server/scheduled-jobs'
@@ -29,15 +27,7 @@ export default {
       const agentResponse = await routeAgentRequest(request, env)
       return agentResponse ?? new Response('Agent not found', { status: 404 })
     }
-    const response = await handler.fetch(request)
-    // The shell names the hashed bundles for one deployment, so a cached copy pins a browser
-    // to code that no longer exists. It carries no validators either, so a revalidating fetch
-    // is a plain refetch of a small document. Hashed assets stay immutable via `_headers`.
-    if (!response.headers.get('content-type')?.includes('text/html')) return response
-    const headers = new Headers(response.headers)
-    headers.set('Cache-Control', 'no-cache')
-    headers.set(SPICE_DEPLOYMENT_ID_HEADER, SPICE_DEPLOYMENT_ID)
-    return new Response(response.body, { headers, status: response.status, statusText: response.statusText })
+    return finalizeDocumentResponse(request, await handler.fetch(request))
   },
   scheduled(controller: ScheduledController, env: AppEnv, context: ExecutionContext) {
     const scheduledAt = new Date(controller.scheduledTime)

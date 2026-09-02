@@ -2,6 +2,7 @@ import { type JsonValue } from '../domain/json-payload'
 import { toError } from '../domain/failure'
 import { SPICE_DEPLOYMENT_ID } from '../deployment'
 import { SPICE_DEPLOYMENT_ID_HEADER } from '../domain/deployment'
+import { hasStoragePurge, STORAGE_PURGE_COOKIE, STORAGE_PURGE_GENERATION } from '../domain/storage-purge'
 import {
   getAuthenticatedIdentity,
   isOwnerEmail,
@@ -25,6 +26,49 @@ export function jsonNoStore(value: JsonValue, init: ResponseInit = {}): Response
   headers.set('Cache-Control', 'no-store')
   headers.set(SPICE_DEPLOYMENT_ID_HEADER, SPICE_DEPLOYMENT_ID)
   return Response.json(value, { ...init, headers })
+}
+
+/**
+ * A year: the receipt should outlive any tab, and a browser that returns after longer than
+ * that has earned a second purge over keeping whatever it still holds.
+ */
+const STORAGE_PURGE_COOKIE_MAX_AGE_S = 365 * 24 * 60 * 60
+
+/**
+ * The document response, with the headers only the Worker can add.
+ *
+ * The shell names the hashed bundles for one deployment, so a cached copy pins a browser to
+ * code that no longer exists. It carries no validators either, so a revalidating fetch is a
+ * plain refetch of a small document. Hashed assets stay immutable via `_headers`.
+ *
+ * Once per browser, the document also asks the browser itself to drop everything it stores
+ * for this origin. An obsolete service worker held phones on a dead build, and page code could
+ * not retire it: on WebKit the worker stalled the very module that would have run the fix, and
+ * the registration API the inline guard falls back on hung with it. `Clear-Site-Data` is
+ * processed by the browser's network layer before the document commits, so it needs nothing
+ * of ours to run. "storage" unregisters service workers and empties the Cache API along with
+ * localStorage, sessionStorage, and IndexedDB; "cache" drops the HTTP cache too, so the next
+ * load is entirely current. The price is one cold start per browser per generation: the saved
+ * market re-syncs, the selected ticker resets, and favorites a visitor staged without signing
+ * in are gone — they are the only state that lives nowhere else. Cookies survive, so the owner
+ * stays signed in and the receipt below is what stops the purge repeating. A fetch made without
+ * credentials never carries the receipt and is purged again on purpose: that is how the old
+ * worker refreshed its shell, and a purge it triggers itself is the best outcome available.
+ * The guard clears the receipt before its own reload for the same reason.
+ */
+export function finalizeDocumentResponse(request: Request, response: Response): Response {
+  if (!response.headers.get('content-type')?.includes('text/html')) return response
+  const headers = new Headers(response.headers)
+  headers.set('Cache-Control', 'no-cache')
+  headers.set(SPICE_DEPLOYMENT_ID_HEADER, SPICE_DEPLOYMENT_ID)
+  if (!hasStoragePurge(request.headers.get('cookie'))) {
+    headers.set('Clear-Site-Data', '"cache", "storage"')
+    // Readable by the inline guard, which drops it before reloading; Secure only where the
+    // browser would refuse it otherwise, so the local dev server exercises the same path.
+    const secure = new URL(request.url).protocol === 'https:' ? '; Secure' : ''
+    headers.append('Set-Cookie', `${STORAGE_PURGE_COOKIE}=${STORAGE_PURGE_GENERATION}; Max-Age=${STORAGE_PURGE_COOKIE_MAX_AGE_S}; Path=/; SameSite=Lax${secure}`)
+  }
+  return new Response(response.body, { headers, status: response.status, statusText: response.statusText })
 }
 
 /** Public, account-free market data. Shared caches may retain it briefly to protect broker limits. */

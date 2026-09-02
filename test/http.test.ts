@@ -4,6 +4,7 @@ import {
   authenticateRequest,
   authorizePersonalRequest,
   canonicalHostRedirect,
+  finalizeDocumentResponse,
   jsonPublic,
   ownerHttpFailure,
 } from '../src/server/http'
@@ -11,6 +12,7 @@ import { BrokerageSubmissionUnknownError, TastytradeOrderWarningError } from '..
 import { PendingActionStateError } from '../src/server/agent'
 import { OptionContractUnavailableError } from '../src/server/option-contract'
 import { SPICE_DEPLOYMENT_ID_HEADER } from '../src/domain/deployment'
+import { STORAGE_PURGE_COOKIE } from '../src/domain/storage-purge'
 
 describe('canonical host redirect', () => {
   it('preserves the path and query when redirecting www to the canonical host', () => {
@@ -18,6 +20,48 @@ describe('canonical host redirect', () => {
     expect(response?.status).toBe(308)
     expect(response?.headers.get('location')).toBe('https://tryspice.xyz/privacy?from=www')
     expect(canonicalHostRedirect(new Request('https://tryspice.xyz/'))).toBeUndefined()
+  })
+})
+
+describe('document response', () => {
+  const html = () => new Response('<!doctype html>', { headers: { 'content-type': 'text/html; charset=utf-8' } })
+
+  it('asks a browser without the receipt to purge its storage, and leaves it a receipt', () => {
+    const response = finalizeDocumentResponse(new Request('https://tryspice.xyz/'), html())
+    expect(response.headers.get('cache-control')).toBe('no-cache')
+    expect(response.headers.get(SPICE_DEPLOYMENT_ID_HEADER)).toBe('test')
+    expect(response.headers.get('clear-site-data')).toBe('"cache", "storage"')
+    expect(response.headers.get('set-cookie')).toBe(`${STORAGE_PURGE_COOKIE}=1; Max-Age=31536000; Path=/; SameSite=Lax; Secure`)
+  })
+
+  it('does not purge a browser that carries the current receipt', () => {
+    const response = finalizeDocumentResponse(
+      new Request('https://tryspice.xyz/', { headers: { cookie: `session=abc; ${STORAGE_PURGE_COOKIE}=1` } }),
+      html(),
+    )
+    expect(response.headers.get('cache-control')).toBe('no-cache')
+    expect(response.headers.has('clear-site-data')).toBe(false)
+    expect(response.headers.has('set-cookie')).toBe(false)
+  })
+
+  it('purges again when the receipt is from an older generation', () => {
+    const response = finalizeDocumentResponse(
+      new Request('https://tryspice.xyz/', { headers: { cookie: `${STORAGE_PURGE_COOKIE}=0` } }),
+      html(),
+    )
+    expect(response.headers.get('clear-site-data')).toBe('"cache", "storage"')
+  })
+
+  it('leaves the Secure attribute off the receipt where the local dev server could not set it', () => {
+    const response = finalizeDocumentResponse(new Request('http://localhost:3000/'), html())
+    expect(response.headers.get('set-cookie')).toBe(`${STORAGE_PURGE_COOKIE}=1; Max-Age=31536000; Path=/; SameSite=Lax`)
+  })
+
+  it('touches nothing but documents', () => {
+    const json = new Response('{}', { headers: { 'content-type': 'application/json' } })
+    const response = finalizeDocumentResponse(new Request('https://tryspice.xyz/api/viewer'), json)
+    expect(response).toBe(json)
+    expect(response.headers.has('clear-site-data')).toBe(false)
   })
 })
 
