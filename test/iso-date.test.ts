@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Compile } from 'typebox/compile'
 
-import { IsoDateType, isValidIsoDate, textMentionsIsoDate } from '../src/domain/iso-date'
+import { IsoDateType, isValidIsoDate, textMentionsIsoDate, textMentionsDateWithinHorizon } from '../src/domain/iso-date'
 
 describe('ISO date contract', () => {
   it.each([
@@ -52,5 +52,46 @@ describe('provenance date matching', () => {
     ['2026-09-24', 'September 24, 2027'],
   ])('refuses %s against %s', (date, text) => {
     expect(textMentionsIsoDate(text, date)).toBe(false)
+  })
+})
+
+describe('horizon-scoped date matching', () => {
+  const TODAY = '2026-09-02'
+  const HORIZON = '2027-03-01'
+
+  it('accepts a year-less mention when the horizon makes the year redundant', () => {
+    expect(textMentionsDateWithinHorizon(
+      'Ternus takes the stage on September 9 with the first foldable iPhone.',
+      '2026-09-09', TODAY, HORIZON,
+    )).toBe(true)
+    expect(textMentionsDateWithinHorizon(
+      'The export ban runs through Sept. 30th at least.',
+      '2026-09-30', TODAY, HORIZON,
+    )).toBe(true)
+  })
+
+  it('still refuses a mention whose printed year is a different one', () => {
+    expect(textMentionsDateWithinHorizon(
+      'Back on September 9, 2025 the company said otherwise.',
+      '2026-09-09', TODAY, HORIZON,
+    )).toBe(false)
+  })
+
+  it('never relaxes the year outside the horizon', () => {
+    expect(textMentionsDateWithinHorizon(
+      'A shareholder meeting is planned for June 1.',
+      '2027-06-01', TODAY, HORIZON,
+    )).toBe(false)
+    expect(textMentionsDateWithinHorizon(
+      'It happened on September 1.',
+      '2026-09-01', TODAY, HORIZON,
+    )).toBe(false)
+  })
+
+  it('keeps accepting fully dated renderings regardless of the horizon', () => {
+    expect(textMentionsDateWithinHorizon(
+      'The keynote is September 9, 2026 in Cupertino.',
+      '2026-09-09', TODAY, HORIZON,
+    )).toBe(true)
   })
 })

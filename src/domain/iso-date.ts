@@ -69,10 +69,41 @@ export function textMentionsIsoDate(text: string, date: string): boolean {
   }
   const [year, month, day] = date.split('-').map(Number)
   const monthName = MONTHS[month - 1]!
-  const spelled = new RegExp(`\\b(?:${monthName}|${monthName.slice(0, 3)})\\.?\\s+0?${day}\\b`, 'gi')
+  const spelled = spelledMonthDay(monthName, day)
   const nearbyYear = new RegExp(`\\b${year}\\b`)
   for (const match of haystack.matchAll(spelled)) {
     if (nearbyYear.test(haystack.slice(match.index, match.index + DATE_PROXIMITY_CHARS))) return true
+  }
+  return false
+}
+
+/** "September 9", "Sept. 9", "September 9th" — the month-day core every rendering shares. */
+function spelledMonthDay(monthName: string, day: number): RegExp {
+  // September is the one month reporting abbreviates to four letters as often as three.
+  const forms = [monthName, ...(monthName.toLowerCase() === 'september' ? ['sept'] : []), monthName.slice(0, 3)]
+  return new RegExp(`\\b(?:${forms.join('|')})\\.?\\s+0?${day}(?:st|nd|rd|th)?\\b`, 'gi')
+}
+
+/**
+ * Reporting routinely prints an upcoming date without its year — "Sept. 9" for an event next
+ * week — and demanding the year rejected real findings a live run read. Inside a horizon
+ * shorter than a year a month-day names exactly one date, so when the claimed date falls
+ * within [today, horizon] the year is redundant; a different year printed beside the mention
+ * still refuses the match, so "September 9, 2025" cannot vouch for 2026-09-09.
+ */
+export function textMentionsDateWithinHorizon(
+  text: string,
+  date: string,
+  today: string,
+  horizon: string,
+): boolean {
+  if (textMentionsIsoDate(text, date)) return true
+  if (!isValidIsoDate(date) || date < today || date > horizon) return false
+  const haystack = text.replace(/\s+/g, ' ')
+  const [, month, day] = date.split('-').map(Number)
+  const anyYear = /\b(?:19|20)\d{2}\b/
+  for (const match of haystack.matchAll(spelledMonthDay(MONTHS[month! - 1]!, day!))) {
+    if (!anyYear.test(haystack.slice(match.index, match.index + DATE_PROXIMITY_CHARS))) return true
   }
   return false
 }

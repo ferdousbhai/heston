@@ -54,12 +54,14 @@ export function bindRecommendationCitations(
     if (recommendation.evidence.some((evidence) => !recommendation.sourceIndices.includes(evidence.sourceIndex))) {
       return { rejected: `${recommendation.symbol}: quotes a source it does not cite` }
     }
-    const unquoted = recommendation.evidence.some((evidence) => {
+    // Naming the failing quote costs nothing here and saved attempts elsewhere: a live run
+    // burned its last correction guessing which of three quotes the server could not find.
+    const unquoted = recommendation.evidence.find((evidence) => {
       const page = readPage(evidence.sourceIndex)
       return page === undefined || !page.includes(normalized(evidence.quote))
     })
     return unquoted
-      ? { rejected: `${recommendation.symbol}: quote absent from its source` }
+      ? { rejected: `${recommendation.symbol}: quote absent from its source: "${unquoted.quote.slice(0, 80)}"` }
       : { kept: recommendation }
   })
   return { recommendations: sifted.kept, rejected: sifted.rejected }

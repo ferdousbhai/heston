@@ -54,7 +54,7 @@ describe('recommendation citation binding', () => {
     const bound = bindRecommendationCitations([invented], sources, retained)
 
     expect(bound.recommendations).toEqual([])
-    expect(bound.rejected).toEqual(['SPCX: quote absent from its source'])
+    expect(bound.rejected).toEqual([expect.stringMatching(/^SPCX: quote absent from its source: "/)])
   })
 
   it('drops an recommendation that cites nothing at all', () => {
@@ -104,6 +104,6 @@ describe('recommendation citation binding', () => {
     const bound = bindRecommendationCitations([good, bad], sources, retained)
 
     expect(bound.recommendations).toEqual([good])
-    expect(bound.rejected).toEqual(['BE: quote absent from its source'])
+    expect(bound.rejected).toEqual([expect.stringMatching(/^BE: quote absent from its source: "/)])
   })
 })

@@ -10,7 +10,7 @@ import {
   type Catalyst,
 } from '../domain/catalyst'
 import { EquitySymbolSchema } from '../domain/instrument'
-import { addDays, ISO_DATE_REGEX, isValidIsoDate, textMentionsIsoDate } from '../domain/iso-date'
+import { addDays, ISO_DATE_REGEX, isValidIsoDate, textMentionsDateWithinHorizon } from '../domain/iso-date'
 import { type RetainedPage } from './research-agent-tools'
 import { recommendationLinkKey } from './research-url'
 
@@ -63,12 +63,13 @@ export function bindCatalystCandidates(
       rejected.push(`catalyst ${index + 1}: source was not read this run`)
       continue
     }
-    if (!textMentionsIsoDate(page.markdown, candidate.date)) {
-      rejected.push(`catalyst ${index + 1}: ${candidate.date} does not appear on its source page`)
-      continue
-    }
     if (candidate.date < today || candidate.date > horizon) {
       rejected.push(`catalyst ${index + 1}: date is outside the ${CATALYST_HORIZON_DAYS}-day horizon`)
+      continue
+    }
+    if (!textMentionsDateWithinHorizon(page.markdown, candidate.date, today, horizon)) {
+      // Year-less mentions bind within the horizon, so what remains missing is the date itself.
+      rejected.push(`catalyst ${index + 1}: ${candidate.date} does not appear on its source page`)
       continue
     }
     const id = `daily-research:${candidate.symbol}:${candidate.kind}:${candidate.date}`
