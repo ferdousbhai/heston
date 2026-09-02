@@ -128,6 +128,45 @@ export async function searchRedditResearch(
   }
 }
 
+export function createRedditIngestTool(
+  env: AppEnv,
+  now = new Date(),
+  fetcher?: typeof fetch,
+): AgentTool<typeof RedditSearchParameters, RedditResearchResult> {
+  return {
+    description: 'Ingest current WallStreetBets hot posts with their text and top comments. Takes no query.',
+    execute: async () => textResult(await searchRedditResearch(env, now, fetcher)),
+    label: 'Ingesting WallStreetBets',
+    name: 'ingest_wsb',
+    parameters: RedditSearchParameters,
+  }
+}
+
+export function createRecentCoverageTool(
+  env: AppEnv,
+  now = new Date(),
+): AgentTool<typeof RecentCoverageParameters, RecentTickerCoverage[] | { error: string }> {
+  return {
+    description: 'Prior Spice recommendations for these tickers within daysAgo; today is excluded.',
+    execute: async (_toolCallId, params) => {
+      // X writes tickers as cashtags, and the discovery packet carries them that way, so a
+      // leading $ is a convention to read rather than a defect to reject. Today's preview run
+      // died on exactly that: $NXE reached this tool, the symbol rule threw, and the whole
+      // daily output was lost to one argument. Anything still unreadable after that is reported to
+      // the model, which can correct a symbol, instead of ending the run.
+      const tickers = params.tickers.map((ticker) => equitySymbolFromModelText(ticker))
+      const unreadable = params.tickers.find((_ticker, index) => tickers[index] === undefined)
+      if (unreadable !== undefined) {
+        return textResult({ error: `not a ticker symbol: ${unreadable.slice(0, 12)}` })
+      }
+      return textResult(await searchRecentTickerCoverage(env, tickers.filter((t) => t !== undefined), params.daysAgo, now))
+    },
+    label: 'Reading recent coverage',
+    name: 'get_recent_coverage',
+    parameters: RecentCoverageParameters,
+  }
+}
+
 export function createResearchAgentTools(
   env: AppEnv,
   options: ResearchAgentToolOptions = {},
@@ -190,13 +229,7 @@ export function createResearchAgentTools(
       },
     }
   }
-  const reddit: AgentTool<typeof RedditSearchParameters, RedditResearchResult> = {
-    description: 'Ingest current WallStreetBets hot posts with their text and top comments. Takes no query.',
-    execute: async () => textResult(await searchRedditResearch(env, now, options.fetcher)),
-    label: 'Ingesting WallStreetBets', 
-    name: 'ingest_wsb',
-    parameters: RedditSearchParameters,
-  }
+  const reddit = createRedditIngestTool(env, now, options.fetcher)
   const readPage: AgentTool<typeof ReadPageParameters, JsonValue> = {
     description: 'Read a page as Markdown. Cite only pages read this way.',
     execute: async (_toolCallId, params) => {
@@ -217,25 +250,7 @@ export function createResearchAgentTools(
     name: 'read_page',
     parameters: ReadPageParameters,
   }
-  const coverage: AgentTool<typeof RecentCoverageParameters, RecentTickerCoverage[] | { error: string }> = {
-    description: 'Prior Spice recommendations for these tickers within daysAgo; today is excluded.',
-    execute: async (_toolCallId, params) => {
-      // X writes tickers as cashtags, and the discovery packet carries them that way, so a
-      // leading $ is a convention to read rather than a defect to reject. Today's preview run
-      // died on exactly that: $NXE reached this tool, the symbol rule threw, and the whole
-      // daily output was lost to one argument. Anything still unreadable after that is reported to
-      // the model, which can correct a symbol, instead of ending the run.
-      const tickers = params.tickers.map((ticker) => equitySymbolFromModelText(ticker))
-      const unreadable = params.tickers.find((_ticker, index) => tickers[index] === undefined)
-      if (unreadable !== undefined) {
-        return textResult({ error: `not a ticker symbol: ${unreadable.slice(0, 12)}` })
-      }
-      return textResult(await searchRecentTickerCoverage(env, tickers.filter((t) => t !== undefined), params.daysAgo, now))
-    },
-    label: 'Reading recent coverage',
-    name: 'get_recent_coverage',
-    parameters: RecentCoverageParameters,
-  }
+  const coverage = createRecentCoverageTool(env, now)
   return [
     ...(options.includeReddit === false ? [] : [reddit]),
     ...(env.BROWSER ? [readPage] : []),

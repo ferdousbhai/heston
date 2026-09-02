@@ -87,6 +87,8 @@ describe('MCP tool surface', () => {
       for (const expected of [
         'read_market_metrics', 'read_instrument_quotes', 'search_symbols',
         'find_option_contracts', 'read_catalysts', 'read_daily_recommendations',
+        'get_recent_coverage',
+        'ingest_wsb',
         'prepare_brokerage_action',
         'publish_daily_recommendations',
       ]) {
@@ -94,9 +96,9 @@ describe('MCP tool surface', () => {
       }
       // The boundary: drafting travels over MCP, confirming never does.
       expect(names.join(' ')).not.toMatch(/confirm|resolve/)
-      // Server-loop bookkeeping tools stay with the server loops that need them.
+      // read_page exists to retain text for the Worker's own binders; the local agent reads
+      // the web with its own tools and the publish boundary re-reads whatever it cites.
       expect(names).not.toContain('read_page')
-      expect(names).not.toContain('ingest_wsb')
     } finally {
       resetBrokerApi()
     }

@@ -13,6 +13,7 @@ import {
 } from './brokerage-read-tools'
 import { type AppEnv } from './env'
 import { createExactOptionGreeksReadTool } from './option-greeks-tool'
+import { createRecentCoverageTool, createRedditIngestTool } from './research-agent-tools'
 import { DailyRecommendationsSubmissionSchema } from './research-agent'
 import { publishSubmittedDailyRecommendations } from './research-publish'
 import { createResearchReadTools } from './research-read-tools'
@@ -59,6 +60,10 @@ export function createSpiceMcpServer(env: AppEnv): McpServer {
     ...createResearchReadTools(env),
     createWatchlistReadTool(env),
     createExactOptionGreeksReadTool(env),
+    // Discovery for the local research run: WSB candidates and prior-coverage reads are
+    // private context behind the same bearer token, never part of any public surface.
+    createRedditIngestTool(env),
+    createRecentCoverageTool(env),
   ]
   for (const tool of tools) {
     server.registerTool(
