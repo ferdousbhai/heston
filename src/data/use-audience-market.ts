@@ -63,7 +63,9 @@ export function useAudienceMarket(audience: SnapshotAudience | undefined) {
   const synchronize = useCallback(async (signal?: AbortSignal, force = false): Promise<void> => {
     // Nothing may be fetched before the session check names the audience it belongs to.
     if (!audience) return
-    if (!navigator.onLine) throw new Error('Market synchronization is unavailable while offline')
+    // No `navigator.onLine` gate: WebKit on iOS reports offline for connected devices often
+    // enough that the gate held a phone on its saved market, silently, for as long as the tab
+    // lived. A request that fails is the only reliable answer, and it costs nothing offline.
     const active = syncOperation.current
     if (active) {
       if (!force && active.audience === audience) return active.promise

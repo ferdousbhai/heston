@@ -2,6 +2,7 @@ import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 
 import { TooltipProvider } from '#/components/ui/tooltip'
+import { bootRecoveryScript } from '../boot-recovery'
 import { PUBLIC_SNAPSHOT_URL } from '../deployment'
 import appCss from '../styles.css?url'
 
@@ -66,46 +67,12 @@ export const Route = createRootRoute({
   shellComponent: RootDocument,
 })
 
-/** Long enough that a slow first paint is never mistaken for a build that cannot load. */
-const BOOT_RECOVERY_DELAY_MS = 10_000
-
-/**
- * The body is empty until the app hydrates, so anything that stops the entry module from
- * running leaves a blank page and no code of ours to notice. A shell held by an obsolete
- * service worker does exactly that: it names hashed files that no longer exist, every one
- * 404s, and nothing runs.
- *
- * This is deliberately inline, dependency-free, and ES5: it has to survive in a document
- * whose modules never loaded. If nothing has reported hydration by the deadline, it drops
- * the caches and workers that could be pinning the reader to a dead build, and reloads —
- * once, recorded in session storage, so a genuinely broken deploy cannot loop.
- */
-const BOOT_RECOVERY_SCRIPT = `(function(){
-  var KEY='spice.boot-recovery.v1';
-  function stored(){ try { return sessionStorage.getItem(KEY) } catch (error) { return '1' } }
-  function remember(){ try { sessionStorage.setItem(KEY, String(Date.now())) } catch (error) {} }
-  window.__spiceBooted=function(){ clearTimeout(timer); try { sessionStorage.removeItem(KEY) } catch (error) {} };
-  var timer=setTimeout(function(){
-    if (stored()) return;
-    remember();
-    var reload=function(){ location.reload() };
-    var work=[];
-    if (navigator.serviceWorker) work.push(navigator.serviceWorker.getRegistrations().then(function(all){
-      return Promise.all(all.map(function(one){ return one.unregister() }));
-    }));
-    if (window.caches) work.push(caches.keys().then(function(names){
-      return Promise.all(names.map(function(name){ return caches.delete(name) }));
-    }));
-    Promise.all(work).then(reload, reload);
-  }, ${BOOT_RECOVERY_DELAY_MS});
-})()`
-
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
     <html className="dark" lang="en">
       <head>
         <HeadContent />
-        <script dangerouslySetInnerHTML={{ __html: BOOT_RECOVERY_SCRIPT }} />
+        <script dangerouslySetInnerHTML={{ __html: bootRecoveryScript() }} />
       </head>
       <body>
         <TooltipProvider>{children}</TooltipProvider>
