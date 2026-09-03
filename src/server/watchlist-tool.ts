@@ -71,7 +71,7 @@ export function createWatchlistReadTool(env: AppEnv): AgentTool<typeof Watchlist
     description: 'Private watchlist; optional symbol returns retained provenance.',
     execute: async (_toolCallId, params) => textResult(await readWatchlist(env, params.symbol)),
     label: 'Reading watchlist',
-    name: 'read_watchlists',
+    name: 'read_watchlist',
     parameters: WatchlistReadParameters,
   }
 }
