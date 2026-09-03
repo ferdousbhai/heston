@@ -4,7 +4,8 @@ import { type AgentTool } from '@earendil-works/pi-agent-core'
 import { type TSchema } from 'typebox'
 
 import { OrderPlacementParameters } from './agent-contracts'
-import { preparePendingAction } from './agent'
+import { placeBrokerageOrder } from './order-placement'
+import { createBrokerageReconciliationTool } from './brokerage-reconciliation'
 import {
   createBrokerageReadTools,
   createInstrumentQuoteReadTool,
@@ -29,7 +30,7 @@ import {
  * The web app as a tool surface for an agent that runs on the owner's machine. Agent loops do
  * not run in this Worker any more — a year of closes, a grown conversation, and a 128 MB
  * isolate were a bad fit three failed runs proved — so the Worker keeps what it is good at:
- * authoritative reads, the draft boundary, and the stores.
+ * authoritative reads, the deterministic guards, and the stores.
  *
  * Every tool here is stateless per call; all state lives in D1 and at the broker, which is
  * why the stateless handler lane fits and no Durable Object is involved.
@@ -69,6 +70,9 @@ export function createSpiceMcpServer(env: AppEnv, credential?: BrokerCredential)
     // private context behind the same bearer token, never part of any public surface.
     createRedditIngestTool(env),
     createRecentCoverageTool(env),
+    // An ambiguous submission quarantines the account. The agent must be able to clear it,
+    // because nothing else can: reconciliation needs the caller's own broker credential.
+    createBrokerageReconciliationTool(env, credential),
   ]
   for (const tool of tools) {
     server.registerTool(
@@ -97,38 +101,32 @@ export function createSpiceMcpServer(env: AppEnv, credential?: BrokerCredential)
   }
 
   server.registerTool(
-    'prepare_brokerage_action',
+    'place_brokerage_order',
     {
-      description: 'Draft an equity, option, debit vertical, or price replacement. '
-        + 'Drafting never places an order: the draft expires in five minutes and only the '
-        + 'owner can confirm it, in the web app, on a channel this tool cannot reach.',
+      description: 'PLACES a real equity, option, debit vertical, or price-replacement order '
+        + 'against the connected brokerage account. Supply every field explicitly: the server '
+        + 'never fills in, enlarges, or reinterprets one. A fully specified user-directed order '
+        + 'is placed without endorsement. The server resolves the exact contract from the live '
+        + 'chain, runs its portfolio and market guards, and requires a clean broker dry-run '
+        + 'before submitting; it refuses on its own authority and the refusal is final.',
       inputSchema: fromJsonSchema(orderPlacementJsonSchema()),
+      // A conforming client prompts its user on every call to a tool marked this way, and
+      // offers no "don't ask again". That is worth having, but it is not a boundary: the
+      // server cannot verify a prompt happened, and another client may ignore the flag
+      // entirely. What actually bounds the damage is the guard chain below it.
+      _meta: { 'anthropic/requiresUserInteraction': true },
     },
     async (params) => {
-      let pending: Awaited<ReturnType<typeof preparePendingAction>>
       try {
-        // SAFETY: `preparePendingAction` re-parses its input with OrderPlacementSchema at the
+        // SAFETY: `placeBrokerageOrder` re-parses its input with OrderPlacementSchema at the
         // trust boundary regardless of what the transport already checked.
-        pending = await preparePendingAction(env, params as never, credential)
+        const receipt = await placeBrokerageOrder(env, params as never, credential)
+        return { content: [{ text: JSON.stringify(receipt), type: 'text' as const }] }
       } catch (error) {
         if (error instanceof BrokerCredentialMissingError) {
           return { content: [{ text: error.message, type: 'text' as const }] }
         }
         throw error
-      }
-      // The confirmation token stays server-side on purpose. Handing it to the caller would
-      // let the same process that drafted the order confirm it, and the entire value of the
-      // boundary is that the confirming channel is not the agent's channel.
-      return {
-        content: [{
-          text: JSON.stringify({
-            actionId: pending.id,
-            expiresAt: pending.expiresAt,
-            preview: pending.preview,
-            status: 'awaiting_owner_confirmation',
-          }),
-          type: 'text' as const,
-        }],
       }
     },
   )

@@ -25,7 +25,6 @@ import { Route as ApiPublicYearCandlesRouteImport } from './routes/api.public-ye
 import { Route as ApiSnapshotRouteImport } from './routes/api.snapshot'
 import { Route as ApiStreamRouteImport } from './routes/api.stream'
 import { Route as ApiViewerRouteImport } from './routes/api.viewer'
-import { Route as ApiActionsActionIdRouteImport } from './routes/api.actions.$actionId'
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
 
 const IndexRoute = IndexRouteImport.update({
@@ -110,11 +109,6 @@ const ApiViewerRoute = ApiViewerRouteImport.update({
   path: '/api/viewer',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiActionsActionIdRoute = ApiActionsActionIdRouteImport.update({
-  id: '/api/actions/$actionId',
-  path: '/api/actions/$actionId',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -138,7 +132,6 @@ export interface FileRoutesByFullPath {
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
   '/api/viewer': typeof ApiViewerRoute
-  '/api/actions/$actionId': typeof ApiActionsActionIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesByTo {
@@ -158,7 +151,6 @@ export interface FileRoutesByTo {
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
   '/api/viewer': typeof ApiViewerRoute
-  '/api/actions/$actionId': typeof ApiActionsActionIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesById {
@@ -179,7 +171,6 @@ export interface FileRoutesById {
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
   '/api/viewer': typeof ApiViewerRoute
-  '/api/actions/$actionId': typeof ApiActionsActionIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRouteTypes {
@@ -201,7 +192,6 @@ export interface FileRouteTypes {
     | '/api/snapshot'
     | '/api/stream'
     | '/api/viewer'
-    | '/api/actions/$actionId'
     | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -221,7 +211,6 @@ export interface FileRouteTypes {
     | '/api/snapshot'
     | '/api/stream'
     | '/api/viewer'
-    | '/api/actions/$actionId'
     | '/api/auth/$'
   id:
     | '__root__'
@@ -241,7 +230,6 @@ export interface FileRouteTypes {
     | '/api/snapshot'
     | '/api/stream'
     | '/api/viewer'
-    | '/api/actions/$actionId'
     | '/api/auth/$'
   fileRoutesById: FileRoutesById
 }
@@ -262,7 +250,6 @@ export interface RootRouteChildren {
   ApiSnapshotRoute: typeof ApiSnapshotRoute
   ApiStreamRoute: typeof ApiStreamRoute
   ApiViewerRoute: typeof ApiViewerRoute
-  ApiActionsActionIdRoute: typeof ApiActionsActionIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -380,13 +367,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiViewerRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/actions/$actionId': {
-      id: '/api/actions/$actionId'
-      path: '/api/actions/$actionId'
-      fullPath: '/api/actions/$actionId'
-      preLoaderRoute: typeof ApiActionsActionIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -414,7 +394,6 @@ const rootRouteChildren: RootRouteChildren = {
   ApiSnapshotRoute: ApiSnapshotRoute,
   ApiStreamRoute: ApiStreamRoute,
   ApiViewerRoute: ApiViewerRoute,
-  ApiActionsActionIdRoute: ApiActionsActionIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport

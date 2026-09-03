@@ -101,9 +101,9 @@ export function assertReplaceableOrder(payload: JsonValue, orderId: string, inte
 async function sourceOrderAction(env: AppEnv, orderId: string): Promise<StoredOrderPlacement> {
   if (!env.DB) throw new Error('OrderReplacement:action-store-unavailable')
   const result = await env.DB.prepare(
-    `SELECT payload_json FROM brokerage_actions
+    `SELECT payload_json FROM broker_submissions
       WHERE provider_order_id = ? AND status = 'executed'
-      ORDER BY resolved_at DESC LIMIT 2`,
+      ORDER BY submitted_at DESC LIMIT 2`,
   ).bind(orderId).all<{ payload_json: string }>()
   const rows = result.results ?? []
   if (rows.length !== 1) throw new Error('OrderReplacement:source-order-not-found')

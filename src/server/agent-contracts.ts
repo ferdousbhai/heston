@@ -108,21 +108,9 @@ export const DirectAccountActionSchema = z.discriminatedUnion('kind', [
 /** Direct mutations use the same generated tool contract and server-side Zod boundary. */
 export const DirectAccountActionParameters = zodTypeBoxSchema(DirectAccountActionSchema)
 
-// These are request-envelope abuse bounds: chat is one model turn and the confirmation token is
-// an opaque digest input, not domain data. They do not authorize or constrain trade size.
-export const ChatRequestSchema = z.object({
-  message: z.string().trim().min(1).max(4_000),
-  selectedSymbol: EquitySymbolSchema.optional(),
-})
-export const ConfirmRequestSchema = z.object({
-  decision: z.enum(['confirm', 'deny']),
-  token: z.string().min(20).max(200),
-})
-
 export type FreshOrderPlacement = z.infer<typeof FreshOrderPlacementSchema>
 export type OrderPlacement = z.infer<typeof OrderPlacementSchema>
 export type StoredOrderPlacement = z.infer<typeof StoredOrderPlacementSchema>
-export type ConfirmRequest = z.infer<typeof ConfirmRequestSchema>
 
 export function previewAction(action: OrderPlacement): string {
   if (action.kind === 'replace_order') return `Replace order #${action.orderId} @ $${action.limitPrice.toFixed(2)} limit`

@@ -203,6 +203,64 @@ describe('brokerage action migrations', () => {
     db.close()
   })
 
+  it('quarantines an ambiguous submission per broker account, never globally', async () => {
+    const initial = await readFile(new URL('../migrations/0001_spice.sql', import.meta.url), 'utf8')
+    const migration = await readFile(
+      new URL('../migrations/0029_broker_submission_quarantine.sql', import.meta.url),
+      'utf8',
+    )
+    const db = new DatabaseSync(':memory:')
+    // 0029 carries executed orders forward, so the table it reads must already exist.
+    db.exec(initial)
+    db.exec(migration)
+    const insert = db.prepare(
+      `INSERT INTO broker_submissions
+        (id, broker_id, account_number, payload_json, submitted_at, status)
+       VALUES (?, ?, ?, '{}', '2026-09-03T13:30:00.000Z', ?)`,
+    )
+    insert.run('one', 'tastytrade', 'ACCOUNT-1', 'unresolved')
+
+    // A second unresolved submission for the same account is what the quarantine forbids.
+    expect(() => insert.run('two', 'tastytrade', 'ACCOUNT-1', 'unresolved')).toThrow(/UNIQUE constraint/)
+    // A different account, and a different broker for the same account, stay free to trade.
+    expect(() => insert.run('other-account', 'tastytrade', 'ACCOUNT-2', 'unresolved')).not.toThrow()
+    expect(() => insert.run('other-broker', 'future-broker', 'ACCOUNT-1', 'unresolved')).not.toThrow()
+    // Resolving one releases the account.
+    db.prepare("UPDATE broker_submissions SET status = 'executed' WHERE id = 'one'").run()
+    expect(() => insert.run('three', 'tastytrade', 'ACCOUNT-1', 'unresolved')).not.toThrow()
+    expect(() => insert.run('bad-status', 'tastytrade', 'ACCOUNT-9', 'whatever')).toThrow(/CHECK constraint/)
+    db.close()
+  })
+
+  it('carries executed orders forward so a pre-deploy order stays replaceable', async () => {
+    const initial = await readFile(new URL('../migrations/0001_spice.sql', import.meta.url), 'utf8')
+    const inFlight = await readFile(new URL('../migrations/0005_brokerage_action_state.sql', import.meta.url), 'utf8')
+    const migration = await readFile(
+      new URL('../migrations/0029_broker_submission_quarantine.sql', import.meta.url),
+      'utf8',
+    )
+    const db = new DatabaseSync(':memory:')
+    db.exec(initial)
+    db.exec(inFlight)
+    db.prepare(
+      `INSERT INTO brokerage_actions
+        (id, status, payload_json, token_digest, created_at, expires_at, resolved_at, provider_order_id)
+       VALUES ('done', 'executed', '{"kind":"place_equity_order"}', 'd', '2026-09-01T00:00:00.000Z',
+               '2026-09-01T00:05:00.000Z', '2026-09-01T00:01:00.000Z', '55512')`,
+    ).run()
+    // A draft that never became an order carries nothing forward.
+    db.prepare(
+      `INSERT INTO brokerage_actions (id, status, payload_json, token_digest, created_at, expires_at)
+       VALUES ('abandoned', 'denied', '{}', 'd', '2026-09-01T00:00:00.000Z', '2026-09-01T00:05:00.000Z')`,
+    ).run()
+
+    db.exec(migration)
+
+    const carried = db.prepare('SELECT id, status, provider_order_id FROM broker_submissions').all()
+    expect(carried).toEqual([{ id: 'done', status: 'executed', provider_order_id: '55512' }])
+    db.close()
+  })
+
   it('adds the internal watchlist seed, normalized live items, and immutable provenance tables', async () => {
     const publicUniverse = await readFile(new URL('../migrations/0003_public_market_universe.sql', import.meta.url), 'utf8')
     const migration = await readFile(new URL('../migrations/0006_internal_watchlist.sql', import.meta.url), 'utf8')

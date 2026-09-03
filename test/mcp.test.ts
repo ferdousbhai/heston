@@ -86,16 +86,19 @@ describe('MCP tool surface', () => {
 
       for (const expected of [
         'read_market_metrics', 'read_instrument_quotes', 'search_symbols',
-        'find_option_contracts', 'read_catalysts', 'read_daily_recommendations',
+        'find_option_contracts', 'read_catalysts', 'read_daily_recommendations', 'read_watchlist',
         'get_recent_coverage',
         'ingest_wsb',
-        'prepare_brokerage_action',
+        'place_brokerage_order',
+        'reconcile_brokerage_action',
         'publish_daily_recommendations',
       ]) {
         expect(names).toContain(expected)
       }
-      // The boundary: drafting travels over MCP, confirming never does.
-      expect(names.join(' ')).not.toMatch(/confirm|resolve/)
+      // The draft/confirm ceremony is gone: placement is one guarded tool and there is no
+      // pending-action surface left to confirm or resolve against.
+      expect(names.join(' ')).not.toMatch(/confirm|prepare_brokerage/)
+      expect(names).not.toContain('read_watchlists')
       // read_page exists to retain text for the Worker's own binders; the local agent reads
       // the web with its own tools and the publish boundary re-reads whatever it cites.
       expect(names).not.toContain('read_page')

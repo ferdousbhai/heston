@@ -12,7 +12,7 @@ import {
   createDirectAccountActionTool,
   createRememberTradeSymbolsTool,
 } from '../src/server/account-action-tools'
-import { preparePendingAction, rememberTradeIntentSymbol } from '../src/server/agent'
+import { placeBrokerageOrder, rememberTradeIntentSymbol } from '../src/server/order-placement'
 import {
   resetInternalWatchlistWriter,
   setInternalWatchlistWriter,
@@ -170,8 +170,8 @@ describe('direct non-placement actions', () => {
     expect(internalWatchlist.ensureSymbols).toHaveBeenCalledWith({}, ['META'], 'trade-intent')
   })
 
-  it('refuses to put non-placement actions into the confirmation store', async () => {
-    await expect(preparePendingAction({}, {
+  it('refuses to place a non-placement action as an order', async () => {
+    await expect(placeBrokerageOrder({}, {
       kind: 'add_watchlist_symbols', symbols: ['SPY'],
     }, undefined)).rejects.toThrow()
     expect(watchlists.executeWatchlistAction).not.toHaveBeenCalled()

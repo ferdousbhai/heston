@@ -9,7 +9,6 @@ import {
   ownerHttpFailure,
 } from '../src/server/http'
 import { BrokerageSubmissionUnknownError, TastytradeOrderWarningError } from '../src/server/brokerage'
-import { PendingActionStateError } from '../src/server/agent'
 import { OptionContractUnavailableError } from '../src/server/option-contract'
 import { SPICE_DEPLOYMENT_ID_HEADER } from '../src/domain/deployment'
 import { STORAGE_PURGE_COOKIE } from '../src/domain/storage-purge'
@@ -113,10 +112,6 @@ describe('owner route errors', () => {
   it('allows only typed or exact private failures through the boundary', () => {
     const error = new TastytradeOrderWarningError(['Review position effect'])
     expect(ownerHttpFailure(error, 409)).toEqual({ message: error.message, status: 409 })
-    expect(ownerHttpFailure(new PendingActionStateError('expired'), 409)).toEqual({
-      message: 'This confirmation has expired',
-      status: 409,
-    })
     expect(ownerHttpFailure(new OptionContractUnavailableError('No matching expiry.'), 409)).toEqual({
       message: 'Requested option contract is not available. No matching expiry.',
       status: 409,
