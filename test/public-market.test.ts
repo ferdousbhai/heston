@@ -245,7 +245,7 @@ describe('public market boundary', () => {
       if (url.includes('/market-time/equities/sessions/current')) {
         return Response.json({ data: { state: 'Open', 'open-at': '2026-08-26T13:30:00.000Z' } })
       }
-      const symbols = ['META', 'NVDA']
+      const symbols = ['NVDA']
       if (url.includes('/market-metrics')) return Response.json({ data: { items: symbols.map((symbol) => ({
         symbol,
         'implied-volatility-index': '0.42',
@@ -278,7 +278,8 @@ describe('public market boundary', () => {
     expect(snapshot.watchlists).toEqual([
       { id: 'watchlist', kind: 'private', name: 'Watchlist', symbols: ['NVDA'] },
     ])
-    expect(snapshot.tickers.find((ticker) => ticker.symbol === 'META')?.position).toBe(true)
+    expect(snapshot.tickers.find((ticker) => ticker.symbol === 'META')).toBeUndefined()
+    expect(snapshot.tickers.find((ticker) => ticker.symbol === 'NVDA')?.position).toBe(false)
     expect(store.sqlite.prepare(
       `SELECT origin FROM internal_watchlist_items WHERE symbol = 'META'`,
     ).get()).toBeUndefined()
@@ -287,7 +288,18 @@ describe('public market boundary', () => {
     ).get()?.payload_json))).toEqual({ symbols: ['NVDA'] })
     const requestedUrls = fetchMock.mock.calls.map(([input]) => String(input))
     expect(requestedUrls.some((url) => url.includes('/watchlists'))).toBe(false)
-    expect(requestedUrls.some((url) => url.includes('/accounts/TEST123/positions'))).toBe(true)
+    expect(requestedUrls.some((url) => url.includes('/customers/'))).toBe(false)
+    expect(requestedUrls.some((url) => url.includes('/accounts/'))).toBe(false)
+
+    fetchMock.mockClear()
+    const storedSnapshot = await brokerApi().loadStoredMarketSnapshot({
+      BROKER_GATE: brokerGate.namespace,
+      DB: store.database,
+      TASTYTRADE_CLIENT_SECRET: secret,
+      TASTYTRADE_REFRESH_TOKEN: secret,
+    })
+    expect(storedSnapshot?.tickers.find((ticker) => ticker.symbol === 'NVDA')?.position).toBe(false)
+    expect(fetchMock).not.toHaveBeenCalled()
     store.close()
   })
 

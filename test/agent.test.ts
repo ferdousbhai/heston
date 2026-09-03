@@ -13,7 +13,7 @@ import { brokerApi, resetBrokerApi, setBrokerApi } from '../src/server/tastytrad
 import { resetInternalWatchlistWriter, setInternalWatchlistWriter } from '../src/server/internal-watchlist'
 import { resetTradeGuards, setTradeGuards } from '../src/server/trade-guards'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
-import { stubBroker } from './broker-stub'
+import { brokerCredential, stubBroker } from './broker-stub'
 
 afterEach(() => {
   resetBrokerApi()
@@ -184,7 +184,7 @@ describe('order confirmation draft', () => {
     const draft = await preparePendingAction({ DB: db }, {
       kind: 'place_equity_order', symbol: 'SPY', action: 'Buy to Open',
       quantity: 1, limitPrice: 5, priceEffect: 'Debit',
-    })
+    }, brokerCredential)
 
     const [, , , createdAt, expiresAt] = binds[0] ?? []
     expect(Date.parse(String(expiresAt)) - Date.parse(String(createdAt))).toBe(5 * 60_000)
@@ -264,7 +264,7 @@ describe('order confirmation draft', () => {
     await expect(resolvePendingAction({ DB: db }, 'action-unknown', {
       decision: 'confirm',
       token,
-    })).rejects.toBeInstanceOf(BrokerageSubmissionUnknownError)
+    }, brokerCredential)).rejects.toBeInstanceOf(BrokerageSubmissionUnknownError)
     expect(errorLog).toHaveBeenCalledWith('BrokerageUnknownMarkerPersistenceFailed')
   })
 })

@@ -12,6 +12,7 @@ import { brokerApi } from './tastytrade'
 import { textResult } from './agent-tool-result'
 import { watchlistWriter } from './watchlist-actions'
 import { internalWatchlistWriter } from './internal-watchlist'
+import { type BrokerCredential } from './broker-credential'
 
 const RememberTradeSymbolsParameters = Type.Object({
   symbols: Type.Array(EquitySymbolType, { maxItems: MAX_WATCHLIST_SYMBOLS, minItems: 1 }),
@@ -75,6 +76,7 @@ export class BrokerageCancellationUnknownError extends Error {
 export function createDirectAccountActionTool(
   env: AppEnv,
   currentUserMessage: string,
+  credential: BrokerCredential | undefined,
 ): AgentTool<
   typeof DirectAccountActionParameters,
   { detail: string } | { orderId: string; status: 'cancelled' }
@@ -97,11 +99,16 @@ export function createDirectAccountActionTool(
       if (attempted) throw new Error('DirectActionAlreadyAttempted')
       attempted = true
       if (parsed.kind === 'cancel_order') {
-        return brokerApi().withBrokerMutationLease(env, async (lease) => {
-          const account = await brokerApi().resolveAccountNumber(env)
+        const account = await brokerApi().resolveAccountNumber(env, credential)
+        return brokerApi().withBrokerMutationLease(env, account, async (lease) => {
           await lease.renew()
           try {
-            await brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/orders/${parsed.orderId}`, { method: 'DELETE' })
+            await brokerApi().tastyRequest(
+              env,
+              `/accounts/${encodeURIComponent(account)}/orders/${parsed.orderId}`,
+              { method: 'DELETE' },
+              credential,
+            )
           } catch (error) {
             // A provider 4xx proves the cancellation was rejected. A network loss,
             // timeout, 5xx, or unreadable success response after DELETE means the

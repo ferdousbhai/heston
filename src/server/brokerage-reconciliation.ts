@@ -16,6 +16,7 @@ import {
 import { resolveStoredOrderFingerprint } from './order-intent'
 import { brokerApi } from './tastytrade'
 import { textResult } from './agent-tool-result'
+import { BrokerCredentialMissingError, type BrokerCredential } from './broker-credential'
 
 type StoredUnknownAction = {
   error_code: string | null
@@ -101,8 +102,10 @@ export function matchesSubmittedOrder(
 
 export async function reconcileUnknownBrokerageAction(
   env: AppEnv,
+  credential: BrokerCredential | undefined,
   now = new Date(),
 ): Promise<ReconciliationResult> {
+  if (!credential) throw new BrokerCredentialMissingError()
   if (!env.DB) throw new Error('TastytradeReconciliation:store-unavailable')
   const staleBefore = new Date(now.getTime() - 2 * 60_000).toISOString()
   const stored = await env.DB.prepare(
@@ -121,7 +124,7 @@ export async function reconcileUnknownBrokerageAction(
     return { actionId: stored.id, detail: 'The local submission timestamp is invalid; the quarantine remains in place.', status: 'unresolved' }
   }
   const [account, fingerprint] = await Promise.all([
-    brokerApi().resolveAccountNumber(env),
+    brokerApi().resolveAccountNumber(env, credential),
     resolveStoredOrderFingerprint(env, JSON.parse(stored.payload_json)),
   ])
   const intended = fingerprint.payload
@@ -130,6 +133,8 @@ export async function reconcileUnknownBrokerageAction(
   const history = orderRows(await brokerApi().tastyRequest(
     env,
     `/accounts/${encodeURIComponent(account)}/orders?per-page=${RECONCILIATION_HISTORY_PAGE_SIZE}&sort=Desc&start-date=${startDate}`,
+    {},
+    credential,
   ))
   const matches = history.rows.filter((row) => matchesSubmittedOrder(row, intended, submittedAt, now, replacedOrderId))
   if (matches.length !== 1) {
@@ -165,10 +170,13 @@ export async function reconcileUnknownBrokerageAction(
   }
 }
 
-export function createBrokerageReconciliationTool(env: AppEnv): AgentTool<typeof ReconcileParameters, ReconciliationResult> {
+export function createBrokerageReconciliationTool(
+  env: AppEnv,
+  credential: BrokerCredential | undefined,
+): AgentTool<typeof ReconcileParameters, ReconciliationResult> {
   return {
     description: 'Resolve one quarantined submission against broker order history.',
-    execute: async () => textResult(await reconcileUnknownBrokerageAction(env)),
+    execute: async () => textResult(await reconcileUnknownBrokerageAction(env, credential)),
     executionMode: 'sequential',
     label: 'Reconciling order',
     name: 'reconcile_brokerage_action',

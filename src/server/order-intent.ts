@@ -21,6 +21,7 @@ import {
   type EquityOptionContract,
 } from './option-contract'
 import { brokerApi } from './tastytrade'
+import { type BrokerCredential } from './broker-credential'
 
 export type ResolvedOrderIntent = {
   effectiveAction: FreshOrderPlacement
@@ -113,10 +114,16 @@ async function expandReplacement(
   env: AppEnv,
   action: Extract<OrderPlacement, { kind: 'replace_order' }>,
   accountNumber: string,
+  credential: BrokerCredential | undefined,
 ): Promise<ResolvedOrderIntent> {
   const source = effectiveStoredOrder(await sourceOrderAction(env, action.orderId))
   const sourceResolved = await resolveFreshOrder(env, source)
-  const current = await brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/orders/${encodeURIComponent(action.orderId)}`)
+  const current = await brokerApi().tastyRequest(
+    env,
+    `/accounts/${encodeURIComponent(accountNumber)}/orders/${encodeURIComponent(action.orderId)}`,
+    {},
+    credential,
+  )
   assertReplaceableOrder(current, action.orderId, sourceResolved.payload)
   const replacementOrder = FreshOrderPlacementSchema.parse({ ...source, limitPrice: action.limitPrice })
   const replacementResolved = await resolveFreshOrder(env, replacementOrder)
@@ -133,8 +140,9 @@ export async function resolveOrderIntent(
   env: AppEnv,
   action: OrderPlacement,
   accountNumber: string,
+  credential: BrokerCredential | undefined,
 ): Promise<ResolvedOrderIntent> {
-  if (action.kind === 'replace_order') return expandReplacement(env, action, accountNumber)
+  if (action.kind === 'replace_order') return expandReplacement(env, action, accountNumber, credential)
   const resolved = await resolveFreshOrder(env, action)
   return { effectiveAction: action, ...resolved, storedAction: action }
 }
@@ -144,10 +152,11 @@ export async function resolveStoredOrderIntent(
   env: AppEnv,
   untrustedAction: JsonValue,
   accountNumber: string,
+  credential: BrokerCredential | undefined,
 ): Promise<ResolvedOrderIntent> {
   const stored = StoredOrderPlacementSchema.parse(untrustedAction)
-  if (stored.kind !== 'replace_order') return resolveOrderIntent(env, stored, accountNumber)
-  const expanded = await expandReplacement(env, stored, accountNumber)
+  if (stored.kind !== 'replace_order') return resolveOrderIntent(env, stored, accountNumber, credential)
+  const expanded = await expandReplacement(env, stored, accountNumber, credential)
   if (JSON.stringify(expanded.effectiveAction) !== JSON.stringify(stored.replacementOrder)) {
     throw new Error('OrderReplacement:draft-no-longer-matches')
   }

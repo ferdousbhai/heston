@@ -11,6 +11,7 @@ import {
   type JsonValue,
 } from '../domain/json-payload'
 import { brokerApi } from './tastytrade'
+import { BrokerCredentialMissingError, type BrokerCredential } from './broker-credential'
 import {
   accountBalancesFromPayload,
   BROKER_ACCOUNT_PAGE_SIZE,
@@ -79,19 +80,25 @@ function positionRows(payload: JsonValue): RiskPosition[] {
   })
 }
 
-async function loadRiskAccount(env: AppEnv, accountNumber: string, ignoredOrderId?: string): Promise<RiskAccount> {
+async function loadRiskAccount(
+  env: AppEnv,
+  accountNumber: string,
+  ignoredOrderId: string | undefined,
+  credential: BrokerCredential | undefined,
+): Promise<RiskAccount> {
   let positionPayload: JsonValue
   let balancePayload: JsonValue
   let orderPayload: JsonValue
   let complexOrderPayload: JsonValue
   try {
     [positionPayload, balancePayload, orderPayload, complexOrderPayload] = await Promise.all([
-      brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/positions?per-page=${BROKER_ACCOUNT_PAGE_SIZE}`),
-      brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/balances`),
-      brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/orders/live?per-page=${BROKER_ACCOUNT_PAGE_SIZE}`),
-      brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/complex-orders/live?per-page=${BROKER_ACCOUNT_PAGE_SIZE}`),
+      brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/positions?per-page=${BROKER_ACCOUNT_PAGE_SIZE}`, {}, credential),
+      brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/balances`, {}, credential),
+      brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/orders/live?per-page=${BROKER_ACCOUNT_PAGE_SIZE}`, {}, credential),
+      brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/complex-orders/live?per-page=${BROKER_ACCOUNT_PAGE_SIZE}`, {}, credential),
     ])
-  } catch {
+  } catch (error) {
+    if (error instanceof BrokerCredentialMissingError) throw error
     throw new PortfolioRiskError("Dan's portfolio guard could not refresh the complete tastytrade account.")
   }
   let balances
@@ -119,7 +126,13 @@ async function loadRiskAccount(env: AppEnv, accountNumber: string, ignoredOrderI
   }
 }
 
-async function recordPortfolioHighWater(env: AppEnv, accountNumber: string, netLiquidatingValue: number): Promise<number> {
+/** Account state is keyed here, but the request credential is deliberately never persisted with it. */
+async function recordPortfolioHighWater(
+  env: AppEnv,
+  accountNumber: string,
+  netLiquidatingValue: number,
+  _credential: BrokerCredential | undefined,
+): Promise<number> {
   if (!env.DB || !accountNumber || !Number.isFinite(netLiquidatingValue) || netLiquidatingValue <= 0) {
     throw new PortfolioRiskError("Dan's high-water portfolio guard is unavailable.")
   }
@@ -210,10 +223,11 @@ function money(value: number): string {
 export async function assertPortfolioActionAllowed(
   env: AppEnv,
   action: FreshOrderPlacement,
+  credential: BrokerCredential | undefined,
   resolved: { accountNumber?: string; ignoredOrderId?: string; optionContracts?: readonly EquityOptionContract[] } = {},
 ): Promise<PortfolioActionAssessment> {
-  const accountNumber = resolved.accountNumber ?? await brokerApi().resolveAccountNumber(env)
-  const account = await loadRiskAccount(env, accountNumber, resolved.ignoredOrderId)
+  const accountNumber = resolved.accountNumber ?? await brokerApi().resolveAccountNumber(env, credential)
+  const account = await loadRiskAccount(env, accountNumber, resolved.ignoredOrderId, credential)
   let optionContracts = resolved.optionContracts ?? []
   if (action.kind === 'place_option_order' && !optionContracts.length) {
     optionContracts = [await resolveEquityOptionContract(env, action)]
@@ -221,19 +235,23 @@ export async function assertPortfolioActionAllowed(
   if (action.kind === 'place_vertical_spread_order' && optionContracts.length !== 2) {
     throw new PortfolioRiskError('Dan could not verify both spread contracts.')
   }
-  const highWaterValue = await recordPortfolioHighWater(env, accountNumber, account.netLiquidatingValue)
+  const highWaterValue = await recordPortfolioHighWater(env, accountNumber, account.netLiquidatingValue, credential)
   const assessment = assessPortfolioAction(action, account, highWaterValue, optionContracts)
   if (!assessment.allowed) throw new PortfolioRiskError(assessment.reason ?? 'Dan rejected this trade at the portfolio boundary.')
   return assessment
 }
 
-export async function buildPortfolioPolicyContext(env: AppEnv, account: BrokerageContext): Promise<PortfolioPolicyContext> {
+export async function buildPortfolioPolicyContext(
+  env: AppEnv,
+  account: BrokerageContext,
+  credential: BrokerCredential | undefined,
+): Promise<PortfolioPolicyContext> {
   const netLiquidatingValue = account.balances.netLiquidatingValue
   const cashBalance = account.balances.cashBalance
   const withdrawableCash = account.balances.cashAvailableToWithdraw
   if (netLiquidatingValue <= 0) throw new PortfolioRiskError("Dan's portfolio context has an invalid net liquidation value.")
   const cash = Math.min(cashBalance, withdrawableCash)
-  const highWaterValue = await recordPortfolioHighWater(env, account.accountNumber, netLiquidatingValue)
+  const highWaterValue = await recordPortfolioHighWater(env, account.accountNumber, netLiquidatingValue, credential)
   const budget = survivalBudget(highWaterValue, cash)
   const supported = budget.allowed
     && account.orders.length === 0

@@ -16,6 +16,7 @@ import { tradeGuards } from './trade-guards'
 import { brokerApi } from './tastytrade'
 import { internalWatchlistWriter } from './internal-watchlist'
 import { OwnerVisibleError } from './owner-visible-error'
+import { BrokerCredentialMissingError, type BrokerCredential } from './broker-credential'
 
 export type PendingAction = {
   expiresAt: string
@@ -68,20 +69,25 @@ export async function rememberTradeIntentSymbol(env: AppEnv, action: FreshOrderP
   await internalWatchlistWriter().ensureSymbols(env, [symbol], 'trade-intent')
 }
 
-export async function preparePendingAction(env: AppEnv, untrustedAction: JsonValue): Promise<PendingAction> {
+export async function preparePendingAction(
+  env: AppEnv,
+  untrustedAction: JsonValue,
+  credential: BrokerCredential | undefined,
+): Promise<PendingAction> {
   const action: OrderPlacement = OrderPlacementSchema.parse(untrustedAction)
+  if (!credential) throw new BrokerCredentialMissingError()
   const id = crypto.randomUUID()
   const token = randomToken()
   const createdAt = new Date()
   const expiresAt = new Date(createdAt.getTime() + 5 * 60_000).toISOString()
   if (!env.DB) throw new PortfolioRiskError("Dan's action store is unavailable.")
-  await reconcileUnknownBrokerageAction(env)
-  const accountNumber = await brokerApi().resolveAccountNumber(env)
-  const intent = await resolveOrderIntent(env, action, accountNumber)
+  await reconcileUnknownBrokerageAction(env, credential)
+  const accountNumber = await brokerApi().resolveAccountNumber(env, credential)
+  const intent = await resolveOrderIntent(env, action, accountNumber, credential)
   // Exact contract/order resolution is the deterministic point where a discussed
   // trade becomes a trusted ticker, including price-only replacements.
   await rememberTradeIntentSymbol(env, intent.effectiveAction)
-  await tradeGuards().assertPortfolioActionAllowed(env, intent.effectiveAction, {
+  await tradeGuards().assertPortfolioActionAllowed(env, intent.effectiveAction, credential, {
     accountNumber,
     ignoredOrderId: intent.replaceOrderId,
     optionContracts: intent.optionContracts,
@@ -116,6 +122,7 @@ export async function resolvePendingAction(
   env: AppEnv,
   actionId: string,
   input: ConfirmRequest,
+  credential?: BrokerCredential,
 ): Promise<{ detail: string; status: 'denied' | 'executed' }> {
   if (!env.DB) throw new Error('Brokerage action store is unavailable')
   const row = await env.DB.prepare(
@@ -136,13 +143,14 @@ export async function resolvePendingAction(
     if (result.meta.changes !== 1) throw new PendingActionStateError('not-pending')
     return { status: 'denied', detail: 'Action draft discarded' }
   }
+  if (!credential) throw new BrokerCredentialMissingError()
   const claimed = await env.DB.prepare(
     "UPDATE brokerage_actions SET status = 'executing', resolved_at = ? WHERE id = ? AND status = 'pending'",
   ).bind(new Date().toISOString(), actionId).run()
   if (claimed.meta.changes !== 1) throw new PendingActionStateError('not-pending')
   let receipt: Awaited<ReturnType<typeof executeOrderPlacement>>
   try {
-    receipt = await executeOrderPlacement(env, JSON.parse(row.payload_json))
+    receipt = await executeOrderPlacement(env, JSON.parse(row.payload_json), credential)
   } catch (error) {
     if (error instanceof BrokerageSubmissionUnknownError) {
       try {

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
-import { stubBroker } from './broker-stub'
+import { brokerCredential, stubBroker } from './broker-stub'
 import { buildOrderPayload } from '../src/server/order-payload'
 import { assertReplaceableOrder, resolveOrderIntent } from '../src/server/order-intent'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
@@ -54,7 +54,12 @@ describe('order replacement source boundary', () => {
     }
     const env = { DB }
 
-    const resolved = await resolveOrderIntent(env, { kind: 'replace_order', orderId: '123', limitPrice: 699.5 }, 'TEST')
+    const resolved = await resolveOrderIntent(
+      env,
+      { kind: 'replace_order', orderId: '123', limitPrice: 699.5 },
+      'TEST',
+      brokerCredential,
+    )
     expect(resolved.replaceOrderId).toBe('123')
     expect(resolved.payload.price).toBe('699.50')
     expect(resolved.storedAction).toMatchObject({

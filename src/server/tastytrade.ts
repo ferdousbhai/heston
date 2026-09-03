@@ -61,6 +61,10 @@ import { loadStoredPublicMarketUniverse, publishInternalWatchlistUniverse } from
 import { readLatestDailyRecommendations } from './daily-recommendations-store'
 import { readYearAgoCloses } from './year-candle-store'
 import {
+  BrokerCredentialMissingError,
+  type BrokerCredential,
+} from './broker-credential'
+import {
   claimMarketRefresh,
   persistMarketSession,
   readStoredMarketRecords,
@@ -78,6 +82,8 @@ const BROKER_SYMBOL_CHUNK_SIZE = 100
 // Provider JSON is buffered for strict parsing; stay within the Worker isolate memory budget
 // while allowing the catalog endpoints, which are substantially larger than normal reads.
 const MAX_TASTYTRADE_RESPONSE_BYTES = 16 * 1024 * 1024
+// This cache contains only the Worker's market-data token. A per-request account token is
+// never cached across requests because this module state is shared by every isolate user.
 let cachedAccess: { expiresAt: number; token: string } | undefined
 
 function apiBase(env: AppEnv) {
@@ -137,13 +143,15 @@ export type BrokerMutationLease = {
   renew(): Promise<void>
 }
 
-function requestGate(env: AppEnv): BrokerRequestGate {
+function requestGate(env: AppEnv, accountNumber?: string): BrokerRequestGate {
   // Broker coordination is part of the provider safety boundary. Validate the
   // binding before reading credentials so a misbound deployment cannot silently
   // bypass request throttling.
   const namespace = env.BROKER_GATE
   if (!namespace) throw new Error('TastytradeCoordinatorUnavailable')
-  return namespace.getByName('primary-account')
+  // A rate budget belongs to one broker account, so two members' account work must not
+  // share a gate. Market requests and initial account discovery have no account number.
+  return namespace.getByName(accountNumber ? `tastytrade:${accountNumber}` : 'tastytrade:market')
 }
 
 /**
@@ -154,9 +162,11 @@ function requestGate(env: AppEnv): BrokerRequestGate {
  */
 export async function withBrokerMutationLease<T>(
   env: AppEnv,
+  accountNumber: string,
   operation: (lease: BrokerMutationLease) => Promise<T>,
 ): Promise<T> {
-  const gate = requestGate(env)
+  if (!accountNumber) throw new Error('TastytradeAccount:invalid-account-number')
+  const gate = requestGate(env, accountNumber)
   const token = await gate.acquireMutation()
   try {
     return await operation({ renew: () => gate.renewMutation(token) })
@@ -167,6 +177,35 @@ export async function withBrokerMutationLease<T>(
       console.error('BrokerMutationLeaseReleaseFailed')
     }
   }
+}
+
+function isAccountPath(path: string): boolean {
+  return path.startsWith('/accounts/') || path.startsWith('/customers/')
+}
+
+function accountNumberFromPath(path: string): string | undefined {
+  if (!path.startsWith('/accounts/')) return undefined
+  const encoded = path.slice('/accounts/'.length).split(/[/?]/, 1)[0]
+  if (!encoded) throw new Error('TastytradeAccount:invalid-path-account')
+  try {
+    const accountNumber = decodeURIComponent(encoded)
+    if (!accountNumber) throw new Error('TastytradeAccount:invalid-path-account')
+    return accountNumber
+  } catch {
+    throw new Error('TastytradeAccount:invalid-path-account')
+  }
+}
+
+async function tokenForPath(
+  env: AppEnv,
+  path: string,
+  credential: BrokerCredential | undefined,
+): Promise<string> {
+  if (!isAccountPath(path)) return accessToken(env)
+  if (credential?.broker !== 'tastytrade' || !credential.accessToken.trim()) {
+    throw new BrokerCredentialMissingError()
+  }
+  return credential.accessToken
 }
 
 async function authorizedRequest(
@@ -193,14 +232,19 @@ export async function tastyRequest(
   env: AppEnv,
   path: string,
   init: RequestInit = {},
+  credential?: BrokerCredential,
 ): Promise<JsonValue> {
-  const gate = requestGate(env)
-  let token = await accessToken(env)
+  const accountPath = isAccountPath(path)
+  // Account credentials are checked before any platform or network I/O. Market requests
+  // retain the existing coordinator-first failure order before stored secrets are read.
+  let token = accountPath ? await tokenForPath(env, path, credential) : undefined
+  const gate = requestGate(env, accountNumberFromPath(path))
+  token ??= await tokenForPath(env, path, credential)
   let response = await authorizedRequest(env, path, init, token, gate)
   const method = (init.method ?? 'GET').toUpperCase()
-  if (response.status === 401 && (method === 'GET' || method === 'HEAD')) {
+  if (!accountPath && response.status === 401 && (method === 'GET' || method === 'HEAD')) {
     if (cachedAccess?.token === token) cachedAccess = undefined
-    token = await accessToken(env)
+    token = await tokenForPath(env, path, credential)
     response = await authorizedRequest(env, path, init, token, gate)
   }
   if (!response.ok) {
@@ -217,8 +261,11 @@ export async function tastyRequest(
   return readBoundedJson(response, MAX_TASTYTRADE_RESPONSE_BYTES, `TastytradeApi:${safeEndpoint(path)}`)
 }
 
-async function resolveAccountNumber(env: AppEnv): Promise<string> {
-  const payload = await tastyRequest(env, '/customers/me/accounts')
+async function resolveAccountNumber(
+  env: AppEnv,
+  credential: BrokerCredential | undefined,
+): Promise<string> {
+  const payload = await tastyRequest(env, '/customers/me/accounts', {}, credential)
   const accounts = envelopeRows(payload)
   if (!accounts) throw new Error('TastytradeAccount:invalid-accounts')
   if (accounts.length !== 1) throw new Error('TastytradeAccount:explicit-account-required')
@@ -431,27 +478,42 @@ async function refreshMissingTastytradeInstruments(
   if (missing.length) await refreshTastytradeInstrumentCatalog(env, missing, now)
 }
 
-async function loadTastytradeWatchlistSeedPayloads(env: AppEnv): Promise<InternalWatchlistSeedPayloads> {
+async function loadTastytradeWatchlistSeedPayloads(
+  env: AppEnv,
+  credential: BrokerCredential,
+): Promise<InternalWatchlistSeedPayloads> {
   const [privatePayload, publicPayload] = await Promise.all([
-    tastyRequest(env, '/watchlists'),
-    tastyRequest(env, '/public-watchlists'),
+    tastyRequest(env, '/watchlists', {}, credential),
+    tastyRequest(env, '/public-watchlists', {}, credential),
   ])
   return { privatePayload, publicPayload }
 }
 
-export async function previewInternalWatchlistFromTastytrade(env: AppEnv): Promise<InternalWatchlistSeedPreview> {
-  return previewInternalWatchlistSeed(await loadTastytradeWatchlistSeedPayloads(env))
+export async function previewInternalWatchlistFromTastytrade(
+  env: AppEnv,
+  credential?: BrokerCredential,
+): Promise<InternalWatchlistSeedPreview> {
+  if (!credential) throw new BrokerCredentialMissingError()
+  return previewInternalWatchlistSeed(await loadTastytradeWatchlistSeedPayloads(env, credential))
 }
 
 /** The only code path that reads tastytrade watchlists: the explicit one-time bootstrap Worker. */
-export async function seedInternalWatchlistFromTastytrade(env: AppEnv): Promise<void> {
-  await ensureInternalWatchlistSeeded(env, () => loadTastytradeWatchlistSeedPayloads(env))
+export async function seedInternalWatchlistFromTastytrade(
+  env: AppEnv,
+  credential?: BrokerCredential,
+): Promise<void> {
+  if (!credential) throw new BrokerCredentialMissingError()
+  await ensureInternalWatchlistSeeded(env, () => loadTastytradeWatchlistSeedPayloads(env, credential))
 }
 
 /** Fetch position identity before the one-time D1 finalization mutates live rows. */
-export async function loadOwnerPositionSymbolsFromTastytrade(env: AppEnv): Promise<string[]> {
-  const accountNumber = await resolveAccountNumber(env)
-  const payload = await tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/positions`)
+export async function loadOwnerPositionSymbolsFromTastytrade(
+  env: AppEnv,
+  credential?: BrokerCredential,
+): Promise<string[]> {
+  if (!credential) throw new BrokerCredentialMissingError()
+  const accountNumber = await resolveAccountNumber(env, credential)
+  const payload = await tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/positions`, {}, credential)
   return activeEquityPositionSymbols(strictTastytradeRows(payload, 'TastytradePositions'))
 }
 
@@ -459,17 +521,10 @@ async function loadMarketSnapshot(
   env: AppEnv,
   options: MarketSnapshotOptions = {},
 ): Promise<MarketSnapshot> {
-  const accountNumber = await resolveAccountNumber(env)
-  const [positionPayload, sessionPayload] = await Promise.all([
-    tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/positions`),
-    tastyRequest(env, '/market-time/equities/sessions/current'),
-  ])
-  const positions = strictTastytradeRows(positionPayload, 'TastytradePositions')
-  const positionSymbols = activeEquityPositionSymbols(positions)
-  // Held names reach the watchlist on their own: Dan records the symbols it
-  // researches and trades, so a recurring position-to-watchlist sync only
-  // re-derived membership that was already there. This call remains because it
-  // reduces the one-time seed to the cap and republishes the public universe.
+  const sessionPayload = await tastyRequest(env, '/market-time/equities/sessions/current')
+  // Held names reach the watchlist through Dan's discussion and trade-intent writes;
+  // snapshots no longer read positions. This prune remains because it reduces the
+  // one-time seed to the cap and republishes the public universe.
   // Pruning already returns the retained list, so reading it back would repeat
   // the same three queries against a table nothing has touched in between.
   const { kept: focusSymbols } = await pruneInternalWatchlistToFocus(env, MAX_WATCHLIST_SYMBOLS)
@@ -479,16 +534,15 @@ async function loadMarketSnapshot(
     name: 'Watchlist',
     symbols: focusSymbols,
   }
-  // Current positions are carried as ticker rows with a private `position` flag,
-  // never as a second list, so account membership is not itself a watchlist.
   const watchlists = [privateWatchlist]
   const requestedSymbols = (options.symbols ?? [])
     .map((symbol) => EquitySymbolSchema.parse(symbol))
-  const symbols = selectSnapshotSymbols(positionSymbols, requestedSymbols, privateWatchlist.symbols)
-  // New owner, agent, research, and position symbols get an authoritative name
+  const symbols = selectSnapshotSymbols([], requestedSymbols, privateWatchlist.symbols)
+  // New owner, agent, and research symbols get an authoritative name
   // immediately. A market-open research run retries the honest unresolved rows.
   await refreshMissingTastytradeInstruments(env, symbols)
-  const { catalysts, tickers } = await loadMarketFacts(env, symbols, new Set(positionSymbols))
+  // The legacy position field is now always false and is scheduled for removal.
+  const { catalysts, tickers } = await loadMarketFacts(env, symbols, new Set())
   const marketState = marketStateFromTastytradeSession(sessionPayload)
   const marketOpensAt = marketOpensAtFromTastytradeSession(sessionPayload)
   await cacheMarketSession(env, marketState, marketOpensAt)
@@ -680,18 +734,13 @@ async function loadStoredPublicMarketSnapshot(env: AppEnv): Promise<PublicMarket
 }
 
 /**
- * The owner's default view, served from the same store. Only account state is still read live:
- * a stale holding is a lie the UI would tell about the reader's own money, which cached market
- * data is not.
+ * The owner's default view, served entirely from the market store. The legacy `position` field
+ * is now always false and is scheduled for removal.
  */
 async function loadStoredMarketSnapshot(env: AppEnv): Promise<MarketSnapshot | undefined> {
   if (!env.DB) return undefined
-  const accountNumber = await resolveAccountNumber(env)
-  const positionPayload = await tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/positions`)
-  const positionSymbols = activeEquityPositionSymbols(strictTastytradeRows(positionPayload, 'TastytradePositions'))
-  const held = new Set(positionSymbols)
   const { kept: focusSymbols } = await pruneInternalWatchlistToFocus(env, MAX_WATCHLIST_SYMBOLS)
-  const symbols = selectSnapshotSymbols(positionSymbols, [], focusSymbols)
+  const symbols = selectSnapshotSymbols([], [], focusSymbols)
   const [records, catalog, yearCandles, catalysts, session, recommendations] = await Promise.all([
     readStoredMarketRecords(env, symbols),
     readInstrumentCatalog(env, symbols),
@@ -707,7 +756,7 @@ async function loadStoredMarketSnapshot(env: AppEnv): Promise<MarketSnapshot | u
       symbol,
       records.metrics.get(symbol),
       quote,
-      held.has(symbol),
+      false,
       catalogTickerInstrument(catalog.get(symbol)),
       yearCandles.get(symbol),
     ))

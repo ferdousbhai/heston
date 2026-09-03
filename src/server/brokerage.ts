@@ -13,6 +13,7 @@ import { replacementOrderPayload, type OrderPayload } from './order-payload'
 import { brokerApi } from './tastytrade'
 import { tradeGuards } from './trade-guards'
 import { OwnerVisibleError } from './owner-visible-error'
+import { type BrokerCredential } from './broker-credential'
 
 export type OrderResponseReceipt = { id?: string; warnings: string[] }
 export type PlacedOrderReceipt = { id: string; warnings: string[] }
@@ -159,11 +160,15 @@ export function validatePlacedOrderResponse(payload: JsonValue, intended: OrderP
   return { id: receipt.id, warnings: receipt.warnings }
 }
 
-export async function executeOrderPlacement(env: AppEnv, untrustedAction: JsonValue): Promise<{ detail: string; orderId?: string }> {
-  return brokerApi().withBrokerMutationLease(env, async (lease) => {
-    const account = await brokerApi().resolveAccountNumber(env)
-    const intent = await resolveStoredOrderIntent(env, untrustedAction, account)
-    await tradeGuards().assertPortfolioActionAllowed(env, intent.effectiveAction, {
+export async function executeOrderPlacement(
+  env: AppEnv,
+  untrustedAction: JsonValue,
+  credential: BrokerCredential | undefined,
+): Promise<{ detail: string; orderId?: string }> {
+  const account = await brokerApi().resolveAccountNumber(env, credential)
+  return brokerApi().withBrokerMutationLease(env, account, async (lease) => {
+    const intent = await resolveStoredOrderIntent(env, untrustedAction, account, credential)
+    await tradeGuards().assertPortfolioActionAllowed(env, intent.effectiveAction, credential, {
       accountNumber: account,
       ignoredOrderId: intent.replaceOrderId,
       optionContracts: intent.optionContracts,
@@ -174,7 +179,12 @@ export async function executeOrderPlacement(env: AppEnv, untrustedAction: JsonVa
       : `/accounts/${encodeURIComponent(account)}/orders/dry-run`
     const dryRunBody = intent.replaceOrderId ? replacementOrderPayload(intent.payload) : intent.payload
     await lease.renew()
-    const dryRun = await brokerApi().tastyRequest(env, dryRunPath, { method: 'POST', body: JSON.stringify(dryRunBody) })
+    const dryRun = await brokerApi().tastyRequest(
+      env,
+      dryRunPath,
+      { method: 'POST', body: JSON.stringify(dryRunBody) },
+      credential,
+    )
     rejectDryRunWarnings(validateOrderResponse(dryRun, intent.payload).warnings)
     let placed: JsonValue
     try {
@@ -188,7 +198,7 @@ export async function executeOrderPlacement(env: AppEnv, untrustedAction: JsonVa
       placed = await brokerApi().tastyRequest(env, path, {
         method: intent.replaceOrderId ? 'PUT' : 'POST',
         body,
-      })
+      }, credential)
     } catch (error) {
       if (error instanceof Error && error.name === 'TastytradeApiError') throw error
       throw new BrokerageSubmissionUnknownError()

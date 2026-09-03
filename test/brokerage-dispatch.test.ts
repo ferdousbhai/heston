@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { executeOrderPlacement } from '../src/server/brokerage'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { resetTradeGuards, setTradeGuards, type TradeGuards } from '../src/server/trade-guards'
-import { stubBroker } from './broker-stub'
+import { brokerCredential, stubBroker } from './broker-stub'
 
 const guards = {
   assertOrderMarketSafe: vi.fn(),
@@ -63,7 +63,7 @@ describe('brokerage dispatch warnings', () => {
   it('does not place an order after a dry-run warning', async () => {
     mocks.tastyRequest.mockResolvedValue(response([{ message: 'Review position effect' }]))
 
-    await expect(executeOrderPlacement({}, action)).rejects.toThrow('order was not submitted')
+    await expect(executeOrderPlacement({}, action, brokerCredential)).rejects.toThrow('order was not submitted')
     expect(mocks.tastyRequest).toHaveBeenCalledTimes(1)
     expect(mocks.tastyRequest.mock.calls[0]?.[1]).toContain('/orders/dry-run')
     expect(mocks.withBrokerMutationLease).toHaveBeenCalledTimes(1)
@@ -75,7 +75,7 @@ describe('brokerage dispatch warnings', () => {
       .mockResolvedValueOnce(response())
       .mockResolvedValueOnce(response([{ message: 'Order queued for review' }]))
 
-    await expect(executeOrderPlacement({}, action)).resolves.toEqual({
+    await expect(executeOrderPlacement({}, action, brokerCredential)).resolves.toEqual({
       detail: 'Order #123 accepted by tastytrade. Broker warning: Order queued for review',
       orderId: '123',
     })

@@ -55,6 +55,7 @@ import {
 import { resolveEquityOptionTuples } from './option-contract'
 import { textResult } from './agent-tool-result'
 import { brokerApi } from './tastytrade'
+import { type BrokerCredential } from './broker-credential'
 
 export type {
   AccountHistoryReadInput,
@@ -151,6 +152,7 @@ function compactOrder(row: JsonObject): CompactOrder {
 export async function readAccountHistory(
   env: AppEnv,
   input: AccountHistoryReadInput,
+  credential: BrokerCredential | undefined,
   now = new Date(),
 ): Promise<AccountHistoryReadResult> {
   if (input.type !== 'orders' && input.type !== 'transactions') throw new Error('Account history type is invalid.')
@@ -167,7 +169,7 @@ export async function readAccountHistory(
     throw new Error('Account history transaction type is invalid.')
   }
 
-  const accountNumber = await brokerApi().resolveAccountNumber(env)
+  const accountNumber = await brokerApi().resolveAccountNumber(env, credential)
   const query = new URLSearchParams({
     'page-offset': String(pageOffset),
     'per-page': String(limit),
@@ -181,6 +183,8 @@ export async function readAccountHistory(
     payload = await brokerApi().tastyRequest(
       env,
       `/accounts/${encodeURIComponent(accountNumber)}/${input.type}?${query.toString()}`,
+      {},
+      credential,
     )
   } catch {
     throw new Error(`Tastytrade ${input.type} are unavailable.`)
@@ -505,10 +509,11 @@ export async function findOptionContracts(
 
 function createAccountHistoryReadTool(
   env: AppEnv,
+  credential: BrokerCredential | undefined,
 ): AgentTool<typeof AccountHistoryReadParameters, AccountHistoryReadResult> {
   return {
     description: 'Broker trades, cash movements, or orders.',
-    execute: async (_toolCallId, params) => textResult(await readAccountHistory(env, params)),
+    execute: async (_toolCallId, params) => textResult(await readAccountHistory(env, params, credential)),
     label: 'Reading account history',
     name: 'read_account_history',
     parameters: AccountHistoryReadParameters,
@@ -584,9 +589,9 @@ export function createInstrumentQuoteReadTool(
   }
 }
 
-export function createBrokerageReadTools(env: AppEnv) {
+export function createBrokerageReadTools(env: AppEnv, credential?: BrokerCredential) {
   return [
-    createAccountHistoryReadTool(env),
+    createAccountHistoryReadTool(env, credential),
     createSymbolSearchTool(env),
   ]
 }

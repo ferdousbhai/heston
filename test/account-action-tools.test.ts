@@ -6,7 +6,7 @@ import {
   setWatchlistWriter,
   type WatchlistWriter,
 } from '../src/server/watchlist-actions'
-import { stubBroker } from './broker-stub'
+import { brokerCredential, stubBroker } from './broker-stub'
 import {
   BrokerageCancellationUnknownError,
   createDirectAccountActionTool,
@@ -48,12 +48,12 @@ describe('direct non-placement actions', () => {
   })
 
   it('cancels an explicitly identified order without creating a confirmation draft', async () => {
-    const result = await createDirectAccountActionTool({}, 'Please cancel order #12345.').execute('call-1', {
+    const result = await createDirectAccountActionTool({}, 'Please cancel order #12345.', brokerCredential).execute('call-1', {
       kind: 'cancel_order', orderId: '12345',
     })
 
     expect(tastytrade.tastyRequest).toHaveBeenCalledWith(
-      {}, '/accounts/TEST123/orders/12345', { method: 'DELETE' },
+      {}, '/accounts/TEST123/orders/12345', { method: 'DELETE' }, brokerCredential,
     )
     expect(tastytrade.withBrokerMutationLease).toHaveBeenCalledTimes(1)
     expect(tastytrade.renewBrokerMutationLease).toHaveBeenCalledTimes(1)
@@ -61,7 +61,7 @@ describe('direct non-placement actions', () => {
   })
 
   it('updates watchlists directly while retaining the strict server action schema', async () => {
-    const result = await createDirectAccountActionTool({}, 'Add SPY and NVDA to my watchlist.').execute('call-2', {
+    const result = await createDirectAccountActionTool({}, 'Add SPY and NVDA to my watchlist.', undefined).execute('call-2', {
       kind: 'add_watchlist_symbols', symbols: ['SPY', 'NVDA'],
     })
 
@@ -76,8 +76,8 @@ describe('direct non-placement actions', () => {
   it('never automatically repeats a failed direct mutation in one model turn', async () => {
     tastytrade.tastyRequest.mockRejectedValueOnce(new Error('Upstream response lost'))
     watchlists.executeWatchlistAction.mockRejectedValueOnce(new Error('Upstream response lost'))
-    const cancelTool = createDirectAccountActionTool({}, 'Cancel order #12345.')
-    const watchlistTool = createDirectAccountActionTool({}, 'Add SPY to my watchlist.')
+    const cancelTool = createDirectAccountActionTool({}, 'Cancel order #12345.', brokerCredential)
+    const watchlistTool = createDirectAccountActionTool({}, 'Add SPY to my watchlist.', undefined)
 
     await expect(cancelTool.execute('cancel-1', { kind: 'cancel_order', orderId: '12345' }))
       .rejects.toBeInstanceOf(BrokerageCancellationUnknownError)
@@ -99,7 +99,7 @@ describe('direct non-placement actions', () => {
     ['provider 5xx', Object.assign(new Error('TastytradeApi:503:/orders/12345'), { name: 'TastytradeApiAmbiguousError' })],
   ])('reports an explicit unknown cancellation after %s', async (_label, failure) => {
     tastytrade.tastyRequest.mockRejectedValueOnce(failure)
-    const tool = createDirectAccountActionTool({}, 'Cancel order #12345.')
+    const tool = createDirectAccountActionTool({}, 'Cancel order #12345.', brokerCredential)
 
     await expect(tool.execute('cancel-ambiguous', { kind: 'cancel_order', orderId: '12345' }))
       .rejects.toMatchObject({
@@ -116,18 +116,18 @@ describe('direct non-placement actions', () => {
     })
     tastytrade.tastyRequest.mockRejectedValueOnce(rejection)
 
-    await expect(createDirectAccountActionTool({}, 'Cancel order #12345.').execute(
+    await expect(createDirectAccountActionTool({}, 'Cancel order #12345.', brokerCredential).execute(
       'cancel-rejected',
       { kind: 'cancel_order', orderId: '12345' },
     )).rejects.toBe(rejection)
   })
 
   it('rejects model-selected cancellation parameters that do not exactly match the current request', async () => {
-    await expect(createDirectAccountActionTool({}, 'Cancel order #999.').execute('call-3', {
+    await expect(createDirectAccountActionTool({}, 'Cancel order #999.', brokerCredential).execute('call-3', {
       kind: 'cancel_order', orderId: '12345',
     }))
       .rejects.toThrow('DirectActionIntentMismatch')
-    await expect(createDirectAccountActionTool({}, 'Explain how cancelling order #12345 works.').execute('call-4', {
+    await expect(createDirectAccountActionTool({}, 'Explain how cancelling order #12345 works.', brokerCredential).execute('call-4', {
       kind: 'cancel_order', orderId: '12345',
     }))
       .rejects.toThrow('DirectActionIntentMismatch')
@@ -144,7 +144,7 @@ describe('direct non-placement actions', () => {
     ] as const
     for (const [message, params] of cases) {
       const mutableParams = 'symbols' in params ? { ...params, symbols: [...params.symbols] } : params
-      await expect(createDirectAccountActionTool({}, message).execute('call-5', mutableParams))
+      await expect(createDirectAccountActionTool({}, message, undefined).execute('call-5', mutableParams))
         .rejects.toThrow('DirectActionIntentMismatch')
     }
 
@@ -173,7 +173,7 @@ describe('direct non-placement actions', () => {
   it('refuses to put non-placement actions into the confirmation store', async () => {
     await expect(preparePendingAction({}, {
       kind: 'add_watchlist_symbols', symbols: ['SPY'],
-    })).rejects.toThrow()
+    }, undefined)).rejects.toThrow()
     expect(watchlists.executeWatchlistAction).not.toHaveBeenCalled()
   })
 })

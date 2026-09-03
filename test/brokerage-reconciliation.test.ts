@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { matchesSubmittedOrder, reconcileUnknownBrokerageAction } from '../src/server/brokerage-reconciliation'
 import { buildOrderPayload } from '../src/server/order-payload'
+import { brokerCredential } from './broker-stub'
 
 describe('brokerage submission reconciliation', () => {
   const intended = buildOrderPayload({
@@ -36,6 +37,6 @@ describe('brokerage submission reconciliation', () => {
   })
 
   it('does not report an unavailable reconciliation store as no quarantined action', async () => {
-    await expect(reconcileUnknownBrokerageAction({})).rejects.toThrow('store-unavailable')
+    await expect(reconcileUnknownBrokerageAction({}, brokerCredential)).rejects.toThrow('store-unavailable')
   })
 })

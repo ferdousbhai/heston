@@ -1,6 +1,7 @@
 export type OwnerVisibleErrorKind =
   | 'action-state'
   | 'ambiguous-brokerage'
+  | 'broker-credential'
   | 'broker-warning'
   | 'option-contract'
   | 'portfolio-risk'

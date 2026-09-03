@@ -1,4 +1,5 @@
 import { type AppEnv } from './env'
+import { type BrokerCredential } from './broker-credential'
 import { brokerApi } from './tastytrade'
 import {
   accountBalancesFromPayload,
@@ -96,13 +97,16 @@ function parsedOrders(
   return [...new Map(normalized.map((order) => [order.id, order])).values()]
 }
 
-export async function loadBrokerageContext(env: AppEnv): Promise<BrokerageContext> {
-  const account = await brokerApi().resolveAccountNumber(env)
+export async function loadBrokerageContext(
+  env: AppEnv,
+  credential?: BrokerCredential,
+): Promise<BrokerageContext> {
+  const account = await brokerApi().resolveAccountNumber(env, credential)
   const [positionPayload, balancePayload, orderPayload, complexOrderPayload] = await Promise.all([
-    brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/positions?per-page=${BROKER_ACCOUNT_PAGE_SIZE}`),
-    brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/balances`),
-    brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/orders/live?per-page=${BROKER_ACCOUNT_PAGE_SIZE}`),
-    brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/complex-orders/live?per-page=${BROKER_ACCOUNT_PAGE_SIZE}`),
+    brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/positions?per-page=${BROKER_ACCOUNT_PAGE_SIZE}`, {}, credential),
+    brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/balances`, {}, credential),
+    brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/orders/live?per-page=${BROKER_ACCOUNT_PAGE_SIZE}`, {}, credential),
+    brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(account)}/complex-orders/live?per-page=${BROKER_ACCOUNT_PAGE_SIZE}`, {}, credential),
   ])
   return {
     accountNumber: account,

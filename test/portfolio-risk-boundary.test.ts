@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { executeOrderPlacement } from '../src/server/brokerage'
 import { type AppEnv } from '../src/server/env'
-import { stubBrokerGate } from './broker-stub'
+import { brokerCredential, stubBrokerGate } from './broker-stub'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
 
 function secret(value: string): SecretsStoreSecret {
@@ -67,7 +67,7 @@ describe('brokerage dispatch portfolio guard', () => {
       kind: 'place_option_order', underlying: 'SPY', optionType: 'C', strike: 700,
       expiry: '2026-09-18', action: 'Buy to Open', quantity: 1, limitPrice: 5,
       priceEffect: 'Debit',
-    })).rejects.toThrow('Existing short, futures, or unsupported exposure')
+    }, brokerCredential)).rejects.toThrow('Existing short, futures, or unsupported exposure')
 
     expect(calls.some((call) => call.url.includes('/orders/dry-run'))).toBe(false)
     expect(calls.some((call) => call.method === 'POST' && /\/accounts\/[^/]+\/orders$/.test(call.url))).toBe(false)
@@ -100,7 +100,7 @@ describe('brokerage dispatch portfolio guard', () => {
     await expect(executeOrderPlacement(env, {
       kind: 'place_equity_order', symbol: 'SPY', action: 'Buy to Open', quantity: 1,
       limitPrice: 700, priceEffect: 'Debit',
-    })).rejects.toThrow('could not verify every ordinary live order')
+    }, brokerCredential)).rejects.toThrow('could not verify every ordinary live order')
 
     expect(calls.some((call) => call.url.includes('/orders/dry-run'))).toBe(false)
     expect(calls.some((call) => call.method === 'POST' && /\/accounts\/[^/]+\/orders$/.test(call.url))).toBe(false)
@@ -135,7 +135,7 @@ describe('brokerage dispatch portfolio guard', () => {
     await expect(executeOrderPlacement(env, {
       kind: 'place_equity_order', symbol: 'SPY', action: 'Buy to Open', quantity: 1,
       limitPrice: 700, priceEffect: 'Debit',
-    })).rejects.toThrow('could not verify every open position')
+    }, brokerCredential)).rejects.toThrow('could not verify every open position')
 
     expect(calls.some((call) => call.url.includes('/positions?per-page=200'))).toBe(true)
     expect(calls.some((call) => call.url.includes('/orders/dry-run'))).toBe(false)

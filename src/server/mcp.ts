@@ -19,6 +19,11 @@ import { publishSubmittedDailyRecommendations } from './research-publish'
 import { createResearchReadTools } from './research-read-tools'
 import { readStoredSecret } from './secrets'
 import { createWatchlistReadTool } from './watchlist-tool'
+import {
+  BrokerCredentialMissingError,
+  brokerCredentialFromHeaders,
+  type BrokerCredential,
+} from './broker-credential'
 
 /**
  * The web app as a tool surface for an agent that runs on the owner's machine. Agent loops do
@@ -47,13 +52,13 @@ function submissionJsonSchema(): JsonSchemaType {
   return schema as JsonSchemaType
 }
 
-export function createSpiceMcpServer(env: AppEnv): McpServer {
+export function createSpiceMcpServer(env: AppEnv, credential?: BrokerCredential): McpServer {
   const server = new McpServer({ name: 'spice', version: '1.0.0' })
 
   const tools: AgentTool<TSchema>[] = [
     // The bundle carries only the account-flavored pair; the market reads are standalone
     // factories, and leaving them to the bundle silently served a two-tool market surface.
-    ...createBrokerageReadTools(env),
+    ...createBrokerageReadTools(env, credential),
     createMarketMetricsReadTool(env),
     createOptionContractFindTool(env),
     createInstrumentQuoteReadTool(env),
@@ -74,11 +79,19 @@ export function createSpiceMcpServer(env: AppEnv): McpServer {
         inputSchema: fromJsonSchema(tool.parameters),
       },
       async (params) => {
-        // SAFETY: the SDK validated `params` against this very tool's own JSON Schema before
-        // dispatch, which is exactly the contract `execute` states for its parameters.
-        const result = await tool.execute(crypto.randomUUID(), params as never)
-        // AgentToolResult content is already MCP CallToolResult content for text parts.
-        return { content: result.content.filter((part) => part.type === 'text') }
+        try {
+          // SAFETY: the SDK validated `params` against this very tool's own JSON Schema before
+          // dispatch, which is exactly the contract `execute` states for its parameters.
+          const result = await tool.execute(crypto.randomUUID(), params as never)
+          // AgentToolResult content is already MCP CallToolResult content for text parts.
+          return { content: result.content.filter((part) => part.type === 'text') }
+        } catch (error) {
+          // A disconnected brokerage is an actionable tool result, not an MCP transport failure.
+          if (error instanceof BrokerCredentialMissingError) {
+            return { content: [{ text: error.message, type: 'text' as const }] }
+          }
+          throw error
+        }
       },
     )
   }
@@ -92,9 +105,17 @@ export function createSpiceMcpServer(env: AppEnv): McpServer {
       inputSchema: fromJsonSchema(orderPlacementJsonSchema()),
     },
     async (params) => {
-      // SAFETY: `preparePendingAction` re-parses its input with OrderPlacementSchema at the
-      // trust boundary regardless of what the transport already checked.
-      const pending = await preparePendingAction(env, params as never)
+      let pending: Awaited<ReturnType<typeof preparePendingAction>>
+      try {
+        // SAFETY: `preparePendingAction` re-parses its input with OrderPlacementSchema at the
+        // trust boundary regardless of what the transport already checked.
+        pending = await preparePendingAction(env, params as never, credential)
+      } catch (error) {
+        if (error instanceof BrokerCredentialMissingError) {
+          return { content: [{ text: error.message, type: 'text' as const }] }
+        }
+        throw error
+      }
       // The confirmation token stays server-side on purpose. Handing it to the caller would
       // let the same process that drafted the order confirm it, and the entire value of the
       // boundary is that the confirming channel is not the agent's channel.
@@ -175,7 +196,8 @@ export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpEx
     console.error('McpAuthRejected')
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const credential = brokerCredentialFromHeaders(request.headers)
   // SAFETY: the handler reads only `props` from the context (verified against its dist), which
   // McpExecutionContext carries; the platform type's other members are never touched.
-  return createMcpHandler(() => createSpiceMcpServer(env), { route: '/mcp' })(request, env, ctx as ExecutionContext)
+  return createMcpHandler(() => createSpiceMcpServer(env, credential), { route: '/mcp' })(request, env, ctx as ExecutionContext)
 }

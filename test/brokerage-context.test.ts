@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type JsonValue } from '../src/domain/json-payload'
 
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
-import { stubBroker } from './broker-stub'
+import { brokerCredential, stubBroker } from './broker-stub'
 import { buildAgentRuntimeContext, loadBrokerageContext } from '../src/server/brokerage-context'
 
 const tastytrade = stubBroker()
@@ -57,7 +57,7 @@ describe('always-on brokerage context', () => {
   })
 
   it('loads accurately named balances and compact account state without exposing account identity', async () => {
-    const context = await loadBrokerageContext({})
+    const context = await loadBrokerageContext({}, brokerCredential)
     const runtime = buildAgentRuntimeContext(context)
 
     expect(context.balances).toMatchObject({
@@ -93,7 +93,7 @@ describe('always-on brokerage context', () => {
       return Promise.resolve(payloadFor(path))
     })
 
-    await expect(loadBrokerageContext({})).rejects.toThrow('invalid-positions-collection')
+    await expect(loadBrokerageContext({}, brokerCredential)).rejects.toThrow('invalid-positions-collection')
   })
 
   it('fails working-order completeness closed when the broker reports another page', async () => {
@@ -105,7 +105,7 @@ describe('always-on brokerage context', () => {
       return Promise.resolve(payloadFor(path))
     })
 
-    await expect(loadBrokerageContext({})).rejects.toThrow('incomplete-orders')
+    await expect(loadBrokerageContext({}, brokerCredential)).rejects.toThrow('incomplete-orders')
   })
 
   it('fails position completeness closed when the broker reports another page', async () => {
@@ -117,7 +117,7 @@ describe('always-on brokerage context', () => {
       return Promise.resolve(payloadFor(path))
     })
 
-    await expect(loadBrokerageContext({})).rejects.toThrow('incomplete-positions')
+    await expect(loadBrokerageContext({}, brokerCredential)).rejects.toThrow('incomplete-positions')
   })
 
   it('fails position completeness closed on a full page without pagination metadata', async () => {
@@ -131,7 +131,7 @@ describe('always-on brokerage context', () => {
       return Promise.resolve(payloadFor(path))
     })
 
-    await expect(loadBrokerageContext({})).rejects.toThrow('incomplete-positions')
+    await expect(loadBrokerageContext({}, brokerCredential)).rejects.toThrow('incomplete-positions')
   })
 
   it('fails working-order completeness closed on a full page without pagination metadata', async () => {
@@ -144,7 +144,7 @@ describe('always-on brokerage context', () => {
       return Promise.resolve(payloadFor(path))
     })
 
-    await expect(loadBrokerageContext({})).rejects.toThrow('incomplete-orders')
+    await expect(loadBrokerageContext({}, brokerCredential)).rejects.toThrow('incomplete-orders')
   })
 
   it('rejects a malformed declared pagination total', async () => {
@@ -155,7 +155,7 @@ describe('always-on brokerage context', () => {
       return Promise.resolve(payloadFor(path))
     })
 
-    await expect(loadBrokerageContext({})).rejects.toThrow('invalid-positions-pagination')
+    await expect(loadBrokerageContext({}, brokerCredential)).rejects.toThrow('invalid-positions-pagination')
   })
 
   it('rejects a declared total smaller than the returned page', async () => {
@@ -166,6 +166,6 @@ describe('always-on brokerage context', () => {
       return Promise.resolve(payloadFor(path))
     })
 
-    await expect(loadBrokerageContext({})).rejects.toThrow('incomplete-positions')
+    await expect(loadBrokerageContext({}, brokerCredential)).rejects.toThrow('incomplete-positions')
   })
 })

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
-import { stubBroker } from './broker-stub'
+import { brokerCredential, stubBroker } from './broker-stub'
 import {
   createBrokerageReadTools,
   findOptionContracts,
@@ -62,11 +62,13 @@ describe('brokerage read tools', () => {
       transactionType: 'Trade',
       type: 'transactions',
       underlyingSymbol: 'AAPL',
-    }, now)
+    }, brokerCredential, now)
 
     expect(tastytrade.tastyRequest).toHaveBeenCalledWith(
       {},
       '/accounts/PRIVATE123/transactions?page-offset=0&per-page=1&sort=Desc&start-date=2026-07-14&underlying-symbol=AAPL&type=Trade',
+      {},
+      brokerCredential,
     )
     expect(result).toMatchObject({
       asOf: now.toISOString(),
@@ -93,9 +95,9 @@ describe('brokerage read tools', () => {
 
   it('redacts account identity from broker history errors', async () => {
     tastytrade.tastyRequest.mockRejectedValue(new Error('TastytradeApi:500:/accounts/PRIVATE123/transactions'))
-    await expect(readAccountHistory({}, { type: 'transactions' }, now)).rejects.toThrow('transactions are unavailable')
+    await expect(readAccountHistory({}, { type: 'transactions' }, brokerCredential, now)).rejects.toThrow('transactions are unavailable')
     try {
-      await readAccountHistory({}, { type: 'transactions' }, now)
+      await readAccountHistory({}, { type: 'transactions' }, brokerCredential, now)
     } catch (error) {
       expect(String(error)).not.toContain('PRIVATE123')
     }
@@ -108,10 +110,12 @@ describe('brokerage read tools', () => {
       days: 366,
       pageOffset: 1_001,
       type: 'orders',
-    }, now)).resolves.toMatchObject({ pageOffset: 1_001, truncated: false })
+    }, brokerCredential, now)).resolves.toMatchObject({ pageOffset: 1_001, truncated: false })
     expect(tastytrade.tastyRequest).toHaveBeenCalledWith(
       {},
       '/accounts/PRIVATE123/orders?page-offset=1001&per-page=25&sort=Desc&start-date=2025-08-12',
+      {},
+      brokerCredential,
     )
   })
 
@@ -119,11 +123,11 @@ describe('brokerage read tools', () => {
     await expect(readAccountHistory({}, {
       transactionType: 'Trade',
       type: 'orders',
-    }, now)).rejects.toThrow('valid only for transaction history')
+    }, brokerCredential, now)).rejects.toThrow('valid only for transaction history')
     expect(tastytrade.resolveAccountNumber).not.toHaveBeenCalled()
 
     tastytrade.tastyRequest.mockResolvedValue({ data: {} })
-    await expect(readAccountHistory({}, { type: 'transactions' }, now)).rejects.toThrow('invalid response')
+    await expect(readAccountHistory({}, { type: 'transactions' }, brokerCredential, now)).rejects.toThrow('invalid response')
   })
 
   it('returns compact metrics in request order with explicit missing symbols', async () => {

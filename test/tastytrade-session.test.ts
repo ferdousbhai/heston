@@ -17,8 +17,9 @@ describe('tastytrade OAuth boundary', () => {
       return 'done'
     })
 
-    await expect(withBrokerMutationLease({ BROKER_GATE: brokerGate.namespace }, operation)).resolves.toBe('done')
+    await expect(withBrokerMutationLease({ BROKER_GATE: brokerGate.namespace }, 'ACCOUNT-1', operation)).resolves.toBe('done')
 
+    expect(brokerGate.namespace.getByName).toHaveBeenCalledWith('tastytrade:ACCOUNT-1')
     expect(brokerGate.gate.acquireMutation).toHaveBeenCalledTimes(1)
     expect(brokerGate.gate.renewMutation).toHaveBeenCalledWith('mutation-token')
     expect(brokerGate.gate.releaseMutation).toHaveBeenCalledWith('mutation-token')
@@ -29,7 +30,7 @@ describe('tastytrade OAuth boundary', () => {
     const { withBrokerMutationLease } = await import('../src/server/tastytrade')
     const brokerGate = stubBrokerGate()
 
-    await expect(withBrokerMutationLease({ BROKER_GATE: brokerGate.namespace }, async () => {
+    await expect(withBrokerMutationLease({ BROKER_GATE: brokerGate.namespace }, 'ACCOUNT-1', async () => {
       throw new Error('failed before mutation')
     })).rejects.toThrow('failed before mutation')
 
@@ -132,6 +133,10 @@ describe('tastytrade OAuth boundary', () => {
       BROKER_GATE: brokerGate.namespace,
       TASTYTRADE_CLIENT_SECRET: secret,
       TASTYTRADE_REFRESH_TOKEN: secret,
-    }, '/accounts/SECRET123/orders')).rejects.toThrow('/accounts/[redacted]/orders')
+    }, '/accounts/SECRET123/orders', {}, {
+      accessToken: 'member-access-token',
+      broker: 'tastytrade',
+    })).rejects.toThrow('/accounts/[redacted]/orders')
+    expect(brokerGate.namespace.getByName).toHaveBeenCalledWith('tastytrade:SECRET123')
   })
 })
