@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { Bot, Gauge, Newspaper } from 'lucide-react'
+import { Gauge, Newspaper, Plug } from 'lucide-react'
 import { z } from 'zod'
 
 import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
@@ -11,13 +11,12 @@ import { mostActiveSymbol } from '../domain/market'
 import { useLiveMarket } from '../data/live-market'
 import { useAudienceMarket } from '../data/use-audience-market'
 import { useWorkspaceFavorites } from '../data/use-workspace-favorites'
-import { AgentScreen } from './agent-screen'
 import { OwnerAccessScreen, type Viewer, useViewer } from './auth-gate'
 import { RecommendationScreen } from './recommendation-screen'
 import { MarketScreen } from './market-screen'
 import { TopBar } from './top-bar'
 
-const TabSchema = z.enum(['market', 'recommendations', 'agent'])
+const TabSchema = z.enum(['market', 'recommendations', 'connect'])
 
 type Tab = z.infer<typeof TabSchema>
 export function SpiceApp() {
@@ -47,7 +46,7 @@ function SpiceWorkspace({
   const owner = viewer?.role === 'owner'
   const viewerId = viewer?.id
   const market = useAudienceMarket(audience)
-  const { chooseSymbol: saveSelectedSymbol, preference, snapshot, synchronize, tickers } = market
+  const { chooseSymbol: saveSelectedSymbol, preference, snapshot, tickers } = market
   const favorites = useWorkspaceFavorites(viewerId, preference)
   const snapshotReady = Boolean(snapshot)
   const catalysts = snapshot?.catalysts ?? []
@@ -86,7 +85,6 @@ function SpiceWorkspace({
     void saveSelectedSymbol(symbol)
     setTab('market')
   }, [saveSelectedSymbol])
-  const ownerAgentOpen = tab === 'agent' && owner
 
   return (
     <div className="app-viewport">
@@ -100,18 +98,16 @@ function SpiceWorkspace({
         value={tab}
       >
         {/* The age belongs to the market data, so it is stated where that data is read and
-            nowhere else: on the recommendations or agent tab it would describe something the
+            nowhere else: on the recommendations or connect tab it would describe something the
             reader is not looking at. */}
-        {!ownerAgentOpen && (
-          <TopBar
-            lastUpdatedAt={tab === 'market' ? lastUpdatedAt : undefined}
-            marketOpensAt={snapshot?.marketOpensAt}
-            marketState={snapshot?.marketState}
-            viewerName={viewer?.name}
-          />
-        )}
+        <TopBar
+          lastUpdatedAt={tab === 'market' ? lastUpdatedAt : undefined}
+          marketOpensAt={snapshot?.marketOpensAt}
+          marketState={snapshot?.marketState}
+          viewerName={viewer?.name}
+        />
         <TabsContent value={tab}>
-          <main id="main-content" className={ownerAgentOpen ? 'main-content agent-main' : 'main-content'}>
+          <main id="main-content" className="main-content">
             {visibleSnapshotWarning && (
               <Alert>
                 <AlertTitle>Market data may be stale</AlertTitle>
@@ -124,8 +120,9 @@ function SpiceWorkspace({
                 <AlertDescription>{visibleFavoriteError}</AlertDescription>
               </Alert>
             )}
-            {tab === 'agent' && !owner && <OwnerAccessScreen authError={authError} signedIn={Boolean(viewer)} />}
-            {tab !== 'agent' && !snapshotReady && (
+            {tab === 'connect' && !viewer && <OwnerAccessScreen authError={authError} signedIn={false} />}
+            {tab === 'connect' && viewer && <AgentConnectionState />}
+            {tab !== 'connect' && !snapshotReady && (
               <MarketState loading={!market.bootstrapComplete} message={market.bootstrapComplete ? 'Market data is unavailable.' : 'Loading market data…'} />
             )}
             {snapshotReady && tab === 'market' && selected && activeWatchlist && (
@@ -151,20 +148,23 @@ function SpiceWorkspace({
                 onSymbol={chooseSymbol}
               />
             )}
-            {owner && !snapshotReady && tab === 'agent' && (
-              <MarketState loading={!market.bootstrapComplete} message={market.bootstrapComplete ? 'Account market data is unavailable.' : 'Loading account context…'} />
-            )}
-            {owner && snapshotReady && tab === 'agent' && selected && <AgentScreen onAccountMutation={() => synchronize(undefined, true)} selected={selected} />}
-            {owner && snapshotReady && tab === 'agent' && !selected && <MarketState message="Dan needs a loaded market symbol." />}
           </main>
         </TabsContent>
         <TabsList aria-label="Primary navigation" className="bottom-nav">
           <TabsTrigger value="market"><Gauge /><span>Watch</span></TabsTrigger>
           <TabsTrigger value="recommendations"><Newspaper /><span>Recommendations</span></TabsTrigger>
-          <TabsTrigger value="agent"><Bot /><span>Dan</span></TabsTrigger>
+          <TabsTrigger value="connect"><Plug /><span>Connect</span></TabsTrigger>
         </TabsList>
       </Tabs>
     </div>
+  )
+}
+
+function AgentConnectionState() {
+  return (
+    <section className="market-state">
+      <Empty><EmptyHeader><EmptyDescription>Agent connection setup is coming next.</EmptyDescription></EmptyHeader></Empty>
+    </section>
   )
 }
 

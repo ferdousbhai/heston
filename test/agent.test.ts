@@ -1,8 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { JsonObjectSchema } from '../src/domain/json-payload'
 import { MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
-import { resetResponsesApi, setResponsesApi, type ResponsesApi } from '../src/server/pi-runtime'
 import {
   ChatRequestSchema,
   ConfirmRequestSchema,
@@ -14,15 +12,10 @@ import { BrokerageSubmissionUnknownError } from '../src/server/brokerage'
 import { brokerApi, resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { resetInternalWatchlistWriter, setInternalWatchlistWriter } from '../src/server/internal-watchlist'
 import { resetTradeGuards, setTradeGuards } from '../src/server/trade-guards'
-import { createPiRuntime } from '../src/server/pi-runtime'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
 import { stubBroker } from './broker-stub'
 
-const pi = { stream: vi.fn() } satisfies ResponsesApi
-
-beforeEach(() => setResponsesApi(pi))
 afterEach(() => {
-  resetResponsesApi()
   resetBrokerApi()
   resetInternalWatchlistWriter()
   resetTradeGuards()
@@ -159,80 +152,6 @@ describe('brokerage input boundary', () => {
     expect(ChatRequestSchema.safeParse({ message: 'Why is SPY vol cheap?', selectedSymbol: 'SPY' }).success).toBe(true)
     expect(ChatRequestSchema.safeParse({ message: 'Invalid selection', selectedSymbol: '....' }).success).toBe(false)
     expect(ChatRequestSchema.safeParse({ message: 'x'.repeat(4_001) }).success).toBe(false)
-  })
-})
-
-describe('pi runtime protocol', () => {
-  it('uses Grok 4.6 with high reasoning and native web/X through the Pi Responses adapter', async () => {
-    const runtime = createPiRuntime(
-      'xai-test-key',
-      'gateway-test-key',
-      'https://gateway.ai.cloudflare.com/v1/account/spice/grok/v1',
-      'dan-run-123',
-    )
-    const context = {
-      messages: [],
-      systemPrompt: 'Test',
-      tools: [],
-    }
-    const providerItems = [
-      { id: 'ws_1', status: 'completed', type: 'web_search_call' },
-      {
-        arguments: '{"symbols":["NVDA"]}', call_id: 'call_1', id: 'fc_1',
-        name: 'read_market_metrics', type: 'function_call',
-      },
-    ]
-    const providerFetch = vi.fn<typeof fetch>(async () => new Response(
-      providerItems.map((item) => `data: ${JSON.stringify({ item, type: 'response.output_item.done' })}\n\n`).join(''),
-      { headers: { 'Content-Type': 'text/event-stream' } },
-    ))
-    const callerPayload = vi.fn(<T,>(payload: T) => ({ ...JsonObjectSchema.parse(payload), caller: true }))
-    runtime.stream(runtime.model, context, { fetch: providerFetch, onPayload: callerPayload })
-
-    expect(runtime.model).toMatchObject({
-      baseUrl: 'https://gateway.ai.cloudflare.com/v1/account/spice/grok/v1',
-      cost: { cacheRead: 0.5 },
-      id: 'grok-4.6', name: 'Grok 4.6', reasoning: true,
-      thinkingLevelMap: { xhigh: 'xhigh' },
-    })
-    expect(pi.stream).toHaveBeenCalledWith(runtime.model, context, expect.objectContaining({
-      apiKey: 'xai-test-key',
-      headers: expect.objectContaining({
-        'cf-aig-authorization': 'Bearer gateway-test-key',
-        'cf-aig-collect-log': 'true',
-        'cf-aig-collect-log-payload': 'true',
-        'cf-aig-metadata': JSON.stringify({ app: 'spice', feature: 'dan-agent', run_id: 'dan-run-123' }),
-      }),
-      reasoningEffort: 'high',
-      reasoningSummary: 'auto',
-      sessionId: 'dan-run-123',
-    }))
-    const options = pi.stream.mock.calls[0]?.[2]
-    const payload = await options?.onPayload?.(
-      { tools: [{ name: 'private_read', type: 'function' }] },
-      runtime.model,
-    )
-    expect(callerPayload).toHaveBeenCalledOnce()
-    expect(payload).toMatchObject({
-      caller: true,
-      tools: [
-        { name: 'private_read', type: 'function' },
-        { type: 'web_search' },
-        { type: 'x_search' },
-      ],
-    })
-    const providerResponse = await options!.fetch!(new Request('https://gateway.example/responses'))
-    await providerResponse.text()
-    const continued = await options?.onPayload?.({
-      input: [
-        providerItems[1],
-        { call_id: 'call_1', output: '{}', type: 'function_call_output' },
-      ],
-      tools: [],
-    }, runtime.model)
-    expect(continued).toMatchObject({
-      input: [providerItems[0], providerItems[1], expect.objectContaining({ type: 'function_call_output' })],
-    })
   })
 })
 

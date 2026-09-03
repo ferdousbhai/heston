@@ -25,14 +25,11 @@ interface MarketFeedNamespace {
 }
 
 export interface AppEnv {
-  AI?: Ai
-  AI_GATEWAY_TOKEN?: SecretsStoreSecret
   AUTH_BASE_URL?: string
   BETTER_AUTH_SECRET?: string
   BROKER_GATE?: BrokerGateNamespace
   BROWSER?: BrowserRun
   DB?: D1Database
-  DanAgent?: DurableObjectNamespace
   EXA_API_KEY?: SecretsStoreSecret
   GOOGLE_CLIENT_ID?: string
   GOOGLE_CLIENT_SECRET?: string
@@ -47,5 +44,4 @@ export interface AppEnv {
   TELEGRAM_LONG_VOL_CHAT_ID?: string
   /** Owner's private chat for operational alerts; never a publication destination. */
   TELEGRAM_OWNER_CHAT_ID?: SecretsStoreSecret
-  XAI_API_KEY?: SecretsStoreSecret
 }

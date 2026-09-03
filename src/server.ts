@@ -1,8 +1,7 @@
 import handler from '@tanstack/react-start/server-entry'
-import { routeAgentRequest } from 'agents'
 
 import { type AppEnv } from './server/env'
-import { authorizePersonalRequest, canonicalHostRedirect, finalizeDocumentResponse } from './server/http'
+import { canonicalHostRedirect, finalizeDocumentResponse } from './server/http'
 import { handleMcpRequest } from './server/mcp'
 import { watchDailyBrief } from './server/research-watchdog'
 import { refreshYearCandles } from './server/scheduled-jobs'
@@ -10,7 +9,6 @@ import { configureTypeboxRuntime } from './server/typebox-runtime'
 
 configureTypeboxRuntime()
 
-export { DanAgent } from './server/dan-agent'
 export { BrokerGate } from './server/broker-gate'
 export { MarketFeed } from './server/market-feed'
 
@@ -21,12 +19,6 @@ export default {
     // The tool surface for the agent on the owner's machine. Bearer-authed inside the
     // handler; the session/cookie path stays untouched and the token opens nothing else.
     if (new URL(request.url).pathname === '/mcp') return handleMcpRequest(request, env, ctx)
-    if (new URL(request.url).pathname.startsWith('/agents/')) {
-      const unauthorized = await authorizePersonalRequest(request, env, true)
-      if (unauthorized) return unauthorized
-      const agentResponse = await routeAgentRequest(request, env)
-      return agentResponse ?? new Response('Agent not found', { status: 404 })
-    }
     return finalizeDocumentResponse(request, await handler.fetch(request))
   },
   scheduled(controller: ScheduledController, env: AppEnv, context: ExecutionContext) {
