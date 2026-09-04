@@ -241,7 +241,8 @@ export function createBrokerageReconciliationTool(
   credential: BrokerCredential | undefined,
 ): AgentTool<typeof ReconcileParameters, ReconciliationResult> {
   return {
-    description: 'Resolve one quarantined submission against broker order history.',
+    description: 'Resolve one quarantined submission against broker order history. Use this after '
+      + 'an ambiguous submission; never automatically retry an ambiguous broker mutation.',
     execute: async () => textResult(await reconcileUnknownBrokerageAction(env, credential)),
     executionMode: 'sequential',
     label: 'Reconciling order',

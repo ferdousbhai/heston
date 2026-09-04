@@ -2,6 +2,7 @@ import { McpServer, fromJsonSchema, type JsonSchemaType } from '@modelcontextpro
 import { createMcpHandler } from 'agents/mcp/server'
 import { type AgentTool } from '@earendil-works/pi-agent-core'
 import { type TSchema } from 'typebox'
+import { z } from 'zod'
 
 import { OrderPlacementParameters } from './agent-contracts'
 import { placeBrokerageOrder } from './order-placement'
@@ -18,6 +19,7 @@ import { createRecentCoverageTool, createRedditIngestTool } from './research-age
 import { DailyRecommendationsSubmissionSchema } from './research-submission'
 import { publishSubmittedDailyRecommendations } from './research-publish'
 import { createResearchReadTools } from './research-read-tools'
+import { PORTFOLIO_REVIEW_PROMPT, SPICE_MCP_INSTRUCTIONS, tradeIdeaPrompt } from './doctrine'
 import { readStoredSecret } from './secrets'
 import { authenticateMcpToken, constantTimeDigestMatch } from './mcp-tokens'
 import { isOwnerEmail } from './auth'
@@ -56,7 +58,12 @@ function submissionJsonSchema(): JsonSchemaType {
 }
 
 export function createSpiceMcpServer(env: AppEnv, caller: McpCaller, credential?: BrokerCredential): McpServer {
-  const server = new McpServer({ name: 'spice', version: '1.0.0' })
+  // `instructions` reaches the caller's agent as system context, so it is assembled only from
+  // this repository's own constants and never from anything a provider or model supplied.
+  const server = new McpServer(
+    { name: 'spice', version: '1.0.0' },
+    { instructions: SPICE_MCP_INSTRUCTIONS },
+  )
 
   const tools: AgentTool<TSchema>[] = [
     // The bundle carries only the account-flavored pair; the market reads are standalone
@@ -133,6 +140,30 @@ export function createSpiceMcpServer(env: AppEnv, caller: McpCaller, credential?
         throw error
       }
     },
+  )
+
+  server.registerPrompt(
+    'portfolio_review',
+    {
+      description: 'Review every open position against the account\'s risk posture.',
+      title: 'Portfolio review',
+    },
+    () => ({ messages: [{ content: { text: PORTFOLIO_REVIEW_PROMPT, type: 'text' as const }, role: 'user' as const }] }),
+  )
+
+  server.registerPrompt(
+    'evaluate_trade_idea',
+    {
+      argsSchema: z.object({
+        symbol: z.string().min(1).max(16).describe('Underlying ticker'),
+        thesis: z.string().min(1).max(2_000).describe('The case to test, in the user\'s own words'),
+      }),
+      description: 'Test a trade idea against evidence, timing, and the account\'s loss budget.',
+      title: 'Evaluate a trade idea',
+    },
+    ({ symbol, thesis }) => ({
+      messages: [{ content: { text: tradeIdeaPrompt(symbol, thesis), type: 'text' as const }, role: 'user' as const }],
+    }),
   )
 
   // Owner only: publishing replaces the public brief and posts it to the public channel.

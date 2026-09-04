@@ -126,9 +126,9 @@ describe('portfolio action boundary', () => {
   })
 })
 
-describe('Dan doctrine', () => {
-  // The doctrine's own contract is pinned in dan-doctrine.test.ts, against
-  // PORTFOLIO_POLICY itself rather than a spelled-out percentage that can drift from it.
+describe('model context', () => {
+  // The doctrine's own contract is pinned in doctrine.test.ts, against PORTFOLIO_POLICY itself
+  // rather than a spelled-out percentage that can drift from it.
   it('builds compact model context without exposing account identity', () => {
     const account: BrokerageContext = {
       accountNumber: 'SECRET123',

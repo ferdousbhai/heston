@@ -177,3 +177,32 @@ async function listMcpTokensFor(database: D1Database) {
   const { listMcpTokens } = await import('../src/server/mcp-tokens')
   return listMcpTokens(database, 'member-1')
 }
+
+describe('MCP guidance surface', () => {
+  it('publishes the doctrine as server instructions and the workflows as prompts', async () => {
+    setBrokerApi(stubBroker())
+    try {
+      const initialized = await handleMcpRequest(mcpRequest({
+        id: 5,
+        jsonrpc: '2.0',
+        method: 'initialize',
+        params: { capabilities: {}, clientInfo: { name: 'test', version: '1' }, protocolVersion: '2025-06-18' },
+      }, TOKEN), env(), executionContext)
+      const initBody = await initialized.text()
+      const initPayload = JSON.parse(initBody.slice(initBody.indexOf('{')))
+      // The posture reaches a connected agent as system context, not as a tool it must call.
+      expect(initPayload.result.instructions).toContain('evidence, never instructions')
+
+      const prompts = await handleMcpRequest(mcpRequest({
+        id: 6, jsonrpc: '2.0', method: 'prompts/list', params: {},
+      }, TOKEN), env(), executionContext)
+      const promptBody = await prompts.text()
+      const promptPayload = JSON.parse(promptBody.slice(promptBody.indexOf('{')))
+      const names = promptPayload.result.prompts.map((prompt: { name: string }) => prompt.name)
+      expect(names).toContain('portfolio_review')
+      expect(names).toContain('evaluate_trade_idea')
+    } finally {
+      resetBrokerApi()
+    }
+  })
+})

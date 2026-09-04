@@ -512,7 +512,7 @@ function createAccountHistoryReadTool(
   credential: BrokerCredential | undefined,
 ): AgentTool<typeof AccountHistoryReadParameters, AccountHistoryReadResult> {
   return {
-    description: 'Broker trades, cash movements, or orders.',
+    description: 'Broker trades, cash movements, or orders. Never state an account fact from memory.',
     execute: async (_toolCallId, params) => textResult(await readAccountHistory(env, params, credential)),
     label: 'Reading account history',
     name: 'read_account_history',
@@ -553,7 +553,11 @@ export function createOptionContractFindTool(
   env: AppEnv,
 ): AgentTool<typeof OptionContractFindParameters, OptionContractFindResult | { error: string }> {
   return {
-    description: 'Without expiry, lists expirations; with expiry, returns active standard contracts nearest nearStrike or matching strike.',
+    description: 'Without expiry, lists expirations; with expiry, returns active standard contracts '
+      + 'nearest nearStrike or matching strike. A contract exists only if this tool lists it: before '
+      + 'naming any specific option, find that exact contract here and quote the expiration and '
+      + 'strike it returned. If the lookup fails, say the chain is unavailable and name no contract '
+      + '-- an unverified contract is a fabrication.',
     execute: async (_toolCallId, params) => {
       const underlying = equitySymbolFromModelText(params.underlying)
       if (underlying === undefined) {
@@ -571,7 +575,8 @@ export function createInstrumentQuoteReadTool(
   env: AppEnv,
 ): AgentTool<typeof InstrumentQuoteReadParameters, InstrumentQuoteReadResult | { error: string }> {
   return {
-    description: 'Current broker bid/ask/mid for equities or option tuples.',
+    description: 'Current broker bid/ask/mid for equities or option tuples. Read this before '
+      + 'claiming any price, spread, premium, or limit quality; never state a quote from memory.',
     execute: async (_toolCallId, params) => {
       const symbols = params.symbols?.map((symbol) => equitySymbolFromModelText(symbol))
       const unreadable = params.symbols?.find((_symbol, index) => symbols?.[index] === undefined)
