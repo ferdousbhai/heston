@@ -43,7 +43,7 @@ const VerticalOptionLegSchema = z.strictObject({
 /**
  * The model-authored, non-executable order shape. It keeps tastytrade's leg terminology but
  * omits account, provider option symbols, quantity, price, and time-in-force. Those values are
- * fresh execution state and may be added only through Dan's guarded OrderPlacement boundary.
+ * fresh execution state and may be added only through the guarded OrderPlacement boundary.
  */
 export const ActionableRecommendedOrderSchema = z.discriminatedUnion('kind', [
   z.strictObject({

@@ -1,4 +1,4 @@
-// Owner-approved survival policy: enforcement and Dan's context must read this
+// Owner-approved survival policy: enforcement and the server's published doctrine must read this
 // same value so advice cannot drift from the server-side execution boundary.
 export const PORTFOLIO_POLICY = {
   maxDrawdownPercent: 40,

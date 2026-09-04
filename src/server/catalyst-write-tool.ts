@@ -70,7 +70,7 @@ export function createCatalystWriteTool(
         id: `${provider}:${symbol}:${params.kind}:${params.date}`,
         kind: params.kind,
         source: [
-          provider === 'dan' ? 'Dan research' : 'Daily research',
+          'Daily research',
           new URL(params.sourceUrl).hostname.replace(/^www\./, ''),
         ].join(' · '),
         sourceUrl: params.sourceUrl,

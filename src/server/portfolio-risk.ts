@@ -63,7 +63,7 @@ function completeRiskRows(value: JsonValue, label: string): JsonObject[] {
     return completeAccountRows(value, label)
   } catch (cause) {
     const detail = cause instanceof Error ? cause.message : 'UnknownError'
-    throw new PortfolioRiskError(`Dan's portfolio guard could not verify ${label}: ${detail}.`)
+    throw new PortfolioRiskError(`The portfolio guard could not verify ${label}: ${detail}.`)
   }
 }
 
@@ -74,7 +74,7 @@ function positionRows(payload: JsonValue): RiskPosition[] {
     const direction = row['quantity-direction']
     const quantity = jsonNumber(row.quantity)
     if (!symbol || !instrumentType || (direction !== 'Long' && direction !== 'Short') || quantity === undefined || quantity < 0) {
-      throw new PortfolioRiskError("Dan's portfolio guard found an unsupported position record.")
+      throw new PortfolioRiskError('The portfolio guard found an unsupported position record.')
     }
     return quantity === 0 ? [] : [{ symbol, instrumentType, direction, quantity }]
   })
@@ -99,21 +99,21 @@ async function loadRiskAccount(
     ])
   } catch (error) {
     if (error instanceof BrokerCredentialMissingError) throw error
-    throw new PortfolioRiskError("Dan's portfolio guard could not refresh the complete tastytrade account.")
+    throw new PortfolioRiskError('The portfolio guard could not refresh the complete brokerage account.')
   }
   let balances
   try {
     balances = accountBalancesFromPayload(balancePayload, accountNumber)
   } catch (cause) {
     const detail = cause instanceof Error ? cause.message : 'UnknownError'
-    throw new PortfolioRiskError(`Dan's portfolio guard could not verify balances: ${detail}.`)
+    throw new PortfolioRiskError(`The portfolio guard could not verify balances: ${detail}.`)
   }
   const { netLiquidatingValue, cashBalance, cashAvailableToWithdraw } = balances
   if (netLiquidatingValue <= 0) {
-    throw new PortfolioRiskError("Dan's portfolio guard could not verify net liquidation value and unencumbered cash.")
+    throw new PortfolioRiskError('The portfolio guard could not verify net liquidation value and unencumbered cash.')
   }
   const cash = Math.min(cashBalance, cashAvailableToWithdraw)
-  if (cash < 0) throw new PortfolioRiskError("Dan's portfolio guard found a negative cash reserve.")
+  if (cash < 0) throw new PortfolioRiskError('The portfolio guard found a negative cash reserve.')
   return {
     netLiquidatingValue,
     cash,
@@ -131,24 +131,27 @@ async function recordPortfolioHighWater(
   env: AppEnv,
   accountNumber: string,
   netLiquidatingValue: number,
-  _credential: BrokerCredential | undefined,
+  credential: BrokerCredential | undefined,
 ): Promise<number> {
+  if (!credential) throw new BrokerCredentialMissingError()
   if (!env.DB || !accountNumber || !Number.isFinite(netLiquidatingValue) || netLiquidatingValue <= 0) {
-    throw new PortfolioRiskError("Dan's high-water portfolio guard is unavailable.")
+    throw new PortfolioRiskError('The high-water portfolio guard is unavailable.')
   }
   const now = new Date().toISOString()
+  // Keyed by broker as well as account: two brokers can issue the same account number, and
+  // sharing a high-water mark between them would silently resize someone's loss budget.
   await env.DB.prepare(
-    `INSERT INTO portfolio_risk_state (account_number, high_water_nlv, activated_at, updated_at)
-     VALUES (?, ?, ?, ?)
-     ON CONFLICT(account_number) DO UPDATE SET
+    `INSERT INTO portfolio_risk_state (broker_id, account_number, high_water_nlv, activated_at, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(broker_id, account_number) DO UPDATE SET
        high_water_nlv = MAX(portfolio_risk_state.high_water_nlv, excluded.high_water_nlv),
        updated_at = excluded.updated_at`,
-  ).bind(accountNumber, netLiquidatingValue, now, now).run()
+  ).bind(credential.broker, accountNumber, netLiquidatingValue, now, now).run()
   const row = await env.DB.prepare(
-    'SELECT high_water_nlv FROM portfolio_risk_state WHERE account_number = ?',
-  ).bind(accountNumber).first<{ high_water_nlv: number }>()
+    'SELECT high_water_nlv FROM portfolio_risk_state WHERE broker_id = ? AND account_number = ?',
+  ).bind(credential.broker, accountNumber).first<{ high_water_nlv: number }>()
   if (!row || !Number.isFinite(row.high_water_nlv) || row.high_water_nlv <= 0) {
-    throw new PortfolioRiskError("Dan's high-water portfolio guard is unavailable.")
+    throw new PortfolioRiskError('The high-water portfolio guard is unavailable.')
   }
   return row.high_water_nlv
 }
@@ -181,7 +184,7 @@ export function assessPortfolioAction(
 ): PortfolioActionAssessment {
   const budget = survivalBudget(highWaterValue, account.cash)
   if (account.liveOrderCount > 0) {
-    return { ...budget, maxLoss: 0, allowed: false, reason: 'Cancel or wait for every live order before Dan drafts another trade.' }
+    return { ...budget, maxLoss: 0, allowed: false, reason: 'Cancel or wait for every live order before placing another trade.' }
   }
   const isClose = action.kind !== 'place_vertical_spread_order'
     && (action.action === 'Sell to Close' || action.action === 'Buy to Close')
@@ -190,13 +193,13 @@ export function assessPortfolioAction(
       return { ...budget, maxLoss: 0, allowed: false, reason: 'The requested close is larger than the verified matching position.' }
     }
     if (action.action === 'Sell to Close' && account.positions.some(unsupportedOpeningPosition)) {
-      return { ...budget, maxLoss: 0, allowed: false, reason: 'Dan will not remove long collateral or protection while unsupported short exposure remains.' }
+      return { ...budget, maxLoss: 0, allowed: false, reason: 'This account will not remove long collateral or protection while unsupported short exposure remains.' }
     }
     return { ...budget, maxLoss: 0, allowed: true }
   }
   if (action.kind !== 'place_vertical_spread_order'
     && (action.action !== 'Buy to Open' || action.priceEffect !== 'Debit')) {
-    return { ...budget, maxLoss: Number.POSITIVE_INFINITY, allowed: false, reason: 'Dan will not open a naked or unbounded short position.' }
+    return { ...budget, maxLoss: Number.POSITIVE_INFINITY, allowed: false, reason: 'This account will not open a naked or unbounded short position.' }
   }
   if (account.positions.some(unsupportedOpeningPosition)) {
     return { ...budget, maxLoss: Number.POSITIVE_INFINITY, allowed: false, reason: 'Existing short, futures, or unsupported exposure prevents a contractually bounded portfolio floor.' }
@@ -233,11 +236,11 @@ export async function assertPortfolioActionAllowed(
     optionContracts = [await resolveEquityOptionContract(env, action)]
   }
   if (action.kind === 'place_vertical_spread_order' && optionContracts.length !== 2) {
-    throw new PortfolioRiskError('Dan could not verify both spread contracts.')
+    throw new PortfolioRiskError('The guard could not verify both spread contracts.')
   }
   const highWaterValue = await recordPortfolioHighWater(env, accountNumber, account.netLiquidatingValue, credential)
   const assessment = assessPortfolioAction(action, account, highWaterValue, optionContracts)
-  if (!assessment.allowed) throw new PortfolioRiskError(assessment.reason ?? 'Dan rejected this trade at the portfolio boundary.')
+  if (!assessment.allowed) throw new PortfolioRiskError(assessment.reason ?? 'This trade was rejected at the portfolio boundary.')
   return assessment
 }
 
@@ -249,7 +252,7 @@ export async function buildPortfolioPolicyContext(
   const netLiquidatingValue = account.balances.netLiquidatingValue
   const cashBalance = account.balances.cashBalance
   const withdrawableCash = account.balances.cashAvailableToWithdraw
-  if (netLiquidatingValue <= 0) throw new PortfolioRiskError("Dan's portfolio context has an invalid net liquidation value.")
+  if (netLiquidatingValue <= 0) throw new PortfolioRiskError('The portfolio context has an invalid net liquidation value.')
   const cash = Math.min(cashBalance, withdrawableCash)
   const highWaterValue = await recordPortfolioHighWater(env, account.accountNumber, netLiquidatingValue, credential)
   const budget = survivalBudget(highWaterValue, cash)

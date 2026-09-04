@@ -56,7 +56,7 @@ export async function removeFavoriteSymbols(
 
 
 /**
- * The owner's starred symbols, addressed by the owner identity itself. Dan is the owner's
+ * The owner's starred symbols, addressed by the owner identity itself. The daily research run is the owner's
  * agent and runs with no request in scope, so there is no viewer to key by — and a starred
  * symbol is the clearest record of what the owner is deliberately monitoring, which is
  * exactly the context an opening question should be grounded in.

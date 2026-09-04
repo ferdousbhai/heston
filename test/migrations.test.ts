@@ -261,6 +261,38 @@ describe('brokerage action migrations', () => {
     db.close()
   })
 
+  it('carries the drawdown high-water mark forward and stops brokers sharing one', async () => {
+    const initial = await readFile(new URL('../migrations/0001_spice.sql', import.meta.url), 'utf8')
+    const migration = await readFile(
+      new URL('../migrations/0031_portfolio_risk_state_per_broker.sql', import.meta.url),
+      'utf8',
+    )
+    const db = new DatabaseSync(':memory:')
+    db.exec(initial)
+    db.prepare(
+      `INSERT INTO portfolio_risk_state (account_number, high_water_nlv, activated_at, updated_at)
+       VALUES ('ACCOUNT-1', 125000.5, '2026-08-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z')`,
+    ).run()
+
+    db.exec(migration)
+
+    // The existing mark survives, attributed to the only broker that could have written it.
+    expect(db.prepare('SELECT broker_id, account_number, high_water_nlv FROM portfolio_risk_state').all())
+      .toEqual([{ account_number: 'ACCOUNT-1', broker_id: 'tastytrade', high_water_nlv: 125000.5 }])
+
+    const insert = db.prepare(
+      `INSERT INTO portfolio_risk_state (broker_id, account_number, high_water_nlv, activated_at, updated_at)
+       VALUES (?, ?, ?, '2026-09-04T00:00:00.000Z', '2026-09-04T00:00:00.000Z')`,
+    )
+    // The same account number at a different broker is a different portfolio, not the same one.
+    expect(() => insert.run('future-broker', 'ACCOUNT-1', 9000)).not.toThrow()
+    expect(() => insert.run('tastytrade', 'ACCOUNT-1', 9000)).toThrow(/UNIQUE constraint|PRIMARY KEY/)
+    expect(db.prepare(
+      "SELECT high_water_nlv FROM portfolio_risk_state WHERE broker_id = 'tastytrade' AND account_number = 'ACCOUNT-1'",
+    ).get()).toEqual({ high_water_nlv: 125000.5 })
+    db.close()
+  })
+
   it('adds the internal watchlist seed, normalized live items, and immutable provenance tables', async () => {
     const publicUniverse = await readFile(new URL('../migrations/0003_public_market_universe.sql', import.meta.url), 'utf8')
     const migration = await readFile(new URL('../migrations/0006_internal_watchlist.sql', import.meta.url), 'utf8')

@@ -21,7 +21,7 @@ function SupportPage() {
     >
       <section>
         <h2>What this site is</h2>
-        <p>Spice Must Flow has a public, information-only market page. Visitors can read the watchlist, option metrics, catalysts, and daily research, and Google-authenticated members can sync ticker favorites across devices. Brokerage positions, balances, Dan, operations, and every trading action remain available only inside the single-owner workspace.</p>
+        <p>Spice Must Flow has a public, information-only market page. Visitors can read the watchlist, option metrics, catalysts, and daily research, and Google-authenticated members can sync ticker favorites across devices. Signed-in members can also connect their own agent to Spice over MCP; brokerage positions, balances, and trading require the member's own brokerage credentials, which stay on their machine and are never stored here. Operations and publishing remain owner-only.</p>
       </section>
       <section>
         <h2>Report a problem</h2>

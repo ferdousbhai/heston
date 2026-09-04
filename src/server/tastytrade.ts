@@ -520,7 +520,7 @@ async function loadMarketSnapshot(
   options: MarketSnapshotOptions = {},
 ): Promise<MarketSnapshot> {
   const sessionPayload = await tastyRequest(env, '/market-time/equities/sessions/current')
-  // Held names reach the watchlist through Dan's discussion and trade-intent writes;
+  // Held names reach the watchlist through the trade-intent write at placement;
   // snapshots no longer read positions. This prune remains because it reduces the
   // one-time seed to the cap and republishes the public universe.
   // Pruning already returns the retained list, so reading it back would repeat

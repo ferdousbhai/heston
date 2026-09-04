@@ -14,7 +14,7 @@ export interface RecommendedOrderExecutionTerms {
 }
 
 /**
- * Promote research terms into Dan's draft shape only after a caller supplies fresh sizing and
+ * Promote research terms into the guarded placement shape only after a caller supplies fresh sizing and
  * pricing. Parsing here is intentional: the resulting draft still passes every normal guard,
  * broker dry-run, and confirmation step, and this function never places an order.
  */
