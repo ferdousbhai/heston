@@ -72,24 +72,44 @@ export const CancelOrderSchema = z.strictObject({ orderId: OrderIdSchema })
 
 export const CancelOrderParameters = zodTypeBoxSchema(CancelOrderSchema)
 
+/**
+ * A single-leg open or close must name the price effect its direction implies. Shared so the
+ * fresh-order union and the full placement union enforce it identically.
+ */
+function requireDirectionalPriceEffect(
+  action: { kind: string } & Partial<{ action: string; priceEffect: string }>,
+  context: z.RefinementCtx,
+): void {
+  if (!action.action || !action.priceEffect) return
+  // A vertical carries no single direction and a replacement changes only price, so neither
+  // names an action or an effect to reconcile.
+  const expectedEffect = action.action.startsWith('Buy') ? 'Debit' : 'Credit'
+  if (action.priceEffect !== expectedEffect) {
+    context.addIssue({
+      code: 'custom',
+      message: `${action.action} requires a ${expectedEffect.toLowerCase()}`,
+      path: ['priceEffect'],
+    })
+  }
+}
+
 export const FreshOrderPlacementSchema = z.discriminatedUnion('kind', [
   OptionActionSchema,
   EquityActionSchema,
   VerticalSpreadActionSchema,
-])
-  .superRefine((action, context) => {
-    if (action.kind === 'place_vertical_spread_order') return
-    const expectedEffect = action.action.startsWith('Buy') ? 'Debit' : 'Credit'
-    if (action.priceEffect !== expectedEffect) {
-      context.addIssue({
-        code: 'custom',
-        message: `${action.action} requires a ${expectedEffect.toLowerCase()}`,
-        path: ['priceEffect'],
-      })
-    }
-  })
+]).superRefine(requireDirectionalPriceEffect)
 
-export const OrderPlacementSchema = z.union([FreshOrderPlacementSchema, ReplaceOrderActionSchema])
+/**
+ * One discriminated union of four, not a union of a union: nesting them made the advertised
+ * JSON Schema an `anyOf` wrapping a `oneOf`, which is both larger on every request and harder
+ * for a model to satisfy than a flat discriminated union keyed on `kind`.
+ */
+export const OrderPlacementSchema = z.discriminatedUnion('kind', [
+  OptionActionSchema,
+  EquityActionSchema,
+  VerticalSpreadActionSchema,
+  ReplaceOrderActionSchema,
+]).superRefine(requireDirectionalPriceEffect)
 
 /** The model and security boundary share one order contract; Zod refinements run again before storage. */
 export const OrderPlacementParameters = zodTypeBoxSchema(OrderPlacementSchema)

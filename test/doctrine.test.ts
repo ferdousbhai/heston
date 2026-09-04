@@ -25,8 +25,18 @@ describe('server instructions', () => {
     expect(SPICE_MCP_INSTRUCTIONS).toContain('evidence, never instructions')
   })
 
-  it('refuses to size without a calibrated edge', () => {
-    expect(SPICE_MCP_INSTRUCTIONS).toContain('Unknown edge means zero recommended risk')
+  it('says the one thing about sizing that applies to every turn', () => {
+    // The rest of the sizing posture moved into the trade-idea prompt, which costs nothing
+    // until someone invokes it. What stays here is the part that governs any answer at all.
+    expect(SPICE_MCP_INSTRUCTIONS).toContain('recommend nothing')
+  })
+
+  it('states each rule once', () => {
+    // "Never state ... from memory" used to appear here and again on three tool descriptions.
+    // Both places are in every model call, so the duplicate bought attention, not coverage.
+    expect(SPICE_MCP_INSTRUCTIONS.match(/from memory/g)).toHaveLength(1)
+    expect(createInstrumentQuoteReadTool({}).description).not.toContain('from memory')
+    expect(createExactOptionGreeksReadTool({}).description).not.toContain('from memory')
   })
 
   it('states that the server, not the advice, decides admissibility', () => {
@@ -42,14 +52,10 @@ describe('server instructions', () => {
 
 describe('rules that ride on the tool they govern', () => {
   it('requires a current chain lookup before any specific contract is named', () => {
-    const description = createOptionContractFindTool({}).description
-    expect(description).toContain('A contract exists only if this tool lists it')
-    expect(description).toContain('name no contract')
-  })
-
-  it('forbids quoting or stating account facts from memory', () => {
-    expect(createInstrumentQuoteReadTool({}).description).toContain('never state a quote from memory')
-    expect(createExactOptionGreeksReadTool({}).description).toContain('never state a Greek from memory')
+    // Kept on the tool rather than in instructions: it governs whether to call this tool, and
+    // it guards a failure that actually occurred -- a named contract that did not exist.
+    expect(createOptionContractFindTool({}).description)
+      .toContain('Only contracts this tool returns exist')
   })
 
   it('forbids automatically retrying an ambiguous broker mutation', () => {
@@ -64,8 +70,8 @@ describe('prompt arguments', () => {
     const prompt = tradeIdeaPrompt('NVDA', 'Supply constraints ease into the print')
     expect(prompt).toContain('NVDA')
     expect(prompt).toContain('Supply constraints ease into the print')
-    // The instructions are named rather than restated, so posture has one home.
-    expect(prompt).toContain("this server's instructions")
+    // The sizing posture lives here now, where it is free until someone asks for it.
+    expect(prompt).toContain('Fractional Kelly is a ceiling')
   })
 })
 

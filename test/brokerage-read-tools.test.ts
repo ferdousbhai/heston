@@ -238,7 +238,7 @@ describe('brokerage read tools', () => {
     }])
   })
 
-  it('finds only exact active Standard option contracts and preserves broker identity fields', async () => {
+  it('finds only exact active Standard option contracts, and returns nothing a caller cannot act on', async () => {
     tastytrade.tastyRequest.mockResolvedValue({ data: { items: [
       {
         active: true,
@@ -290,14 +290,15 @@ describe('brokerage read tools', () => {
       truncated: false,
     })
     if (result.mode !== 'contracts') throw new Error('Expected contract mode')
+    // The OCC symbol and the DXLink streamer symbol are deliberately absent: every tool that
+    // takes a contract takes the tuple and resolves those server-side, so returning them was
+    // two long strings per row that nothing could be done with.
     expect(result.contracts).toEqual([{
       expirationDate: '2026-09-18',
       isClosingOnly: false,
       optionType: 'C',
       sharesPerContract: 100,
-      streamerSymbol: '.AAPL260918C200',
       strikePrice: 200,
-      symbol: 'AAPL  260918C00200000',
     }])
   })
 

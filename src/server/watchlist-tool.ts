@@ -11,19 +11,17 @@ import { type AppEnv } from './env'
 import {
   readInternalWatchlist,
   readInternalWatchlistSymbolDetails,
-  type InternalWatchlistItem,
   type InternalWatchlistSymbolDetails,
 } from './internal-watchlist'
 
-type WatchlistItemSummary = Pick<InternalWatchlistItem, 'instrumentType' | 'origin' | 'symbol'>
 
 export type WatchlistReadResult =
   | {
     fetchedAt: string
-    items: WatchlistItemSummary[]
     mode: 'index'
     source: 'spice'
     status: 'ok'
+    symbols: string[]
   }
   | {
     fetchedAt: string
@@ -50,15 +48,12 @@ export const WatchlistReadParameters = Type.Object({
 async function readWatchlist(env: AppEnv, symbol?: string): Promise<WatchlistReadResult> {
   const fetchedAt = new Date().toISOString()
   if (!symbol) {
-    const allItems = await readInternalWatchlist(env)
-    const items = allItems.map((item) => ({
-      instrumentType: item.instrumentType,
-      origin: item.origin,
-      symbol: item.symbol,
-    }))
+    // Symbols only. The index answers "what is loaded" for up to 500 names; provenance and
+    // instrument type are what the per-symbol mode below exists to return.
+    const symbols = (await readInternalWatchlist(env)).map((item) => item.symbol)
     return {
       fetchedAt,
-      items,
+      symbols,
       mode: 'index',
       source: 'spice',
       status: 'ok',

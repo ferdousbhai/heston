@@ -249,3 +249,14 @@ describe('cancelling a working order', () => {
     resetBrokerAdapters()
   })
 })
+
+describe('brokers without placement', () => {
+  it('refuses by name rather than claiming no brokerage is connected', async () => {
+    setBrokerAdapters({ [STUB_BROKER_ID]: stubAdapter() })
+    // Reads work for this credential, so "connect a brokerage" would be a lie; the refusal has
+    // to say that placement specifically is missing for this broker.
+    await expect(placeBrokerageOrder({ DB: quarantineDatabase(undefined).db }, EQUITY_ORDER, stubBrokerCredential))
+      .rejects.toThrow(/not implemented for/)
+    resetBrokerAdapters()
+  })
+})

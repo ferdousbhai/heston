@@ -269,3 +269,39 @@ describe('MCP tool annotations', () => {
     expect(() => toolAnnotations('a_tool_that_was_never_declared')).toThrow('undeclared-tool')
   })
 })
+
+describe('MCP surface budget', () => {
+  /*
+   * In Claude Code the tool list and the folded instructions are in every model call, not just
+   * the handshake, so this is a per-turn cost paid by every caller. These ceilings exist to make
+   * growth a decision rather than an accident: a new tool or a longer description should have to
+   * move a number here, with a reason. They are budgets, not measurements — the headroom is
+   * deliberate, and the owner surface is the superset a member never sees all of.
+   */
+  const TOOLS_LIST_CHAR_BUDGET = 20_000
+  const INSTRUCTIONS_CHAR_BUDGET = 1_500
+
+  it('keeps the advertised surface inside its budget', async () => {
+    setBrokerApi(stubBroker())
+    try {
+      const initialized = await handleMcpRequest(mcpRequest({
+        id: 8,
+        jsonrpc: '2.0',
+        method: 'initialize',
+        params: { capabilities: {}, clientInfo: { name: 'test', version: '1' }, protocolVersion: '2025-06-18' },
+      }, TOKEN), env(), executionContext)
+      const initBody = await initialized.text()
+      const instructions: string = JSON.parse(initBody.slice(initBody.indexOf('{'))).result.instructions
+      expect(instructions.length).toBeLessThanOrEqual(INSTRUCTIONS_CHAR_BUDGET)
+
+      const listed = await handleMcpRequest(mcpRequest({
+        id: 9, jsonrpc: '2.0', method: 'tools/list', params: {},
+      }, TOKEN), env(), executionContext)
+      const listBody = await listed.text()
+      const tools = JSON.parse(listBody.slice(listBody.indexOf('{'))).result.tools
+      expect(JSON.stringify(tools).length).toBeLessThanOrEqual(TOOLS_LIST_CHAR_BUDGET)
+    } finally {
+      resetBrokerApi()
+    }
+  })
+})

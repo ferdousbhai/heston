@@ -37,6 +37,14 @@ export async function placeBrokerageOrder(
   if (!credential) throw new BrokerCredentialMissingError()
   if (!env.DB) throw new PortfolioRiskError('The brokerage submission store is unavailable.')
   const action: OrderPlacement = OrderPlacementSchema.parse(untrustedAction)
+  // Placement has not moved behind the adapter -- it still writes tastytrade's own paths -- so
+  // refuse another broker by name here. Today such a credential fails closed in the transport
+  // anyway, but with a "connect a brokerage" message that would be actively misleading once a
+  // second adapter is registered for reads.
+  const adapter = brokerAdapterFor(credential)
+  if (adapter.id !== 'tastytrade') {
+    throw new PortfolioRiskError(`Order placement is not implemented for ${adapter.id}. Account reads work; placing an order does not.`)
+  }
   const accountNumber = await brokerApi().resolveAccountNumber(env, credential)
 
   // An ambiguous submission may already be sitting at the broker. Placing another before it is

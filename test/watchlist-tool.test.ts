@@ -64,11 +64,14 @@ describe('watchlist context boundary', () => {
   it('reads the consolidated Spice list without touching tastytrade watchlist endpoints', async () => {
     const result = await createWatchlistReadTool({ DB: store.database }).execute('tool-1', {})
 
+    // Symbols only. The index answers "what is loaded" across up to 500 names; provenance and
+    // instrument type are what the per-symbol mode returns, and shipping them here cost far
+    // more than it told anyone.
     expect(result.details).toMatchObject({
       mode: 'index',
       source: 'spice',
       status: 'ok',
-      items: [{ symbol: 'NVDA' }, { symbol: 'SPY' }],
+      symbols: ['NVDA', 'SPY'],
     })
     expect(tastytrade.tastyRequest).not.toHaveBeenCalled()
   })

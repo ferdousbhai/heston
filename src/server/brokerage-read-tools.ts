@@ -361,9 +361,7 @@ function parseActiveStandardOption(row: JsonObject, underlying: string): ParsedO
     isClosingOnly: optionalBoolean(row, ['is-closing-only'], label),
     optionType,
     sharesPerContract,
-    streamerSymbol: optionalText(row, ['streamer-symbol'], label, 128),
     strikePrice,
-    symbol: requiredText(row, ['symbol'], label, 128),
   }
 }
 
@@ -404,8 +402,7 @@ export async function findOptionContracts(
         ? 0
         : Math.abs(left.strikePrice - input.nearStrike) - Math.abs(right.strikePrice - input.nearStrike))
       || left.strikePrice - right.strikePrice
-      || left.optionType.localeCompare(right.optionType)
-      || left.symbol.localeCompare(right.symbol))
+      || left.optionType.localeCompare(right.optionType))
   const expirationDates = allExpirationDates.slice(0, MAX_OPTION_EXPIRATIONS)
   const mode = input.expiry === undefined && input.nearStrike === undefined && input.strike === undefined
     ? 'expirations'
@@ -428,7 +425,7 @@ function createAccountHistoryReadTool(
   credential: BrokerCredential | undefined,
 ): AgentTool<typeof AccountHistoryReadParameters, AccountHistoryReadResult> {
   return {
-    description: 'Broker trades, cash movements, or orders. Never state an account fact from memory.',
+    description: 'Broker trades, cash movements, or orders.',
     execute: async (_toolCallId, params) => textResult(await readAccountHistory(env, params, credential)),
     label: 'Reading account history',
     name: 'read_account_history',
@@ -470,10 +467,8 @@ export function createOptionContractFindTool(
 ): AgentTool<typeof OptionContractFindParameters, OptionContractFindResult | { error: string }> {
   return {
     description: 'Without expiry, lists expirations; with expiry, returns active standard contracts '
-      + 'nearest nearStrike or matching strike. A contract exists only if this tool lists it: before '
-      + 'naming any specific option, find that exact contract here and quote the expiration and '
-      + 'strike it returned. If the lookup fails, say the chain is unavailable and name no contract '
-      + '-- an unverified contract is a fabrication.',
+      + 'nearest nearStrike or matching strike. Only contracts this tool returns exist; never name '
+      + 'one it did not list.',
     execute: async (_toolCallId, params) => {
       const underlying = equitySymbolFromModelText(params.underlying)
       if (underlying === undefined) {
@@ -491,8 +486,7 @@ export function createInstrumentQuoteReadTool(
   env: AppEnv,
 ): AgentTool<typeof InstrumentQuoteReadParameters, InstrumentQuoteReadResult | { error: string }> {
   return {
-    description: 'Current broker bid/ask/mid for equities or option tuples. Read this before '
-      + 'claiming any price, spread, premium, or limit quality; never state a quote from memory.',
+    description: 'Current broker bid/ask/mid for equities or option tuples.',
     execute: async (_toolCallId, params) => {
       const symbols = params.symbols?.map((symbol) => equitySymbolFromModelText(symbol))
       const unreadable = params.symbols?.find((_symbol, index) => symbols?.[index] === undefined)

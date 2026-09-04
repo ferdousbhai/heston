@@ -176,14 +176,18 @@ export type SymbolSearchResult = {
   source: 'tastytrade'
 }
 
+/**
+ * A contract row carries only what the caller can act on. The OCC symbol and the DXLink
+ * streamer symbol are deliberately absent: every tool that takes a contract takes the tuple
+ * (underlying, expiry, strike, type) and resolves those server-side, so returning them was
+ * two long strings per row, sixty rows a call, that nothing could be done with.
+ */
 export type CompactOptionContract = {
   expirationDate: string
   isClosingOnly?: boolean
   optionType: 'C' | 'P'
   sharesPerContract: number
-  streamerSymbol?: string
   strikePrice: number
-  symbol: string
 }
 
 type OptionContractFindBase = {
