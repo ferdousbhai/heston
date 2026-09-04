@@ -1,0 +1,22 @@
+# The local brokerage credential broker for an agent on this machine. Enable with
+#   systemctl --user enable --now spice-agent-proxy.service
+# Credentials come from the OS keyring at request time, so nothing secret lives in this unit,
+# in the environment block, or in any argv.
+[Unit]
+Description=Spice agent proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/github.com/ferdousbhai/spice/ops/spice-agent/proxy.mjs
+Restart=on-failure
+RestartSec=5
+# The keyring is unlocked per login session, so this follows the session rather than the boot.
+# A proxy that cannot read the keyring exits non-zero and is restarted rather than serving
+# requests without the credential it exists to attach.
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
