@@ -2,6 +2,11 @@ import { type Static, Type } from 'typebox'
 
 import { EquityOptionTupleSchema } from '../domain/equity-option'
 import { EQUITY_SYMBOL_REGEX, ModelTextEquitySymbolType } from '../domain/instrument'
+import {
+  type BrokerHistoryOrder,
+  type BrokerHistoryTransaction,
+  type BrokerId,
+} from '../domain/broker'
 import { IsoDateType } from '../domain/iso-date'
 
 // These are model-context budgets, not brokerage or trading policy. Read tools expose
@@ -94,53 +99,23 @@ export type AccountHistoryReadInput = Static<typeof AccountHistoryReadParameters
 export type InstrumentQuoteReadInput = Static<typeof InstrumentQuoteReadParameters>
 export type OptionContractFindInput = Static<typeof OptionContractFindParameters>
 
-export type CompactTransaction = {
-  action?: string
-  id: string
-  instrumentType?: string
-  netValue?: number
-  occurredAt: string
-  orderId?: string
-  price?: number
-  quantity?: number
-  symbol?: string
-  transactionSubType?: string
-  transactionType: string
-  underlyingSymbol?: string
-  value?: number
-}
-
-export type CompactOrderLeg = {
-  action: string
-  instrumentType: string
-  quantity: number
-  remainingQuantity?: number
-  symbol: string
-}
-
-export type CompactOrder = {
-  id: string
-  legs: CompactOrderLeg[]
-  orderType: string
-  price?: number
-  priceEffect?: string
-  receivedAt?: string
-  rejectReason?: string
-  size?: number
-  status: string
-  timeInForce: string
-  underlyingInstrumentType: string
-  underlyingSymbol: string
-  updatedAt: string
-}
+/**
+ * The account-history shapes are the provider-neutral ones in `src/domain/broker.ts`;
+ * these aliases keep the read-tool contract readable without minting a second vocabulary.
+ */
+export type {
+  BrokerHistoryOrder as CompactOrder,
+  BrokerHistoryOrderLeg as CompactOrderLeg,
+  BrokerHistoryTransaction as CompactTransaction,
+} from '../domain/broker'
 
 export type AccountHistoryReadResult = {
   asOf: string
-  items: CompactOrder[] | CompactTransaction[]
+  items: BrokerHistoryOrder[] | BrokerHistoryTransaction[]
   pageOffset: number
   totalItemCount?: number
   truncated: boolean
-  source: 'tastytrade'
+  source: BrokerId
 }
 
 export type CompactMarketMetric = {

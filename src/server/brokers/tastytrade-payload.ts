@@ -8,21 +8,12 @@ import {
   jsonText,
   type JsonObject,
   type JsonValue,
-} from '../domain/json-payload'
+} from '../../domain/json-payload'
+import { type BrokerBalances, type BrokerWorkingOrder } from '../../domain/broker'
 
 // Account reads request one large broker page. completeAccountRows rejects a reported
 // larger total or a full page without a total, so this is a completeness boundary.
 export const BROKER_ACCOUNT_PAGE_SIZE = 200
-
-export interface AccountBalances {
-  availableTradingFunds: number
-  cashAvailableToWithdraw: number
-  cashBalance: number
-  dayTradingBuyingPower: number
-  derivativeBuyingPower: number
-  equityBuyingPower: number
-  netLiquidatingValue: number
-}
 
 export interface RecentTrade {
   action: string
@@ -33,18 +24,6 @@ export interface RecentTrade {
   quantity: number
   symbol: string
   underlying: string
-}
-
-export interface WorkingOrder {
-  complexOrderId?: string
-  id: string
-  legs: Array<{ action: string; instrumentType: string; quantity: number; symbol: string }>
-  price?: number
-  priceEffect?: string
-  status: string
-  symbol: string
-  timeInForce?: string
-  type: string
 }
 
 /** Parse one complete account page; malformed or ambiguous pagination fails closed. */
@@ -124,7 +103,7 @@ function optionalText(row: JsonObject, field: string): string | undefined {
   return parsed
 }
 
-export function accountBalancesFromPayload(payload: JsonValue, accountNumber: string): AccountBalances {
+export function accountBalancesFromPayload(payload: JsonValue, accountNumber: string): BrokerBalances {
   const row = accountBalanceRecord(payload, accountNumber)
   if (!row) throw new Error('TastytradePayload:invalid-account-balance-record')
   return {
@@ -152,7 +131,7 @@ function workingOrderLeg(value: JsonValue) {
   return { action, instrumentType, quantity, symbol }
 }
 
-function workingOrder(row: JsonObject, complexOrderId?: string): WorkingOrder {
+function workingOrder(row: JsonObject, complexOrderId?: string): BrokerWorkingOrder {
   const orderId = id(row.id)
   const status = jsonText(row.status)
   const type = jsonText(row['order-type'])
@@ -164,7 +143,7 @@ function workingOrder(row: JsonObject, complexOrderId?: string): WorkingOrder {
   const price = optionalNumber(row, 'price')
   const priceEffect = optionalText(row, 'price-effect')
   const timeInForce = optionalText(row, 'time-in-force')
-  const order: WorkingOrder = { id: orderId, legs, status, symbol: legs[0]!.symbol, type }
+  const order: BrokerWorkingOrder = { id: orderId, legs, status, symbol: legs[0]!.symbol, type }
   if (complexOrderId) order.complexOrderId = complexOrderId
   if (price !== undefined) order.price = price
   if (priceEffect) order.priceEffect = priceEffect
@@ -172,7 +151,7 @@ function workingOrder(row: JsonObject, complexOrderId?: string): WorkingOrder {
   return order
 }
 
-export function workingOrderRecords(row: JsonObject): WorkingOrder[] {
+export function workingOrderRecords(row: JsonObject): BrokerWorkingOrder[] {
   if (!isWorkingOrderRecord(row)) return []
   if (JsonArraySchema.safeParse(row.legs).success) return [workingOrder(row)]
 

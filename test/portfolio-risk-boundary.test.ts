@@ -41,8 +41,8 @@ describe('brokerage dispatch portfolio guard', () => {
       if (url.endsWith('/oauth/token')) return Response.json({ access_token: 'token', expires_in: 900 })
       if (url.endsWith('/customers/me/accounts')) return Response.json({ data: { items: [{ account: { 'account-number': 'TEST123' } }] } })
       if (url.includes('/positions')) return Response.json({ data: { items: [{
-        symbol: 'SPY   260918C00700000', 'instrument-type': 'Equity Option',
-        'quantity-direction': 'Short', quantity: '1',
+        symbol: 'SPY   260918C00700000', 'underlying-symbol': 'SPY',
+        'instrument-type': 'Equity Option', 'quantity-direction': 'Short', quantity: '1',
       }] } })
       if (url.includes('/balances')) return Response.json({ data: balances })
       if (url.includes('/complex-orders/live')) return Response.json({ data: { items: [] } })
@@ -116,7 +116,8 @@ describe('brokerage dispatch portfolio guard', () => {
       if (url.endsWith('/customers/me/accounts')) return Response.json({ data: { items: [{ account: { 'account-number': 'TEST123' } }] } })
       if (url.includes('/positions')) {
         return Response.json({ data: { items: [{
-          symbol: 'SPY', 'instrument-type': 'Equity', 'quantity-direction': 'Long', quantity: '1',
+          symbol: 'SPY', 'underlying-symbol': 'SPY', 'instrument-type': 'Equity',
+          'quantity-direction': 'Long', quantity: '1',
         }] }, pagination: { 'total-items': 2 } })
       }
       if (url.includes('/balances')) return Response.json({ data: balances })

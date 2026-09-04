@@ -3,6 +3,7 @@ import { vi } from 'vitest'
 import { type AppEnv } from '../src/server/env'
 import { type BrokerApi } from '../src/server/tastytrade'
 import { type BrokerCredential } from '../src/server/broker-credential'
+import { type BrokerId } from '../src/domain/broker'
 import {
   type MarketSnapshot,
   type PublicMarketSnapshot,
@@ -12,6 +13,23 @@ import {
 export const brokerCredential = {
   accessToken: 'member-access-token',
   broker: 'tastytrade',
+} satisfies BrokerCredential
+
+/**
+ * A broker id no adapter is registered for in production. The cast is deliberate: `BrokerId`
+ * is the production union, and a test that registers a stub adapter is the only thing allowed
+ * to name an id outside it.
+ */
+const stubBrokerName: string = 'stub-broker'
+// SAFETY: no adapter is registered for this id in production, which is exactly the point —
+// the widening is what lets a test register one and prove the lookup is not hard-wired.
+const stubBrokerId = stubBrokerName as BrokerId
+
+export const STUB_BROKER_ID = stubBrokerId
+
+export const stubBrokerCredential = {
+  accessToken: 'stub-access-token',
+  broker: STUB_BROKER_ID,
 } satisfies BrokerCredential
 
 export function stubBrokerGate() {

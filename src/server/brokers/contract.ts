@@ -1,0 +1,133 @@
+import {
+  type BrokerAccountHistoryPage,
+  type BrokerAccountRef,
+  type BrokerAccountSnapshot,
+  type BrokerId,
+  type BrokerOrderHistoryPage,
+  type BrokerOrderRecord,
+} from '../../domain/broker'
+import { type BrokerCredential } from '../broker-credential'
+import { type AppEnv } from '../env'
+
+/**
+ * Which of the four account reads a snapshot failed on, and whether it failed reading the
+ * page itself or one record inside it. The drawdown guard turns this back into its own
+ * owner-visible wording, so the distinction has to survive the adapter boundary rather
+ * than collapsing into one opaque "the account could not be read".
+ */
+export type BrokerSnapshotPart = 'balances' | 'complex-orders' | 'orders' | 'positions'
+export type BrokerSnapshotStage = 'page' | 'record'
+
+/**
+ * A broker account snapshot that could not be normalized. `message` is the adapter's own
+ * failure name, which is what reaches an owner-visible message, so it must stay specific.
+ * A transport failure is deliberately NOT wrapped in this: callers distinguish "the broker
+ * would not answer" from "the broker answered something we refuse to believe".
+ */
+export class BrokerSnapshotError extends Error {
+  constructor(
+    readonly part: BrokerSnapshotPart,
+    readonly stage: BrokerSnapshotStage,
+    detail: string,
+  ) {
+    super(detail)
+    this.name = 'BrokerSnapshotError'
+  }
+}
+
+/**
+ * A cancellation whose outcome the broker did not make knowable. The caller turns this into
+ * its own owner-visible warning; what matters here is that an adapter must raise it rather
+ * than retrying, because the broker may already have accepted the cancellation.
+ */
+export class BrokerCancellationAmbiguousError extends Error {
+  constructor() {
+    super('The broker may have received this cancellation, but the result could not be verified.')
+    this.name = 'BrokerCancellationAmbiguousError'
+  }
+}
+
+/** An unknown broker id. Never defaulted to a broker; account access fails closed. */
+export class UnknownBrokerError extends Error {
+  constructor(broker: string) {
+    // The id is caller-supplied, never a secret, and naming it is what makes a
+    // misconfigured member agent diagnosable.
+    super(`No broker adapter is registered for '${broker}'.`)
+    this.name = 'UnknownBrokerError'
+  }
+}
+
+/** A bounded account-history request, in neutral terms; the adapter owns the query shape. */
+export interface BrokerHistoryQuery {
+  limit: number
+  pageOffset: number
+  /** Inclusive ISO date the history starts at. */
+  startDate: string
+  transactionType?: 'Money Movement' | 'Trade'
+  type: 'orders' | 'transactions'
+  underlyingSymbol?: string
+}
+
+/**
+ * Every account READ Spice performs against a brokerage. Order placement is deliberately
+ * absent: it still lives in `brokerage.ts` behind its own guards.
+ *
+ * Each method takes the request-scoped credential explicitly. No adapter may hold, cache,
+ * or persist one, and an adapter that cannot work without a stored long-lived credential
+ * does not belong here at all.
+ */
+export interface BrokerAdapter {
+  readonly id: BrokerId
+
+  /** Cancel one order. Ambiguity must surface as ambiguity; never retry internally. */
+  cancelOrder(
+    env: AppEnv,
+    ref: BrokerAccountRef,
+    orderId: string,
+    credential: BrokerCredential | undefined,
+  ): Promise<void>
+
+  /** Positions, balances, and live orders as one consistent, completeness-checked read. */
+  loadAccountSnapshot(
+    env: AppEnv,
+    ref: BrokerAccountRef,
+    credential: BrokerCredential | undefined,
+  ): Promise<BrokerAccountSnapshot>
+
+  /** One bounded page of order or transaction history for the agent read tool. */
+  readAccountHistory(
+    env: AppEnv,
+    ref: BrokerAccountRef,
+    query: BrokerHistoryQuery,
+    credential: BrokerCredential | undefined,
+  ): Promise<BrokerAccountHistoryPage>
+
+  /** One order, read back for a replacement echo check. */
+  readOrder(
+    env: AppEnv,
+    ref: BrokerAccountRef,
+    orderId: string,
+    credential: BrokerCredential | undefined,
+  ): Promise<BrokerOrderRecord>
+
+  /** Recent order history for reconciling an ambiguous submission. */
+  readOrderHistory(
+    env: AppEnv,
+    ref: BrokerAccountRef,
+    options: { startDate: string },
+    credential: BrokerCredential | undefined,
+  ): Promise<BrokerOrderHistoryPage>
+
+  /**
+   * Held equity symbols, for the one-time watchlist bootstrap only. It resolves its own
+   * account because it runs before any caller has a ref, and there is no recurring
+   * position sync for it to belong to.
+   */
+  readPositionSymbols(env: AppEnv, credential: BrokerCredential | undefined): Promise<string[]>
+
+  /** The single account the credential grants; more than one is refused, never guessed. */
+  resolveAccountRef(
+    env: AppEnv,
+    credential: BrokerCredential | undefined,
+  ): Promise<BrokerAccountRef>
+}

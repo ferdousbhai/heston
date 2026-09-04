@@ -72,14 +72,14 @@ describe('request-scoped broker credential', () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
     const {
-      loadOwnerPositionSymbolsFromTastytrade,
       previewInternalWatchlistFromTastytrade,
       seedInternalWatchlistFromTastytrade,
     } = await import('../src/server/tastytrade')
+    const { loadOwnerPositionSymbols } = await import('../src/server/brokers/tastytrade')
     const { BrokerCredentialMissingError } = await import('../src/server/broker-credential')
 
     for (const operation of [
-      loadOwnerPositionSymbolsFromTastytrade,
+      loadOwnerPositionSymbols,
       previewInternalWatchlistFromTastytrade,
       seedInternalWatchlistFromTastytrade,
     ]) {

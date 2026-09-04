@@ -3,18 +3,10 @@ import { Type } from 'typebox'
 
 import { type OrderPayload } from './order-payload'
 import { type AppEnv } from './env'
-import {
-  envelopeRows,
-  envelopeTotalItems,
-  JsonArraySchema,
-  jsonLooseText,
-  jsonNumber,
-  jsonObject,
-  type JsonObject,
-  type JsonValue,
-} from '../domain/json-payload'
+import { type BrokerOrderRecord } from '../domain/broker'
+import { type JsonValue } from '../domain/json-payload'
 import { resolveStoredOrderFingerprint } from './order-intent'
-import { brokerApi } from './tastytrade'
+import { brokerAdapterFor } from './brokers'
 import { textResult } from './agent-tool-result'
 import { BrokerCredentialMissingError, type BrokerCredential } from './broker-credential'
 
@@ -98,8 +90,6 @@ export async function recordSubmission(
   }
 }
 
-type OrderHistoryPage = { complete: boolean; rows: JsonObject[] }
-
 export type ReconciliationResult = {
   actionId?: string
   detail: string
@@ -111,66 +101,34 @@ const ReconcileParameters = Type.Object({}, { additionalProperties: false })
 // A recent absence is not proof that an ambiguous broker mutation failed; wait through the
 // provider's order-history propagation window before allowing a deterministic absence result.
 const FINAL_ABSENCE_DELAY_MS = 15 * 60_000
-const RECONCILIATION_HISTORY_PAGE_SIZE = 100
-
-/** Whether the broker claimed a total at all, as opposed to one we could not read. */
-function declaresTotalItems(payload: JsonValue): boolean {
-  const body = jsonObject(payload)
-  const pagination = jsonObject(body?.pagination) ?? jsonObject(jsonObject(body?.data)?.pagination)
-  return pagination?.['total-items'] !== undefined
-}
-
-function orderRows(payload: JsonValue): OrderHistoryPage {
-  const candidate = envelopeRows(payload)
-  if (!candidate || candidate.length > RECONCILIATION_HISTORY_PAGE_SIZE) {
-    throw new Error('TastytradeReconciliation:invalid-history')
-  }
-  const rows = candidate.map((value) => {
-    const row = jsonObject(value)
-    if (!row) throw new Error('TastytradeReconciliation:invalid-history')
-    return row
-  })
-  // The history request asks for 100 rows, so a page that did not fill is the
-  // whole history. A broker that reports a total we cannot read is not evidence
-  // of completeness: staying incomplete keeps an ambiguous mutation quarantined
-  // rather than concluding the order is absent.
-  const total = envelopeTotalItems(payload)
-  const complete = total !== undefined
-    ? total <= rows.length
-    : !declaresTotalItems(payload) && rows.length < RECONCILIATION_HISTORY_PAGE_SIZE
-  return { complete, rows }
-}
-
-function sameLeg(actual: JsonObject, intended: OrderPayload['legs'][number]): boolean {
-  return jsonLooseText(actual.action) === intended.action
-    && jsonLooseText(actual['instrument-type']) === intended['instrument-type']
-    && jsonNumber(actual.quantity) === intended.quantity
-    && jsonLooseText(actual.symbol) === intended.symbol
+function sameLeg(actual: NonNullable<BrokerOrderRecord['legs']>[number], intended: OrderPayload['legs'][number]): boolean {
+  return Boolean(actual)
+    && actual!.action === intended.action
+    && actual!.instrumentType === intended['instrument-type']
+    && actual!.quantity === intended.quantity
+    && actual!.symbol === intended.symbol
 }
 
 /** Exact order fingerprint match; timestamps keep unrelated duplicate orders from clearing quarantine. */
 export function matchesSubmittedOrder(
-  row: JsonObject,
+  row: BrokerOrderRecord,
   intended: OrderPayload,
   submittedAt: Date,
   now = new Date(),
   replacedOrderId?: string,
 ): boolean {
-  const legs = JsonArraySchema.safeParse(row.legs).data
+  const legs = row.legs
   if (legs?.length !== intended.legs.length) return false
-  const receivedAt = Date.parse(jsonLooseText(row['received-at']) ?? jsonLooseText(row['updated-at']) ?? '')
+  const receivedAt = Date.parse(row.receivedAt ?? row.updatedAt ?? '')
   if (!Number.isFinite(receivedAt)
     || receivedAt < submittedAt.getTime() - 2 * 60_000
     || receivedAt > now.getTime() + 60_000) return false
-  return (!replacedOrderId || jsonLooseText(row['replaces-order-id']) === replacedOrderId)
-    && jsonLooseText(row['order-type']) === intended['order-type']
-    && jsonLooseText(row['time-in-force']) === intended['time-in-force']
-    && jsonLooseText(row['price-effect']) === intended['price-effect']
-    && jsonNumber(row.price) === Number(intended.price)
-    && legs.every((leg, index) => {
-      const actual = jsonObject(leg)
-      return Boolean(actual && sameLeg(actual, intended.legs[index]!))
-    })
+  return (!replacedOrderId || row.replacesOrderId === replacedOrderId)
+    && row.orderType === intended['order-type']
+    && row.timeInForce === intended['time-in-force']
+    && row.priceEffect === intended['price-effect']
+    && row.price === Number(intended.price)
+    && legs.every((leg, index) => sameLeg(leg, intended.legs[index]!))
 }
 
 export async function reconcileUnknownBrokerageAction(
@@ -182,8 +140,9 @@ export async function reconcileUnknownBrokerageAction(
   if (!env.DB) throw new Error('TastytradeReconciliation:store-unavailable')
   // Scoped to the account the presented credential resolves to: a member may only reconcile
   // their own quarantine, and possession of a row id is never authority to touch it.
-  const account = await brokerApi().resolveAccountNumber(env, credential)
-  const stored = await unresolvedSubmission(env, credential.broker, account)
+  const adapter = brokerAdapterFor(credential)
+  const ref = await adapter.resolveAccountRef(env, credential)
+  const stored = await unresolvedSubmission(env, credential.broker, ref.accountNumber)
   if (!stored) return { detail: 'No brokerage submission needs reconciliation.', status: 'none' }
 
   const submittedAt = new Date(stored.submitted_at)
@@ -194,13 +153,8 @@ export async function reconcileUnknownBrokerageAction(
   const intended = fingerprint.payload
   const replacedOrderId = fingerprint.action.kind === 'replace_order' ? fingerprint.action.orderId : undefined
   const startDate = new Date(submittedAt.getTime() - 24 * 60 * 60_000).toISOString().slice(0, 10)
-  const history = orderRows(await brokerApi().tastyRequest(
-    env,
-    `/accounts/${encodeURIComponent(account)}/orders?per-page=${RECONCILIATION_HISTORY_PAGE_SIZE}&sort=Desc&start-date=${startDate}`,
-    {},
-    credential,
-  ))
-  const matches = history.rows.filter((row) => matchesSubmittedOrder(row, intended, submittedAt, now, replacedOrderId))
+  const history = await adapter.readOrderHistory(env, ref, { startDate }, credential)
+  const matches = history.orders.filter((row) => matchesSubmittedOrder(row, intended, submittedAt, now, replacedOrderId))
   if (matches.length !== 1) {
     if (matches.length === 0 && history.complete && now.getTime() - submittedAt.getTime() >= FINAL_ABSENCE_DELAY_MS) {
       const update = await env.DB.prepare(
@@ -215,8 +169,8 @@ export async function reconcileUnknownBrokerageAction(
   }
 
   const match = matches[0]!
-  const providerOrderId = jsonLooseText(match.id)
-  const status = jsonLooseText(match.status)?.toLowerCase()
+  const providerOrderId = match.id
+  const status = match.status?.toLowerCase()
   if (!providerOrderId || !status) throw new Error('TastytradeReconciliation:invalid-match')
   const rejected = status === 'rejected'
   // provider_order_id is not stored: the quarantine only needs to know the submission is

@@ -1,10 +1,11 @@
+import { BrokerIdSchema, type BrokerId } from '../domain/broker'
 import { OwnerVisibleError } from './owner-visible-error'
 
 export type BrokerCredential = {
   /** Short-lived broker access token supplied per request. Never persisted, never logged. */
   accessToken: string
-  /** Which broker issued it. Only 'tastytrade' exists today. */
-  broker: 'tastytrade'
+  /** Which broker issued it; it selects the adapter that may spend it. */
+  broker: BrokerId
 }
 
 export class BrokerCredentialMissingError extends OwnerVisibleError {
@@ -18,10 +19,12 @@ export class BrokerCredentialMissingError extends OwnerVisibleError {
 }
 
 export function brokerCredentialFromHeaders(headers: Headers): BrokerCredential | undefined {
-  const broker = headers.get('X-Spice-Broker')
   const accessToken = headers.get('X-Spice-Broker-Token')?.trim()
-  // This token is request-scoped and is never written to D1 or logged. An unknown broker id
-  // is refused rather than defaulted, so it can never select the Worker's own credential.
-  if (!broker?.trim() || broker !== 'tastytrade' || !accessToken) return undefined
+  // Parsed against the broker list rather than compared to a literal, so adding a broker is
+  // its adapter plus its id and nothing here. This token is request-scoped and is never
+  // written to D1 or logged; an unknown id is refused rather than defaulted, so it can never
+  // select the Worker's own market-data credential.
+  const broker = BrokerIdSchema.safeParse(headers.get('X-Spice-Broker')?.trim()).data
+  if (!broker || !accessToken) return undefined
   return { accessToken, broker }
 }

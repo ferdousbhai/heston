@@ -4,7 +4,7 @@ import { buildAgentRuntimeContext, loadBrokerageContext } from '../src/server/br
 import { ensureInternalWatchlistSeeded, finalizeInternalWatchlist } from '../src/server/internal-watchlist'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { createWatchlistReadTool } from '../src/server/watchlist-tool'
-import { stubBroker } from './broker-stub'
+import { brokerCredential, stubBroker } from './broker-stub'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 
 const tastytrade = stubBroker()
@@ -52,7 +52,7 @@ afterEach(() => {
 
 describe('watchlist context boundary', () => {
   it('does not fetch or serialize watchlists during the default brokerage load', async () => {
-    const account = await loadBrokerageContext({})
+    const account = await loadBrokerageContext({}, brokerCredential)
     const paths = tastytrade.tastyRequest.mock.calls.map(([, path]) => path)
     const runtimeContext = buildAgentRuntimeContext(account)
 

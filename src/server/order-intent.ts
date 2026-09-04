@@ -6,21 +6,15 @@ import {
   type StoredOrderPlacement,
 } from './agent-contracts'
 import { type AppEnv } from './env'
-import {
-  JsonArraySchema,
-  jsonLooseText,
-  jsonNumber,
-  jsonObject,
-  type JsonObject,
-  type JsonValue,
-} from '../domain/json-payload'
+import { type JsonValue } from '../domain/json-payload'
+import { type BrokerOrderRecord } from '../domain/broker'
+import { brokerAdapterFor } from './brokers'
 import { buildOrderPayload, type OrderPayload } from './order-payload'
 import {
   resolveEquityOptionContract,
   resolveEquityOptionTuples,
   type EquityOptionContract,
 } from './option-contract'
-import { brokerApi } from './tastytrade'
 import { type BrokerCredential } from './broker-credential'
 
 export type ResolvedOrderIntent = {
@@ -59,40 +53,38 @@ async function resolveFreshOrder(
   }
 }
 
-function exactOrder(payload: JsonValue): JsonObject {
-  const body = jsonObject(payload)
-  const data = jsonObject(body?.data ?? payload)
-  if (!data || JsonArraySchema.safeParse(data.items).success) throw new Error('OrderReplacement:invalid-order')
-  return data
-}
+const TERMINAL_ORDER_STATUSES = ['cancelled', 'expired', 'filled', 'rejected', 'removed']
 
-function sameOrderEcho(order: JsonObject, intended: OrderPayload): boolean {
-  const legs = JsonArraySchema.safeParse(order.legs).data
-  if (jsonLooseText(order['order-type']) !== intended['order-type']
-    || jsonLooseText(order['time-in-force']) !== intended['time-in-force']
-    || jsonLooseText(order['price-effect']) !== intended['price-effect']
-    || jsonNumber(order.price) !== Number(intended.price)
+/**
+ * Field-for-field the same echo check as before; it reads the adapter's neutral order record
+ * instead of the broker's own JSON. Every comparison still treats an unreadable field as
+ * "not the order we placed" rather than repairing or defaulting it.
+ */
+function sameOrderEcho(order: BrokerOrderRecord, intended: OrderPayload): boolean {
+  const legs = order.legs
+  if (order.orderType !== intended['order-type']
+    || order.timeInForce !== intended['time-in-force']
+    || order.priceEffect !== intended['price-effect']
+    || order.price !== Number(intended.price)
     || legs?.length !== intended.legs.length) return false
   return intended.legs.every((leg, index) => {
-    const actual = jsonObject(legs[index])
-    if (!actual || jsonLooseText(actual.action) !== leg.action
-      || jsonLooseText(actual['instrument-type']) !== leg['instrument-type']
-      || jsonLooseText(actual.symbol) !== leg.symbol
-      || jsonNumber(actual.quantity) !== leg.quantity
-      || jsonNumber(actual['remaining-quantity']) !== leg.quantity) return false
-    const fills = JsonArraySchema.safeParse(actual.fills).data
-    return !fills || fills.length === 0
+    const actual = legs[index]
+    if (!actual || actual.action !== leg.action
+      || actual.instrumentType !== leg['instrument-type']
+      || actual.symbol !== leg.symbol
+      || actual.quantity !== leg.quantity
+      || actual.remainingQuantity !== leg.quantity) return false
+    return actual.fillCount === undefined || actual.fillCount === 0
   })
 }
 
-export function assertReplaceableOrder(payload: JsonValue, orderId: string, intended: OrderPayload): void {
-  const order = exactOrder(payload)
-  const status = jsonLooseText(order.status)?.toLowerCase()
-  if (jsonLooseText(order.id) !== orderId
-    || order.editable !== true
+export function assertReplaceableOrder(order: BrokerOrderRecord, orderId: string, intended: OrderPayload): void {
+  const status = order.status?.toLowerCase()
+  if (order.id !== orderId
+    || !order.editable
     || !status
-    || ['cancelled', 'expired', 'filled', 'rejected', 'removed'].includes(status)
-    || jsonLooseText(order['terminal-at'])
+    || TERMINAL_ORDER_STATUSES.includes(status)
+    || order.terminalAt
     || !sameOrderEcho(order, intended)) {
     throw new Error('OrderReplacement:order-changed-or-not-editable')
   }
@@ -118,10 +110,11 @@ async function expandReplacement(
 ): Promise<ResolvedOrderIntent> {
   const source = effectiveStoredOrder(await sourceOrderAction(env, action.orderId))
   const sourceResolved = await resolveFreshOrder(env, source)
-  const current = await brokerApi().tastyRequest(
+  const adapter = brokerAdapterFor(credential)
+  const current = await adapter.readOrder(
     env,
-    `/accounts/${encodeURIComponent(accountNumber)}/orders/${encodeURIComponent(action.orderId)}`,
-    {},
+    { accountNumber, broker: adapter.id },
+    action.orderId,
     credential,
   )
   assertReplaceableOrder(current, action.orderId, sourceResolved.payload)

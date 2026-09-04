@@ -9,6 +9,7 @@ import {
 } from './agent-contracts'
 import { type AppEnv } from './env'
 import { brokerApi } from './tastytrade'
+import { brokerAdapterFor, BrokerCancellationAmbiguousError } from './brokers'
 import { textResult } from './agent-tool-result'
 import { watchlistWriter } from './watchlist-actions'
 import { internalWatchlistWriter } from './internal-watchlist'
@@ -99,22 +100,17 @@ export function createDirectAccountActionTool(
       if (attempted) throw new Error('DirectActionAlreadyAttempted')
       attempted = true
       if (parsed.kind === 'cancel_order') {
-        const account = await brokerApi().resolveAccountNumber(env, credential)
-        return brokerApi().withBrokerMutationLease(env, account, async (lease) => {
+        const adapter = brokerAdapterFor(credential)
+        const ref = await adapter.resolveAccountRef(env, credential)
+        return brokerApi().withBrokerMutationLease(env, ref.accountNumber, async (lease) => {
           await lease.renew()
           try {
-            await brokerApi().tastyRequest(
-              env,
-              `/accounts/${encodeURIComponent(account)}/orders/${parsed.orderId}`,
-              { method: 'DELETE' },
-              credential,
-            )
+            await adapter.cancelOrder(env, ref, parsed.orderId, credential)
           } catch (error) {
-            // A provider 4xx proves the cancellation was rejected. A network loss,
-            // timeout, 5xx, or unreadable success response after DELETE means the
-            // broker may have received it, so it must never become an automatic retry.
-            if (error instanceof Error && error.name === 'TastytradeApiError') throw error
-            throw new BrokerageCancellationUnknownError()
+            // The adapter proves a rejection by rethrowing the broker's own refusal; anything
+            // it could not verify arrives as ambiguity and must never become an automatic retry.
+            if (error instanceof BrokerCancellationAmbiguousError) throw new BrokerageCancellationUnknownError()
+            throw error
           }
           return textResult({ orderId: parsed.orderId, status: 'cancelled' as const })
         })

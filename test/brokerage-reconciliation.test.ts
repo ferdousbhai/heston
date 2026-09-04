@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { matchesSubmittedOrder, reconcileUnknownBrokerageAction } from '../src/server/brokerage-reconciliation'
 import { buildOrderPayload } from '../src/server/order-payload'
 import { brokerCredential } from './broker-stub'
+import { tastytradeOrderRecord } from '../src/server/brokers/tastytrade'
+import { type JsonObject } from '../src/domain/json-payload'
 
 describe('brokerage submission reconciliation', () => {
   const intended = buildOrderPayload({
@@ -11,23 +13,25 @@ describe('brokerage submission reconciliation', () => {
   }, ['SPY   260918C00600000'])
 
   it('requires an exact payload fingerprint inside the submission window', () => {
-    const row = {
+    const rowOf = (overrides: JsonObject = {}) => tastytradeOrderRecord({
       id: '42', legs: intended.legs, 'order-type': 'Limit', price: '2.50',
       'price-effect': 'Debit', 'received-at': '2026-08-14T14:00:30.000Z', status: 'Live',
       'time-in-force': 'Day', 'updated-at': '2026-08-14T14:00:31.000Z',
-    }
+      ...overrides,
+    })
+    const row = rowOf()
     expect(matchesSubmittedOrder(
       row, intended, new Date('2026-08-14T14:00:00.000Z'), new Date('2026-08-14T14:01:00.000Z'),
     )).toBe(true)
     expect(matchesSubmittedOrder(
-      { ...row, price: '2.55' }, intended, new Date('2026-08-14T14:00:00.000Z'), new Date('2026-08-14T14:01:00.000Z'),
+      rowOf({ price: '2.55' }), intended, new Date('2026-08-14T14:00:00.000Z'), new Date('2026-08-14T14:01:00.000Z'),
     )).toBe(false)
     expect(matchesSubmittedOrder(
-      { ...row, 'received-at': '2026-08-13T14:00:00.000Z' }, intended,
+      rowOf({ 'received-at': '2026-08-13T14:00:00.000Z' }), intended,
       new Date('2026-08-14T14:00:00.000Z'), new Date('2026-08-14T14:01:00.000Z'),
     )).toBe(false)
 
-    const replacementRow = { ...row, 'replaces-order-id': '123' }
+    const replacementRow = rowOf({ 'replaces-order-id': '123' })
     expect(matchesSubmittedOrder(
       replacementRow, intended, new Date('2026-08-14T14:00:00.000Z'), new Date('2026-08-14T14:01:00.000Z'), '123',
     )).toBe(true)

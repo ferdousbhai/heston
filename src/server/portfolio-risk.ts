@@ -4,20 +4,9 @@ import { type BrokerageContext } from './brokerage-context'
 import { type AppEnv } from './env'
 import { OwnerVisibleError } from './owner-visible-error'
 import { resolveEquityOptionContract, type EquityOptionContract } from './option-contract'
-import {
-  jsonNumber,
-  jsonTextOrEmpty,
-  type JsonObject,
-  type JsonValue,
-} from '../domain/json-payload'
-import { brokerApi } from './tastytrade'
+import { type BrokerAccountRef, type BrokerAccountSnapshot } from '../domain/broker'
+import { brokerAdapterFor, BrokerSnapshotError } from './brokers'
 import { BrokerCredentialMissingError, type BrokerCredential } from './broker-credential'
-import {
-  accountBalancesFromPayload,
-  BROKER_ACCOUNT_PAGE_SIZE,
-  completeAccountRows,
-  isWorkingOrderRecord,
-} from './tastytrade-payload'
 
 interface RiskPosition {
   direction: 'Long' | 'Short'
@@ -58,57 +47,43 @@ export class PortfolioRiskError extends OwnerVisibleError {
   }
 }
 
-function completeRiskRows(value: JsonValue, label: string): JsonObject[] {
-  try {
-    return completeAccountRows(value, label)
-  } catch (cause) {
-    const detail = cause instanceof Error ? cause.message : 'UnknownError'
-    throw new PortfolioRiskError(`The portfolio guard could not verify ${label}: ${detail}.`)
+/**
+ * The drawdown guard's own wording for a snapshot it refuses to believe. The adapter reports
+ * which of the four account reads failed and whether the page or a record inside it was
+ * unreadable, so each of these stays as specific as it was when the guard did its own
+ * parsing — these messages reach a member's agent and are how an incomplete account read is
+ * told apart from a rejected trade.
+ */
+function riskError(error: BrokerSnapshotError): PortfolioRiskError {
+  if (error.part === 'positions') {
+    return new PortfolioRiskError(error.stage === 'record'
+      ? 'The portfolio guard found an unsupported position record.'
+      : `The portfolio guard could not verify every open position: ${error.message}.`)
   }
-}
-
-function positionRows(payload: JsonValue): RiskPosition[] {
-  return completeRiskRows(payload, 'every open position').flatMap((row) => {
-    const symbol = jsonTextOrEmpty(row.symbol)
-    const instrumentType = jsonTextOrEmpty(row['instrument-type'])
-    const direction = row['quantity-direction']
-    const quantity = jsonNumber(row.quantity)
-    if (!symbol || !instrumentType || (direction !== 'Long' && direction !== 'Short') || quantity === undefined || quantity < 0) {
-      throw new PortfolioRiskError('The portfolio guard found an unsupported position record.')
-    }
-    return quantity === 0 ? [] : [{ symbol, instrumentType, direction, quantity }]
-  })
+  if (error.part === 'balances') {
+    return new PortfolioRiskError(`The portfolio guard could not verify balances: ${error.message}.`)
+  }
+  const label = error.part === 'orders' ? 'every ordinary live order' : 'every complex live order'
+  return new PortfolioRiskError(`The portfolio guard could not verify ${label}: ${error.message}.`)
 }
 
 async function loadRiskAccount(
   env: AppEnv,
-  accountNumber: string,
+  ref: BrokerAccountRef,
   ignoredOrderId: string | undefined,
   credential: BrokerCredential | undefined,
 ): Promise<RiskAccount> {
-  let positionPayload: JsonValue
-  let balancePayload: JsonValue
-  let orderPayload: JsonValue
-  let complexOrderPayload: JsonValue
+  let snapshot: BrokerAccountSnapshot
   try {
-    [positionPayload, balancePayload, orderPayload, complexOrderPayload] = await Promise.all([
-      brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/positions?per-page=${BROKER_ACCOUNT_PAGE_SIZE}`, {}, credential),
-      brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/balances`, {}, credential),
-      brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/orders/live?per-page=${BROKER_ACCOUNT_PAGE_SIZE}`, {}, credential),
-      brokerApi().tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/complex-orders/live?per-page=${BROKER_ACCOUNT_PAGE_SIZE}`, {}, credential),
-    ])
+    snapshot = await brokerAdapterFor(credential).loadAccountSnapshot(env, ref, credential)
   } catch (error) {
     if (error instanceof BrokerCredentialMissingError) throw error
+    // A BrokerSnapshotError means the broker answered something the adapter refuses to
+    // believe; anything else means it would not answer at all.
+    if (error instanceof BrokerSnapshotError) throw riskError(error)
     throw new PortfolioRiskError('The portfolio guard could not refresh the complete brokerage account.')
   }
-  let balances
-  try {
-    balances = accountBalancesFromPayload(balancePayload, accountNumber)
-  } catch (cause) {
-    const detail = cause instanceof Error ? cause.message : 'UnknownError'
-    throw new PortfolioRiskError(`The portfolio guard could not verify balances: ${detail}.`)
-  }
-  const { netLiquidatingValue, cashBalance, cashAvailableToWithdraw } = balances
+  const { netLiquidatingValue, cashBalance, cashAvailableToWithdraw } = snapshot.balances
   if (netLiquidatingValue <= 0) {
     throw new PortfolioRiskError('The portfolio guard could not verify net liquidation value and unencumbered cash.')
   }
@@ -117,12 +92,13 @@ async function loadRiskAccount(
   return {
     netLiquidatingValue,
     cash,
-    positions: positionRows(positionPayload),
-    liveOrderCount: completeRiskRows(orderPayload, 'every ordinary live order')
-      .filter((row) => String(row.id ?? '') !== ignoredOrderId)
-      .filter(isWorkingOrderRecord).length
-      + completeRiskRows(complexOrderPayload, 'every complex live order')
-        .filter(isWorkingOrderRecord).length,
+    positions: snapshot.positions,
+    // Counted from the rows the broker listed, not the expanded working orders: a complex
+    // order whose children have all gone terminal still occupies the account, and expansion
+    // would drop it. Only the ordinary row being replaced is excluded, so a replacement is
+    // never blocked by the order it replaces.
+    liveOrderCount: snapshot.liveOrders
+      .filter((row) => row.source !== 'ordinary' || row.id !== ignoredOrderId).length,
   }
 }
 
@@ -229,8 +205,11 @@ export async function assertPortfolioActionAllowed(
   credential: BrokerCredential | undefined,
   resolved: { accountNumber?: string; ignoredOrderId?: string; optionContracts?: readonly EquityOptionContract[] } = {},
 ): Promise<PortfolioActionAssessment> {
-  const accountNumber = resolved.accountNumber ?? await brokerApi().resolveAccountNumber(env, credential)
-  const account = await loadRiskAccount(env, accountNumber, resolved.ignoredOrderId, credential)
+  const adapter = brokerAdapterFor(credential)
+  const ref = resolved.accountNumber
+    ? { accountNumber: resolved.accountNumber, broker: adapter.id }
+    : await adapter.resolveAccountRef(env, credential)
+  const account = await loadRiskAccount(env, ref, resolved.ignoredOrderId, credential)
   let optionContracts = resolved.optionContracts ?? []
   if (action.kind === 'place_option_order' && !optionContracts.length) {
     optionContracts = [await resolveEquityOptionContract(env, action)]
@@ -238,7 +217,7 @@ export async function assertPortfolioActionAllowed(
   if (action.kind === 'place_vertical_spread_order' && optionContracts.length !== 2) {
     throw new PortfolioRiskError('The guard could not verify both spread contracts.')
   }
-  const highWaterValue = await recordPortfolioHighWater(env, accountNumber, account.netLiquidatingValue, credential)
+  const highWaterValue = await recordPortfolioHighWater(env, ref.accountNumber, account.netLiquidatingValue, credential)
   const assessment = assessPortfolioAction(action, account, highWaterValue, optionContracts)
   if (!assessment.allowed) throw new PortfolioRiskError(assessment.reason ?? 'This trade was rejected at the portfolio boundary.')
   return assessment

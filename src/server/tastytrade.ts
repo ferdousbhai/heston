@@ -44,7 +44,6 @@ import {
 import { tastytradeApiVersion } from './tastytrade-version'
 import { persistTastytradeMarketSnapshot } from './tastytrade-market-store'
 import {
-  activeEquityPositionSymbols,
   catalogTickerInstrument,
   liveTickerFromRecords,
   marketOpensAtFromTastytradeSession,
@@ -502,17 +501,6 @@ export async function seedInternalWatchlistFromTastytrade(
 ): Promise<void> {
   if (!credential) throw new BrokerCredentialMissingError()
   await ensureInternalWatchlistSeeded(env, () => loadTastytradeWatchlistSeedPayloads(env, credential))
-}
-
-/** Fetch position identity before the one-time D1 finalization mutates live rows. */
-export async function loadOwnerPositionSymbolsFromTastytrade(
-  env: AppEnv,
-  credential?: BrokerCredential,
-): Promise<string[]> {
-  if (!credential) throw new BrokerCredentialMissingError()
-  const accountNumber = await resolveAccountNumber(env, credential)
-  const payload = await tastyRequest(env, `/accounts/${encodeURIComponent(accountNumber)}/positions`, {}, credential)
-  return activeEquityPositionSymbols(strictTastytradeRows(payload, 'TastytradePositions'))
 }
 
 async function loadMarketSnapshot(

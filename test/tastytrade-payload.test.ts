@@ -6,7 +6,7 @@ import {
   isWorkingOrderRecord,
   tradeTransactionRecord,
   workingOrderRecords,
-} from '../src/server/tastytrade-payload'
+} from '../src/server/brokers/tastytrade-payload'
 
 const balance = {
   'account-number': 'A1',

@@ -22,9 +22,6 @@ import {
   type AccountHistoryReadInput,
   type CompactMarketMetric,
   type CompactOptionContract,
-  type CompactOrder,
-  type CompactOrderLeg,
-  type CompactTransaction,
   type InstrumentQuoteReadResult,
   type InstrumentQuoteReadInput,
   type MarketMetricsReadResult,
@@ -34,11 +31,10 @@ import {
   type SymbolSearchItem,
   type SymbolSearchResult,
 } from './brokerage-read-contracts'
-import { jsonObject, type JsonObject, type JsonValue } from '../domain/json-payload'
+import { jsonObject, type JsonObject } from '../domain/json-payload'
 import { isValidIsoDate } from '../domain/iso-date'
 import {
   dataRecord,
-  finiteNumber,
   invalidResponse,
   itemEnvelope,
   optionalBoolean,
@@ -48,13 +44,13 @@ import {
   optionalRatioPercent,
   optionalText,
   optionalTimestamp,
-  requiredIdentifier,
   requiredText,
   requiredTimestamp,
 } from './brokerage-read-normalization'
 import { resolveEquityOptionTuples } from './option-contract'
 import { textResult } from './agent-tool-result'
 import { brokerApi } from './tastytrade'
+import { brokerAdapterFor, type BrokerHistoryQuery } from './brokers'
 import { type BrokerCredential } from './broker-credential'
 
 export type {
@@ -83,71 +79,6 @@ function assertInteger(value: number, minimum: number, maximum: number | undefin
   return value
 }
 
-function compactTransaction(row: JsonObject): CompactTransaction {
-  const label = 'Tastytrade transaction history'
-  const transactionType = requiredText(row, ['transaction-type'], label, 64)
-  const occurredAt = optionalTimestamp(row, ['executed-at'], label)
-    ?? optionalDate(row, ['transaction-date'], label)
-    ?? invalidResponse(label)
-  const orderId = row['order-id'] === undefined || row['order-id'] === null
-    ? undefined
-    : requiredIdentifier(row, 'order-id', label)
-  const signedMoney = (valueKey: string, effectKey: string) => {
-    const value = optionalNumber(row, [valueKey], label)
-    if (value === undefined) return undefined
-    const effect = requiredText(row, [effectKey], label, 16)
-    if (effect !== 'Debit' && effect !== 'Credit') return invalidResponse(label)
-    return effect === 'Debit' ? -Math.abs(value) : Math.abs(value)
-  }
-  return {
-    action: optionalText(row, ['action'], label, 64),
-    id: requiredIdentifier(row, 'id', label),
-    instrumentType: optionalText(row, ['instrument-type'], label, 64),
-    netValue: signedMoney('net-value', 'net-value-effect'),
-    occurredAt,
-    orderId,
-    price: optionalNumber(row, ['price'], label),
-    quantity: optionalNumber(row, ['quantity'], label),
-    symbol: optionalText(row, ['symbol'], label, 128),
-    transactionSubType: optionalText(row, ['transaction-sub-type'], label, 64),
-    transactionType,
-    underlyingSymbol: optionalText(row, ['underlying-symbol'], label, 64),
-    value: signedMoney('value', 'value-effect'),
-  }
-}
-
-function compactOrderLeg(value: JsonValue): CompactOrderLeg {
-  const label = 'Tastytrade order history'
-  const row = jsonObject(value) ?? invalidResponse(label)
-  return {
-    action: requiredText(row, ['action'], label, 64),
-    instrumentType: requiredText(row, ['instrument-type'], label, 64),
-    quantity: finiteNumber(row.quantity, label),
-    remainingQuantity: optionalNumber(row, ['remaining-quantity'], label),
-    symbol: requiredText(row, ['symbol'], label, 128),
-  }
-}
-
-function compactOrder(row: JsonObject): CompactOrder {
-  const label = 'Tastytrade order history'
-  if (!Array.isArray(row.legs) || row.legs.length < 1 || row.legs.length > 20) return invalidResponse(label)
-  return {
-    id: requiredIdentifier(row, 'id', label),
-    legs: row.legs.map(compactOrderLeg),
-    orderType: requiredText(row, ['order-type'], label, 64),
-    price: optionalNumber(row, ['price'], label),
-    priceEffect: optionalText(row, ['price-effect'], label, 32),
-    receivedAt: optionalTimestamp(row, ['received-at'], label),
-    rejectReason: optionalText(row, ['reject-reason'], label, 160),
-    size: optionalNumber(row, ['size'], label),
-    status: requiredText(row, ['status'], label, 64),
-    timeInForce: requiredText(row, ['time-in-force'], label, 64),
-    underlyingInstrumentType: requiredText(row, ['underlying-instrument-type'], label, 64),
-    underlyingSymbol: requiredText(row, ['underlying-symbol'], label, 64),
-    updatedAt: requiredTimestamp(row, ['updated-at'], label),
-  }
-}
-
 /** Read one bounded broker page and strip account identifiers before returning it to the model. */
 export async function readAccountHistory(
   env: AppEnv,
@@ -169,46 +100,31 @@ export async function readAccountHistory(
     throw new Error('Account history transaction type is invalid.')
   }
 
-  const accountNumber = await brokerApi().resolveAccountNumber(env, credential)
-  const query = new URLSearchParams({
-    'page-offset': String(pageOffset),
-    'per-page': String(limit),
-    sort: 'Desc',
-    'start-date': dateDaysAgo(now, days),
-  })
-  if (underlyingSymbol) query.set('underlying-symbol', underlyingSymbol)
-  if (input.transactionType) query.set('type', input.transactionType)
-  let payload: JsonValue
-  try {
-    payload = await brokerApi().tastyRequest(
-      env,
-      `/accounts/${encodeURIComponent(accountNumber)}/${input.type}?${query.toString()}`,
-      {},
-      credential,
-    )
-  } catch {
-    throw new Error(`Tastytrade ${input.type} are unavailable.`)
+  const adapter = brokerAdapterFor(credential)
+  const ref = await adapter.resolveAccountRef(env, credential)
+  const query: BrokerHistoryQuery = {
+    limit,
+    pageOffset,
+    startDate: dateDaysAgo(now, days),
+    type: input.type,
   }
-  const label = input.type === 'transactions' ? 'Tastytrade transaction history' : 'Tastytrade order history'
-  const envelope = itemEnvelope(payload, label, MAX_HISTORY_ITEMS * 2)
-  const normalized = input.type === 'transactions'
-    ? envelope.rows.map(compactTransaction)
-    : envelope.rows.map(compactOrder)
-  if (input.transactionType && normalized.some((item) => (
-    'transactionType' in item && item.transactionType !== input.transactionType
-  ))) return invalidResponse(label)
-  const items = normalized.slice(0, limit)
+  if (input.transactionType) query.transactionType = input.transactionType
+  if (underlyingSymbol) query.underlyingSymbol = underlyingSymbol
+  const page = await adapter.readAccountHistory(env, ref, query, credential)
+  const items = page.items.slice(0, limit)
   const consumed = pageOffset * limit + items.length
-  const truncated = envelope.rows.length > limit
-    || (envelope.totalItems === undefined ? envelope.rows.length === limit : consumed < envelope.totalItems)
+  // Truncation stays observable: a page the broker filled exactly, or one whose reported
+  // total is still ahead of what the reader has consumed, is short rather than complete.
+  const truncated = page.rowCount > limit
+    || (page.totalItemCount === undefined ? page.rowCount === limit : consumed < page.totalItemCount)
   const result: AccountHistoryReadResult = {
     asOf: now.toISOString(),
     items,
     pageOffset,
     truncated,
-    source: 'tastytrade',
+    source: ref.broker,
   }
-  if (envelope.totalItems !== undefined) result.totalItemCount = envelope.totalItems
+  if (page.totalItemCount !== undefined) result.totalItemCount = page.totalItemCount
   return result
 }
 

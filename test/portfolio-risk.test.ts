@@ -144,6 +144,7 @@ describe('model context', () => {
         symbol: 'SPY option', underlying: 'SPY',
       }],
       orders: [],
+      liveOrders: [],
     }
     const context = buildAgentRuntimeContext(account)
 

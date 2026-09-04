@@ -1,0 +1,451 @@
+import {
+  type BrokerAccountHistoryPage,
+  type BrokerAccountRef,
+  type BrokerAccountSnapshot,
+  type BrokerHistoryOrder,
+  type BrokerHistoryOrderLeg,
+  type BrokerHistoryTransaction,
+  type BrokerLiveOrderRow,
+  type BrokerOrderHistoryPage,
+  type BrokerOrderRecord,
+  type BrokerOrderRecordLeg,
+  type BrokerPosition,
+  type BrokerWorkingOrder,
+} from '../../domain/broker'
+import {
+  envelopeRows,
+  envelopeTotalItems,
+  JsonArraySchema,
+  jsonLooseText,
+  jsonNumber,
+  jsonObject,
+  jsonText,
+  type JsonObject,
+  type JsonValue,
+} from '../../domain/json-payload'
+import { MAX_HISTORY_ITEMS } from '../brokerage-read-contracts'
+import {
+  finiteNumber,
+  invalidResponse,
+  itemEnvelope,
+  optionalDate,
+  optionalNumber,
+  optionalText,
+  optionalTimestamp,
+  requiredIdentifier,
+  requiredText,
+  requiredTimestamp,
+} from '../brokerage-read-normalization'
+import { BrokerCredentialMissingError, type BrokerCredential } from '../broker-credential'
+import { type AppEnv } from '../env'
+import { activeEquityPositionSymbols, strictTastytradeRows } from '../tastytrade-market-normalization'
+import { brokerApi } from '../tastytrade'
+import {
+  BrokerCancellationAmbiguousError,
+  BrokerSnapshotError,
+  type BrokerAdapter,
+  type BrokerHistoryQuery,
+  type BrokerSnapshotPart,
+} from './contract'
+import {
+  accountBalancesFromPayload,
+  BROKER_ACCOUNT_PAGE_SIZE,
+  completeAccountRows,
+  isWorkingOrderRecord,
+  workingOrderRecords,
+} from './tastytrade-payload'
+
+// The reconciliation history request asks for one page this wide; `orderHistoryPage`
+// treats a page that did not fill as the whole history, so this is the completeness
+// boundary for deciding that an ambiguous submission never reached the broker.
+const RECONCILIATION_HISTORY_PAGE_SIZE = 100
+
+function segment(value: string): string {
+  return encodeURIComponent(value)
+}
+
+function detail(cause: unknown): string {
+  return cause instanceof Error ? cause.message : 'UnknownError'
+}
+
+/**
+ * `completeAccountRows` names its own failure (`TastytradeAccount:incomplete-positions`
+ * and friends). Those names reach an owner-visible message through the drawdown guard, so
+ * they are carried verbatim and only tagged with which read they came from.
+ */
+function accountRows(payload: JsonValue, part: BrokerSnapshotPart, label: string): JsonObject[] {
+  try {
+    return completeAccountRows(payload, label)
+  } catch (cause) {
+    throw new BrokerSnapshotError(part, 'page', detail(cause))
+  }
+}
+
+function positionFromRecord(row: JsonObject): BrokerPosition | undefined {
+  const symbol = jsonText(row.symbol)
+  const underlying = jsonText(row['underlying-symbol'])?.toUpperCase()
+  const quantity = jsonNumber(row.quantity)
+  const direction = jsonText(row['quantity-direction'])
+  const instrumentType = jsonText(row['instrument-type'])
+  if (!symbol
+    || !underlying
+    || quantity === undefined
+    || quantity < 0
+    || (direction !== 'Long' && direction !== 'Short')
+    || !instrumentType) {
+    throw new Error('TastytradeAccount:invalid-position')
+  }
+  if (quantity === 0) return undefined
+  const averageOpenPrice = jsonNumber(row['average-open-price'])
+  if (row['average-open-price'] !== undefined && row['average-open-price'] !== null
+    && averageOpenPrice === undefined) throw new Error('TastytradeAccount:invalid-position-average-open-price')
+  const rawExpiry = jsonText(row['expires-at'])
+  if (row['expires-at'] !== undefined && row['expires-at'] !== null
+    && (!rawExpiry || !Number.isFinite(Date.parse(rawExpiry)))) {
+    throw new Error('TastytradeAccount:invalid-position-expiry')
+  }
+  const position: BrokerPosition = { direction, instrumentType, quantity, symbol, underlying }
+  if (averageOpenPrice !== undefined) position.averageOpenPrice = averageOpenPrice
+  if (rawExpiry) position.expiresAt = rawExpiry
+  return position
+}
+
+function normalizedPositions(payload: JsonValue): BrokerPosition[] {
+  const rows = accountRows(payload, 'positions', 'positions')
+  try {
+    return rows.flatMap((row) => {
+      const position = positionFromRecord(row)
+      return position ? [position] : []
+    })
+  } catch (cause) {
+    throw new BrokerSnapshotError('positions', 'record', detail(cause))
+  }
+}
+
+function expandedOrders(rows: readonly JsonObject[], part: BrokerSnapshotPart): BrokerWorkingOrder[] {
+  try {
+    return rows.flatMap(workingOrderRecords)
+  } catch (cause) {
+    throw new BrokerSnapshotError(part, 'record', detail(cause))
+  }
+}
+
+function liveOrderRows(rows: readonly JsonObject[], source: BrokerLiveOrderRow['source']): BrokerLiveOrderRow[] {
+  // `String(row.id ?? '')` rather than a parse: this id is only ever compared against the
+  // order id a replacement is allowed to ignore, and an unreadable id must not silently
+  // become a match for it.
+  return rows.filter(isWorkingOrderRecord).map((row) => ({ id: String(row.id ?? ''), source }))
+}
+
+function normalizedOrders(
+  ordinaryPayload: JsonValue,
+  complexPayload: JsonValue,
+): Pick<BrokerAccountSnapshot, 'liveOrders' | 'orders'> {
+  const ordinaryRows = accountRows(ordinaryPayload, 'orders', 'orders')
+  const complexRows = accountRows(complexPayload, 'complex-orders', 'complex-orders')
+  const expanded = [
+    ...expandedOrders(ordinaryRows, 'orders'),
+    ...expandedOrders(complexRows, 'complex-orders'),
+  ]
+  return {
+    liveOrders: [
+      ...liveOrderRows(ordinaryRows, 'ordinary'),
+      ...liveOrderRows(complexRows, 'complex'),
+    ],
+    orders: [...new Map(expanded.map((order) => [order.id, order])).values()],
+  }
+}
+
+async function resolveAccountRef(
+  env: AppEnv,
+  credential: BrokerCredential | undefined,
+): Promise<BrokerAccountRef> {
+  // Account discovery stays on the `brokerApi()` transport seam beside `tastyRequest`,
+  // because order placement — which this chunk deliberately does not move — still reaches
+  // for it there. The adapter owns the ref shape every account reader above it uses.
+  return { accountNumber: await brokerApi().resolveAccountNumber(env, credential), broker: 'tastytrade' }
+}
+
+async function loadAccountSnapshot(
+  env: AppEnv,
+  ref: BrokerAccountRef,
+  credential: BrokerCredential | undefined,
+): Promise<BrokerAccountSnapshot> {
+  const account = segment(ref.accountNumber)
+  // Transport failures propagate untouched. "The broker would not answer" is a different
+  // fact from "the broker answered something we refuse to believe", and only the second
+  // arrives as a BrokerSnapshotError; callers report them differently.
+  const [positionPayload, balancePayload, orderPayload, complexOrderPayload] = await Promise.all([
+    brokerApi().tastyRequest(env, `/accounts/${account}/positions?per-page=${BROKER_ACCOUNT_PAGE_SIZE}`, {}, credential),
+    brokerApi().tastyRequest(env, `/accounts/${account}/balances`, {}, credential),
+    brokerApi().tastyRequest(env, `/accounts/${account}/orders/live?per-page=${BROKER_ACCOUNT_PAGE_SIZE}`, {}, credential),
+    brokerApi().tastyRequest(env, `/accounts/${account}/complex-orders/live?per-page=${BROKER_ACCOUNT_PAGE_SIZE}`, {}, credential),
+  ])
+  let balances
+  try {
+    balances = accountBalancesFromPayload(balancePayload, ref.accountNumber)
+  } catch (cause) {
+    throw new BrokerSnapshotError('balances', 'record', detail(cause))
+  }
+  return {
+    asOf: new Date().toISOString(),
+    balances,
+    positions: normalizedPositions(positionPayload),
+    ...normalizedOrders(orderPayload, complexOrderPayload),
+  }
+}
+
+function historyOrderLeg(value: JsonValue): BrokerHistoryOrderLeg {
+  const label = 'Tastytrade order history'
+  const row = jsonObject(value) ?? invalidResponse(label)
+  return {
+    action: requiredText(row, ['action'], label, 64),
+    instrumentType: requiredText(row, ['instrument-type'], label, 64),
+    quantity: finiteNumber(row.quantity, label),
+    remainingQuantity: optionalNumber(row, ['remaining-quantity'], label),
+    symbol: requiredText(row, ['symbol'], label, 128),
+  }
+}
+
+function historyOrder(row: JsonObject): BrokerHistoryOrder {
+  const label = 'Tastytrade order history'
+  if (!Array.isArray(row.legs) || row.legs.length < 1 || row.legs.length > 20) return invalidResponse(label)
+  return {
+    id: requiredIdentifier(row, 'id', label),
+    legs: row.legs.map(historyOrderLeg),
+    orderType: requiredText(row, ['order-type'], label, 64),
+    price: optionalNumber(row, ['price'], label),
+    priceEffect: optionalText(row, ['price-effect'], label, 32),
+    receivedAt: optionalTimestamp(row, ['received-at'], label),
+    rejectReason: optionalText(row, ['reject-reason'], label, 160),
+    size: optionalNumber(row, ['size'], label),
+    status: requiredText(row, ['status'], label, 64),
+    timeInForce: requiredText(row, ['time-in-force'], label, 64),
+    underlyingInstrumentType: requiredText(row, ['underlying-instrument-type'], label, 64),
+    underlyingSymbol: requiredText(row, ['underlying-symbol'], label, 64),
+    updatedAt: requiredTimestamp(row, ['updated-at'], label),
+  }
+}
+
+function historyTransaction(row: JsonObject): BrokerHistoryTransaction {
+  const label = 'Tastytrade transaction history'
+  const transactionType = requiredText(row, ['transaction-type'], label, 64)
+  const occurredAt = optionalTimestamp(row, ['executed-at'], label)
+    ?? optionalDate(row, ['transaction-date'], label)
+    ?? invalidResponse(label)
+  const orderId = row['order-id'] === undefined || row['order-id'] === null
+    ? undefined
+    : requiredIdentifier(row, 'order-id', label)
+  const signedMoney = (valueKey: string, effectKey: string) => {
+    const value = optionalNumber(row, [valueKey], label)
+    if (value === undefined) return undefined
+    const effect = requiredText(row, [effectKey], label, 16)
+    if (effect !== 'Debit' && effect !== 'Credit') return invalidResponse(label)
+    return effect === 'Debit' ? -Math.abs(value) : Math.abs(value)
+  }
+  return {
+    action: optionalText(row, ['action'], label, 64),
+    id: requiredIdentifier(row, 'id', label),
+    instrumentType: optionalText(row, ['instrument-type'], label, 64),
+    netValue: signedMoney('net-value', 'net-value-effect'),
+    occurredAt,
+    orderId,
+    price: optionalNumber(row, ['price'], label),
+    quantity: optionalNumber(row, ['quantity'], label),
+    symbol: optionalText(row, ['symbol'], label, 128),
+    transactionSubType: optionalText(row, ['transaction-sub-type'], label, 64),
+    transactionType,
+    underlyingSymbol: optionalText(row, ['underlying-symbol'], label, 64),
+    value: signedMoney('value', 'value-effect'),
+  }
+}
+
+async function readAccountHistory(
+  env: AppEnv,
+  ref: BrokerAccountRef,
+  request: BrokerHistoryQuery,
+  credential: BrokerCredential | undefined,
+): Promise<BrokerAccountHistoryPage> {
+  const query = new URLSearchParams({
+    'page-offset': String(request.pageOffset),
+    'per-page': String(request.limit),
+    sort: 'Desc',
+    'start-date': request.startDate,
+  })
+  if (request.underlyingSymbol) query.set('underlying-symbol', request.underlyingSymbol)
+  if (request.transactionType) query.set('type', request.transactionType)
+  let payload: JsonValue
+  try {
+    payload = await brokerApi().tastyRequest(
+      env,
+      `/accounts/${segment(ref.accountNumber)}/${request.type}?${query.toString()}`,
+      {},
+      credential,
+    )
+  } catch {
+    throw new Error(`Tastytrade ${request.type} are unavailable.`)
+  }
+  const label = request.type === 'transactions' ? 'Tastytrade transaction history' : 'Tastytrade order history'
+  // The envelope ceiling is deliberately wider than the model-context budget: it rejects an
+  // anomalous upstream fan-out before normalization walks arbitrarily many rows.
+  const envelope = itemEnvelope(payload, label, MAX_HISTORY_ITEMS * 2)
+  const items = request.type === 'transactions'
+    ? envelope.rows.map(historyTransaction)
+    : envelope.rows.map(historyOrder)
+  if (request.transactionType && items.some((item) => (
+    'transactionType' in item && item.transactionType !== request.transactionType
+  ))) return invalidResponse(label)
+  const page: BrokerAccountHistoryPage = { items, rowCount: envelope.rows.length }
+  if (envelope.totalItems !== undefined) page.totalItemCount = envelope.totalItems
+  return page
+}
+
+function orderRecordLeg(value: JsonValue): BrokerOrderRecordLeg | undefined {
+  const row = jsonObject(value)
+  if (!row) return undefined
+  const fills = JsonArraySchema.safeParse(row.fills).data
+  return {
+    action: jsonLooseText(row.action),
+    fillCount: fills?.length,
+    instrumentType: jsonLooseText(row['instrument-type']),
+    quantity: jsonNumber(row.quantity),
+    remainingQuantity: jsonNumber(row['remaining-quantity']),
+    symbol: jsonLooseText(row.symbol),
+  }
+}
+
+/**
+ * Report an order row exactly as read, repairing nothing. The replacement echo check and
+ * the reconciliation fingerprint decide for themselves what an unreadable field means, and
+ * both must keep treating it as "not a match" rather than as a parse failure.
+ */
+export function tastytradeOrderRecord(row: JsonObject): BrokerOrderRecord {
+  return {
+    editable: row.editable === true,
+    id: jsonLooseText(row.id),
+    legs: JsonArraySchema.safeParse(row.legs).data?.map(orderRecordLeg),
+    orderType: jsonLooseText(row['order-type']),
+    price: jsonNumber(row.price),
+    priceEffect: jsonLooseText(row['price-effect']),
+    receivedAt: jsonLooseText(row['received-at']),
+    replacesOrderId: jsonLooseText(row['replaces-order-id']),
+    status: jsonLooseText(row.status),
+    terminalAt: jsonLooseText(row['terminal-at']),
+    timeInForce: jsonLooseText(row['time-in-force']),
+    updatedAt: jsonLooseText(row['updated-at']),
+  }
+}
+
+/** Unwrap the single-order envelope. Exported so the replacement echo check can be
+ *  exercised against a real broker body rather than a hand-built record. */
+export function tastytradeOrderFromPayload(payload: JsonValue): BrokerOrderRecord {
+  const body = jsonObject(payload)
+  const data = jsonObject(body?.data ?? payload)
+  // A collection where one order was asked for is ambiguous, never the first row.
+  // The failure name is preserved verbatim: it is the existing owner-visible one.
+  if (!data || JsonArraySchema.safeParse(data.items).success) throw new Error('OrderReplacement:invalid-order')
+  return tastytradeOrderRecord(data)
+}
+
+async function readOrder(
+  env: AppEnv,
+  ref: BrokerAccountRef,
+  orderId: string,
+  credential: BrokerCredential | undefined,
+): Promise<BrokerOrderRecord> {
+  return tastytradeOrderFromPayload(await brokerApi().tastyRequest(
+    env,
+    `/accounts/${segment(ref.accountNumber)}/orders/${segment(orderId)}`,
+    {},
+    credential,
+  ))
+}
+
+async function cancelOrder(
+  env: AppEnv,
+  ref: BrokerAccountRef,
+  orderId: string,
+  credential: BrokerCredential | undefined,
+): Promise<void> {
+  try {
+    await brokerApi().tastyRequest(
+      env,
+      `/accounts/${segment(ref.accountNumber)}/orders/${orderId}`,
+      { method: 'DELETE' },
+      credential,
+    )
+  } catch (error) {
+    // A provider 4xx proves the cancellation was rejected. A network loss, timeout, 5xx, or
+    // unreadable success response after DELETE means the broker may have received it, so it
+    // must never become an automatic retry.
+    if (error instanceof Error && error.name === 'TastytradeApiError') throw error
+    throw new BrokerCancellationAmbiguousError()
+  }
+}
+
+/** Whether the broker claimed a total at all, as opposed to one we could not read. */
+function declaresTotalItems(payload: JsonValue): boolean {
+  const body = jsonObject(payload)
+  const pagination = jsonObject(body?.pagination) ?? jsonObject(jsonObject(body?.data)?.pagination)
+  return pagination?.['total-items'] !== undefined
+}
+
+async function readOrderHistory(
+  env: AppEnv,
+  ref: BrokerAccountRef,
+  options: { startDate: string },
+  credential: BrokerCredential | undefined,
+): Promise<BrokerOrderHistoryPage> {
+  const payload = await brokerApi().tastyRequest(
+    env,
+    `/accounts/${segment(ref.accountNumber)}/orders?per-page=${RECONCILIATION_HISTORY_PAGE_SIZE}`
+      + `&sort=Desc&start-date=${options.startDate}`,
+    {},
+    credential,
+  )
+  const candidate = envelopeRows(payload)
+  if (!candidate || candidate.length > RECONCILIATION_HISTORY_PAGE_SIZE) {
+    throw new Error('TastytradeReconciliation:invalid-history')
+  }
+  const rows = candidate.map((value) => {
+    const row = jsonObject(value)
+    if (!row) throw new Error('TastytradeReconciliation:invalid-history')
+    return row
+  })
+  // The history request asks for a full page, so a page that did not fill is the whole
+  // history. A broker that reports a total we cannot read is not evidence of completeness:
+  // staying incomplete keeps an ambiguous mutation quarantined rather than concluding the
+  // order is absent.
+  const total = envelopeTotalItems(payload)
+  const complete = total !== undefined
+    ? total <= rows.length
+    : !declaresTotalItems(payload) && rows.length < RECONCILIATION_HISTORY_PAGE_SIZE
+  return { complete, orders: rows.map(tastytradeOrderRecord) }
+}
+
+/** Fetch position identity before the one-time D1 finalization mutates live rows. */
+export async function loadOwnerPositionSymbols(
+  env: AppEnv,
+  credential?: BrokerCredential,
+): Promise<string[]> {
+  if (!credential) throw new BrokerCredentialMissingError()
+  const ref = await resolveAccountRef(env, credential)
+  const payload = await brokerApi().tastyRequest(
+    env,
+    `/accounts/${segment(ref.accountNumber)}/positions`,
+    {},
+    credential,
+  )
+  return activeEquityPositionSymbols(strictTastytradeRows(payload, 'TastytradePositions'))
+}
+
+export const tastytradeAdapter: BrokerAdapter = {
+  cancelOrder,
+  id: 'tastytrade',
+  loadAccountSnapshot,
+  readAccountHistory,
+  readOrder,
+  readOrderHistory,
+  readPositionSymbols: loadOwnerPositionSymbols,
+  resolveAccountRef,
+}
