@@ -336,7 +336,6 @@ async function readOptionalYearCandles(
 async function loadMarketFacts(
   env: AppEnv,
   symbols: readonly string[],
-  positionSymbols: ReadonlySet<string>,
 ): Promise<Pick<MarketSnapshot, 'catalysts' | 'tickers'>> {
   const [{ metrics, quotes }, instrumentCatalog] = await Promise.all([
     loadMarketRows(env, symbols),
@@ -349,7 +348,6 @@ async function loadMarketFacts(
     symbol,
     metricBySymbol.get(symbol),
     quoteBySymbol.get(symbol),
-    positionSymbols.has(symbol),
     catalogTickerInstrument(instrumentCatalog.get(symbol)),
   ))
   // Read-only: the year series is refreshed on the schedule, so a symbol the refresh has not
@@ -541,8 +539,7 @@ async function loadMarketSnapshot(
   // New owner, agent, and research symbols get an authoritative name
   // immediately. A market-open research run retries the honest unresolved rows.
   await refreshMissingTastytradeInstruments(env, symbols)
-  // The legacy position field is now always false and is scheduled for removal.
-  const { catalysts, tickers } = await loadMarketFacts(env, symbols, new Set())
+  const { catalysts, tickers } = await loadMarketFacts(env, symbols)
   const marketState = marketStateFromTastytradeSession(sessionPayload)
   const marketOpensAt = marketOpensAtFromTastytradeSession(sessionPayload)
   await cacheMarketSession(env, marketState, marketOpensAt)
@@ -575,7 +572,7 @@ async function lookupPublicMarketSymbol(
   const symbol = await resolveSearchedSymbol(env, query)
   if (!symbol) return undefined
   const retained = await ensureInternalWatchlistSymbols(env, [symbol], 'visitor-search')
-  const facts = await loadMarketFacts(env, [symbol], new Set())
+  const facts = await loadMarketFacts(env, [symbol])
   const ticker = facts.tickers[0]
   if (!ticker) return undefined
   return {
@@ -609,7 +606,6 @@ async function lookupStoredMarketSymbol(
     symbol,
     records.metrics.get(symbol),
     quote,
-    false,
     catalogTickerInstrument(catalog.get(symbol)),
     yearCandles.get(symbol),
   )
@@ -644,7 +640,7 @@ export async function loadPublicMarketSnapshot(
   const publicSymbols = [...new Set(storedUniverse.symbols)]
   const [sessionResult, marketFacts] = await Promise.all([
     tastyRequest(env, '/market-time/equities/sessions/current'),
-    loadMarketFacts(env, publicSymbols, new Set()),
+    loadMarketFacts(env, publicSymbols),
   ])
   const syncedAt = new Date().toISOString()
   const marketState = marketStateFromTastytradeSession(sessionResult)
@@ -711,7 +707,6 @@ async function loadStoredPublicMarketSnapshot(env: AppEnv): Promise<PublicMarket
       symbol,
       records.metrics.get(symbol),
       quote,
-      false,
       catalogTickerInstrument(catalog.get(symbol)),
       yearCandles.get(symbol),
     ))
@@ -756,7 +751,6 @@ async function loadStoredMarketSnapshot(env: AppEnv): Promise<MarketSnapshot | u
       symbol,
       records.metrics.get(symbol),
       quote,
-      false,
       catalogTickerInstrument(catalog.get(symbol)),
       yearCandles.get(symbol),
     ))

@@ -279,7 +279,6 @@ describe('public market boundary', () => {
       { id: 'watchlist', kind: 'private', name: 'Watchlist', symbols: ['NVDA'] },
     ])
     expect(snapshot.tickers.find((ticker) => ticker.symbol === 'META')).toBeUndefined()
-    expect(snapshot.tickers.find((ticker) => ticker.symbol === 'NVDA')?.position).toBe(false)
     expect(store.sqlite.prepare(
       `SELECT origin FROM internal_watchlist_items WHERE symbol = 'META'`,
     ).get()).toBeUndefined()
@@ -292,13 +291,13 @@ describe('public market boundary', () => {
     expect(requestedUrls.some((url) => url.includes('/accounts/'))).toBe(false)
 
     fetchMock.mockClear()
-    const storedSnapshot = await brokerApi().loadStoredMarketSnapshot({
+    // The stored read is entirely local now: no account path means no broker request at all.
+    await brokerApi().loadStoredMarketSnapshot({
       BROKER_GATE: brokerGate.namespace,
       DB: store.database,
       TASTYTRADE_CLIENT_SECRET: secret,
       TASTYTRADE_REFRESH_TOKEN: secret,
     })
-    expect(storedSnapshot?.tickers.find((ticker) => ticker.symbol === 'NVDA')?.position).toBe(false)
     expect(fetchMock).not.toHaveBeenCalled()
     store.close()
   })

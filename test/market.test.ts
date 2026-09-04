@@ -105,15 +105,14 @@ describe('snapshot contract', () => {
     const publicValue = {
       ...owner,
       watchlists: [{ ...owner.watchlists[0]!, kind: 'public' as const }],
-      tickers: owner.tickers.map(({ position: _position, ...ticker }) => ticker),
     }
 
-    expect(PublicMarketSnapshotSchema.parse(publicValue).tickers[0]).not.toHaveProperty('position')
-    expect(() => PublicMarketSnapshotSchema.parse({
-      ...publicValue,
-      tickers: [{ ...publicValue.tickers[0], position: true }],
-    })).toThrow()
-    expect(marketSnapshotFromPublic(publicValue).tickers.every((ticker) => ticker.position === false)).toBe(true)
+    // Both audiences now carry identical ticker fields: reading held positions needs the
+    // member's own broker credential, which this Worker does not hold. What still separates
+    // the audiences is the watchlist, whose `kind` reveals provenance.
+    expect(PublicMarketSnapshotSchema.parse(publicValue).tickers[0]).toEqual(owner.tickers[0])
+    expect(() => PublicMarketSnapshotSchema.parse(owner)).toThrow()
+    expect(marketSnapshotFromPublic(publicValue).tickers).toEqual(owner.tickers)
   })
 
   it('returns isolated fixtures for tests that mutate broker state', () => {
@@ -185,7 +184,7 @@ describe('tastytrade normalization', () => {
     }, {
       symbol: 'BE', mark: '700', 'previous-close': '695',
       'updated-at': '2026-08-13T13:31:00.000Z',
-    }, false)
+    })
 
     expect(ticker).toMatchObject({ symbol: 'BE', ivRank: 25 })
     expect(ticker.historicalVolatility30Day).toBe(0)
@@ -205,7 +204,7 @@ describe('tastytrade normalization', () => {
     }, {
       symbol: 'BE', mark: '700', 'previous-close': '695',
       'updated-at': '2026-08-13T13:31:00.000Z',
-    }, false)
+    })
 
     expect(ticker.ivTermStructure?.backIv).toBe(9_900)
   })
@@ -221,28 +220,28 @@ describe('tastytrade normalization', () => {
       'implied-volatility-index-rank': '0.25', 'implied-volatility-percentile': '0.3',
       'liquidity-rating': '5', 'market-cap': '900000000000',
     }
-    expect(liveTickerFromRecords('SPY', metrics, quote, true)).toMatchObject({
+    expect(liveTickerFromRecords('SPY', metrics, quote)).toMatchObject({
       symbol: 'SPY', price: 700, ivIndex: 18, ivRank: 25, ivPercentile: 30,
       marketCap: 900_000_000_000, volume: 12_345_678,
-      position: true, updatedAt: '2026-08-13T13:31:00.000Z',
+      updatedAt: '2026-08-13T13:31:00.000Z',
     })
-    expect(liveTickerFromRecords('SPY', metrics, quote, true).sparkline).toEqual([])
-    expect(liveTickerFromRecords('SPY', { ...metrics, 'market-cap': '0' }, quote, true).marketCap)
+    expect(liveTickerFromRecords('SPY', metrics, quote).sparkline).toEqual([])
+    expect(liveTickerFromRecords('SPY', { ...metrics, 'market-cap': '0' }, quote).marketCap)
       .toBeUndefined()
-    expect(liveTickerFromRecords('SPCX', metrics, quote, false, {
+    expect(liveTickerFromRecords('SPCX', metrics, quote, {
       symbol: 'SPCX', description: 'SpaceX Corporation',
     })).toMatchObject({ assetType: undefined, name: 'SpaceX Corporation' })
-    expect(liveTickerFromRecords('SPCX', metrics, quote, false, {
+    expect(liveTickerFromRecords('SPCX', metrics, quote, {
       symbol: 'SPCX', description: 'SpaceX Corporation', 'is-etf': false, 'is-index': false,
     }).assetType).toBe('stock')
     expect(liveTickerFromRecords('SPY', metrics, {
       symbol: 'SPY', mark: '700', prevDayClose: '695',
       updatedAt: '2026-08-13T13:31:00.000Z',
-    }, false).change).toBe(5)
-    expect(() => liveTickerFromRecords('SPY', undefined, quote, false)).toThrow('missing-metrics')
-    expect(() => liveTickerFromRecords('SPY', metrics, { ...quote, 'updated-at': undefined }, false))
+    }).change).toBe(5)
+    expect(() => liveTickerFromRecords('SPY', undefined, quote)).toThrow('missing-metrics')
+    expect(() => liveTickerFromRecords('SPY', metrics, { ...quote, 'updated-at': undefined }))
       .toThrow('invalid-updated-at')
-    const projected = liveTickerFromRecords('SPY', metrics, quote, false)
+    const projected = liveTickerFromRecords('SPY', metrics, quote)
     expect(projected.change).toBe(5)
     expect(projected.changePercent).toBeCloseTo(0.7194244604)
     expect(liveTickerFromRecords('SPY', {
@@ -251,13 +250,13 @@ describe('tastytrade normalization', () => {
       'implied-volatility-percentile': null,
       'implied-volatility-rank': null,
       'liquidity-rating': null,
-    }, quote, false)).toMatchObject({
+    }, quote)).toMatchObject({
       ivIndex: undefined,
       ivPercentile: undefined,
       ivRank: undefined,
       liquidity: undefined,
     })
-    expect(() => liveTickerFromRecords('SPY', metrics, { ...quote, volume: 'many' }, false))
+    expect(() => liveTickerFromRecords('SPY', metrics, { ...quote, volume: 'many' }))
       .toThrow('invalid-volume')
   })
 
@@ -280,7 +279,7 @@ describe('tastytrade normalization', () => {
       symbol: 'SPY', mark: '700', 'previous-close': '695',
       'updated-at': '2026-08-13T13:31:00.000Z',
       'year-high-price': '710', 'year-low-price': '480',
-    }, false, {
+    }, {
       symbol: 'SPY', description: 'SPDR S&P 500 ETF',
       lendability: 'Easy To Borrow', 'is-etf': true,
     })

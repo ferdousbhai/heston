@@ -30,8 +30,7 @@ class MemoryCache implements PublicSnapshotCache {
 }
 
 function lookup(): PublicSymbolLookup {
-  const { position: _position, ...ticker } = marketSnapshotFixture().tickers[0]!
-  return { catalysts: [], ticker, watchlisted: true }
+  return { catalysts: [], ticker: marketSnapshotFixture().tickers[0]!, watchlisted: true }
 }
 
 function serve(query: string, cache: PublicSnapshotCache): Promise<Response> {

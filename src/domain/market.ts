@@ -62,12 +62,16 @@ export const TickerSchema = z.object({
   yearHigh: z.number().positive().optional(),
   yearLow: z.number().positive().optional(),
   earningsDate: z.string().nullable(),
-  position: z.boolean(),
   updatedAt: z.string(),
 })
 
-/** The public wire contract cannot represent account-derived position membership. */
-export const PublicTickerSchema = TickerSchema.omit({ position: true }).strict()
+/**
+ * Both audiences now carry identical ticker fields: the held-position flag is gone, because
+ * reading positions needs the member's own broker credential, which this Worker does not hold.
+ * Held context reaches a reader through their own agent instead. The audiences still differ on
+ * the watchlist, whose `kind` reveals provenance, so the two snapshot contracts stay distinct.
+ */
+export const PublicTickerSchema = TickerSchema.strict()
 
 const RecommendationFields = {
   symbol: EquitySymbolSchema,
@@ -194,16 +198,12 @@ export type PublicMarketSnapshot = z.infer<typeof PublicMarketSnapshotSchema>
 export type PublicTicker = z.infer<typeof PublicTickerSchema>
 
 export function publicTickerFromTicker(ticker: Ticker): PublicTicker {
-  const { position: _privatePosition, ...candidate } = ticker
-  return PublicTickerSchema.parse(candidate)
+  return PublicTickerSchema.parse(ticker)
 }
 
-/** Convert a validated account-free response into the browser's richer internal model. */
+/** Convert a validated account-free response into the browser's internal model. */
 export function marketSnapshotFromPublic(snapshot: PublicMarketSnapshot): MarketSnapshot {
-  return MarketSnapshotSchema.parse({
-    ...snapshot,
-    tickers: snapshot.tickers.map((ticker) => ({ ...ticker, position: false })),
-  })
+  return MarketSnapshotSchema.parse(snapshot)
 }
 
 /** Highest reported share volume first; missing volume sorts last, then ticker. */

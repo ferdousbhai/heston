@@ -17,10 +17,7 @@ function isoDateAfter(days: number): string {
 }
 
 function publicSnapshotJson(snapshot: ReturnType<typeof marketSnapshotFixture>): string {
-  return JSON.stringify({
-    ...snapshot,
-    tickers: snapshot.tickers.map(({ position: _position, ...ticker }) => ticker),
-  })
+  return JSON.stringify(snapshot)
 }
 
 test('a newer deployment reloads once before restoring the local snapshot', async ({ page }) => {
@@ -75,7 +72,7 @@ test('unauthenticated visitors can read market data but connecting an agent need
   }]
   publicSnapshot.tickers = publicSnapshot.tickers
     .filter((ticker) => publicSnapshot.watchlists[0]!.symbols.includes(ticker.symbol))
-    .map((ticker) => ({ ...ticker, position: false, sparkline: ticker.sparkline.slice(-2) }))
+    .map((ticker) => ({ ...ticker, sparkline: ticker.sparkline.slice(-2) }))
   await page.route('**/api/viewer', (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({ authRequired: true, user: null }),
@@ -238,7 +235,7 @@ test('mobile market, recommendations, search, sorting, and connect flows remain 
   await expect(page.getByText('Premium looks')).toHaveCount(0)
   await expect(page.locator('.intent-label')).toHaveCount(0)
   await expect(page.locator('.premium-data-table [data-slot="badge"]')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: /NVDA, NVIDIA, held, Expensive option premium/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /NVDA, NVIDIA, Expensive option premium/ })).toBeVisible()
   await expect(page.getByRole('tab', { name: 'Watch', exact: true })).toHaveAttribute('aria-selected', 'true')
   await expect(page.locator('.premium-verdict')).toHaveText('Expensive')
   await expect(page.getByRole('region', { name: 'Upcoming catalysts' })).toBeVisible()
@@ -259,8 +256,8 @@ test('mobile market, recommendations, search, sorting, and connect flows remain 
   await expect(page.locator('.focus-recommendation')).toContainText('A guide-down or capex pause would break the demand case.')
   await expect(page.locator('.watchlist-title')).toHaveText('Watchlist')
   await expect(page.getByRole('combobox', { name: 'Watchlist' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: /NVDA, NVIDIA, held, Expensive/ })).toBeVisible()
-  await expect(page.getByRole('button', { name: /SPCX, SpaceX Corporation, held, Cheap/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /NVDA, NVIDIA, Expensive/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /SPCX, SpaceX Corporation, Cheap/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /BE, Bloom Energy, Fair/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /BE, Bloom Energy, Fair/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /INTC, Intel, Cheap/ })).toBeVisible()
@@ -351,7 +348,7 @@ test('authenticated favorites consume only unchanged anonymous staging across ta
   }]
   snapshot.tickers = snapshot.tickers
     .filter((ticker) => snapshot.watchlists[0]!.symbols.includes(ticker.symbol))
-    .map((ticker) => ({ ...ticker, position: false, sparkline: ticker.sparkline.slice(-2) }))
+    .map((ticker) => ({ ...ticker, sparkline: ticker.sparkline.slice(-2) }))
   const serverFavorites = new Set<string>()
   const anonymousMerges: string[][] = []
   let signedIn = false
@@ -489,7 +486,7 @@ test('two signed-out devices converge on the account union without granting owne
   }]
   snapshot.tickers = snapshot.tickers
     .filter((ticker) => snapshot.watchlists[0]!.symbols.includes(ticker.symbol))
-    .map((ticker) => ({ ...ticker, position: false, sparkline: ticker.sparkline.slice(-2) }))
+    .map((ticker) => ({ ...ticker, sparkline: ticker.sparkline.slice(-2) }))
   let laptopSignedIn = false
   let mobileSignedIn = false
   let ownerSnapshotRequests = 0

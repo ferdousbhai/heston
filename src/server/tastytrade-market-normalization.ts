@@ -194,7 +194,6 @@ export function normalizeTastytradeMarketTicker(
   symbol: string,
   metrics: JsonObject | undefined,
   quote: JsonObject | undefined,
-  position: boolean,
   instrument?: JsonObject,
 ): NormalizedTastytradeMarketTicker {
   if (!metrics) throw new Error(`TastytradeSnapshot:missing-metrics:${symbol}`)
@@ -302,7 +301,6 @@ export function normalizeTastytradeMarketTicker(
     yearHigh,
     yearLow,
     earningsDate,
-    position,
     updatedAt,
   } }
 }
@@ -311,10 +309,9 @@ export function liveTickerFromRecords(
   symbol: string,
   metrics: JsonObject | undefined,
   quote: JsonObject | undefined,
-  position: boolean,
   instrument?: JsonObject,
 ): Ticker {
-  return normalizeTastytradeMarketTicker(symbol, metrics, quote, position, instrument).ticker
+  return normalizeTastytradeMarketTicker(symbol, metrics, quote, instrument).ticker
 }
 
 /**
@@ -327,7 +324,6 @@ export function tickerFromStoredRecords(
   symbol: string,
   metric: TastytradeMarketMetricRecord | undefined,
   quote: TastytradeMarketQuoteRecord,
-  position: boolean,
   instrument?: JsonObject,
   yearAgoClose?: number,
 ): Ticker {
@@ -359,7 +355,6 @@ export function tickerFromStoredRecords(
     yearHigh: quote.yearHigh,
     yearLow: quote.yearLow,
     earningsDate: metric?.earningsDate ?? null,
-    position,
     updatedAt: quote.providerUpdatedAt,
   }
 }

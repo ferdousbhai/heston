@@ -87,7 +87,7 @@ describe('offline snapshot boundary', () => {
 
   it('replaces owner cache and live overlay with only public rows before marking it public', async () => {
     const owner = marketSnapshotFixture()
-    const original = owner.tickers.find((ticker) => ticker.position)!
+    const original = owner.tickers[0]!
     await hydrateCollections({ ...owner, tickers: [original] }, 'owner')
     const liveAt = new Date(Date.parse(original.updatedAt) + 60_000).toISOString()
     applyLiveMarketEvent({
@@ -106,7 +106,6 @@ describe('offline snapshot boundary', () => {
       ...original,
       change: 1,
       changePercent: 0.5,
-      position: false,
       price: original.price - 5,
       sparkline: original.sparkline.slice(-2),
     }
@@ -134,11 +133,10 @@ describe('offline snapshot boundary', () => {
 
   it('serializes overlapping audience replacements so the last requested snapshot wins', async () => {
     const owner = marketSnapshotFixture()
-    const privateTicker = owner.tickers.find((ticker) => ticker.position)!
+    const privateTicker = owner.tickers[0]!
     const publicTicker = {
-      ...owner.tickers.find((ticker) => !ticker.position)!,
-      position: false,
-    }
+      ...owner.tickers[1]!,
+      }
     const publicSnapshot = {
       ...owner,
       tickers: [publicTicker],

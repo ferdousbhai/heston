@@ -401,18 +401,16 @@ const MarketTickerRow = memo(function MarketTickerRow({
       </TableCell>
       <TableCell className="instrument-cell">
         <Button
-          aria-label={`${ticker.symbol}, ${issuerName(ticker.name)}, ${ticker.position ? 'held, ' : ''}${copy.label} option premium, IV rank ${ivRank}`}
+          aria-label={`${ticker.symbol}, ${issuerName(ticker.name)}, ${copy.label} option premium, IV rank ${ivRank}`}
           aria-pressed={isSelected}
           className="ticker-table-button"
           onClick={() => onSelectTicker(ticker.symbol)}
           type="button"
           variant="ghost"
         >
-          {/* `position` is false for every public reader, so this marker is owner-only by construction. */}
           <span>
             <strong>{ticker.symbol}</strong>
             {type ? <small>{type}</small> : null}
-            {ticker.position ? <small className="held-marker">Held</small> : null}
           </span>
           <small>{issuerName(ticker.name)}</small>
           {catalyst ? <small>{catalystLabel(catalyst, now)}</small> : null}
@@ -505,7 +503,7 @@ export function MarketScreen({
   const unlisted = Boolean(trimmedQuery) && !matched.length
   const search = useSymbolSearch(trimmedQuery, unlisted)
   const universe = unlisted && search.status === 'found'
-    ? [{ ...search.lookup.ticker, position: false }]
+    ? [search.lookup.ticker]
     : matched
   const watchTickers = [...universe].sort((left, right) =>
     Number(pinned.has(right.symbol)) - Number(pinned.has(left.symbol))

@@ -4,8 +4,8 @@ import { audienceMarketView } from '../src/data/use-audience-market'
 import { marketSnapshotFixture } from './fixtures/market'
 
 const OWNER_SNAPSHOT = marketSnapshotFixture()
-const PRIVATE_TICKER = OWNER_SNAPSHOT.tickers.find((ticker) => ticker.position)
-if (!PRIVATE_TICKER) throw new Error('Fixture requires an owner position')
+const PRIVATE_TICKER = OWNER_SNAPSHOT.tickers[0]
+if (!PRIVATE_TICKER) throw new Error('Fixture requires at least one ticker')
 const PUBLIC_SNAPSHOT = marketSnapshotFixture()
 const publicBase = PUBLIC_SNAPSHOT.tickers[0]
 if (!publicBase) throw new Error('Fixture requires a public ticker')

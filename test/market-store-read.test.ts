@@ -60,7 +60,6 @@ describe('stored market read model', () => {
       'AAPL',
       records.metrics.get('AAPL'),
       records.quotes.get('AAPL')!,
-      true,
       { description: 'Apple', 'is-etf': false, 'is-index': false, lendability: 'Easy To Borrow' },
     )
     expect(ticker).toMatchObject({
@@ -70,7 +69,6 @@ describe('stored market read model', () => {
       lendability: 'Easy To Borrow',
       marketCap: 3_500_000_000_000,
       name: 'Apple',
-      position: true,
       price: 236.41,
       symbol: 'AAPL',
       updatedAt: '2026-08-28T13:31:00.000Z',
