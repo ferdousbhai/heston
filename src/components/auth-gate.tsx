@@ -118,13 +118,13 @@ export function OwnerAccessScreen({
 }) {
   return (
     <section className="owner-access" aria-labelledby="owner-access-title">
-      <p className="owner-access-kicker">Private account workspace</p>
+      <p className="owner-access-kicker">Connect your agent</p>
       <h1 id="owner-access-title">
-        {signedIn ? <>Dan is<br /><em>owner-only.</em></> : <>Dan can trade.<br />Only for <em>you.</em></>}
+        {signedIn ? <>This page is<br /><em>owner-only.</em></> : <>Your agent.<br />Your <em>account.</em></>}
       </h1>
       <p>{signedIn
-        ? 'Your ticker favorites sync across devices. Trading chat, brokerage context, live positions, and operations remain restricted to the owner account.'
-        : 'Sign in with the owner Google account to open the trading chat, account context, and live positions.'}</p>
+        ? 'Operations remain restricted to the owner account. Everything else — the market surface, your favorites, and connecting your own agent — is already yours.'
+        : 'Sign in with Google to connect your own agent to Spice, sync your favorites across devices, and — with your own brokerage credentials — read your account and place guarded orders.'}</p>
       {authError && (
         <Alert className="owner-access-error" variant="destructive">
           <AlertTitle>Owner sign-in unavailable</AlertTitle>
@@ -146,7 +146,7 @@ export function AuthScreen({ checking = false, error }: { checking?: boolean; er
       </header>
       <section className="auth-copy" aria-busy={checking}>
         <h1>Your market.<br /><em>In motion.</em></h1>
-        <p>Public options intelligence and a daily market read. Sign in to sync favorites; brokerage access and the trading agent stay owner-only.</p>
+        <p>Public options intelligence and a daily market read. Sign in to connect your own agent and sync your favorites; your brokerage credentials stay on your machine.</p>
         {checking ? (
           <div className="auth-checking" role="status"><Spinner />Checking your session</div>
         ) : error ? (
@@ -160,7 +160,7 @@ export function AuthScreen({ checking = false, error }: { checking?: boolean; er
         )}
       </section>
       <footer className="auth-footer">
-        <span>Synced favorites · owner-only trading</span>
+        <span>Synced favorites · bring your own agent</span>
         <nav aria-label="Legal and support">
           <Link to="/support">Support</Link>
           <Link to="/terms">Terms</Link>

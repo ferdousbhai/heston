@@ -11,6 +11,7 @@ import { mostActiveSymbol } from '../domain/market'
 import { useLiveMarket } from '../data/live-market'
 import { useAudienceMarket } from '../data/use-audience-market'
 import { useWorkspaceFavorites } from '../data/use-workspace-favorites'
+import { ConnectScreen } from './connect-screen'
 import { OwnerAccessScreen, type Viewer, useViewer } from './auth-gate'
 import { RecommendationScreen } from './recommendation-screen'
 import { MarketScreen } from './market-screen'
@@ -121,7 +122,7 @@ function SpiceWorkspace({
               </Alert>
             )}
             {tab === 'connect' && !viewer && <OwnerAccessScreen authError={authError} signedIn={false} />}
-            {tab === 'connect' && viewer && <AgentConnectionState />}
+            {tab === 'connect' && viewer && <ConnectScreen owner={owner} />}
             {tab !== 'connect' && !snapshotReady && (
               <MarketState loading={!market.bootstrapComplete} message={market.bootstrapComplete ? 'Market data is unavailable.' : 'Loading market data…'} />
             )}
@@ -157,14 +158,6 @@ function SpiceWorkspace({
         </TabsList>
       </Tabs>
     </div>
-  )
-}
-
-function AgentConnectionState() {
-  return (
-    <section className="market-state">
-      <Empty><EmptyHeader><EmptyDescription>Agent connection setup is coming next.</EmptyDescription></EmptyHeader></Empty>
-    </section>
   )
 }
 

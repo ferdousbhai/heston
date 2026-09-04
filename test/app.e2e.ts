@@ -40,6 +40,11 @@ test('a newer deployment reloads once before restoring the local snapshot', asyn
     contentType: 'application/json',
     body: JSON.stringify({ authRequired: true, user: null }),
   }))
+  await page.route('**/api/mcp-tokens', (route) => route.fulfill({
+    body: JSON.stringify({ tokens: [] }),
+    contentType: 'application/json',
+    status: 200,
+  }))
   await page.route('**/api/public-snapshot*', (route) => {
     snapshotRequests += 1
     return route.fulfill({
@@ -57,7 +62,7 @@ test('a newer deployment reloads once before restoring the local snapshot', asyn
   await expect.poll(() => page.evaluate(() => sessionStorage.getItem('spice.deployment-reload.v1'))).toBeNull()
 })
 
-test('unauthenticated visitors can read market data but Dan stays behind Google sign-in', async ({ page }) => {
+test('unauthenticated visitors can read market data but connecting an agent needs Google sign-in', async ({ page }) => {
   const publicSnapshot = marketSnapshotFixture()
   publicSnapshot.catalysts = publicSnapshot.catalysts.map((catalyst) => (
     catalyst.symbol === 'NVDA' ? { ...catalyst, date: isoDateAfter(10) } : catalyst
@@ -74,6 +79,11 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
   await page.route('**/api/viewer', (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({ authRequired: true, user: null }),
+  }))
+  await page.route('**/api/mcp-tokens', (route) => route.fulfill({
+    body: JSON.stringify({ tokens: [] }),
+    contentType: 'application/json',
+    status: 200,
   }))
   let publicSnapshotRequests = 0
   await page.route('**/api/public-snapshot*', (route) => {
@@ -138,8 +148,8 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
   await page.getByRole('tab', { name: 'Recommendations' }).click()
   await expect(page.getByText('Selective long vol')).toBeVisible()
 
-  await page.getByRole('tab', { name: 'Dan' }).click()
-  await expect(page.getByRole('heading', { name: 'Dan can trade. Only for you.' })).toBeVisible()
+  await page.getByRole('tab', { name: 'Connect' }).click()
+  await expect(page.getByRole('heading', { name: 'Your agent. Your account.' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeVisible()
 
   await page.goto('/support')
@@ -153,7 +163,7 @@ test('unauthenticated visitors can read market data but Dan stays behind Google 
   await expect(page.getByRole('link', { name: 'privacy@tryspice.xyz' }).first()).toHaveAttribute('href', 'mailto:privacy@tryspice.xyz')
 })
 
-test('mobile market, recommendations, search, sorting, and agent flows remain coherent', async ({ page, context }) => {
+test('mobile market, recommendations, search, sorting, and connect flows remain coherent', async ({ page, context }) => {
   const snapshot = marketSnapshotFixture()
   let rejectSnapshots = false
   snapshot.catalysts.forEach((catalyst, index) => {
@@ -162,6 +172,11 @@ test('mobile market, recommendations, search, sorting, and agent flows remain co
   await page.route('**/api/viewer', (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({ authRequired: true, user: { id: 'owner-1', name: 'Owner', role: 'owner' } }),
+  }))
+  await page.route('**/api/mcp-tokens', (route) => route.fulfill({
+    body: JSON.stringify({ tokens: [] }),
+    contentType: 'application/json',
+    status: 200,
   }))
   await page.route('**/api/snapshot*', (route) => {
     if (rejectSnapshots) {
@@ -298,8 +313,14 @@ test('mobile market, recommendations, search, sorting, and agent flows remain co
   await expect(page.getByText('Selective long vol')).toBeVisible()
   await expect(page.getByRole('button', { name: /NVDA/ })).toBeVisible()
 
-  await page.getByRole('tab', { name: 'Dan' }).click()
-  await expect(page.getByRole('heading', { name: 'Dan' })).toBeVisible()
+  await page.getByRole('tab', { name: 'Connect' }).click()
+  // A signed-in member is first class here: the setup surface is theirs, not the owner's.
+  await expect(page.getByRole('heading', { name: 'Connect your agent' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Create token' })).toBeVisible()
+  // Tokens and shell commands are long unbreakable strings; they must scroll inside their own
+  // block rather than pushing the page sideways. A screenshot caught this when tests did not.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth))
+    .toBeLessThanOrEqual(await page.evaluate(() => document.documentElement.clientWidth))
 
   await context.setOffline(true)
   await page.evaluate(() => window.dispatchEvent(new Event('offline')))
@@ -351,6 +372,11 @@ test('authenticated favorites consume only unchanged anonymous staging across ta
       user: signedIn ? { id: 'member-1', name: 'Member', role: 'member' } : null,
     }),
   }))
+  await page.route('**/api/mcp-tokens', (route) => route.fulfill({
+    body: JSON.stringify({ tokens: [] }),
+    contentType: 'application/json',
+    status: 200,
+  }))
   await page.route('**/api/public-snapshot*', (route) => route.fulfill({
     contentType: 'application/json',
     body: publicSnapshotJson(snapshot),
@@ -394,6 +420,11 @@ test('authenticated favorites consume only unchanged anonymous staging across ta
   await staleAnonymous.route('**/api/viewer', (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({ authRequired: true, user: null }),
+  }))
+  await staleAnonymous.route('**/api/mcp-tokens', (route) => route.fulfill({
+    body: JSON.stringify({ tokens: [] }),
+    contentType: 'application/json',
+    status: 200,
   }))
   await staleAnonymous.route('**/api/public-snapshot*', (route) => route.fulfill({
     contentType: 'application/json',
@@ -474,6 +505,11 @@ test('two signed-out devices converge on the account union without granting owne
       user: laptopSignedIn ? { id: 'member-1', name: 'Member', role: 'member' } : null,
     }),
   }))
+  await page.route('**/api/mcp-tokens', (route) => route.fulfill({
+    body: JSON.stringify({ tokens: [] }),
+    contentType: 'application/json',
+    status: 200,
+  }))
   await page.route('**/api/public-snapshot*', (route) => route.fulfill({
     contentType: 'application/json',
     body: publicSnapshotJson(snapshot),
@@ -524,6 +560,11 @@ test('two signed-out devices converge on the account union without granting owne
       authRequired: true,
       user: mobileSignedIn ? { id: 'member-1', name: 'Member', role: 'member' } : null,
     }),
+  }))
+  await mobile.route('**/api/mcp-tokens', (route) => route.fulfill({
+    body: JSON.stringify({ tokens: [] }),
+    contentType: 'application/json',
+    status: 200,
   }))
   await mobile.route('**/api/public-snapshot*', (route) => route.fulfill({
     contentType: 'application/json',
@@ -585,8 +626,8 @@ test('two signed-out devices converge on the account union without granting owne
   await page.reload()
   await expect(page.getByRole('button', { name: 'Pin META' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Unpin BE' })).toBeVisible()
-  await page.getByRole('tab', { name: 'Dan' }).click()
-  await expect(page.getByRole('heading', { name: /Dan is owner-only/ })).toBeVisible()
+  await page.getByRole('tab', { name: 'Connect' }).click()
+  await expect(page.getByRole('heading', { name: 'Connect your agent' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Continue with Google' })).toHaveCount(0)
   expect(ownerSnapshotRequests).toBe(0)
   await mobileContext.close()
