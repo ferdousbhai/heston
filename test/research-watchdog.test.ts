@@ -6,7 +6,6 @@ import { stubBroker } from './broker-stub'
 import { migrationStore } from './sqlite-d1'
 
 const NOW = new Date('2026-09-02T15:30:00.000Z')
-const OWNER_CHAT: SecretsStoreSecret = { get: async () => '123456789' }
 
 const broker = stubBroker()
 
@@ -45,32 +44,25 @@ describe('the daily-brief watchdog', () => {
     }
   })
 
-  it('alerts the owner chat, never the public channel, when the brief is missing', async () => {
+  it('records a missing brief in the logs and sends nothing anywhere', async () => {
     const store = await migrationStore()
-    const fetcher = vi.fn<typeof fetch>(async () => Response.json({ ok: true, result: { message_id: 7 } }))
+    const fetcher = vi.fn<typeof fetch>()
+    vi.stubGlobal('fetch', fetcher)
     try {
       broker.tastyRequest.mockResolvedValueOnce({ data: { state: 'Open' } })
       await expect(watchDailyBrief({
         DB: store.database,
         TELEGRAM_BOT_TOKEN: '123456:telegram_test_token',
         TELEGRAM_LONG_VOL_CHAT_ID: '-1009999999999',
-        TELEGRAM_OWNER_CHAT_ID: OWNER_CHAT,
-      }, NOW, fetcher)).resolves.toBe('alerted')
-      const [, init] = fetcher.mock.calls[0]!
-      expect(String(init?.body)).toContain('"chat_id":"123456789"')
-      expect(String(init?.body)).not.toContain('-1009999999999')
-    } finally {
-      store.sqlite.close()
-    }
-  })
-
-  it('still fails loudly in logs when no owner chat is configured', async () => {
-    const store = await migrationStore()
-    try {
-      broker.tastyRequest.mockResolvedValueOnce({ data: { state: 'Open' } })
-      await expect(watchDailyBrief({ DB: store.database }, NOW)).resolves.toBe('unalertable')
+      }, NOW)).resolves.toBe('missing')
+      // The record is the log line. The runner's own local log carries the reason; this is the
+      // second opinion for the case that log cannot cover, because a machine that never woke
+      // writes nothing. A watchdog with a push channel would also turn an internal failure into
+      // a publication if it ever reached for the wrong chat id, so it has none.
       expect(console.error).toHaveBeenCalledWith(expect.stringContaining('DailyBriefMissing'))
+      expect(fetcher).not.toHaveBeenCalled()
     } finally {
+      vi.unstubAllGlobals()
       store.sqlite.close()
     }
   })

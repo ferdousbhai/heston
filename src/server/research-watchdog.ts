@@ -2,8 +2,6 @@ import { marketDate } from '../domain/catalyst'
 import { readMarketStatus } from './brokerage-read-tools'
 import { type AppEnv } from './env'
 import { dailyRecommendationsId } from './research-contracts'
-import { readBoundSecret, readStoredSecret } from './secrets'
-import { sendTelegramMessage } from './telegram'
 
 /*
  * The research run now happens on a machine this Worker cannot see, so the Worker watches
@@ -11,17 +9,19 @@ import { sendTelegramMessage } from './telegram'
  * brief on an open market day is the runner's laptop asleep, its network filtered, or its
  * agent stuck — all invisible from here except as absence.
  *
- * The alert goes to the owner's private chat, never the public channel: a failed internal
- * run is operations, not publication. Without an owner chat id configured the alert still
- * fails loudly in the Worker logs rather than silently succeeding at nothing.
+ * It records, it does not notify. The runner writes its own outcome to a local log
+ * (`ops/local-research/run.sh`, `~/.local/state/spice/research-run.log`), which is where the
+ * reason lives; this is the second opinion for the case that log cannot cover, because a
+ * machine that never woke writes nothing. `DailyBriefMissing` in the Worker logs is the
+ * record. There is deliberately no push channel: the one that existed alerted a chat id that
+ * was never configured, so it had only ever returned 'unalertable'.
  */
 
-export type DailyBriefWatchdogResult = 'alerted' | 'market-closed' | 'published' | 'unalertable'
+export type DailyBriefWatchdogResult = 'market-closed' | 'missing' | 'published'
 
 export async function watchDailyBrief(
   env: AppEnv,
   now: Date,
-  fetcher: typeof fetch = fetch,
 ): Promise<DailyBriefWatchdogResult> {
   if (!env.DB) throw new Error('DailyBriefWatchdogPersistenceUnavailable')
   const id = dailyRecommendationsId(marketDate(now))
@@ -36,14 +36,6 @@ export async function watchDailyBrief(
     console.info(JSON.stringify({ event: 'DailyBriefWatchdogMarketClosed', id, state: status.state }))
     return 'market-closed'
   }
-  console.error(JSON.stringify({ event: 'DailyBriefMissing', id }))
-  if (!env.TELEGRAM_OWNER_CHAT_ID) return 'unalertable'
-  const configuration = {
-    botToken: readBoundSecret(env.TELEGRAM_BOT_TOKEN, 'TELEGRAM_BOT_TOKEN'),
-    chatId: await readStoredSecret(env.TELEGRAM_OWNER_CHAT_ID, 'TELEGRAM_OWNER_CHAT_ID'),
-  }
-  await sendTelegramMessage(configuration, {
-    html: `<b>Spice: no daily brief for ${marketDate(now)}.</b> The local research run has not published; check the runner.`,
-  }, fetcher)
-  return 'alerted'
+  console.error(JSON.stringify({ event: 'DailyBriefMissing', id, marketDate: marketDate(now) }))
+  return 'missing'
 }

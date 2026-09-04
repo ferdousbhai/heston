@@ -41,6 +41,4 @@ export interface AppEnv {
   TASTYTRADE_REFRESH_TOKEN?: SecretsStoreSecret
   TELEGRAM_BOT_TOKEN?: string
   TELEGRAM_LONG_VOL_CHAT_ID?: string
-  /** Owner's private chat for operational alerts; never a publication destination. */
-  TELEGRAM_OWNER_CHAT_ID?: SecretsStoreSecret
 }
