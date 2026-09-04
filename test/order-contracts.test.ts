@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
 import {
-  DirectAccountActionSchema,
+  WatchlistActionSchema,
   OrderPlacementSchema,
 } from '../src/server/agent-contracts'
 
@@ -65,22 +65,22 @@ describe('brokerage input boundary', () => {
 
   it('accepts only bounded mutations for the single internal watchlist', () => {
     const symbols = Array.from({ length: MAX_WATCHLIST_SYMBOLS }, (_, index) => `T${index}`)
-    expect(DirectAccountActionSchema.parse({
+    expect(WatchlistActionSchema.parse({
       kind: 'add_watchlist_symbols', symbols: ['NVDA', 'SPY'],
     }).kind).toBe('add_watchlist_symbols')
-    expect(DirectAccountActionSchema.safeParse({
+    expect(WatchlistActionSchema.safeParse({
       kind: 'add_watchlist_symbols', symbols,
     }).success).toBe(true)
-    expect(DirectAccountActionSchema.safeParse({
+    expect(WatchlistActionSchema.safeParse({
       kind: 'add_watchlist_symbols', symbols: [...symbols, 'OVER'],
     }).success).toBe(false)
-    expect(DirectAccountActionSchema.safeParse({
+    expect(WatchlistActionSchema.safeParse({
       kind: 'remove_watchlist_symbols', watchlistName: '../private', symbols: ['NVDA'],
     }).success).toBe(false)
-    expect(DirectAccountActionSchema.safeParse({
+    expect(WatchlistActionSchema.safeParse({
       kind: 'delete_watchlist', watchlistName: 'Old recommendations',
     }).success).toBe(false)
-    expect(DirectAccountActionSchema.safeParse({
+    expect(WatchlistActionSchema.safeParse({
       kind: 'rename_watchlist', watchlistName: 'Long vol', newName: 'Core recommendations',
     }).success).toBe(false)
   })

@@ -1,18 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
-  type BrokerAccountHistoryPage,
-  type BrokerAccountRef,
-  type BrokerAccountSnapshot,
-  type BrokerOrderHistoryPage,
-  type BrokerOrderRecord,
-} from '../src/domain/broker'
-import {
   brokerAdapterFor,
   resetBrokerAdapters,
   setBrokerAdapters,
   UnknownBrokerError,
-  type BrokerAdapter,
 } from '../src/server/brokers'
 import { tastytradeAdapter } from '../src/server/brokers/tastytrade'
 import { loadBrokerageContext } from '../src/server/brokerage-context'
@@ -23,6 +15,7 @@ import {
   brokerCredential,
   STUB_BROKER_ID,
   stubBrokerCredential,
+  stubAdapter,
 } from './broker-stub'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
 
@@ -57,68 +50,6 @@ const forbiddenBrokerApi = {
   tastyRequest: forbidden,
   withBrokerMutationLease: forbidden,
 } satisfies BrokerApi
-
-const snapshot: BrokerAccountSnapshot = {
-  asOf: '2026-09-03T13:00:00.000Z',
-  balances: {
-    availableTradingFunds: 64_000,
-    cashAvailableToWithdraw: 65_000,
-    cashBalance: 65_000,
-    dayTradingBuyingPower: 256_000,
-    derivativeBuyingPower: 64_000,
-    equityBuyingPower: 128_000,
-    netLiquidatingValue: 100_000,
-  },
-  liveOrders: [],
-  orders: [],
-  positions: [{
-    direction: 'Long', instrumentType: 'Equity', quantity: 10, symbol: 'SPY', underlying: 'SPY',
-  }],
-}
-
-const historyPage: BrokerAccountHistoryPage = {
-  items: [{
-    id: '7',
-    occurredAt: '2026-09-02T14:30:00.000Z',
-    transactionType: 'Trade',
-  }],
-  rowCount: 1,
-  totalItemCount: 1,
-}
-
-function stubAdapter(): BrokerAdapter & { calls: string[] } {
-  const calls: string[] = []
-  const ref: BrokerAccountRef = { accountNumber: 'STUB-1', broker: STUB_BROKER_ID }
-  return {
-    calls,
-    id: STUB_BROKER_ID,
-    cancelOrder: async () => { calls.push('cancelOrder') },
-    loadAccountSnapshot: async (): Promise<BrokerAccountSnapshot> => {
-      calls.push('loadAccountSnapshot')
-      return snapshot
-    },
-    readAccountHistory: async (): Promise<BrokerAccountHistoryPage> => {
-      calls.push('readAccountHistory')
-      return historyPage
-    },
-    readOrder: async (): Promise<BrokerOrderRecord> => {
-      calls.push('readOrder')
-      return { editable: false }
-    },
-    readOrderHistory: async (): Promise<BrokerOrderHistoryPage> => {
-      calls.push('readOrderHistory')
-      return { complete: true, orders: [] }
-    },
-    readPositionSymbols: async () => {
-      calls.push('readPositionSymbols')
-      return []
-    },
-    resolveAccountRef: async (): Promise<BrokerAccountRef> => {
-      calls.push('resolveAccountRef')
-      return ref
-    },
-  }
-}
 
 describe('broker adapter seam', () => {
   let adapter: ReturnType<typeof stubAdapter>

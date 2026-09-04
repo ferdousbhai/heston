@@ -4,8 +4,8 @@ import { type AgentTool } from '@earendil-works/pi-agent-core'
 import { type TSchema } from 'typebox'
 import { z } from 'zod'
 
-import { OrderPlacementParameters } from './agent-contracts'
-import { placeBrokerageOrder } from './order-placement'
+import { CancelOrderParameters, CancelOrderSchema, OrderPlacementParameters } from './agent-contracts'
+import { cancelBrokerageOrder, placeBrokerageOrder } from './order-placement'
 import { createBrokerageReconciliationTool } from './brokerage-reconciliation'
 import {
   createBrokerageReadTools,
@@ -23,7 +23,7 @@ import { PORTFOLIO_REVIEW_PROMPT, SPICE_MCP_INSTRUCTIONS, tradeIdeaPrompt } from
 import { readStoredSecret } from './secrets'
 import { authenticateMcpToken, constantTimeDigestMatch } from './mcp-tokens'
 import { isOwnerEmail } from './auth'
-import { createWatchlistReadTool } from './watchlist-tool'
+import { createRememberSymbolsTool, createWatchlistManageTool, createWatchlistReadTool } from './watchlist-tool'
 import {
   BrokerCredentialMissingError,
   brokerCredentialFromHeaders,
@@ -46,6 +46,13 @@ import {
  */
 function orderPlacementJsonSchema(): JsonSchemaType {
   const schema: unknown = OrderPlacementParameters
+  // SAFETY: see above — the runtime value is the JSON Schema the type hides.
+  return schema as JsonSchemaType
+}
+
+/** SAFETY: as above — a TypeBox schema is plain JSON Schema on the wire. */
+function cancelOrderJsonSchema(): JsonSchemaType {
+  const schema: unknown = CancelOrderParameters
   // SAFETY: see above — the runtime value is the JSON Schema the type hides.
   return schema as JsonSchemaType
 }
@@ -74,6 +81,7 @@ export function createSpiceMcpServer(env: AppEnv, caller: McpCaller, credential?
     createInstrumentQuoteReadTool(env),
     ...createResearchReadTools(env),
     createWatchlistReadTool(env),
+    createRememberSymbolsTool(env),
     createExactOptionGreeksReadTool(env),
     // Discovery for the local research run: WSB candidates and prior-coverage reads are
     // private context behind the same bearer token, never part of any public surface.
@@ -83,7 +91,9 @@ export function createSpiceMcpServer(env: AppEnv, caller: McpCaller, credential?
     // Publishing the public brief and private Reddit discovery are owner acts. A member is not
     // shown a surface they cannot use, so these are absent from their tool list rather than
     // present and refused.
-    ...(caller.owner ? [createRedditIngestTool(env), createRecentCoverageTool(env)] : []),
+    ...(caller.owner
+      ? [createRedditIngestTool(env), createRecentCoverageTool(env), createWatchlistManageTool(env)]
+      : []),
   ]
   for (const tool of tools) {
     server.registerTool(
@@ -164,6 +174,34 @@ export function createSpiceMcpServer(env: AppEnv, caller: McpCaller, credential?
     ({ symbol, thesis }) => ({
       messages: [{ content: { text: tradeIdeaPrompt(symbol, thesis), type: 'text' as const }, role: 'user' as const }],
     }),
+  )
+
+  server.registerTool(
+    'cancel_brokerage_order',
+    {
+      description: 'Cancel one working order on the connected brokerage account. The placement '
+        + 'guard refuses a new order while any order is working, so this is how a stuck order is '
+        + 'cleared. An ambiguous result is reported as ambiguous and is never retried: read the '
+        + 'account history to find out what happened before doing anything else.',
+      inputSchema: fromJsonSchema(cancelOrderJsonSchema()),
+      // Same reasoning as placement: a conforming client prompts every time, but the server
+      // cannot verify that it did. Unlike placement there is no guard to fall back on, because
+      // cancelling only ever reduces exposure.
+      _meta: { 'anthropic/requiresUserInteraction': true },
+    },
+    async (params) => {
+      try {
+        // SAFETY: re-parsed here at the trust boundary regardless of what the transport checked.
+        const { orderId } = CancelOrderSchema.parse(params)
+        const receipt = await cancelBrokerageOrder(env, orderId, credential)
+        return { content: [{ text: JSON.stringify(receipt), type: 'text' as const }] }
+      } catch (error) {
+        if (error instanceof BrokerCredentialMissingError) {
+          return { content: [{ text: error.message, type: 'text' as const }] }
+        }
+        throw error
+      }
+    },
   )
 
   // Owner only: publishing replaces the public brief and posts it to the public channel.

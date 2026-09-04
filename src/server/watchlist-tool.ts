@@ -1,7 +1,11 @@
 import { type AgentTool } from '@earendil-works/pi-agent-core'
 import { Type } from 'typebox'
 
-import { EQUITY_SYMBOL_PATTERN } from '../domain/instrument'
+import { EQUITY_SYMBOL_PATTERN, EquitySymbolType } from '../domain/instrument'
+import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
+import { WatchlistActionParameters, WatchlistActionSchema } from './agent-contracts'
+import { internalWatchlistWriter } from './internal-watchlist'
+import { watchlistWriter } from './watchlist-actions'
 import { textResult } from './agent-tool-result'
 import { type AppEnv } from './env'
 import {
@@ -73,5 +77,51 @@ export function createWatchlistReadTool(env: AppEnv): AgentTool<typeof Watchlist
     label: 'Reading watchlist',
     name: 'read_watchlist',
     parameters: WatchlistReadParameters,
+  }
+}
+
+const RememberSymbolsParameters = Type.Object({
+  symbols: Type.Array(EquitySymbolType, { maxItems: MAX_WATCHLIST_SYMBOLS, minItems: 1 }),
+}, { additionalProperties: false })
+
+/**
+ * Additive only, and available to any member. The internal watchlist is shared — it drives the
+ * market surface every reader sees — but admitting a name is already what a visitor's search
+ * does, so this adds no authority a member did not have. Removing one is not the same act and
+ * is owner-only below.
+ */
+export function createRememberSymbolsTool(
+  env: AppEnv,
+): AgentTool<typeof RememberSymbolsParameters, { remembered: string[] }> {
+  return {
+    description: 'Add substantively discussed tickers to the shared watchlist so they stay loaded. '
+      + 'Only names a conversation actually developed; an incidental mention does not count.',
+    execute: async (_toolCallId, params) => {
+      const remembered = await internalWatchlistWriter().ensureSymbols(env, params.symbols, 'agent-discussion')
+      return textResult({ remembered })
+    },
+    executionMode: 'sequential',
+    label: 'Remembering symbols',
+    name: 'remember_symbols',
+    parameters: RememberSymbolsParameters,
+  }
+}
+
+/**
+ * Pruning the shared list back to a working set is an owner act: it changes what every reader
+ * sees, and a member removing a name would take it from everyone.
+ */
+export function createWatchlistManageTool(
+  env: AppEnv,
+): AgentTool<typeof WatchlistActionParameters, unknown> {
+  return {
+    description: 'Add or remove symbols on the shared internal watchlist.',
+    execute: async (_toolCallId, params) => textResult(
+      await watchlistWriter().executeWatchlistAction(env, WatchlistActionSchema.parse(params)),
+    ),
+    executionMode: 'sequential',
+    label: 'Updating watchlist',
+    name: 'manage_watchlist',
+    parameters: WatchlistActionParameters,
   }
 }

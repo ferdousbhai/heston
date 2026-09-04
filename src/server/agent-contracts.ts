@@ -67,10 +67,10 @@ const ReplaceOrderActionSchema = z.object({
   limitPrice: LimitPriceSchema,
 })
 
-const CancelActionSchema = z.object({
-  kind: z.literal('cancel_order'),
-  orderId: OrderIdSchema,
-})
+/** Cancelling one working order: the broker's own order id and nothing else. */
+export const CancelOrderSchema = z.strictObject({ orderId: OrderIdSchema })
+
+export const CancelOrderParameters = zodTypeBoxSchema(CancelOrderSchema)
 
 export const FreshOrderPlacementSchema = z.discriminatedUnion('kind', [
   OptionActionSchema,
@@ -99,14 +99,18 @@ export const StoredOrderPlacementSchema = z.union([
   ReplaceOrderActionSchema.extend({ replacementOrder: FreshOrderPlacementSchema }),
 ])
 
-export const DirectAccountActionSchema = z.discriminatedUnion('kind', [
-  CancelActionSchema,
+/**
+ * Watchlist mutation only. Cancelling an order used to share this union, back when one chat
+ * tool dispatched every direct account action; it is now its own tool with its own contract,
+ * because the two need different authority — cancelling touches one member's account, while
+ * removing a symbol changes what every reader sees.
+ */
+export const WatchlistActionSchema = z.discriminatedUnion('kind', [
   AddWatchlistSymbolsSchema,
   RemoveWatchlistSymbolsSchema,
 ])
 
-/** Direct mutations use the same generated tool contract and server-side Zod boundary. */
-export const DirectAccountActionParameters = zodTypeBoxSchema(DirectAccountActionSchema)
+export const WatchlistActionParameters = zodTypeBoxSchema(WatchlistActionSchema)
 
 export type FreshOrderPlacement = z.infer<typeof FreshOrderPlacementSchema>
 export type OrderPlacement = z.infer<typeof OrderPlacementSchema>

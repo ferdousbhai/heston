@@ -9,6 +9,7 @@ import { type JsonValue } from '../domain/json-payload'
 import { type AppEnv } from './env'
 import { PortfolioRiskError } from './portfolio-risk'
 import { resolveOrderIntent } from './order-intent'
+import { brokerAdapterFor } from './brokers'
 import { brokerApi } from './tastytrade'
 import { internalWatchlistWriter } from './internal-watchlist'
 import { BrokerCredentialMissingError, type BrokerCredential } from './broker-credential'
@@ -77,4 +78,24 @@ export async function placeBrokerageOrder(
     })
   }
   return receipt
+}
+
+/**
+ * Cancel one working order.
+ *
+ * The placement guard refuses a new order while any live order exists, so without this an
+ * order that does not fill blocks the account with no route out but the broker's own app.
+ * There is deliberately no guard to run here: cancelling only ever reduces exposure, and the
+ * thing that must not happen — an automatic retry after an ambiguous DELETE — is the adapter's
+ * responsibility and it raises rather than retries.
+ */
+export async function cancelBrokerageOrder(
+  env: AppEnv,
+  orderId: string,
+  credential: BrokerCredential | undefined,
+): Promise<{ cancelled: string; detail: string }> {
+  const adapter = brokerAdapterFor(credential)
+  const ref = await adapter.resolveAccountRef(env, credential)
+  await adapter.cancelOrder(env, ref, orderId, credential)
+  return { cancelled: orderId, detail: `Order #${orderId} cancelled.` }
 }

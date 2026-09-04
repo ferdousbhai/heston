@@ -135,13 +135,19 @@ describe('MCP tool tiers', () => {
     }
   }
 
-  const OWNER_ONLY = ['publish_daily_recommendations', 'ingest_wsb', 'get_recent_coverage']
+  const OWNER_ONLY = ['publish_daily_recommendations', 'ingest_wsb', 'get_recent_coverage', 'manage_watchlist']
 
   it('hides the owner surface from a member rather than refusing it on call', async () => {
     const { store, token } = await storeWithToken('member@example.com')
     const names = await toolNames(token, store.database)
     // The market and account surface is every member's.
-    for (const expected of ['read_market_metrics', 'find_option_contracts', 'read_watchlist', 'place_brokerage_order']) {
+    for (const expected of [
+      'read_market_metrics', 'find_option_contracts', 'read_watchlist', 'place_brokerage_order',
+      // Placement refuses while any order is working, so a member must be able to clear one.
+      'cancel_brokerage_order',
+      // Additive only; removing a name is owner-only because it changes what every reader sees.
+      'remember_symbols',
+    ]) {
       expect(names).toContain(expected)
     }
     // Publishing the public brief and private Reddit discovery are owner acts, and a member is

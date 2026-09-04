@@ -2,13 +2,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { BrokerageSubmissionUnknownError } from '../src/server/brokerage'
 import { BrokerCredentialMissingError } from '../src/server/broker-credential'
-import { placeBrokerageOrder } from '../src/server/order-placement'
+import { BrokerCancellationAmbiguousError, resetBrokerAdapters, setBrokerAdapters } from '../src/server/brokers'
+import { cancelBrokerageOrder, placeBrokerageOrder } from '../src/server/order-placement'
 import { PortfolioRiskError } from '../src/server/portfolio-risk'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { resetInternalWatchlistWriter, setInternalWatchlistWriter } from '../src/server/internal-watchlist'
 import { resetTradeGuards, setTradeGuards } from '../src/server/trade-guards'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
-import { brokerCredential, stubBroker } from './broker-stub'
+import { brokerCredential, stubAdapter, stubBroker, STUB_BROKER_ID, stubBrokerCredential } from './broker-stub'
 
 afterEach(() => {
   resetBrokerApi()
@@ -210,5 +211,41 @@ describe('brokerage order placement', () => {
       .rejects.toThrow('Maximum order loss')
     expect(brokerage.tastyRequest).not.toHaveBeenCalled()
     expect(inserts).toHaveLength(0)
+  })
+})
+
+describe('cancelling a working order', () => {
+  it('cancels through the adapter for the account the credential resolves to', async () => {
+    const cancelled: Array<{ account: string; orderId: string }> = []
+    setBrokerAdapters({
+      [STUB_BROKER_ID]: {
+        ...stubAdapter(),
+        cancelOrder: async (_env, ref, orderId) => { cancelled.push({ account: ref.accountNumber, orderId }) },
+      },
+    })
+
+    await expect(cancelBrokerageOrder({}, '12345', stubBrokerCredential))
+      .resolves.toMatchObject({ cancelled: '12345' })
+    expect(cancelled).toEqual([{ account: 'STUB-1', orderId: '12345' }])
+    resetBrokerAdapters()
+  })
+
+  it('refuses without a broker credential rather than choosing an account', async () => {
+    await expect(cancelBrokerageOrder({}, '12345', undefined))
+      .rejects.toBeInstanceOf(BrokerCredentialMissingError)
+  })
+
+  it('surfaces an ambiguous cancellation instead of retrying it', async () => {
+    setBrokerAdapters({
+      [STUB_BROKER_ID]: {
+        ...stubAdapter(),
+        cancelOrder: async () => { throw new BrokerCancellationAmbiguousError() },
+      },
+    })
+    // The order may or may not still be working. Anything that looks like success here would
+    // let the next placement through on a false reading of the account.
+    await expect(cancelBrokerageOrder({}, '12345', stubBrokerCredential))
+      .rejects.toBeInstanceOf(BrokerCancellationAmbiguousError)
+    resetBrokerAdapters()
   })
 })

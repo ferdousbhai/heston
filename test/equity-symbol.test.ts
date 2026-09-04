@@ -9,7 +9,7 @@ import {
   MAX_EQUITY_SYMBOL_LENGTH,
   MODEL_TEXT_EQUITY_SYMBOL_PATTERN,
 } from '../src/domain/instrument'
-import { DirectAccountActionParameters } from '../src/server/agent-contracts'
+import { WatchlistActionParameters } from '../src/server/agent-contracts'
 import {
   AccountHistoryReadParameters,
   EQUITY_SYMBOL,
@@ -58,7 +58,7 @@ describe('equity symbol rule', () => {
   it('advertises the strict symbol shape, and the model-text one only where text is the source', () => {
     const patterns = [
       AccountHistoryReadParameters, InstrumentQuoteReadParameters, MarketMetricsReadParameters,
-      OptionContractFindParameters, SymbolSearchParameters, DirectAccountActionParameters,
+      OptionContractFindParameters, SymbolSearchParameters, WatchlistActionParameters,
       ExactOptionGreeksReadParameters, PriceHistoryReadParameters, WatchlistReadParameters,
       RecommendedOrderSubmissionSchema,
     ].flatMap((contract) => advertisedPatterns(SchemaNodeSchema.parse(contract)))
