@@ -17,6 +17,7 @@ import { Route as SupportRouteImport } from './routes/support'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as ApiFavoritesRouteImport } from './routes/api.favorites'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
+import { Route as ApiMcpTokensRouteImport } from './routes/api.mcp-tokens'
 import { Route as ApiPublicCatalystRefreshRouteImport } from './routes/api.public-catalyst-refresh'
 import { Route as ApiPublicDailyRecommendationsRouteImport } from './routes/api.public-daily-recommendations'
 import { Route as ApiPublicSnapshotRouteImport } from './routes/api.public-snapshot'
@@ -65,6 +66,11 @@ const ApiFavoritesRoute = ApiFavoritesRouteImport.update({
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
   path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMcpTokensRoute = ApiMcpTokensRouteImport.update({
+  id: '/api/mcp-tokens',
+  path: '/api/mcp-tokens',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicCatalystRefreshRoute =
@@ -124,6 +130,7 @@ export interface FileRoutesByFullPath {
   '/terms': typeof TermsRoute
   '/api/favorites': typeof ApiFavoritesRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/mcp-tokens': typeof ApiMcpTokensRoute
   '/api/public-catalyst-refresh': typeof ApiPublicCatalystRefreshRoute
   '/api/public-daily-recommendations': typeof ApiPublicDailyRecommendationsRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
@@ -143,6 +150,7 @@ export interface FileRoutesByTo {
   '/terms': typeof TermsRoute
   '/api/favorites': typeof ApiFavoritesRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/mcp-tokens': typeof ApiMcpTokensRoute
   '/api/public-catalyst-refresh': typeof ApiPublicCatalystRefreshRoute
   '/api/public-daily-recommendations': typeof ApiPublicDailyRecommendationsRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
@@ -163,6 +171,7 @@ export interface FileRoutesById {
   '/terms': typeof TermsRoute
   '/api/favorites': typeof ApiFavoritesRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/mcp-tokens': typeof ApiMcpTokensRoute
   '/api/public-catalyst-refresh': typeof ApiPublicCatalystRefreshRoute
   '/api/public-daily-recommendations': typeof ApiPublicDailyRecommendationsRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
@@ -184,6 +193,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/api/favorites'
     | '/api/health'
+    | '/api/mcp-tokens'
     | '/api/public-catalyst-refresh'
     | '/api/public-daily-recommendations'
     | '/api/public-snapshot'
@@ -203,6 +213,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/api/favorites'
     | '/api/health'
+    | '/api/mcp-tokens'
     | '/api/public-catalyst-refresh'
     | '/api/public-daily-recommendations'
     | '/api/public-snapshot'
@@ -222,6 +233,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/api/favorites'
     | '/api/health'
+    | '/api/mcp-tokens'
     | '/api/public-catalyst-refresh'
     | '/api/public-daily-recommendations'
     | '/api/public-snapshot'
@@ -242,6 +254,7 @@ export interface RootRouteChildren {
   TermsRoute: typeof TermsRoute
   ApiFavoritesRoute: typeof ApiFavoritesRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  ApiMcpTokensRoute: typeof ApiMcpTokensRoute
   ApiPublicCatalystRefreshRoute: typeof ApiPublicCatalystRefreshRoute
   ApiPublicDailyRecommendationsRoute: typeof ApiPublicDailyRecommendationsRoute
   ApiPublicSnapshotRoute: typeof ApiPublicSnapshotRoute
@@ -309,6 +322,13 @@ declare module '@tanstack/react-router' {
       path: '/api/health'
       fullPath: '/api/health'
       preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mcp-tokens': {
+      id: '/api/mcp-tokens'
+      path: '/api/mcp-tokens'
+      fullPath: '/api/mcp-tokens'
+      preLoaderRoute: typeof ApiMcpTokensRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public-catalyst-refresh': {
@@ -386,6 +406,7 @@ const rootRouteChildren: RootRouteChildren = {
   TermsRoute: TermsRoute,
   ApiFavoritesRoute: ApiFavoritesRoute,
   ApiHealthRoute: ApiHealthRoute,
+  ApiMcpTokensRoute: ApiMcpTokensRoute,
   ApiPublicCatalystRefreshRoute: ApiPublicCatalystRefreshRoute,
   ApiPublicDailyRecommendationsRoute: ApiPublicDailyRecommendationsRoute,
   ApiPublicSnapshotRoute: ApiPublicSnapshotRoute,

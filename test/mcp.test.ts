@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { type JsonValue } from '../src/domain/json-payload'
 
-import { handleMcpRequest, mcpTokenMatches, type McpExecutionContext } from '../src/server/mcp'
+import { handleMcpRequest, resolveMcpCaller, type McpExecutionContext } from '../src/server/mcp'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
 
@@ -36,18 +36,18 @@ function mcpRequest(body: JsonRpcFrame | Record<string, never>, token?: string):
 const executionContext: McpExecutionContext = { props: undefined, waitUntil: () => undefined }
 
 describe('MCP bearer authentication', () => {
-  it('admits exactly the configured token', async () => {
-    await expect(mcpTokenMatches(mcpRequest({}, TOKEN), env())).resolves.toBe(true)
-    await expect(mcpTokenMatches(mcpRequest({}, TOKEN.slice(0, -1) + '!'), env())).resolves.toBe(false)
-    await expect(mcpTokenMatches(mcpRequest({}), env())).resolves.toBe(false)
+  it('admits exactly the configured legacy owner token', async () => {
+    await expect(resolveMcpCaller(mcpRequest({}, TOKEN), env())).resolves.toMatchObject({ owner: true })
+    await expect(resolveMcpCaller(mcpRequest({}, TOKEN.slice(0, -1) + '!'), env())).resolves.toBeUndefined()
+    await expect(resolveMcpCaller(mcpRequest({}), env())).resolves.toBeUndefined()
     // Tokens of a different length must fail by comparison, never by shortcut.
-    await expect(mcpTokenMatches(mcpRequest({}, TOKEN + TOKEN), env())).resolves.toBe(false)
+    await expect(resolveMcpCaller(mcpRequest({}, TOKEN + TOKEN), env())).resolves.toBeUndefined()
   })
 
   it('reads a missing or unreadable secret as no access, never as open access', async () => {
-    await expect(mcpTokenMatches(mcpRequest({}, TOKEN), env('absent'))).resolves.toBe(false)
+    await expect(resolveMcpCaller(mcpRequest({}, TOKEN), env('absent'))).resolves.toBeUndefined()
     const broken = { SPICE_MCP_TOKEN: { get: vi.fn(async () => { throw new Error('SecretsStore:down') }) } }
-    await expect(mcpTokenMatches(mcpRequest({}, TOKEN), broken)).resolves.toBe(false)
+    await expect(resolveMcpCaller(mcpRequest({}, TOKEN), broken)).resolves.toBeUndefined()
   })
 
   it('rejects an unauthenticated request before any protocol handling', async () => {
@@ -107,3 +107,73 @@ describe('MCP tool surface', () => {
     }
   })
 })
+
+describe('MCP tool tiers', () => {
+  async function storeWithToken(email: string) {
+    const { migrationStore } = await import('./sqlite-d1')
+    const { issueMcpToken } = await import('../src/server/mcp-tokens')
+    const store = await migrationStore()
+    store.sqlite.prepare(
+      `INSERT INTO "user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
+       VALUES (?, ?, ?, 1, ?, ?)`,
+    ).run('member-1', 'Member', email, 'now', 'now')
+    const issued = await issueMcpToken(store.database, 'member-1', 'laptop')
+    return { store, token: issued.token }
+  }
+
+  async function toolNames(token: string, database: D1Database): Promise<string[]> {
+    setBrokerApi(stubBroker())
+    try {
+      const listed = await handleMcpRequest(mcpRequest({
+        id: 3, jsonrpc: '2.0', method: 'tools/list', params: {},
+      }, token), { ...env('absent'), DB: database }, executionContext)
+      const body = await listed.text()
+      const payload = JSON.parse(body.slice(body.indexOf('{')))
+      return payload.result.tools.map((tool: { name: string }) => tool.name)
+    } finally {
+      resetBrokerApi()
+    }
+  }
+
+  const OWNER_ONLY = ['publish_daily_recommendations', 'ingest_wsb', 'get_recent_coverage']
+
+  it('hides the owner surface from a member rather than refusing it on call', async () => {
+    const { store, token } = await storeWithToken('member@example.com')
+    const names = await toolNames(token, store.database)
+    // The market and account surface is every member's.
+    for (const expected of ['read_market_metrics', 'find_option_contracts', 'read_watchlist', 'place_brokerage_order']) {
+      expect(names).toContain(expected)
+    }
+    // Publishing the public brief and private Reddit discovery are owner acts, and a member is
+    // not shown a surface they cannot use.
+    for (const ownerOnly of OWNER_ONLY) expect(names).not.toContain(ownerOnly)
+    store.close()
+  })
+
+  it('gives the owner the publishing and discovery surface', async () => {
+    const { OWNER_EMAIL } = await import('../src/server/auth')
+    const { store, token } = await storeWithToken(OWNER_EMAIL)
+    const names = await toolNames(token, store.database)
+    for (const ownerOnly of OWNER_ONLY) expect(names).toContain(ownerOnly)
+    store.close()
+  })
+
+  it('refuses a revoked token', async () => {
+    const { revokeMcpToken } = await import('../src/server/mcp-tokens')
+    const { store, token } = await storeWithToken('member@example.com')
+    const listed = await listMcpTokensFor(store.database)
+    await revokeMcpToken(store.database, 'member-1', listed[0]!.tokenId)
+    const response = await handleMcpRequest(
+      mcpRequest({ id: 4, jsonrpc: '2.0', method: 'tools/list' }, token),
+      { ...env('absent'), DB: store.database },
+      executionContext,
+    )
+    expect(response.status).toBe(401)
+    store.close()
+  })
+})
+
+async function listMcpTokensFor(database: D1Database) {
+  const { listMcpTokens } = await import('../src/server/mcp-tokens')
+  return listMcpTokens(database, 'member-1')
+}

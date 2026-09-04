@@ -19,6 +19,8 @@ import { DailyRecommendationsSubmissionSchema } from './research-submission'
 import { publishSubmittedDailyRecommendations } from './research-publish'
 import { createResearchReadTools } from './research-read-tools'
 import { readStoredSecret } from './secrets'
+import { authenticateMcpToken, constantTimeDigestMatch } from './mcp-tokens'
+import { isOwnerEmail } from './auth'
 import { createWatchlistReadTool } from './watchlist-tool'
 import {
   BrokerCredentialMissingError,
@@ -53,7 +55,7 @@ function submissionJsonSchema(): JsonSchemaType {
   return schema as JsonSchemaType
 }
 
-export function createSpiceMcpServer(env: AppEnv, credential?: BrokerCredential): McpServer {
+export function createSpiceMcpServer(env: AppEnv, caller: McpCaller, credential?: BrokerCredential): McpServer {
   const server = new McpServer({ name: 'spice', version: '1.0.0' })
 
   const tools: AgentTool<TSchema>[] = [
@@ -68,11 +70,13 @@ export function createSpiceMcpServer(env: AppEnv, credential?: BrokerCredential)
     createExactOptionGreeksReadTool(env),
     // Discovery for the local research run: WSB candidates and prior-coverage reads are
     // private context behind the same bearer token, never part of any public surface.
-    createRedditIngestTool(env),
-    createRecentCoverageTool(env),
     // An ambiguous submission quarantines the account. The agent must be able to clear it,
     // because nothing else can: reconciliation needs the caller's own broker credential.
     createBrokerageReconciliationTool(env, credential),
+    // Publishing the public brief and private Reddit discovery are owner acts. A member is not
+    // shown a surface they cannot use, so these are absent from their tool list rather than
+    // present and refused.
+    ...(caller.owner ? [createRedditIngestTool(env), createRecentCoverageTool(env)] : []),
   ]
   for (const tool of tools) {
     server.registerTool(
@@ -131,38 +135,38 @@ export function createSpiceMcpServer(env: AppEnv, credential?: BrokerCredential)
     },
   )
 
-  server.registerTool(
-    'publish_daily_recommendations',
-    {
-      description: 'Submit the day\'s finished research brief for publication. The server '
-        + 'reads every cited page itself and refuses any quote or catalyst date it cannot '
-        + 'find in that text; a rejected submission returns the exact reasons so citations '
-        + 'can be fixed and the brief submitted again. Publishing replaces the current '
-        + 'market date\'s brief and posts it to the public channel.',
-      inputSchema: fromJsonSchema(submissionJsonSchema()),
-    },
-    async (params) => {
-      // SAFETY: `publishSubmittedDailyRecommendations` re-parses its input with the same
-      // submission schema at the trust boundary regardless of what the transport checked.
-      const publication = await publishSubmittedDailyRecommendations(env, params as never)
-      return { content: [{ text: JSON.stringify(publication), type: 'text' as const }] }
-    },
-  )
+  // Owner only: publishing replaces the public brief and posts it to the public channel.
+  if (caller.owner) {
+    server.registerTool(
+      'publish_daily_recommendations',
+      {
+        description: 'Submit the day\'s finished research brief for publication. The server '
+          + 'reads every cited page itself and refuses any quote or catalyst date it cannot '
+          + 'find in that text; a rejected submission returns the exact reasons so citations '
+          + 'can be fixed and the brief submitted again. Publishing replaces the current '
+          + 'market date\'s brief and posts it to the public channel.',
+        inputSchema: fromJsonSchema(submissionJsonSchema()),
+      },
+      async (params) => {
+        // SAFETY: `publishSubmittedDailyRecommendations` re-parses its input with the same
+        // submission schema at the trust boundary regardless of what the transport checked.
+        const publication = await publishSubmittedDailyRecommendations(env, params as never)
+        return { content: [{ text: JSON.stringify(publication), type: 'text' as const }] }
+      },
+    )
+  }
 
   return server
 }
 
 /**
- * A bearer token, not a session: the caller is a headless process on the owner's machine, and
- * a cookie jar is the wrong shape for it. Digests are compared rather than the strings, which
- * removes length as a signal, and the comparison runs the full width regardless of where the
- * first difference falls.
+ * Who is calling. A bearer token, not a session: the caller is a headless agent on a member's
+ * own machine and a cookie jar is the wrong shape for it. Ownership is decided by the same
+ * `isOwnerEmail` the cookie surface uses, so there is exactly one definition of it.
  */
-export async function mcpTokenMatches(request: Request, env: AppEnv): Promise<boolean> {
-  const header = request.headers.get('Authorization')
-  if (!header?.startsWith('Bearer ')) return false
-  const presented = header.slice('Bearer '.length).trim()
-  if (!presented) return false
+export type McpCaller = { owner: boolean; tokenId: string; userId: string }
+
+async function legacyOwnerToken(env: AppEnv, presented: string): Promise<boolean> {
   let expected: string
   try {
     expected = await readStoredSecret(env.SPICE_MCP_TOKEN, 'SPICE_MCP_TOKEN')
@@ -170,16 +174,31 @@ export async function mcpTokenMatches(request: Request, env: AppEnv): Promise<bo
     // No configured token means no MCP access, never open access.
     return false
   }
-  const encoder = new TextEncoder()
-  const [a, b] = await Promise.all([
-    crypto.subtle.digest('SHA-256', encoder.encode(presented)),
-    crypto.subtle.digest('SHA-256', encoder.encode(expected)),
-  ])
-  const left = new Uint8Array(a)
-  const right = new Uint8Array(b)
-  let difference = 0
-  for (let index = 0; index < left.length; index += 1) difference |= left[index]! ^ right[index]!
-  return difference === 0
+  return constantTimeDigestMatch(presented, expected)
+}
+
+export async function resolveMcpCaller(request: Request, env: AppEnv): Promise<McpCaller | undefined> {
+  const header = request.headers.get('Authorization')
+  if (!header?.startsWith('Bearer ')) return undefined
+  const presented = header.slice('Bearer '.length).trim()
+  if (!presented) return undefined
+
+  if (env.DB) {
+    const identity = await authenticateMcpToken(env.DB, presented)
+    if (identity) {
+      const row = await env.DB.prepare('SELECT email FROM "user" WHERE id = ?')
+        .bind(identity.userId).first<{ email: string }>()
+      // A row without an email cannot be the owner; absence is never elevated.
+      return { owner: Boolean(row?.email) && isOwnerEmail(row!.email), tokenId: identity.tokenId, userId: identity.userId }
+    }
+  }
+
+  // Migration path: the single shared secret still authenticates, as the owner. The daily
+  // research run (ops/local-research) uses it. Remove once the owner holds a per-user token.
+  if (await legacyOwnerToken(env, presented)) {
+    return { owner: true, tokenId: 'legacy-shared', userId: 'legacy-shared' }
+  }
+  return undefined
 }
 
 /**
@@ -190,12 +209,13 @@ export async function mcpTokenMatches(request: Request, env: AppEnv): Promise<bo
 export type McpExecutionContext = Pick<ExecutionContext, 'props' | 'waitUntil'>
 
 export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpExecutionContext): Promise<Response> {
-  if (!await mcpTokenMatches(request, env)) {
+  const caller = await resolveMcpCaller(request, env)
+  if (!caller) {
     console.error('McpAuthRejected')
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
   const credential = brokerCredentialFromHeaders(request.headers)
   // SAFETY: the handler reads only `props` from the context (verified against its dist), which
   // McpExecutionContext carries; the platform type's other members are never touched.
-  return createMcpHandler(() => createSpiceMcpServer(env, credential), { route: '/mcp' })(request, env, ctx as ExecutionContext)
+  return createMcpHandler(() => createSpiceMcpServer(env, caller, credential), { route: '/mcp' })(request, env, ctx as ExecutionContext)
 }
