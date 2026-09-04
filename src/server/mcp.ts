@@ -20,6 +20,7 @@ import { DailyRecommendationsSubmissionSchema } from './research-submission'
 import { publishSubmittedDailyRecommendations } from './research-publish'
 import { createResearchReadTools } from './research-read-tools'
 import { PORTFOLIO_REVIEW_PROMPT, SPICE_MCP_INSTRUCTIONS, tradeIdeaPrompt } from './doctrine'
+import { toolAnnotations } from './mcp-annotations'
 import { readStoredSecret } from './secrets'
 import { authenticateMcpToken, constantTimeDigestMatch } from './mcp-tokens'
 import { isOwnerEmail } from './auth'
@@ -99,6 +100,7 @@ export function createSpiceMcpServer(env: AppEnv, caller: McpCaller, credential?
     server.registerTool(
       tool.name,
       {
+        annotations: toolAnnotations(tool.name),
         description: tool.description,
         // TypeBox parameter schemas are plain JSON Schema, which is what MCP advertises.
         inputSchema: fromJsonSchema(tool.parameters),
@@ -111,9 +113,11 @@ export function createSpiceMcpServer(env: AppEnv, caller: McpCaller, credential?
           // AgentToolResult content is already MCP CallToolResult content for text parts.
           return { content: result.content.filter((part) => part.type === 'text') }
         } catch (error) {
-          // A disconnected brokerage is an actionable tool result, not an MCP transport failure.
+          // A disconnected brokerage is a tool execution error, not a protocol error: the spec
+          // asks servers to return these with `isError` so the model can act on them, and the
+          // message names the setup step rather than looking like a transport failure.
           if (error instanceof BrokerCredentialMissingError) {
-            return { content: [{ text: error.message, type: 'text' as const }] }
+            return { content: [{ text: error.message, type: 'text' as const }], isError: true }
           }
           throw error
         }
@@ -131,11 +135,11 @@ export function createSpiceMcpServer(env: AppEnv, caller: McpCaller, credential?
         + 'chain, runs its portfolio and market guards, and requires a clean broker dry-run '
         + 'before submitting; it refuses on its own authority and the refusal is final.',
       inputSchema: fromJsonSchema(orderPlacementJsonSchema()),
-      // A conforming client prompts its user on every call to a tool marked this way, and
-      // offers no "don't ask again". That is worth having, but it is not a boundary: the
-      // server cannot verify a prompt happened, and another client may ignore the flag
-      // entirely. What actually bounds the damage is the guard chain below it.
-      _meta: { 'anthropic/requiresUserInteraction': true },
+      // Annotated destructive and non-idempotent so a client can see that calling this twice
+      // places two orders. Annotations are hints a client may ignore, and the spec says to
+      // treat them as untrusted anyway — they inform a confirmation prompt, they are not one.
+      // What bounds the damage is the guard chain below.
+      annotations: toolAnnotations('place_brokerage_order'),
     },
     async (params) => {
       try {
@@ -145,7 +149,7 @@ export function createSpiceMcpServer(env: AppEnv, caller: McpCaller, credential?
         return { content: [{ text: JSON.stringify(receipt), type: 'text' as const }] }
       } catch (error) {
         if (error instanceof BrokerCredentialMissingError) {
-          return { content: [{ text: error.message, type: 'text' as const }] }
+          return { content: [{ text: error.message, type: 'text' as const }], isError: true }
         }
         throw error
       }
@@ -184,10 +188,9 @@ export function createSpiceMcpServer(env: AppEnv, caller: McpCaller, credential?
         + 'cleared. An ambiguous result is reported as ambiguous and is never retried: read the '
         + 'account history to find out what happened before doing anything else.',
       inputSchema: fromJsonSchema(cancelOrderJsonSchema()),
-      // Same reasoning as placement: a conforming client prompts every time, but the server
-      // cannot verify that it did. Unlike placement there is no guard to fall back on, because
-      // cancelling only ever reduces exposure.
-      _meta: { 'anthropic/requiresUserInteraction': true },
+      // Destructive but idempotent: cancelling an order already cancelled changes nothing
+      // further, which is the useful thing for a client to know after an ambiguous result.
+      annotations: toolAnnotations('cancel_brokerage_order'),
     },
     async (params) => {
       try {
@@ -197,7 +200,7 @@ export function createSpiceMcpServer(env: AppEnv, caller: McpCaller, credential?
         return { content: [{ text: JSON.stringify(receipt), type: 'text' as const }] }
       } catch (error) {
         if (error instanceof BrokerCredentialMissingError) {
-          return { content: [{ text: error.message, type: 'text' as const }] }
+          return { content: [{ text: error.message, type: 'text' as const }], isError: true }
         }
         throw error
       }
@@ -214,6 +217,7 @@ export function createSpiceMcpServer(env: AppEnv, caller: McpCaller, credential?
           + 'find in that text; a rejected submission returns the exact reasons so citations '
           + 'can be fixed and the brief submitted again. Publishing replaces the current '
           + 'market date\'s brief and posts it to the public channel.',
+        annotations: toolAnnotations('publish_daily_recommendations'),
         inputSchema: fromJsonSchema(submissionJsonSchema()),
       },
       async (params) => {

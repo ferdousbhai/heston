@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 
 import { type JsonValue } from '../src/domain/json-payload'
 
@@ -210,5 +211,61 @@ describe('MCP guidance surface', () => {
     } finally {
       resetBrokerApi()
     }
+  })
+})
+
+describe('MCP tool annotations', () => {
+  it('declares what every advertised tool does to the world', async () => {
+    const { ANNOTATED_TOOL_NAMES } = await import('../src/server/mcp-annotations')
+    setBrokerApi(stubBroker())
+    try {
+      const listed = await handleMcpRequest(mcpRequest({
+        id: 7, jsonrpc: '2.0', method: 'tools/list', params: {},
+      }, TOKEN), env(), executionContext)
+      const body = await listed.text()
+      const AnnotatedToolSchema = z.object({
+        annotations: z.object({
+          destructiveHint: z.boolean().optional(),
+          idempotentHint: z.boolean().optional(),
+          openWorldHint: z.boolean().optional(),
+          readOnlyHint: z.boolean().optional(),
+          title: z.string(),
+        }).optional(),
+        name: z.string(),
+      })
+      const tools = z.array(AnnotatedToolSchema)
+        .parse(JSON.parse(body.slice(body.indexOf('{'))).result.tools)
+
+      // Every tool on the wire carries annotations, and the table has no entry for a tool
+      // that no longer exists — the two drift apart silently otherwise.
+      for (const tool of tools) {
+        expect(tool.annotations, `${tool.name} has no annotations`).toBeDefined()
+        expect(ANNOTATED_TOOL_NAMES).toContain(tool.name)
+      }
+
+      const byName = new Map(tools.map((tool) => [tool.name, tool.annotations]))
+      // Placing twice places two orders. This is the annotation that matters most.
+      expect(byName.get('place_brokerage_order')).toMatchObject({
+        destructiveHint: true, idempotentHint: false, readOnlyHint: false,
+      })
+      // Cancelling is destructive but safe to repeat, which is what a client needs to know
+      // after an ambiguous result.
+      expect(byName.get('cancel_brokerage_order')).toMatchObject({
+        destructiveHint: true, idempotentHint: true, readOnlyHint: false,
+      })
+      // Additive, and that distinction is the reason it is a member tool at all.
+      expect(byName.get('remember_symbols')).toMatchObject({ destructiveHint: false, readOnlyHint: false })
+      // Reads must never be advertised as writes.
+      for (const readOnly of ['read_market_metrics', 'find_option_contracts', 'read_watchlist']) {
+        expect(byName.get(readOnly)).toMatchObject({ readOnlyHint: true })
+      }
+    } finally {
+      resetBrokerApi()
+    }
+  })
+
+  it('refuses to register a tool nobody has described', async () => {
+    const { toolAnnotations } = await import('../src/server/mcp-annotations')
+    expect(() => toolAnnotations('a_tool_that_was_never_declared')).toThrow('undeclared-tool')
   })
 })
