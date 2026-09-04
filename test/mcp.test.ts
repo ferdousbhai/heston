@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { type JsonValue } from '../src/domain/json-payload'
@@ -7,16 +7,26 @@ import { handleMcpRequest, resolveMcpCaller, type McpExecutionContext } from '..
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
 
-const TOKEN = 'k1DEo9yYb3pQ7v2mX8cRwZa5uT4nJ6hL0fSgAiBd'
+/**
+ * Every caller is now a row in `user_mcp_tokens`, so a test that reaches `/mcp` needs a real
+ * store and a real issued token. `ownerHarness` seeds the owner; `memberHarness` seeds someone
+ * else, which is what separates the two tool tiers.
+ */
+async function harness(email: string) {
+  const { migrationStore } = await import('./sqlite-d1')
+  const { issueMcpToken } = await import('../src/server/mcp-tokens')
+  const store = await migrationStore()
+  store.sqlite.prepare(
+    `INSERT INTO "user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
+     VALUES (?, ?, ?, 1, ?, ?)`,
+  ).run('member-1', 'Member', email, 'now', 'now')
+  const issued = await issueMcpToken(store.database, 'member-1', 'laptop')
+  return { env: { DB: store.database }, store, token: issued.token }
+}
 
-// A distinct absent-marker rather than a default parameter: passing an explicit undefined
-// would silently select the default and test the wrong world.
-function env(secret: string | 'absent' = TOKEN) {
-  return {
-    SPICE_MCP_TOKEN: secret === 'absent'
-      ? undefined
-      : { get: vi.fn(async () => secret) },
-  }
+async function ownerHarness() {
+  const { OWNER_EMAIL } = await import('../src/server/auth')
+  return harness(OWNER_EMAIL)
 }
 
 type JsonRpcFrame = { id: number; jsonrpc: '2.0'; method: string; params?: Record<string, JsonValue> }
@@ -37,24 +47,35 @@ function mcpRequest(body: JsonRpcFrame | Record<string, never>, token?: string):
 const executionContext: McpExecutionContext = { props: undefined, waitUntil: () => undefined }
 
 describe('MCP bearer authentication', () => {
-  it('admits exactly the configured legacy owner token', async () => {
-    await expect(resolveMcpCaller(mcpRequest({}, TOKEN), env())).resolves.toMatchObject({ owner: true })
-    await expect(resolveMcpCaller(mcpRequest({}, TOKEN.slice(0, -1) + '!'), env())).resolves.toBeUndefined()
-    await expect(resolveMcpCaller(mcpRequest({}), env())).resolves.toBeUndefined()
-    // Tokens of a different length must fail by comparison, never by shortcut.
-    await expect(resolveMcpCaller(mcpRequest({}, TOKEN + TOKEN), env())).resolves.toBeUndefined()
+  it('admits exactly the issued token and identifies who presented it', async () => {
+    const { env, store, token } = await ownerHarness()
+    await expect(resolveMcpCaller(mcpRequest({}, token), env))
+      .resolves.toMatchObject({ owner: true, userId: 'member-1' })
+    await expect(resolveMcpCaller(mcpRequest({}, `${token}x`), env)).resolves.toBeUndefined()
+    await expect(resolveMcpCaller(mcpRequest({}), env)).resolves.toBeUndefined()
+    await expect(resolveMcpCaller(mcpRequest({}, 'not-a-spice-token'), env)).resolves.toBeUndefined()
+    store.close()
   })
 
-  it('reads a missing or unreadable secret as no access, never as open access', async () => {
-    await expect(resolveMcpCaller(mcpRequest({}, TOKEN), env('absent'))).resolves.toBeUndefined()
-    const broken = { SPICE_MCP_TOKEN: { get: vi.fn(async () => { throw new Error('SecretsStore:down') }) } }
-    await expect(resolveMcpCaller(mcpRequest({}, TOKEN), broken)).resolves.toBeUndefined()
+  it('is no access, never open access, when there is no store to recognise anyone', async () => {
+    const { store, token } = await ownerHarness()
+    // The shared secret that used to authenticate as the owner is gone; without the token
+    // store there is no other way in, and a missing binding must not become a bypass.
+    await expect(resolveMcpCaller(mcpRequest({}, token), {})).resolves.toBeUndefined()
+    store.close()
+  })
+
+  it('gives a member their own identity, not the owner\'s', async () => {
+    const { env, store, token } = await harness('member@example.com')
+    await expect(resolveMcpCaller(mcpRequest({}, token), env))
+      .resolves.toMatchObject({ owner: false, userId: 'member-1' })
+    store.close()
   })
 
   it('rejects an unauthenticated request before any protocol handling', async () => {
     const response = await handleMcpRequest(
       mcpRequest({ id: 1, jsonrpc: '2.0', method: 'tools/list' }),
-      env('absent'),
+      {},
       executionContext,
     )
     expect(response.status).toBe(401)
@@ -62,7 +83,8 @@ describe('MCP bearer authentication', () => {
 })
 
 describe('MCP tool surface', () => {
-  it('lists the read tools and the draft tool, and never a confirmation path', async () => {
+  it('lists the read tools and the guarded order tools, and never a confirmation path', async () => {
+    const { env, store, token } = await ownerHarness()
     setBrokerApi(stubBroker())
     try {
       const initialize = await handleMcpRequest(mcpRequest({
@@ -74,12 +96,12 @@ describe('MCP tool surface', () => {
           clientInfo: { name: 'test', version: '0' },
           protocolVersion: '2025-06-18',
         },
-      }, TOKEN), env(), executionContext)
+      }, token), env, executionContext)
       expect(initialize.status).toBe(200)
 
       const listed = await handleMcpRequest(mcpRequest({
         id: 2, jsonrpc: '2.0', method: 'tools/list', params: {},
-      }, TOKEN), env(), executionContext)
+      }, token), env, executionContext)
       expect(listed.status).toBe(200)
       const body = await listed.text()
       const payload = JSON.parse(body.slice(body.indexOf('{')))
@@ -105,6 +127,7 @@ describe('MCP tool surface', () => {
       expect(names).not.toContain('read_page')
     } finally {
       resetBrokerApi()
+      store.close()
     }
   })
 })
@@ -127,7 +150,7 @@ describe('MCP tool tiers', () => {
     try {
       const listed = await handleMcpRequest(mcpRequest({
         id: 3, jsonrpc: '2.0', method: 'tools/list', params: {},
-      }, token), { ...env('absent'), DB: database }, executionContext)
+      }, token), { DB: database }, executionContext)
       const body = await listed.text()
       const payload = JSON.parse(body.slice(body.indexOf('{')))
       return payload.result.tools.map((tool: { name: string }) => tool.name)
@@ -172,7 +195,7 @@ describe('MCP tool tiers', () => {
     await revokeMcpToken(store.database, 'member-1', listed[0]!.tokenId)
     const response = await handleMcpRequest(
       mcpRequest({ id: 4, jsonrpc: '2.0', method: 'tools/list' }, token),
-      { ...env('absent'), DB: store.database },
+      { DB: store.database },
       executionContext,
     )
     expect(response.status).toBe(401)
@@ -187,6 +210,7 @@ async function listMcpTokensFor(database: D1Database) {
 
 describe('MCP guidance surface', () => {
   it('publishes the doctrine as server instructions and the workflows as prompts', async () => {
+    const { env, store, token } = await ownerHarness()
     setBrokerApi(stubBroker())
     try {
       const initialized = await handleMcpRequest(mcpRequest({
@@ -194,7 +218,7 @@ describe('MCP guidance surface', () => {
         jsonrpc: '2.0',
         method: 'initialize',
         params: { capabilities: {}, clientInfo: { name: 'test', version: '1' }, protocolVersion: '2025-06-18' },
-      }, TOKEN), env(), executionContext)
+      }, token), env, executionContext)
       const initBody = await initialized.text()
       const initPayload = JSON.parse(initBody.slice(initBody.indexOf('{')))
       // The posture reaches a connected agent as system context, not as a tool it must call.
@@ -202,7 +226,7 @@ describe('MCP guidance surface', () => {
 
       const prompts = await handleMcpRequest(mcpRequest({
         id: 6, jsonrpc: '2.0', method: 'prompts/list', params: {},
-      }, TOKEN), env(), executionContext)
+      }, token), env, executionContext)
       const promptBody = await prompts.text()
       const promptPayload = JSON.parse(promptBody.slice(promptBody.indexOf('{')))
       const names = promptPayload.result.prompts.map((prompt: { name: string }) => prompt.name)
@@ -210,6 +234,7 @@ describe('MCP guidance surface', () => {
       expect(names).toContain('evaluate_trade_idea')
     } finally {
       resetBrokerApi()
+      store.close()
     }
   })
 })
@@ -217,11 +242,12 @@ describe('MCP guidance surface', () => {
 describe('MCP tool annotations', () => {
   it('declares what every advertised tool does to the world', async () => {
     const { ANNOTATED_TOOL_NAMES } = await import('../src/server/mcp-annotations')
+    const { env, store, token } = await ownerHarness()
     setBrokerApi(stubBroker())
     try {
       const listed = await handleMcpRequest(mcpRequest({
         id: 7, jsonrpc: '2.0', method: 'tools/list', params: {},
-      }, TOKEN), env(), executionContext)
+      }, token), env, executionContext)
       const body = await listed.text()
       const AnnotatedToolSchema = z.object({
         annotations: z.object({
@@ -261,6 +287,7 @@ describe('MCP tool annotations', () => {
       }
     } finally {
       resetBrokerApi()
+      store.close()
     }
   })
 
@@ -282,6 +309,7 @@ describe('MCP surface budget', () => {
   const INSTRUCTIONS_CHAR_BUDGET = 1_500
 
   it('keeps the advertised surface inside its budget', async () => {
+    const { env, store, token } = await ownerHarness()
     setBrokerApi(stubBroker())
     try {
       const initialized = await handleMcpRequest(mcpRequest({
@@ -289,19 +317,20 @@ describe('MCP surface budget', () => {
         jsonrpc: '2.0',
         method: 'initialize',
         params: { capabilities: {}, clientInfo: { name: 'test', version: '1' }, protocolVersion: '2025-06-18' },
-      }, TOKEN), env(), executionContext)
+      }, token), env, executionContext)
       const initBody = await initialized.text()
       const instructions: string = JSON.parse(initBody.slice(initBody.indexOf('{'))).result.instructions
       expect(instructions.length).toBeLessThanOrEqual(INSTRUCTIONS_CHAR_BUDGET)
 
       const listed = await handleMcpRequest(mcpRequest({
         id: 9, jsonrpc: '2.0', method: 'tools/list', params: {},
-      }, TOKEN), env(), executionContext)
+      }, token), env, executionContext)
       const listBody = await listed.text()
       const tools = JSON.parse(listBody.slice(listBody.indexOf('{'))).result.tools
       expect(JSON.stringify(tools).length).toBeLessThanOrEqual(TOOLS_LIST_CHAR_BUDGET)
     } finally {
       resetBrokerApi()
+      store.close()
     }
   })
 })

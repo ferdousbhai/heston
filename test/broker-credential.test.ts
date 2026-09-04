@@ -7,15 +7,14 @@ import { handleMcpRequest, type McpExecutionContext } from '../src/server/mcp'
 import { type JsonObject } from '../src/domain/json-payload'
 import { stubBrokerGate } from './broker-stub'
 
-const MCP_TOKEN = 'mcp-request-token'
 const executionContext: McpExecutionContext = { props: undefined, waitUntil: () => undefined }
 
-function mcpRequest(method: string, params: JsonObject): Request {
+function mcpRequest(method: string, params: JsonObject, token: string): Request {
   return new Request('https://spice.test/mcp', {
     body: JSON.stringify({ id: 1, jsonrpc: '2.0', method, params }),
     headers: {
       Accept: 'application/json, text/event-stream',
-      Authorization: `Bearer ${MCP_TOKEN}`,
+      Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
     method: 'POST',
@@ -167,10 +166,20 @@ describe('request-scoped broker credential', () => {
   it('keeps account tools advertised and returns a missing credential as a normal tool result', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
-    const env = { SPICE_MCP_TOKEN: { get: async () => MCP_TOKEN } }
+    // Every caller is a real token row now; there is no shared secret to stand in for one.
+    const { migrationStore } = await import('./sqlite-d1')
+    const { issueMcpToken } = await import('../src/server/mcp-tokens')
+    const { OWNER_EMAIL } = await import('../src/server/auth')
+    const store = await migrationStore()
+    store.sqlite.prepare(
+      `INSERT INTO "user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
+       VALUES ('owner-1', 'Owner', ?, 1, 'now', 'now')`,
+    ).run(OWNER_EMAIL)
+    const issued = await issueMcpToken(store.database, 'owner-1', 'laptop')
+    const env = { DB: store.database }
 
     const listed = await mcpPayload(await handleMcpRequest(
-      mcpRequest('tools/list', {}),
+      mcpRequest('tools/list', {}, issued.token),
       env,
       executionContext,
     ))
@@ -179,7 +188,7 @@ describe('request-scoped broker credential', () => {
     expect(names).toContain('place_brokerage_order')
 
     const called = await mcpPayload(await handleMcpRequest(
-      mcpRequest('tools/call', { arguments: { type: 'orders' }, name: 'read_account_history' }),
+      mcpRequest('tools/call', { arguments: { type: 'orders' }, name: 'read_account_history' }, issued.token),
       env,
       executionContext,
     ))

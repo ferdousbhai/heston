@@ -21,8 +21,7 @@ import { publishSubmittedDailyRecommendations } from './research-publish'
 import { createResearchReadTools } from './research-read-tools'
 import { PORTFOLIO_REVIEW_PROMPT, SPICE_MCP_INSTRUCTIONS, tradeIdeaPrompt } from './doctrine'
 import { toolAnnotations } from './mcp-annotations'
-import { readStoredSecret } from './secrets'
-import { authenticateMcpToken, constantTimeDigestMatch } from './mcp-tokens'
+import { authenticateMcpToken } from './mcp-tokens'
 import { isOwnerEmail } from './auth'
 import { createRememberSymbolsTool, createWatchlistManageTool, createWatchlistReadTool } from './watchlist-tool'
 import {
@@ -236,19 +235,13 @@ export function createSpiceMcpServer(env: AppEnv, caller: McpCaller, credential?
  * Who is calling. A bearer token, not a session: the caller is a headless agent on a member's
  * own machine and a cookie jar is the wrong shape for it. Ownership is decided by the same
  * `isOwnerEmail` the cookie surface uses, so there is exactly one definition of it.
+ *
+ * Every caller is a row in `user_mcp_tokens`. The shared `SPICE_MCP_TOKEN` that authenticated as
+ * the owner during the pivot is gone: it could not be revoked, did not die with the account, sat
+ * outside the per-member cap, and left no trace of use, which is everything the token table
+ * exists to fix.
  */
 export type McpCaller = { owner: boolean; tokenId: string; userId: string }
-
-async function legacyOwnerToken(env: AppEnv, presented: string): Promise<boolean> {
-  let expected: string
-  try {
-    expected = await readStoredSecret(env.SPICE_MCP_TOKEN, 'SPICE_MCP_TOKEN')
-  } catch {
-    // No configured token means no MCP access, never open access.
-    return false
-  }
-  return constantTimeDigestMatch(presented, expected)
-}
 
 export async function resolveMcpCaller(request: Request, env: AppEnv): Promise<McpCaller | undefined> {
   const header = request.headers.get('Authorization')
@@ -256,22 +249,14 @@ export async function resolveMcpCaller(request: Request, env: AppEnv): Promise<M
   const presented = header.slice('Bearer '.length).trim()
   if (!presented) return undefined
 
-  if (env.DB) {
-    const identity = await authenticateMcpToken(env.DB, presented)
-    if (identity) {
-      const row = await env.DB.prepare('SELECT email FROM "user" WHERE id = ?')
-        .bind(identity.userId).first<{ email: string }>()
-      // A row without an email cannot be the owner; absence is never elevated.
-      return { owner: Boolean(row?.email) && isOwnerEmail(row!.email), tokenId: identity.tokenId, userId: identity.userId }
-    }
-  }
-
-  // Migration path: the single shared secret still authenticates, as the owner. The daily
-  // research run (ops/local-research) uses it. Remove once the owner holds a per-user token.
-  if (await legacyOwnerToken(env, presented)) {
-    return { owner: true, tokenId: 'legacy-shared', userId: 'legacy-shared' }
-  }
-  return undefined
+  // No store means no way to recognise anyone: no access, never open access.
+  if (!env.DB) return undefined
+  const identity = await authenticateMcpToken(env.DB, presented)
+  if (!identity) return undefined
+  const row = await env.DB.prepare('SELECT email FROM "user" WHERE id = ?')
+    .bind(identity.userId).first<{ email: string }>()
+  // A row without an email cannot be the owner; absence is never elevated.
+  return { owner: Boolean(row?.email) && isOwnerEmail(row?.email ?? ''), tokenId: identity.tokenId, userId: identity.userId }
 }
 
 /**
