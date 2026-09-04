@@ -1,0 +1,11 @@
+-- `brokerage_actions` held the order draft/confirm ceremony: a pending row, a confirmation token
+-- digest, a five-minute expiry, and a global one-trade-in-flight index. That ceremony is gone —
+-- the agent runs on the member's own machine now, so withholding a token from it no longer buys
+-- a second approving channel. `broker_submissions` (0029) took over the part that was never
+-- ceremony: the ambiguity quarantine and the record a price-only replacement resolves against.
+--
+-- This is deliberately its own push. 0029 shipped alongside code that still had to coexist with
+-- the running deployment; dropping a table the live code reads would have put the schema ahead
+-- of it with no way back. That code is deployed and reads nothing here, verified empty on both
+-- sides before this ran.
+DROP TABLE brokerage_actions;
