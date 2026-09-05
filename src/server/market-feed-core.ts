@@ -112,8 +112,21 @@ function isPresent<T>(value: T | undefined): value is T {
   return value !== undefined
 }
 
+/**
+ * The encodings dxLink uses for a numeric slot it has no value for.
+ *
+ * JSON has no literal for a non-finite double, so dxLink writes one as a string. A dxFeed
+ * snapshot that is empty — a symbol the venue has no history for — terminates with a single
+ * synthetic row whose every value slot is `"NaN"`, and that row is what tore the feed down:
+ * `jsonNumber` refused the string, `close` therefore read as present-but-unreadable, and the
+ * whole connection was condemned over an ordinary "no data for this name". These are the
+ * provider's way of spelling absence, so they are read as absence rather than as damage.
+ */
+const CompactNonFiniteSchema = z.enum(['NaN', 'Infinity', '-Infinity'])
+
 function compactValueIsAbsent(value: JsonValue): boolean {
-  return value === undefined || value === null || value === ''
+  if (value === undefined || value === null || value === '') return true
+  return CompactNonFiniteSchema.safeParse(TextFrameSchema.safeParse(value).data?.trim()).success
 }
 
 /**
@@ -180,6 +193,11 @@ function normalizedSymbol(value: JsonValue): string | undefined {
  * `null` means the row was well formed and simply carries no price to publish. A quote with
  * no bid or no ask is an ordinary market state — a name that is not quoted right now — and
  * conflating the two tore the whole feed down over one unquoted symbol.
+ *
+ * The candle branch raises `FeedFrameError` naming the field instead of returning `undefined`,
+ * because it reads four numeric slots and an anonymous refusal cannot be diagnosed. Both
+ * callers turn `undefined` into that same error, so the outcome is unchanged; only the message
+ * is. For a candle, `undefined` therefore now means one thing: the symbol did not normalize.
  */
 function eventFromRow(type: Exclude<FeedType, 'Greeks'>, row: JsonObject): LiveMarketEvent | null | undefined {
   const symbol = normalizedSymbol(row.eventSymbol)
@@ -220,11 +238,26 @@ function eventFromRow(type: Exclude<FeedType, 'Greeks'>, row: JsonObject): LiveM
   const candleTime = jsonNumber(row.time)
   // A candle with no instant at all is a frame with nothing to place; only a present-but-
   // unreadable instant breaks the contract.
-  if (candleTime === undefined) return compactValueIsAbsent(row.time) ? null : undefined
-  if (candleTime < 0 || !Number.isSafeInteger(candleTime)
-    || sequence === undefined || sequence < 0 || !Number.isSafeInteger(sequence)
-    || eventFlags === undefined || eventFlags < 0 || !Number.isSafeInteger(eventFlags)
-    || (candleClose === undefined && !compactValueIsAbsent(row.close))) return undefined
+  if (candleTime === undefined) {
+    if (compactValueIsAbsent(row.time)) return null
+    throw new FeedFrameError('Malformed upstream Candle row: time.')
+  }
+  // A candle carries four numeric slots this reader depends on, so the refusal names which one
+  // broke rather than condemning the row anonymously. A generic message is what made the
+  // production failure that emptied the year store undiagnosable from logs alone; naming a
+  // field of this file's own vocabulary quotes nothing of the frame.
+  if (candleTime < 0 || !Number.isSafeInteger(candleTime)) {
+    throw new FeedFrameError('Malformed upstream Candle row: time out of range.')
+  }
+  if (sequence === undefined || sequence < 0 || !Number.isSafeInteger(sequence)) {
+    throw new FeedFrameError('Malformed upstream Candle row: sequence.')
+  }
+  if (eventFlags === undefined || eventFlags < 0 || !Number.isSafeInteger(eventFlags)) {
+    throw new FeedFrameError('Malformed upstream Candle row: eventFlags.')
+  }
+  if (candleClose === undefined && !compactValueIsAbsent(row.close)) {
+    throw new FeedFrameError('Malformed upstream Candle row: close.')
+  }
   // A backfill reaching back days crosses buckets in which nothing traded, and dxFeed marks
   // snapshot boundaries the same way: no close, sometimes no instant at all. Those are ordinary
   // frames with nothing to publish. Reading them as a broken contract tore the whole feed down

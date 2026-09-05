@@ -464,6 +464,88 @@ describe('MarketFeed option Greeks RPC', () => {
     await context.drain()
   })
 
+  // The failure this pins emptied `year_candles` in production: every daily refresh from
+  // 2026-09-01 on logged `Malformed upstream Candle row.` in a reconnect loop, because the
+  // watchlist holds names dxFeed has no daily history for and an empty snapshot terminates
+  // with one all-`"NaN"` row. JSON cannot spell a non-finite double, so dxLink writes it as
+  // that string; reading it as damage rather than as absence condemned the connection.
+  it('survives an empty dxFeed snapshot instead of tearing the feed down', async () => {
+    const client = downstream(['SPY'])
+    const context = new FakeContext([client])
+    new MarketFeedCore(context, liveEnvironment())
+    await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(1))
+    const socket = FakeUpstreamWebSocket.instances[0]!
+    socket.open()
+    await context.drain()
+    socket.message({ type: 'SETUP', channel: 0, version: '0.1-test' })
+    await context.drain()
+    socket.message({ type: 'AUTH_STATE', channel: 0, state: 'AUTHORIZED' })
+    await context.drain()
+    socket.message({ type: 'CHANNEL_OPENED', channel: 5, service: 'FEED', parameters: { contract: 'AUTO' } })
+    await context.drain()
+    socket.message({
+      type: 'FEED_CONFIG', channel: 5, aggregationPeriod: 0.25,
+      dataFormat: 'COMPACT', eventFields: { Candle: CANDLE_FIELDS },
+    })
+    await context.drain()
+
+    socket.message({
+      type: 'FEED_DATA',
+      channel: 5,
+      data: ['Candle', [
+        // The terminator of an empty daily snapshot: SNAPSHOT_BEGIN|SNAPSHOT_END|REMOVE_EVENT
+        // over a row that carries no value at all.
+        'SPY{=d}', 0, 0x0e, 0, 0, 0, 'NaN', 'NaN', 'NaN', 'NaN', 'NaN', 'NaN', 'NaN',
+        'NaN', 'NaN', 'NaN', 'NaN',
+        // A live bucket that traded nothing prices the same way on the intraday series.
+        'SPY{=5m,tho=true}', 1_786_629_900_000, 0, 0, 1_786_629_900_000, 0, 0, 'NaN',
+        'NaN', 'NaN', 'NaN', 'NaN', 'NaN', 'NaN', 'NaN', 'NaN', 'NaN',
+      ]],
+    })
+    await context.drain()
+
+    expect(socket.readyState).toBe(FakeUpstreamWebSocket.OPEN)
+    expect(vi.mocked(client.send).mock.calls.some(([frame]) => (
+      JsonObjectSchema.parse(JSON.parse(frame)).state === 'degraded'
+    ))).toBe(false)
+    socket.close()
+    await context.drain()
+  })
+
+  // A candle reads four numeric slots, so a refusal that named none of them left the
+  // production failure above undiagnosable from logs alone.
+  it('names the candle field that refused a row', async () => {
+    const client = downstream(['SPY'])
+    const context = new FakeContext([client])
+    new MarketFeedCore(context, liveEnvironment())
+    await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(1))
+    const socket = FakeUpstreamWebSocket.instances[0]!
+    socket.open()
+    await context.drain()
+    socket.message({ type: 'CHANNEL_OPENED', channel: 5, service: 'FEED', parameters: { contract: 'AUTO' } })
+    await context.drain()
+    socket.message({
+      type: 'FEED_CONFIG', channel: 5, aggregationPeriod: 0.25,
+      dataFormat: 'COMPACT', eventFields: { Candle: CANDLE_FIELDS },
+    })
+    await context.drain()
+
+    socket.message({
+      type: 'FEED_DATA',
+      channel: 5,
+      data: ['Candle', [
+        'SPY{=5m,tho=true}', 1_786_629_600_000, 0, 0, 1_786_629_600_000, 0, 0, 0,
+        null, null, null, null, null, null, null, null, 'not-a-number',
+      ]],
+    })
+    await context.drain()
+
+    expect(vi.mocked(client.send).mock.calls.some(([sent]) => {
+      const status = JsonObjectSchema.parse(JSON.parse(sent))
+      return status.state === 'degraded' && status.detail === 'Malformed upstream Candle row: close.'
+    })).toBe(true)
+  })
+
   it('reconnects when the upstream never completes setup', async () => {
     vi.useFakeTimers()
     const context = new FakeContext([downstream(['SPY'])])
