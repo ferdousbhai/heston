@@ -82,12 +82,6 @@ machine (credential proxy, daily research run) · `tools/` local jobs.
   connects directly with its own token and *no* broker header, so every account tool refuses
   structurally rather than by allowlist. Keep that asymmetry — it is what makes the unattended
   run unable to trade.
-- The MCP surface is a per-turn cost: in a typical client the tool list and `instructions` sit
-  in every model call. State each rule once — on the tool when it governs whether to call that
-  tool, in `instructions` when it governs the answer — and put posture that only matters to a
-  recommendation in a registered prompt, which costs nothing until invoked. Tool results are
-  the larger cost: return only what a caller can act on. A test holds a character budget for
-  the advertised surface so growth is a decision.
 - Do not introduce magic numbers or duplicate limits. Every bound must come from an explicit
   product or risk policy, a documented platform or provider constraint, or a named resource
   budget; define it at the authoritative boundary, derive downstream values from it, and record
