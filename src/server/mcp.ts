@@ -1,3 +1,4 @@
+import { requireMcpAuth } from '@better-auth/mcp'
 import {
   McpServer,
   OAuthError,
@@ -29,7 +30,7 @@ import { createResearchReadTools } from './research-read-tools'
 import { PORTFOLIO_REVIEW_PROMPT, SPICE_GUIDE, SPICE_MCP_INSTRUCTIONS, tradeIdeaPrompt } from './doctrine'
 import { toolAnnotations } from './mcp-annotations'
 import { authenticateMcpToken } from './mcp-tokens'
-import { isOwnerEmail } from './auth'
+import { getAuthRuntime, isOwnerEmail } from './auth'
 import { createRememberSymbolsTool, createWatchlistManageTool, createWatchlistReadTool } from './watchlist-tool'
 import {
   BrokerCredentialMissingError,
@@ -287,21 +288,27 @@ export async function resolveMcpCaller(request: Request, env: AppEnv): Promise<M
  */
 export type McpExecutionContext = Pick<ExecutionContext, 'props' | 'waitUntil'>
 
-export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpExecutionContext): Promise<Response> {
-  const caller = await resolveMcpCaller(request, env)
-  if (!caller) {
-    console.error('McpAuthRejected')
-    // A bare 401 tells a client it was refused but not how to authenticate, so a caller with a
-    // stale or absent token cannot tell a credential problem from a broken endpoint. RFC 6750
-    // wants the challenge; this emits it. No `resourceMetadataUrl` is advertised on purpose:
-    // that field points a client at an OAuth authorization server, and Spice issues its own
-    // member tokens in the Connect tab. Advertising a discovery flow that does not exist would
-    // send clients somewhere there is nothing to find.
-    return bearerAuthChallengeResponse(new OAuthError(
-      'invalid_token',
-      'Spice needs an agent token. Create one in the Connect tab and send it as a bearer token.',
-    ))
-  }
+const AccessTokenSubjectSchema = z.object({ jti: z.string().min(1).optional(), sub: z.string().min(1) })
+
+/** Ownership is decided by the same `isOwnerEmail` the cookie surface uses, in one place. */
+async function callerForUser(
+  env: AppEnv,
+  userId: string,
+  tokenId: string,
+): Promise<McpCaller | undefined> {
+  if (!env.DB) return undefined
+  const row = await env.DB.prepare('SELECT email FROM "user" WHERE id = ?')
+    .bind(userId).first<{ email: string }>()
+  // A row without an email cannot be the owner; absence is never elevated.
+  return { owner: Boolean(row?.email) && isOwnerEmail(row?.email ?? ''), tokenId, userId }
+}
+
+function serveMcp(
+  request: Request,
+  env: AppEnv,
+  ctx: McpExecutionContext,
+  caller: McpCaller,
+): Promise<Response> {
   const credential = brokerCredentialFromHeaders(request.headers)
   // SAFETY: the handler reads only `props` from the context (verified against its dist), which
   // McpExecutionContext carries; the platform type's other members are never touched.
@@ -312,6 +319,54 @@ export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpEx
     // provider or caller content, so only the error's own name is recorded.
     onerror: (error: Error) => console.error('McpHandlerError', error.name),
   })(request, env, ctx as ExecutionContext)
+}
+
+/**
+ * Two ways in, for two kinds of caller.
+ *
+ * A person at a terminal authenticates with OAuth: their client discovers this server, registers
+ * itself, and sends them through Google in a browser. A machine that runs alone cannot do any of
+ * that -- the daily research run is a systemd oneshot with no browser and no interactive session
+ * -- so a minted `user_mcp_tokens` row stays the non-interactive path. Both resolve to the same
+ * user id, so nothing downstream can tell them apart, which is the point.
+ *
+ * The minted token is tried first because recognising one is a regex and a single indexed read.
+ * Anything else is handed to the provider, which verifies the signature, issuer, audience and
+ * expiry against the published JWKS and answers an unauthenticated caller with the RFC 9728
+ * challenge naming the discovery document. That challenge is what makes the flow self-starting,
+ * and it is why this no longer hand-writes one.
+ */
+export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpExecutionContext): Promise<Response> {
+  const minted = await resolveMcpCaller(request, env)
+  if (minted) return serveMcp(request, env, ctx, minted)
+
+  let runtime
+  try {
+    runtime = await getAuthRuntime(env)
+  } catch (error) {
+    // Without the authorization server nobody can be recognised, so the caller is unauthenticated
+    // and told so. Not a 500: whether this server can reach its own auth is not the caller's
+    // business and is not something they can act on, and answering anything but a refusal here
+    // would be the one shape that risks opening the surface. The outage is observable in this log
+    // line rather than in the status code.
+    console.error('McpAuthUnavailable', error instanceof Error ? error.name : 'UnknownError')
+    return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'Spice could not verify this request.'))
+  }
+
+  return requireMcpAuth(runtime.auth, async (authenticated, claims) => {
+    // The provider has already verified signature, issuer, audience and expiry; the claims are
+    // still read through a schema, because what they contain is a wire shape either way.
+    const subject = AccessTokenSubjectSchema.safeParse(claims)
+    // A token whose subject is not a user this server knows authenticates nothing.
+    const caller = subject.success
+      ? await callerForUser(env, subject.data.sub, `oauth:${subject.data.jti ?? subject.data.sub}`)
+      : undefined
+    if (!caller) {
+      console.error('McpAuthRejected')
+      return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'This token does not identify a Spice member.'))
+    }
+    return serveMcp(authenticated, env, ctx, caller)
+  }, { resource: runtime.mcpResource })(request)
 }
 
 /**

@@ -86,7 +86,6 @@ describe('MCP bearer authentication', () => {
     const challenge = response.headers.get('WWW-Authenticate') ?? ''
     expect(challenge).toMatch(/^Bearer\b/)
     expect(challenge).toContain('invalid_token')
-    expect(challenge).not.toContain('resource_metadata')
   })
 })
 

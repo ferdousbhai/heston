@@ -134,7 +134,11 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
   const mcpConfig = JSON.stringify({
     mcpServers: { spice: { headers: { Authorization: `Bearer ${bearer}` }, type: 'http', url: MCP_URL } },
   }, null, 2)
-  const claudeCommand = `claude mcp add --transport http spice ${MCP_URL} --header "Authorization: Bearer ${bearer}"`
+  // No header. Claude Code skips the OAuth flow entirely when a static `Authorization` is
+  // configured, so handing one out as the default would ship the browser sign-in and guarantee
+  // nobody ever reaches it.
+  const claudeCommand = `claude mcp add --transport http spice ${MCP_URL}`
+  const headlessCommand = `${claudeCommand} --header "Authorization: Bearer ${bearer}"`
 
   return (
     <section className="connect-screen">
@@ -155,8 +159,52 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
       )}
 
       <section className="connect-step">
-        <h2>1 · Create a token</h2>
-        <p>Name it for the machine you will use it from. The token is shown once and cannot be read again.</p>
+        <h2>1 · Point your agent at Spice</h2>
+        <p>
+          Run this and your agent opens a browser to sign you in with Google. Nothing to copy, and
+          it renews its own access — you should not need to come back here.
+        </p>
+        <CopyBlock label="Claude Code" value={claudeCommand} />
+        <p className="connect-note">
+          Any MCP client that speaks OAuth works the same way: point it at <code>{MCP_URL}</code>{' '}
+          and it will discover the rest.
+        </p>
+      </section>
+
+      <section className="connect-step">
+        <h2>2 · Connect a brokerage <span className="connect-optional">optional</span></h2>
+        <p>
+          Everything above works without one. Connecting a brokerage is what adds your balances,
+          positions and order history, and lets the agent place orders — against your own account
+          only. Spice never receives or stores your brokerage refresh token: it stays in your
+          keyring, and a small local proxy exchanges it for a short-lived access token per request.
+        </p>
+        <p>
+          Register a personal OAuth application with tastytrade, store its credentials, and run the
+          proxy from <code>ops/spice-agent</code>. Note that tastytrade requires two-factor
+          authentication on your account before it will grant the read and trade scopes.
+        </p>
+        <CopyBlock
+          label="Store your credentials"
+          value={'./ops/spice-agent/store-credentials.sh tastytrade'}
+        />
+        <p>
+          It prompts for each value and stores it in the keyring, so nothing reaches your shell
+          history or any file, then restarts the proxy so it picks them up.
+        </p>
+        <p>
+          With the proxy running, point your agent at <code>{PROXY_URL}</code> instead. It attaches
+          both your Spice token and a freshly minted brokerage token to every request.
+        </p>
+      </section>
+
+      <section className="connect-step">
+        <h2>3 · Headless access <span className="connect-optional">optional</span></h2>
+        <p>
+          A machine that runs unattended cannot complete a browser sign-in, so it uses a token
+          instead. This is what the daily research run uses. If you are sitting at a terminal, step
+          one is the one you want.
+        </p>
         <form
           className="connect-issue"
           onSubmit={(event) => {
@@ -211,43 +259,17 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
             ))}
           </ul>
         )}
-      </section>
 
-      <section className="connect-step">
-        <h2>2 · Point your agent at Spice</h2>
         <p>
           {issued
             ? 'Both blocks below already carry the token you just created — copy either one.'
-            : 'Substitute the token you created above; it is shown only at the moment it is issued.'}
+            : 'Substitute a token above; it is shown only at the moment it is issued.'}
         </p>
-        <CopyBlock label="Claude Code" value={claudeCommand} />
+        <CopyBlock label="Command" value={headlessCommand} />
         <CopyBlock label=".mcp.json" value={mcpConfig} />
-      </section>
-
-      <section className="connect-step">
-        <h2>3 · Connect a brokerage <span className="connect-optional">optional</span></h2>
-        <p>
-          Everything above works without one. Connecting a brokerage is what adds your balances,
-          positions and order history, and lets the agent place orders — against your own account
-          only. Spice never receives or stores your brokerage refresh token: it stays in your
-          keyring, and a small local proxy exchanges it for a short-lived access token per request.
-        </p>
-        <p>
-          Register a personal OAuth application with tastytrade, store its credentials, and run the
-          proxy from <code>ops/spice-agent</code>. Note that tastytrade requires two-factor
-          authentication on your account before it will grant the read and trade scopes.
-        </p>
-        <CopyBlock
-          label="Store your credentials"
-          value={'./ops/spice-agent/store-credentials.sh tastytrade'}
-        />
-        <p>
-          It prompts for each value and stores it in the keyring, so nothing reaches your shell
-          history or any file, then restarts the proxy so it picks them up.
-        </p>
-        <p>
-          With the proxy running, point your agent at <code>{PROXY_URL}</code> instead. It attaches
-          both your Spice token and a freshly minted brokerage token to every request.
+        <p className="connect-note">
+          A configured <code>Authorization</code> header takes precedence over the browser flow, so
+          use this only where there is no browser.
         </p>
       </section>
 

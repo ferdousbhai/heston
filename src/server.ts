@@ -1,6 +1,7 @@
 import handler from '@tanstack/react-start/server-entry'
 
 import { type AppEnv } from './server/env'
+import { handleWellKnownDiscovery } from './server/auth'
 import { canonicalHostRedirect, finalizeDocumentResponse } from './server/http'
 import { handleMcpRequest, mcpEndpointRedirect } from './server/mcp'
 import { watchDailyBrief } from './server/research-watchdog'
@@ -18,6 +19,9 @@ export default {
     if (canonicalRedirect) return canonicalRedirect
     // The tool surface for the agent on the owner's machine. Bearer-authed inside the
     // handler; the session/cookie path stays untouched and the token opens nothing else.
+    // An MCP client reads these before it can authenticate at all, and only ever at the origin.
+    const discovery = await handleWellKnownDiscovery(request, env)
+    if (discovery) return discovery
     if (new URL(request.url).pathname === '/mcp') return handleMcpRequest(request, env, ctx)
     // An agent aimed at the site rather than at `/mcp` would otherwise be handed the web app's
     // HTML with a 200 and fail inside its JSON parser, saying nothing useful to anyone.
