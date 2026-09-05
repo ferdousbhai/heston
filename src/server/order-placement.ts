@@ -28,6 +28,12 @@ export async function rememberTradeIntentSymbol(env: AppEnv, action: FreshOrderP
  * here: the contract is resolved from the live chain rather than taken from the model, the
  * portfolio and market guards run against fresh broker state, and the broker's own dry-run must
  * come back clean before anything is submitted.
+ *
+ * There is deliberately no placement rate limit, and one should not be added. Cadence is not
+ * what bounds the damage here: the mutation lease serializes placement, the guard refuses while
+ * any order is working, and the drawdown budget bounds the loss however fast the caller asks.
+ * A rate limit would add a bound with no policy behind it and would refuse a legitimate
+ * correction — including a cancel-and-replace — at exactly the moment it is most needed.
  */
 export async function placeBrokerageOrder(
   env: AppEnv,

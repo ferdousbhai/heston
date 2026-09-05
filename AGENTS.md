@@ -1,51 +1,110 @@
 # Spice
 
-Options application on Cloudflare with a public market surface, member favorites, and an MCP tool surface each member drives from their own agent. Agent loops and brokerage credentials both live on the member's machine, never here. This file is an index plus the rules that no single file enforces; read the relevant code and its adjacent comments before changing behavior.
+Options application on Cloudflare with a public market surface, member favorites, and an MCP
+tool surface each member drives from their own agent. Agent loops and brokerage credentials
+both live on the member's machine, never here.
 
-## Code index
+This file states rules that no single file can enforce. It deliberately holds no file index,
+no counts, no dates, and no history: those drift, and the code and its adjacent comments are
+where they belong. Read the relevant code before changing behavior.
 
-| Concern | Authoritative code |
-| --- | --- |
-| Worker routing, HTTP, auth, and scheduled jobs | `src/server.ts`, `src/server/http.ts`, `src/server/auth.ts`, `src/server/scheduled-jobs.ts` |
-| Public and private API boundaries | `src/routes/api.public-snapshot.ts`, `src/routes/api.public-symbol-search.ts`, `src/routes/api.public-catalyst-refresh.ts`, `src/routes/api.snapshot.ts`, `src/routes/api.viewer.ts`, `src/routes/api.mcp-tokens.ts` |
-| Domain contracts | `src/domain/` |
-| Internal watchlist and public universe | `src/server/internal-watchlist.ts`, `src/server/instrument-catalog.ts`, `src/server/public-market-universe.ts`, `src/server/symbol-search.ts`, `src/server/public-symbol-search.ts` |
-| Provider access and source storage | `src/server/tastytrade.ts`, `src/server/tastytrade-market-store.ts`, `src/server/yahoo-finance-transport.ts` |
-| Browser collections and live overlay | `src/data/collections.ts`, `src/data/favorites.ts`, `src/data/live-market.ts` |
-| Research and catalysts | `src/server/research-submission.ts`, `src/server/research-publish.ts`, `src/server/research-watchdog.ts`, `src/server/research-agent-tools.ts`, `src/server/research-citation-binding.ts`, `src/server/research-output.ts`, `src/server/catalysts.ts`, `src/server/catalyst-research-exa.ts`, `src/server/catalyst-refresh.ts` |
-| MCP surface, tokens, and tiers | `src/server/mcp.ts`, `src/server/mcp-tokens.ts`, `src/server/doctrine.ts`, `src/domain/mcp-tokens.ts` |
-| The member's own machine | `ops/spice-agent/` (credential proxy, `.mcp.json` points here), `ops/local-research/` (daily brief) |
-| Broker adapter and credential boundary | `src/domain/broker.ts`, `src/server/brokers/`, `src/server/broker-credential.ts`, `src/server/tastytrade.ts` |
-| Read tools | `src/server/brokerage-read-tools.ts`, `src/server/market-research-tools.ts` |
-| Order intent, risk, and execution | `src/server/order-placement.ts`, `src/server/order-intent.ts`, `src/server/portfolio-risk.ts`, `src/server/trade-guards.ts`, `src/server/brokerage.ts`, `src/server/brokerage-reconciliation.ts` |
-| Durable Objects | `src/server/broker-gate.ts`, `src/server/market-feed.ts` |
-| UI | `src/components/`, `src/styles.css` |
-| Local catalog jobs | `ops/instrument-catalog/`, `tools/seed-internal-watchlist.sh` |
-| Schema and bindings | `migrations/`, `wrangler.jsonc` |
+## Layout
+
+`src/domain/` pure schemas and logic · `src/server/` Cloudflare and provider code ·
+`src/routes/api.*` thin HTTP adapters · `src/data/` reactive browser persistence ·
+`src/components/` product surfaces · `migrations/` D1 schema · `ops/` the member's own
+machine (credential proxy, daily research run) · `tools/` local jobs.
 
 ## Boundaries
 
-- Public, authenticated-member, and owner-only data are separate audiences. Never expose account identity, account-derived data, provider watchlist names/membership/order, brokerage state, tokens, or mutations publicly. Persisted browser snapshots are audience-separated, API routes are excluded from service-worker caching, and live DXLink data is owner-only and stays in the in-memory overlay. Tickers themselves no longer differ by audience — the held-position flag is gone, because reading positions needs the member's own broker credential and held context reaches them through their own agent. What still separates the two snapshot contracts is the watchlist, whose `kind` reveals provenance.
-- Access is two independent gates, never one ladder. Signing in with Google earns the whole market and research surface over MCP, plus that member's own favorites and agent tokens, keyed by their own user id. A broker credential presented on the request — not a membership level — is what unlocks account reads and order placement, and only for the account that credential resolves to. Owner adds publishing and private Reddit discovery, and those tools are absent from a member's `tools/list` rather than present and refused.
-- The bounded D1 internal watchlist (500 symbols) is authoritative and grows on its own: readers admit names to it by searching, and pruning back to a working set stays available rather than routine. A search the loaded list cannot answer falls through to the instrument catalog and, if a symbol resolves, joins the list under the `visitor-search` origin — the weakest live provenance, overwritten by every other origin, never overwriting one, and the first thing a prune drops. The list size is not a request size: broker reads page the list into 100-symbol requests and the live DXLink feed subscribes to at most 100 loaded symbols, selected symbol first. Normal code never reads or mutates tastytrade watchlist endpoints after the one-time bootstrap. Only the source-neutral, alphabetized union is stored for public reads; no public field or ordering reveals priority or provenance. Held names reach the list through the `trade-intent` origin written at placement, not a recurring position sync.
-- D1 source tables hold exactly one provider and one data contract each; views may compose them for display but keep provider labels and per-source observation times. Derived recommendations and projections are never authoritative source storage. Yahoo data is bounded secondary research context only.
-- Provider, model, and social content are untrusted. Deterministic schemas bind symbols, dates, provenance, URLs, and actions; model output never authorizes a trade or establishes a trusted citation. Reddit supplies private initial candidates and X Search supplies private deeper discovery; neither may appear in public sources or reader links. A research catalyst is always `estimated`, comes only from a page read and retained by the Worker in that run (for the daily brief, the publish-time re-read is that read), and is refused unless its date appears in the retained text within the 180-day horizon — a year-less month-day mention binds only inside that horizon, where it names exactly one date, and a different printed year still refuses. The `exa` producer binds the same way against the page an event cites: either Exa's own grounding names that page for that event's date, or the text it returned for the page states the date — a live run showed reporting writes "Sept. 1" for 2026-09-01, so a text scan alone would reject every real finding. It is what reader attention buys: any reader favoriting a symbol, or reviewing one whose next 30 days are empty, asks for a search, and the server runs at most one per symbol every 30 days. Only the owner may spend a search that window would refuse, from the empty calendar itself; a forced run writes the same receipt, so it moves the window rather than escaping it, and what it binds is stored for every reader — recorded in `catalyst_runs` so an unsearched symbol is distinguishable from one whose search found nothing, and never run for a symbol the instrument catalog cannot name. Whatever a run binds is returned to the reader who provoked it so the calendar fills in on that visit. Only a producer's rows reach a reader through its own citation: the runway links the host a date was read from and never the producer that wrote the row, and the broker's earnings rows, whose recorded source is the API specification, carry no link at all.
-- Agent loops do not run on Cloudflare. The Worker serves a stateless MCP surface at `/mcp` — every brokerage/market/research read, WSB ingest and prior-coverage discovery, a guarded order tool, and the publish drop-box — gated by a per-member bearer token whose digest alone is stored (`spice_<token_id>_<secret>`; the id selects one row because a constant-time scan over N rows is impossible, and only the digest comparison is constant time). Every caller is a row in `user_mcp_tokens`; there is no shared secret and no other way in, so a missing store is no access rather than a bypass. The server also publishes its doctrine as MCP `instructions` and two workflows as prompts (`src/server/doctrine.ts`); because that is content this server injects into a member's own agent, it is assembled only from this repository's constants — never from D1 rows, provider payloads, model output, or a fetched page — and it advises rather than commands. The daily brief is produced by a headless agent on the owner's machine (`ops/local-research/`, a systemd user timer at 09:35 New York on weekdays) whose tool allowlist deliberately omits order placement. What that machine submits is untrusted model output: `publish_daily_recommendations` re-reads every cited page through the Worker's own browser at publish time and runs the deterministic binders — each quote verbatim in text this Worker read, each catalyst date on its cited page — so the citation invariant moved to the trust boundary rather than relaxing for the pivot. Rejections return exact reasons for the agent to fix and resubmit; nothing partial publishes; the Telegram channel post follows the committed D1 record. Reddit is private candidate discovery and may never be cited publicly. The Worker's `30 15 * * 1-5` watchdog cron records `DailyBriefMissing` in the Worker logs when an open market day has no brief. It does not notify: the runner writes every outcome and its reason to `~/.local/state/spice/research-run.log`, and the cron is the second opinion for the case that log cannot cover, since a machine that never woke writes nothing. The old push channel alerted a chat id that was never bound, so it had only ever returned 'unalertable' — a notifier that cannot notify is worse than a record, because it reads like coverage.
-- No member's long-lived broker credential is ever stored on Cloudflare, for tastytrade or any broker added later; an adapter that cannot work without one does not get added. It lives in the member's OS keyring, and `ops/spice-agent/` — a separate process, because an MCP config's `${VAR}` interpolation is readable by the agent's own Bash tool — exchanges it for a short-lived access token per request. The Worker keeps its own tastytrade credential for **market data only**: `accessToken(env)` is reachable from exactly one line, behind `!isAccountPath`, and an account path either carries a caller credential or throws. It must never fall back.
-- Every account read goes through a `BrokerAdapter` (`src/server/brokers/`), selected from the presented credential against a registry that fails closed on an unknown id; provider JSON, REST paths and field names never cross that boundary, and readers above it speak only `src/domain/broker.ts`. Adding a brokerage is an adapter file plus its id — the header parser derives from the same list, so an id cannot be half-added. The account snapshot carries both `orders` (complex orders expanded and deduped) and `liveOrders` (rows as the broker listed them) because the drawdown guard must count the latter: expansion can erase a complex order whose children have all gone terminal while the order still occupies the account. Order placement still writes its own paths and has not moved behind the adapter yet.
-- Trading is one guarded step: exact contract resolution from the live chain, the portfolio drawdown guard, the market guard, and a clean broker dry-run, all server-side and authoritative over any model's advice. Executable multi-leg scope is two-leg long call or put debit verticals. Every tool declares MCP `annotations` (`src/server/mcp-annotations.ts`), which is how a client learns that placing an order is destructive and non-idempotent while remembering a symbol is additive; a table lookup throws on an undeclared tool so a new one cannot reach the wire undescribed. Annotations are hints the spec tells clients to distrust, so the guards — not any prompt — are what bound the damage. No placement rate limit exists and none is wanted: the mutation lease serializes placement, the guard refuses while any order is working, and the drawdown budget bounds the loss regardless of cadence. Cancelling runs no guard, because it only ever reduces exposure, and it exists because the placement guard refuses while any order is working. Never automatically retry an ambiguous broker mutation: a 2xx that cannot be verified writes a `broker_submissions` row that quarantines that broker account until reconciled against order history, because an ambiguous order that filled immediately is no longer live and the live-order check would not catch a retry.
-- Secrets and account numbers remain server-side, missing bindings fail closed, and provider bodies or credentials must not enter Worker logs. A log line carries an event name and an error name, never a token, digest, account number, or user id.
+- **Audiences are separate.** Public, authenticated member, and owner are three audiences, not
+  three rungs. Account identity, account-derived data, provider watchlist provenance,
+  brokerage state, tokens, and mutations are never public. Live market stream data is
+  owner-only and stays in memory. API routes are excluded from service-worker caching.
+- **Access is two independent gates.** Signing in earns the market and research surface plus
+  that member's own favorites and agent tokens. A broker credential *presented on the request*
+  — never a membership level — unlocks account reads and placement, and only for the account
+  that credential resolves to. Owner adds publishing and private discovery, and those tools are
+  absent from a member's `tools/list` rather than present and refused.
+- **No member's long-lived broker credential is ever stored here**, for any broker; an adapter
+  that cannot work without one does not get added. It lives in the member's OS keyring, and a
+  separate local process exchanges it for a short-lived token per request — separate because an
+  MCP config's `${VAR}` interpolation is readable by the agent's own shell tool. The Worker
+  keeps its own broker credential for **market data only**, reachable from exactly one line
+  behind a non-account-path check; an account path either carries a caller credential or
+  throws. It must never fall back.
+- **Every account read goes through a `BrokerAdapter`**, selected from the presented credential
+  against a registry that fails closed on an unknown id. Provider JSON, REST paths and field
+  names never cross that boundary; readers above it speak only the domain broker types. Adding
+  a brokerage is an adapter file plus its id.
+- **Trading is one guarded step**: exact contract resolution from the live chain, the portfolio
+  drawdown guard, the market guard, and a clean broker dry-run — all server-side and
+  authoritative over any model's advice. Every tool declares MCP annotations, and an undeclared
+  tool throws rather than reaching the wire; annotations are hints the spec tells clients to
+  distrust, so the guards, not any prompt, are what bound the damage. Never automatically retry
+  an ambiguous broker mutation: quarantine the account until it is reconciled against order
+  history.
+- **Provider, model, and social content are untrusted.** Deterministic schemas bind symbols,
+  dates, provenance, URLs, and actions; model output never authorizes a trade or establishes a
+  trusted citation. A research catalyst is always estimated, comes only from a page this Worker
+  read in that run, and is refused unless its date appears in the retained text. Private
+  discovery sources may never appear in public sources or reader links. Only a producer's rows
+  reach a reader through its own citation.
+- **Reader attention is what buys a search.** Coverage follows attention rather than a sweep,
+  every run writes a receipt so a repeat costs nothing, and an unsearched symbol stays
+  distinguishable from one whose search found nothing.
+- **The internal watchlist is authoritative and grows on its own** as readers search. Weaker
+  provenance is overwritten by stronger, never the reverse, and is the first thing a prune
+  drops. Its size is not a request size — downstream reads page it into whatever their provider
+  or feed admits. Only the source-neutral, alphabetized union is stored for public reads: no
+  public field or ordering may reveal priority or provenance.
+- **D1 source tables hold exactly one provider and one data contract each.** Views may compose
+  them for display but keep provider labels and per-source observation times. Derived
+  recommendations and projections are never authoritative source storage.
+- **Agent loops do not run on Cloudflare.** The Worker serves a stateless MCP surface gated by
+  a per-member bearer token whose digest alone is stored. Every caller is a row; there is no
+  shared secret and no other way in, so a missing store is no access rather than a bypass. The
+  doctrine the server publishes as MCP `instructions` and prompts is content it injects into
+  someone else's agent, so it is assembled only from this repository's constants — never from
+  D1 rows, provider payloads, model output, or a fetched page — and it advises rather than
+  commands. What the daily research run submits is untrusted model output: the Worker re-reads
+  every cited page itself and runs the binders at publish time. Nothing partial publishes, and
+  rejections return exact reasons to fix and resubmit.
+- **Secrets and account numbers stay server-side**, missing bindings fail closed, and provider
+  bodies or credentials must not enter logs. A log line carries an event name and an error
+  name, never a token, digest, account number, or user id. A refusal names the check that
+  refused it, in this repository's own vocabulary, never a value from the frame or payload.
 
 ## Working rules
 
-- Domain schemas and pure logic live in `src/domain/`, Cloudflare/provider code in `src/server/`, thin HTTP adapters in `src/routes/api.*`, reactive persistence in `src/data/`, product surfaces in `src/components/`.
-- An interactive agent reaches Spice through the local proxy at `127.0.0.1:8787`, which `.mcp.json` names and which Codex is registered against; the proxy reads the Spice token from the keyring and attaches it, so no agent configuration holds a credential and none can be read out of the agent's environment. The daily research run deliberately does not use the proxy: it connects to the Worker directly with the token from its systemd credential, so no broker header is ever on its requests and every account tool refuses structurally rather than by allowlist. Keep that asymmetry — it is what makes the unattended run unable to trade.
-- The MCP surface is a per-turn cost: in a typical client the tool list and `instructions` sit in every model call, so a rule stated in both places buys attention, not coverage. State each rule once — on the tool when it governs whether to call that tool, in `instructions` when it governs the answer — and put posture that only matters to a recommendation in a registered prompt, which costs nothing until invoked. Tool results are the larger cost: return only what a caller can act on, and never a field every tool resolves server-side anyway. `test/mcp.test.ts` holds a character budget for the advertised surface so growth is a decision.
-- Do not introduce magic numbers or duplicate limits. Every bound must come from an explicit product or risk policy, a documented platform/provider constraint, or a named resource/context budget; define it at the authoritative boundary, derive downstream values from it, and record why it exists and what happens when it is exceeded. Remove a cap when no such reason exists.
-- Do not silently coerce, synthesize, truncate, repair, fall back, or substitute data in a way that turns missing, malformed, stale, incomplete, or ambiguous state into apparent success. Defaults apply only to omitted optional input, never to invalid provided input. Fail visibly at the trust boundary unless the product contract explicitly defines best-effort degradation; then make the degraded, unavailable, stale, or truncated state observable and test the failure path.
-- Record a non-obvious privacy, trust, persistence, concurrency, or execution decision in an adjacent comment when it changes; do not write parallel prose documentation.
+- An interactive agent reaches Spice through the local proxy, which attaches the token from the
+  keyring, so no agent configuration holds a credential. The unattended research run instead
+  connects directly with its own token and *no* broker header, so every account tool refuses
+  structurally rather than by allowlist. Keep that asymmetry — it is what makes the unattended
+  run unable to trade.
+- The MCP surface is a per-turn cost: in a typical client the tool list and `instructions` sit
+  in every model call. State each rule once — on the tool when it governs whether to call that
+  tool, in `instructions` when it governs the answer — and put posture that only matters to a
+  recommendation in a registered prompt, which costs nothing until invoked. Tool results are
+  the larger cost: return only what a caller can act on. A test holds a character budget for
+  the advertised surface so growth is a decision.
+- Do not introduce magic numbers or duplicate limits. Every bound must come from an explicit
+  product or risk policy, a documented platform or provider constraint, or a named resource
+  budget; define it at the authoritative boundary, derive downstream values from it, and record
+  why it exists. Remove a cap when no such reason exists.
+- Do not silently coerce, synthesize, truncate, repair, fall back, or substitute data in a way
+  that turns missing, malformed, stale, incomplete, or ambiguous state into apparent success.
+  Defaults apply only to omitted optional input, never to invalid provided input. Fail visibly
+  at the trust boundary unless the product contract defines best-effort degradation; then make
+  the degraded state observable and test the failure path.
+- Record a non-obvious privacy, trust, persistence, concurrency, or execution decision in an
+  adjacent comment when it changes; do not write parallel prose documentation.
 - Preserve unrelated dirty-worktree changes. Use `rg` for discovery.
-- Production auto-deploys from `main` through Cloudflare Workers Builds; do not add a deploy workflow. **Migrations are applied by the last step of `npm run build`** (`tools/apply-migrations.mjs`), not by the deploy step. That is not where they belong: the deploy command is configured in the dashboard as a bare `npx wrangler deploy` and cannot be changed with the API credentials available here, while the build command is `npm run build` and therefore ours. This file claimed the deploy step applied them until 2026-09-04, when a push shipped code whose three new tables did not exist — `/mcp` returned 500 for any per-user token and the Connect tab 503'd, while the public surface and the daily research run were unaffected. Ordering is what makes the current placement defensible: the apply runs after the bundle and the typecheck, so the only failure that can still strand the schema ahead of the code is `wrangler deploy` itself — the same exposure the deploy-step version would have had. It is guarded on `WORKERS_CI` and on the branch, so a local `npm run build` and any future preview build never touch the production database; `npm run deploy` applies them explicitly for a deliberate deploy from a workstation. **If the dashboard deploy command is ever changed to `npx wrangler d1 migrations apply DB --remote --config wrangler.jsonc && npx wrangler deploy`, move the apply back out of the build and delete the script** — the build step is the fallback, not the goal. A migration that permanently drops or renames a table the live deployment still reads goes in its own later push, after the code that stopped reading it is deployed — that is the only shape the window between migrating and deploying cannot absorb, and it is also what keeps `wrangler rollback` safe.
+- Production auto-deploys from `main` through Cloudflare Workers Builds; do not add a deploy
+  workflow. Migrations are applied by the last step of `npm run build`, guarded so only a
+  production CI build touches the live database — a fallback, because the deploy command is not
+  ours to define. A migration that drops or renames a table the live deployment still reads
+  goes in its own later push, after the code that stopped reading it is deployed.
 
 ## Commands
 
