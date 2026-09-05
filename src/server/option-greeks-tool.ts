@@ -1,4 +1,4 @@
-import { type AgentTool } from '@earendil-works/pi-agent-core'
+import { type AgentTool } from '../domain/agent-tool'
 import { type Static, Type } from 'typebox'
 import { Compile } from 'typebox/compile'
 

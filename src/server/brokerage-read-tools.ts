@@ -1,4 +1,4 @@
-import { type AgentTool } from '@earendil-works/pi-agent-core'
+import { type AgentTool } from '../domain/agent-tool'
 
 import { equitySymbolFromModelText } from '../domain/instrument'
 import { type AppEnv } from './env'

@@ -1,6 +1,6 @@
 import { McpServer, fromJsonSchema, type JsonSchemaType } from '@modelcontextprotocol/server'
 import { createMcpHandler } from 'agents/mcp/server'
-import { type AgentTool } from '@earendil-works/pi-agent-core'
+import { type AgentTool } from '../domain/agent-tool'
 import { type TSchema } from 'typebox'
 import { z } from 'zod'
 

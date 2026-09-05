@@ -1,4 +1,4 @@
-import { type AgentTool } from '@earendil-works/pi-agent-core'
+import { type AgentTool } from '../domain/agent-tool'
 import createYahooFinance from 'yahoo-finance2/createYahooFinance'
 import chart, { type ChartResultArray } from 'yahoo-finance2/modules/chart'
 

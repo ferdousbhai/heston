@@ -1,4 +1,4 @@
-import { type AgentTool } from '@earendil-works/pi-agent-core'
+import { type AgentTool } from '../domain/agent-tool'
 import { Type } from 'typebox'
 
 import { EQUITY_SYMBOL_PATTERN, EquitySymbolType } from '../domain/instrument'
