@@ -413,20 +413,29 @@ export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpEx
     return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'Spice could not verify this request.'))
   }
 
-  return requireMcpAuth(runtime.auth, async (authenticated, claims) => {
-    // The provider has already verified signature, issuer, audience and expiry; the claims are
-    // still read through a schema, because what they contain is a wire shape either way.
-    const subject = AccessTokenSubjectSchema.safeParse(claims)
-    // A token whose subject is not a user this server knows authenticates nothing.
-    const caller = subject.success
-      ? await callerForUser(env, subject.data.sub, `oauth:${subject.data.jti ?? subject.data.sub}`)
-      : undefined
-    if (!caller) {
-      console.error('McpAuthRejected')
-      return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'This token does not identify a Spice member.'))
-    }
-    return serveMcp(authenticated, env, ctx, caller)
-  }, { resource: runtime.mcpResource })(request)
+  // Verification runs the provider's JWKS, audience and expiry checks, any of which can raise.
+  // An exception here must refuse rather than escape: a 500 from the auth path tells a caller
+  // nothing they can act on, loses the challenge that would let them re-authenticate, and is
+  // the one shape that could be mistaken for the endpoint being broken rather than the token.
+  try {
+    return await requireMcpAuth(runtime.auth, async (authenticated, claims) => {
+      // The provider has already verified signature, issuer, audience and expiry; the claims are
+      // still read through a schema, because what they contain is a wire shape either way.
+      const subject = AccessTokenSubjectSchema.safeParse(claims)
+      // A token whose subject is not a user this server knows authenticates nothing.
+      const caller = subject.success
+        ? await callerForUser(env, subject.data.sub, `oauth:${subject.data.jti ?? subject.data.sub}`)
+        : undefined
+      if (!caller) {
+        console.error('McpAuthRejected')
+        return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'This token does not identify a Spice member.'))
+      }
+      return serveMcp(authenticated, env, ctx, caller)
+    }, { resource: runtime.mcpResource })(request)
+  } catch (error) {
+    console.error('McpOAuthVerificationFailed', error instanceof Error ? error.name : 'UnknownError')
+    return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'Spice could not verify this token.'))
+  }
 }
 
 /**
