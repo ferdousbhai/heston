@@ -29,6 +29,12 @@ async function storeWithCatalog(): Promise<SqliteD1Store> {
     }], ['BE']),
     unresolvedInstrumentCatalogItem('HUH'),
   ])
+  // Incidental attention only spends a search on a name the site tracks, so the fixture puts it
+  // on the maintained list -- which is where a symbol a reader can reach has always come from.
+  await store.database.prepare(
+    `INSERT INTO internal_watchlist_items (symbol, instrument_type, origin, created_at, updated_at)
+     VALUES ('BE', 'Equity', 'visitor-search', ?, ?)`,
+  ).bind(NOW.toISOString(), NOW.toISOString()).run()
   return store
 }
 
@@ -98,6 +104,28 @@ describe('catalyst coverage seeded by favorites', () => {
       .resolves.toMatchObject({ ran: true })
     expect(fetchMock).toHaveBeenCalledTimes(2)
     store.close()
+  })
+
+  it('will not let incidental attention spend a search on a name the site does not track', async () => {
+    // The window bounds how often one symbol is searched; it says nothing about how many symbols
+    // are reachable. Without this the reachable set was the whole instrument catalog -- thousands
+    // of names, spendable with no credential, since attention has always been anonymous.
+    const store = await storeWithCatalog()
+    const fetchMock = stubExa()
+    try {
+      await store.database.prepare('DELETE FROM internal_watchlist_items WHERE symbol = ?')
+        .bind('BE').run()
+
+      await expect(refreshCatalystsForSymbol(env(store), 'BE', NOW))
+        .resolves.toEqual({ catalysts: [], ran: false, reason: 'untracked' })
+      expect(fetchMock).not.toHaveBeenCalled()
+
+      // The owner asking on purpose is a different signal and already costs a credential.
+      await refreshCatalystsForSymbol(env(store), 'BE', NOW, true)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    } finally {
+      store.close()
+    }
   })
 
   it('spends a forced search the window would have refused, and resets the window', async () => {

@@ -45,9 +45,9 @@ export type Catalyst = z.infer<typeof CatalystSchema>
 export const CatalystRefreshSchema = z.strictObject({
   catalysts: z.array(CatalystSchema),
   ran: z.boolean(),
-  // Why no search happened. Without it, "searched and found nothing" and "refused, one ran
-  // this month" reach a reader as the same empty calendar.
-  reason: z.enum(['fresh', 'unknown-symbol']).optional(),
+  // Why no search happened. Without it, "searched and found nothing", "refused, one ran this
+  // month" and "not a name this site tracks" reach a reader as the same empty calendar.
+  reason: z.enum(['fresh', 'unknown-symbol', 'untracked']).optional(),
 })
 
 export type CatalystRefresh = z.infer<typeof CatalystRefreshSchema>

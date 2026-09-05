@@ -12,6 +12,15 @@ import { readInstrumentCatalog } from './instrument-catalog'
  * reader favorites it, or once one looks at it and finds an empty near-term calendar.
  * A symbol is searched at most once in this window whatever the search found, so a name
  * nobody has looked at stays unsearched and a name a hundred readers open is one search.
+ *
+ * The window bounds how often one symbol is searched. It says nothing about how many symbols
+ * are reachable, and that set was the whole instrument catalog -- thousands of names, spendable
+ * by anyone with no credential, since attention has always been anonymous. Incidental attention
+ * is therefore limited to the tracked watchlist: the universe this product actually serves, and
+ * already bounded at `MAX_WATCHLIST_SYMBOLS`. Nothing legitimate loses coverage, because a name
+ * reaches a reader by being on that list, and a searched name joins it before anyone can look at
+ * its calendar. The owner's forced run is unaffected -- it is deliberate rather than incidental,
+ * and already costs an owner credential.
  */
 export const CATALYST_REFRESH_INTERVAL_DAYS = 30
 const CATALYST_PROVIDER: CatalystProvider = 'exa'
@@ -23,7 +32,7 @@ export type CatalystRefresh = {
   /** What this run bound, so a caller can show it without waiting for the next snapshot. */
   catalysts: Catalyst[]
   ran: boolean
-  reason?: 'fresh' | 'unknown-symbol'
+  reason?: 'fresh' | 'unknown-symbol' | 'untracked'
 }
 
 /**
@@ -49,6 +58,18 @@ async function claimRun(env: AppEnv, symbol: string, now: Date, forced: boolean)
        ran_at = excluded.ran_at, catalyst_count = 0, status = 'running', detail = NULL`,
   ).bind(symbol, CATALYST_PROVIDER, now.toISOString()).run()
   return true
+}
+
+/**
+ * On the maintained watchlist. Searching for a name admits it there, so this is a bound on which
+ * symbols incidental attention may spend a search on, not on which symbols can ever be covered.
+ */
+async function isTracked(env: AppEnv, symbol: string): Promise<boolean> {
+  if (!env.DB) return false
+  const row = await env.DB.prepare(
+    'SELECT 1 AS tracked FROM internal_watchlist_items WHERE symbol = ?',
+  ).bind(symbol).first()
+  return row !== null
 }
 
 async function recordRun(
@@ -91,6 +112,9 @@ export async function refreshCatalystsForSymbol(
   const instrument = (await readInstrumentCatalog(env, [symbol])).get(symbol)
   if (!instrument || instrument.resolutionStatus !== 'resolved') {
     return { catalysts: [], ran: false, reason: 'unknown-symbol' }
+  }
+  if (!forced && !await isTracked(env, symbol)) {
+    return { catalysts: [], ran: false, reason: 'untracked' }
   }
   if (!await claimRun(env, symbol, now, forced)) return { catalysts: [], ran: false, reason: 'fresh' }
 
