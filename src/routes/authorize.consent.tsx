@@ -22,7 +22,12 @@ export const Route = createFileRoute('/authorize/consent')({
   head: () => ({ meta: [{ title: 'Approve access | Spice Must Flow' }] }),
 })
 
-const ConsentResponseSchema = z.object({ redirectURI: z.string().min(1) })
+/**
+ * Where to send the browser once the answer is recorded. The provider returns this shape to a
+ * fetch rather than a 302, because the answer is posted by script; `redirectURI` was the older
+ * spelling and reading for it turned a recorded consent into a page that looked broken.
+ */
+const ConsentResponseSchema = z.object({ redirect: z.boolean(), url: z.string().min(1) })
 const FailureSchema = z.object({ error_description: z.string().min(1) })
 
 function ConsentPage() {
@@ -54,8 +59,8 @@ function ConsentPage() {
         const reason = FailureSchema.safeParse(await response.json().catch(() => undefined))
         throw new Error(reason.success ? reason.data.error_description : 'Spice could not record that answer.')
       }
-      const { redirectURI } = ConsentResponseSchema.parse(await response.json())
-      window.location.replace(redirectURI)
+      const { url } = ConsentResponseSchema.parse(await response.json())
+      window.location.replace(url)
     } catch (error) {
       setSubmitting(false)
       setFailure(error instanceof Error ? error.message : 'Spice could not record that answer.')
