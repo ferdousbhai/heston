@@ -55,6 +55,12 @@ const OptionalBoolean = z.boolean().nullable()
 // Provider description fields are untrusted storage input. These generous text widths bound
 // D1 rows and UI strings without classifying or shortening any valid symbol or trading field.
 export const InstrumentCatalogItemSchema = z.object({
+  /**
+   * Whether the broker still trades it. False is a delisted or acquired name -- ANSS, ATVI and
+   * a hundred others -- which quotes a stale last price forever and can never trade again. The
+   * column was always stored and never read, so a dead ticker resolved like any other.
+   */
+  active: OptionalBoolean,
   borrowRate: z.number().finite().nullable(),
   countryOfIncorporation: z.string().trim().min(1).max(128).nullable(),
   description: z.string().trim().min(1).max(512).nullable(),
@@ -68,6 +74,15 @@ export const InstrumentCatalogItemSchema = z.object({
 })
 
 export type InstrumentCatalogItem = z.infer<typeof InstrumentCatalogItemSchema>
+
+/**
+ * Tradeable today. A catalog row exists for names the broker has stopped trading, and they are
+ * kept rather than deleted -- a held position or an old citation still needs to resolve one --
+ * but nothing may offer them as something to look at or act on.
+ */
+export function isTradeableInstrument(item: Pick<InstrumentCatalogItem, 'active' | 'resolutionStatus'>): boolean {
+  return item.resolutionStatus === 'resolved' && item.active !== false
+}
 
 export function instrumentDisplayName(item: Pick<InstrumentCatalogItem, 'description' | 'shortDescription' | 'symbol'>): string {
   return item.description ?? item.shortDescription ?? item.symbol

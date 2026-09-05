@@ -18,8 +18,16 @@ export async function publishInternalWatchlistUniverse(
   updatedAt = new Date(),
 ): Promise<void> {
   if (!env.DB) throw new Error('PublicMarketUniverse:store-unavailable')
+  // A name the broker has stopped trading is excluded here rather than deleted from the list.
+  // It quotes a stale last price forever and can never trade again, so offering it to a reader
+  // is offering something to act on that cannot be acted on -- CRVW rode the original seed onto
+  // the public page this way and priced at three cents for as long as anyone looked. A row the
+  // catalog has never seen is kept: unknown is not the same as delisted.
   const rows = await env.DB.prepare(
-    'SELECT symbol FROM internal_watchlist_items ORDER BY symbol ASC',
+    `SELECT i.symbol FROM internal_watchlist_items i
+       LEFT JOIN instrument_catalog c ON c.symbol = i.symbol
+      WHERE coalesce(c.active, 1) = 1
+      ORDER BY i.symbol ASC`,
   ).all<{ symbol: string }>()
   const universe = PublicMarketUniverseSchema.parse({
     symbols: z.array(PublicMarketUniverseRowSchema).parse(rows.results).map((row) => row.symbol),

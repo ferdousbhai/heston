@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 
 import {
   ensureInternalWatchlistSeeded,
@@ -14,6 +15,11 @@ import {
   selectInternalWatchlistFocus,
 } from '../src/server/internal-watchlist'
 import { MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
+import {
+  instrumentCatalogFromPayload,
+  persistInstrumentCatalog,
+} from '../src/server/instrument-catalog'
+import { publishInternalWatchlistUniverse } from '../src/server/public-market-universe'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 
 let store: SqliteD1Store
@@ -334,5 +340,46 @@ describe('one-time tastytrade watchlist seed', () => {
     ).get()
     expect(publicRow).toBeDefined()
     expect(JSON.parse(String(publicRow?.payload_json))).toEqual({ symbols: items.map((item) => item.symbol) })
+  })
+})
+
+describe('delisted names', () => {
+  it('keeps a name the broker no longer trades off the public universe', async () => {
+    const store = await migrationStore()
+    const env = { DB: store.database }
+    try {
+      await ensureInternalWatchlistSeeded(env, async () => ({
+        privatePayload: [{
+          name: 'Seed',
+          'watchlist-entries': [
+            { symbol: 'BE', 'instrument-type': 'Equity' },
+            { symbol: 'ATVI', 'instrument-type': 'Equity' },
+          ],
+        }],
+        publicPayload: [],
+      }))
+      await finalizeInternalWatchlist(env, [])
+      // ATVI was acquired: the catalog still carries the row, and must, because a citation or a
+      // held position may still need to resolve it. It just may not be offered to a reader.
+      await persistInstrumentCatalog(env, [
+        ...instrumentCatalogFromPayload([
+          { active: false, description: 'Activision Blizzard', 'instrument-type': 'Equity', symbol: 'ATVI' },
+          { active: true, description: 'Bloom Energy', 'instrument-type': 'Equity', symbol: 'BE' },
+        ], ['ATVI', 'BE']),
+      ])
+
+      await publishInternalWatchlistUniverse(env)
+      const stored = store.sqlite
+        .prepare("SELECT payload_json FROM public_market_universe WHERE id='primary'").get()
+      const published = z.object({ symbols: z.array(z.string()) })
+        .parse(JSON.parse(z.object({ payload_json: z.string() }).parse(stored).payload_json))
+        .symbols
+      expect(published).toContain('BE')
+      expect(published).not.toContain('ATVI')
+      // Still on the maintained list -- excluded from readers, not deleted from the record.
+      expect((await readInternalWatchlist(env)).map((item) => item.symbol)).toContain('ATVI')
+    } finally {
+      store.close()
+    }
   })
 })

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { EquitySymbolSchema } from '../domain/instrument'
+import { EquitySymbolSchema, isTradeableInstrument } from '../domain/instrument'
 import { type Catalyst } from '../domain/catalyst'
 import { type CatalystProvider, persistResearchCatalysts } from './catalysts'
 import { runExaCatalystSearch } from './catalyst-research-exa'
@@ -110,7 +110,9 @@ export async function refreshCatalystsForSymbol(
 ): Promise<CatalystRefresh> {
   const symbol = EquitySymbolSchema.parse(untrustedSymbol)
   const instrument = (await readInstrumentCatalog(env, [symbol])).get(symbol)
-  if (!instrument || instrument.resolutionStatus !== 'resolved') {
+  // A delisted name has no upcoming anything. Paying for a search on one is spending real money
+  // to learn that a company acquired two years ago has no next earnings date.
+  if (!instrument || !isTradeableInstrument(instrument)) {
     return { catalysts: [], ran: false, reason: 'unknown-symbol' }
   }
   if (!forced && !await isTracked(env, symbol)) {

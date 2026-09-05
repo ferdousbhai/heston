@@ -299,6 +299,7 @@ export async function readInstrumentCatalog(
   }
   return new Map(catalogRows.map((row) => {
     const item = InstrumentCatalogItemSchema.parse({
+      active: storedBoolean(row.active),
       borrowRate: row.borrow_rate,
       countryOfIncorporation: row.country_of_incorporation,
       description: row.description,
