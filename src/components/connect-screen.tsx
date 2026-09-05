@@ -126,9 +126,15 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
   const { busy, error, issue, issued, revoke, tokens } = useAgentTokens()
   const [label, setLabel] = useState('')
 
+  // While a freshly issued token is on screen, both blocks carry it. A placeholder here made the
+  // shortest path copy the token, copy the config, then splice one into the other by hand -- and
+  // the token is shown exactly once, so that splice is the step with the most to lose. After the
+  // reveal the placeholder is all that can honestly be shown: the digest is all the server kept.
+  const bearer = issued ?? 'YOUR_TOKEN'
   const mcpConfig = JSON.stringify({
-    mcpServers: { spice: { headers: { Authorization: 'Bearer YOUR_TOKEN' }, type: 'http', url: MCP_URL } },
+    mcpServers: { spice: { headers: { Authorization: `Bearer ${bearer}` }, type: 'http', url: MCP_URL } },
   }, null, 2)
+  const claudeCommand = `claude mcp add --transport http spice ${MCP_URL} --header "Authorization: Bearer ${bearer}"`
 
   return (
     <section className="connect-screen">
@@ -210,9 +216,11 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
       <section className="connect-step">
         <h2>2 · Point your agent at Spice</h2>
         <p>
-          Add Spice as an MCP server, substituting the token you just created. In Claude Code this is
-          also <code>claude mcp add --transport http spice {MCP_URL} --header &quot;Authorization: Bearer …&quot;</code>.
+          {issued
+            ? 'Both blocks below already carry the token you just created — copy either one.'
+            : 'Substitute the token you created above; it is shown only at the moment it is issued.'}
         </p>
+        <CopyBlock label="Claude Code" value={claudeCommand} />
         <CopyBlock label=".mcp.json" value={mcpConfig} />
       </section>
 

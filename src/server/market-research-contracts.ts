@@ -55,7 +55,11 @@ export const PriceHistoryReadParameters = Type.Object({
     pattern: ISO_DATE_PATTERN,
   })),
   studies: Type.Optional(Type.Array(PriceStudyParameters, {
-    description: 'Optional studies calculated from adjusted closes. Defaults: period 14; MACD 12/26/9; Bollinger deviations 2.',
+    // The kinds are already literals in the schema, but they arrive as an `anyOf` of three
+    // object branches and a model reading the flattened description misses them -- a first call
+    // guesses `"sma"` or a bare string, and pays a round trip to be told. Naming them in prose
+    // costs a line and buys the call.
+    description: 'Optional studies from adjusted closes; kind is SMA, EMA, RSI, BBANDS or MACD, uppercase. Defaults: period 14; MACD 12/26/9; Bollinger deviations 2.',
     maxItems: MAX_PRICE_STUDIES,
   })),
   symbol: EquitySymbolType,
