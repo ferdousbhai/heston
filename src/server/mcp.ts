@@ -20,6 +20,7 @@ import {
   createOptionContractFindTool,
 } from './brokerage-read-tools'
 import { type AppEnv } from './env'
+import { createMarketResearchTools } from './market-research-tools'
 import { createExactOptionGreeksReadTool } from './option-greeks-tool'
 import { createRecentCoverageTool, createRedditIngestTool } from './research-agent-tools'
 import { DailyRecommendationsSubmissionSchema } from './research-submission'
@@ -85,6 +86,11 @@ export function createSpiceMcpServer(env: AppEnv, caller: McpCaller, credential?
     createMarketMetricsReadTool(env),
     createOptionContractFindTool(env),
     createInstrumentQuoteReadTool(env),
+    // Price history is the only historical read there is: quotes, metrics, chains and Greeks
+    // are all "right now". Without it a connected agent cannot answer how a name has moved,
+    // where it sits against its own range, or anything a study describes -- so it was left
+    // guessing on exactly the questions a trader asks first.
+    ...createMarketResearchTools(),
     ...createResearchReadTools(env),
     createWatchlistReadTool(env),
     createRememberSymbolsTool(env),
@@ -297,4 +303,33 @@ export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpEx
     // provider or caller content, so only the error's own name is recorded.
     onerror: (error: Error) => console.error('McpHandlerError', error.name),
   })(request, env, ctx as ExecutionContext)
+}
+
+/**
+ * The JSON-RPC answer for an MCP client that connected to the wrong path.
+ *
+ * People are told to point their agent at Spice, and the natural thing to type is the site's
+ * own address rather than the endpoint under it. That request lands on the web app, which
+ * answers `200 text/html`, and the client fails somewhere inside its JSON parser — the one
+ * failure mode that tells the user nothing at all. A JSON-RPC error naming the endpoint is
+ * something an agent can read and act on, and a browser never sends a request shaped like this.
+ *
+ * Returns undefined when the request is not an MCP handshake, so every ordinary request —
+ * including a server function posting JSON — passes through untouched.
+ */
+export async function mcpEndpointRedirect(request: Request): Promise<Response | undefined> {
+  if (request.method !== 'POST') return undefined
+  if (!request.headers.get('content-type')?.includes('application/json')) return undefined
+  const body: unknown = await request.clone().json().catch(() => undefined)
+  const probe = z.object({ jsonrpc: z.literal('2.0'), method: z.string() }).safeParse(body)
+  if (!probe.success) return undefined
+  const endpoint = new URL('/mcp', request.url).toString()
+  return Response.json({
+    error: {
+      code: -32_600,
+      message: `Spice's MCP endpoint is ${endpoint} — this address serves the web app. Reconnect to ${endpoint}.`,
+    },
+    id: null,
+    jsonrpc: '2.0',
+  }, { status: 404 })
 }

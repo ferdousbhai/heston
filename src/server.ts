@@ -2,7 +2,7 @@ import handler from '@tanstack/react-start/server-entry'
 
 import { type AppEnv } from './server/env'
 import { canonicalHostRedirect, finalizeDocumentResponse } from './server/http'
-import { handleMcpRequest } from './server/mcp'
+import { handleMcpRequest, mcpEndpointRedirect } from './server/mcp'
 import { watchDailyBrief } from './server/research-watchdog'
 import { refreshYearCandles } from './server/scheduled-jobs'
 import { configureTypeboxRuntime } from './server/typebox-runtime'
@@ -19,6 +19,10 @@ export default {
     // The tool surface for the agent on the owner's machine. Bearer-authed inside the
     // handler; the session/cookie path stays untouched and the token opens nothing else.
     if (new URL(request.url).pathname === '/mcp') return handleMcpRequest(request, env, ctx)
+    // An agent aimed at the site rather than at `/mcp` would otherwise be handed the web app's
+    // HTML with a 200 and fail inside its JSON parser, saying nothing useful to anyone.
+    const misdirected = await mcpEndpointRedirect(request)
+    if (misdirected) return misdirected
     return finalizeDocumentResponse(request, await handler.fetch(request))
   },
   scheduled(controller: ScheduledController, env: AppEnv, context: ExecutionContext) {

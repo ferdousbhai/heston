@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import { type JsonValue } from '../src/domain/json-payload'
 
-import { handleMcpRequest, resolveMcpCaller, type McpExecutionContext } from '../src/server/mcp'
+import { handleMcpRequest, mcpEndpointRedirect, resolveMcpCaller, type McpExecutionContext } from '../src/server/mcp'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
 
@@ -114,12 +114,18 @@ describe('MCP tool surface', () => {
       const payload = JSON.parse(body.slice(body.indexOf('{')))
       const names = payload.result.tools.map((tool: { name: string }) => tool.name)
 
+      // The market reads are enumerated by hand here and in `mcp.ts`, and twice now a factory
+      // has been added to the research run's bundle and forgotten on this surface -- most
+      // recently `read_price_history`, which left a connected agent with no historical read at
+      // all while every "right now" tool worked. Naming them is what makes that omission fail.
       for (const expected of [
         'read_market_metrics', 'read_instrument_quotes', 'search_symbols',
         'find_option_contracts', 'read_catalysts', 'read_daily_recommendations', 'read_watchlist',
+        'read_price_history', 'read_option_greeks', 'remember_symbols',
         'get_recent_coverage',
         'ingest_wsb',
         'place_brokerage_order',
+        'cancel_brokerage_order',
         'reconcile_brokerage_action',
         'publish_daily_recommendations',
       ]) {
@@ -301,6 +307,40 @@ describe('MCP tool annotations', () => {
   it('refuses to register a tool nobody has described', async () => {
     const { toolAnnotations } = await import('../src/server/mcp-annotations')
     expect(() => toolAnnotations('a_tool_that_was_never_declared')).toThrow('undeclared-tool')
+  })
+})
+
+describe('misdirected MCP clients', () => {
+  it('names the endpoint when an agent connects to the site instead of /mcp', async () => {
+    const response = await mcpEndpointRedirect(new Request('https://tryspice.xyz/', {
+      body: JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'initialize' }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+    }))
+    expect(response?.status).toBe(404)
+    const body = z.object({ error: z.object({ message: z.string() }) })
+      .parse(await (response ?? Response.json({})).json())
+    expect(body.error.message).toContain('https://tryspice.xyz/mcp')
+  })
+
+  it('leaves every request that is not an MCP handshake alone', async () => {
+    const cases = [
+      new Request('https://tryspice.xyz/', { method: 'GET' }),
+      // A server function posting ordinary JSON must pass straight through.
+      new Request('https://tryspice.xyz/api/favorites', {
+        body: JSON.stringify({ symbols: ['NVDA'] }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      }),
+      new Request('https://tryspice.xyz/', {
+        body: 'not json at all',
+        headers: { 'content-type': 'text/plain' },
+        method: 'POST',
+      }),
+    ]
+    for (const request of cases) {
+      await expect(mcpEndpointRedirect(request)).resolves.toBeUndefined()
+    }
   })
 })
 
