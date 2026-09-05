@@ -1,4 +1,5 @@
 import { marketDate } from '../domain/catalyst'
+import { MAX_LIVE_STREAM_SYMBOLS } from '../domain/watchlist'
 import { type AppEnv } from './env'
 import { readInternalWatchlistFocus } from './internal-watchlist'
 import { upsertYearCandles } from './year-candle-store'
@@ -10,7 +11,12 @@ import { upsertYearCandles } from './year-candle-store'
  */
 export async function refreshYearCandles(env: AppEnv, asOf = new Date()): Promise<number> {
   if (!env.DB || !env.MARKET_FEED) return 0
-  const symbols = await readInternalWatchlistFocus(env, [])
+  // The focus defaults to the watchlist's own 500-symbol bound, but this read is served by a
+  // DXLink subscription, which admits `MAX_LIVE_STREAM_SYMBOLS`. Asking for the list's bound
+  // instead of the feed's refused the whole refresh the moment the list — which grows on its
+  // own through visitor search — passed 100. The focus is priority-ordered, so the feed's
+  // budget takes the names the year chart is actually drawn for.
+  const symbols = await readInternalWatchlistFocus(env, [], MAX_LIVE_STREAM_SYMBOLS)
   if (!symbols.length) return 0
   const result = await env.MARKET_FEED.getByName('primary-account').readDailyCandles(symbols)
   const series = new Map(result.series.map(({ symbol, closes }) => [symbol, closes]))
