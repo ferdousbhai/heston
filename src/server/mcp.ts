@@ -1,4 +1,3 @@
-import { requireMcpAuth } from '@better-auth/mcp'
 import {
   McpServer,
   OAuthError,
@@ -33,6 +32,7 @@ import { PORTFOLIO_REVIEW_PROMPT, SPICE_GUIDE, SPICE_MCP_INSTRUCTIONS, tradeIdea
 import { toolAnnotations } from './mcp-annotations'
 import { authenticateMcpToken } from './mcp-tokens'
 import { getAuthRuntime, isOwnerEmail } from './auth'
+import { verifyMcpAccessToken } from './mcp-token-verify'
 import { createRememberSymbolsTool, createWatchlistManageTool, createWatchlistReadTool } from './watchlist-tool'
 import {
   BrokerCredentialMissingError,
@@ -341,8 +341,6 @@ export async function resolveMcpCaller(request: Request, env: AppEnv): Promise<M
  */
 export type McpExecutionContext = Pick<ExecutionContext, 'props' | 'waitUntil'>
 
-const AccessTokenSubjectSchema = z.object({ jti: z.string().min(1).optional(), sub: z.string().min(1) })
-
 /** Ownership is decided by the same `isOwnerEmail` the cookie surface uses, in one place. */
 async function callerForUser(
   env: AppEnv,
@@ -413,30 +411,33 @@ export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpEx
     return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'Spice could not verify this request.'))
   }
 
-  // Verification runs the provider's JWKS, audience and expiry checks, any of which can raise.
-  // An exception here must refuse rather than escape: a 500 from the auth path tells a caller
-  // nothing they can act on, loses the challenge that would let them re-authenticate, and is
-  // the one shape that could be mistaken for the endpoint being broken rather than the token.
+  const presented = request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '').trim()
+  if (!presented) {
+    return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'Send the token as a bearer credential.'))
+  }
+  let claims
   try {
-    return await requireMcpAuth(runtime.auth, async (authenticated, claims) => {
-      // The provider has already verified signature, issuer, audience and expiry; the claims are
-      // still read through a schema, because what they contain is a wire shape either way.
-      const subject = AccessTokenSubjectSchema.safeParse(claims)
-      // A token whose subject is not a user this server knows authenticates nothing.
-      const caller = subject.success
-        ? await callerForUser(env, subject.data.sub, `oauth:${subject.data.jti ?? subject.data.sub}`)
-        : undefined
-      if (!caller) {
-        console.error('McpAuthRejected')
-        return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'This token does not identify a Spice member.'))
-      }
-      return serveMcp(authenticated, env, ctx, caller)
-    }, { resource: runtime.mcpResource })(request)
+    claims = await verifyMcpAccessToken(runtime.auth, presented, {
+      audience: runtime.mcpResource,
+      issuer: runtime.authIssuer,
+    })
   } catch (error) {
+    // Refuse, never throw. A 500 from the auth path tells a caller nothing they can act on and
+    // loses the challenge that would let them authenticate; it also reads as a broken endpoint
+    // rather than a bad token, which is how a whole broken flow stayed invisible.
     console.error('McpOAuthVerificationFailed', error instanceof Error ? error.name : 'UnknownError')
     return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'Spice could not verify this token.'))
   }
+
+  const caller = await callerForUser(env, claims.sub, `oauth:${claims.jti ?? claims.sub}`)
+  // A token whose subject is not a user this server knows authenticates nothing.
+  if (!caller) {
+    console.error('McpAuthRejected')
+    return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'This token does not identify a Spice member.'))
+  }
+  return serveMcp(request, env, ctx, caller)
 }
+
 
 /**
  * The JSON-RPC answer for an MCP client that connected to the wrong path.

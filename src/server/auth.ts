@@ -93,8 +93,18 @@ export function mcpResourceIdentifier(baseURL: string): string {
   return `${baseURL}/mcp`
 }
 
+/**
+ * The issuer every access token carries, which is better-auth's base path rather than the site
+ * origin. Verification compares against this exact string, so it is derived here once instead of
+ * being rebuilt at the point of use.
+ */
+export function authIssuerFor(baseURL: string): string {
+  return `${baseURL}/api/auth`
+}
+
 type AuthRuntime = {
   auth: ReturnType<typeof configureAuth>
+  authIssuer: string
   mcpResource: string
 }
 
@@ -110,7 +120,7 @@ async function createAuthRuntime(env: AppEnv): Promise<AuthRuntime> {
 
   const auth = configureAuth(env.DB, baseURL, secret, googleClientId, googleClientSecret)
 
-  return { auth, mcpResource: mcpResourceIdentifier(baseURL) }
+  return { auth, authIssuer: authIssuerFor(baseURL), mcpResource: mcpResourceIdentifier(baseURL) }
 }
 
 /** A failed build must not stay cached, so the next request retries from scratch. */
