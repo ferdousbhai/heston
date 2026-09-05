@@ -22,6 +22,7 @@ import {
 } from './brokerage-read-tools'
 import { type AppEnv } from './env'
 import { createMarketResearchTools } from './market-research-tools'
+import { createPublicMarketReadTools } from './public-market-tools'
 import { createExactOptionGreeksReadTool } from './option-greeks-tool'
 import { createRecentCoverageTool, createRedditIngestTool } from './research-agent-tools'
 import { DailyRecommendationsSubmissionSchema } from './research-submission'
@@ -81,26 +82,33 @@ export function createSpiceMcpServer(env: AppEnv, caller: McpCaller, credential?
   )
 
   const tools: AgentTool<TSchema>[] = [
-    // The bundle carries only the account-flavored pair; the market reads are standalone
-    // factories, and leaving them to the bundle silently served a two-tool market surface.
-    ...createBrokerageReadTools(env, credential),
-    createMarketMetricsReadTool(env),
-    createOptionContractFindTool(env),
-    createInstrumentQuoteReadTool(env),
     // Price history is the only historical read there is: quotes, metrics, chains and Greeks
     // are all "right now". Without it a connected agent cannot answer how a name has moved,
     // where it sits against its own range, or anything a study describes -- so it was left
-    // guessing on exactly the questions a trader asks first.
+    // guessing on exactly the questions a trader asks first. Yahoo, not this Worker's broker
+    // quota, so it costs an anonymous caller nothing the website does not already spend.
     ...createMarketResearchTools(),
+    // D1 reads. Already public through the website, and free of any per-call provider cost.
     ...createResearchReadTools(env),
     createWatchlistReadTool(env),
-    createRememberSymbolsTool(env),
-    createExactOptionGreeksReadTool(env),
-    // Discovery for the local research run: WSB candidates and prior-coverage reads are
-    // private context behind the same bearer token, never part of any public surface.
-    // An ambiguous submission quarantines the account. The agent must be able to clear it,
-    // because nothing else can: reconciliation needs the caller's own broker credential.
-    createBrokerageReconciliationTool(env, credential),
+    // Quotes and metrics exist at both tiers and mean different things: a signed-in caller asks
+    // the broker on every call, an anonymous one reads the website's cached snapshot. They share
+    // a name, so the tier chooses which is registered rather than both colliding.
+    ...(caller.signedIn
+      ? [
+        // The bundle carries only the account-flavored pair; the market reads are standalone
+        // factories, and leaving them to the bundle silently served a two-tool market surface.
+        ...createBrokerageReadTools(env, credential),
+        createMarketMetricsReadTool(env),
+        createOptionContractFindTool(env),
+        createInstrumentQuoteReadTool(env),
+        createExactOptionGreeksReadTool(env),
+        // Writing to the shared watchlist, and clearing a quarantined submission, are acts that
+        // want an account behind them even though neither touches one directly.
+        createRememberSymbolsTool(env),
+        createBrokerageReconciliationTool(env, credential),
+      ]
+      : createPublicMarketReadTools(env)),
     // Publishing the public brief and private Reddit discovery are owner acts. A member is not
     // shown a surface they cannot use, so these are absent from their tool list rather than
     // present and refused.
@@ -263,7 +271,23 @@ export function createSpiceMcpServer(env: AppEnv, caller: McpCaller, credential?
  * outside the per-member cap, and left no trace of use, which is everything the token table
  * exists to fix.
  */
-export type McpCaller = { owner: boolean; tokenId: string; userId: string }
+export type McpCaller = {
+  owner: boolean
+  /** False for a caller who presented no credential at all. */
+  signedIn: boolean
+  tokenId: string
+  userId: string
+}
+
+/**
+ * The caller who presented nothing.
+ *
+ * Reads the website's own cached snapshot and the rows behind it, so an agent can answer a market
+ * question with no setup at all -- the same data a visitor gets, out of the same cache entry, at
+ * the same cost. Everything that spends a per-call broker request, writes to shared state, or
+ * touches an account stays behind a credential.
+ */
+export const ANONYMOUS_CALLER: McpCaller = { owner: false, signedIn: false, tokenId: '', userId: '' }
 
 export async function resolveMcpCaller(request: Request, env: AppEnv): Promise<McpCaller | undefined> {
   const header = request.headers.get('Authorization')
@@ -278,7 +302,7 @@ export async function resolveMcpCaller(request: Request, env: AppEnv): Promise<M
   const row = await env.DB.prepare('SELECT email FROM "user" WHERE id = ?')
     .bind(identity.userId).first<{ email: string }>()
   // A row without an email cannot be the owner; absence is never elevated.
-  return { owner: Boolean(row?.email) && isOwnerEmail(row?.email ?? ''), tokenId: identity.tokenId, userId: identity.userId }
+  return { owner: Boolean(row?.email) && isOwnerEmail(row?.email ?? ''), signedIn: true, tokenId: identity.tokenId, userId: identity.userId }
 }
 
 /**
@@ -300,7 +324,7 @@ async function callerForUser(
   const row = await env.DB.prepare('SELECT email FROM "user" WHERE id = ?')
     .bind(userId).first<{ email: string }>()
   // A row without an email cannot be the owner; absence is never elevated.
-  return { owner: Boolean(row?.email) && isOwnerEmail(row?.email ?? ''), tokenId, userId }
+  return { owner: Boolean(row?.email) && isOwnerEmail(row?.email ?? ''), signedIn: true, tokenId, userId }
 }
 
 function serveMcp(
@@ -339,6 +363,13 @@ function serveMcp(
 export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpExecutionContext): Promise<Response> {
   const minted = await resolveMcpCaller(request, env)
   if (minted) return serveMcp(request, env, ctx, minted)
+
+  // No credential at all is a caller, not a refusal. The public market surface has always been
+  // readable without an account through the website, and an agent asking the same question should
+  // not need more than a visitor does. A credential that is *present* and does not verify still
+  // gets the challenge below: that is a caller trying to authenticate and failing, which they can
+  // act on, rather than one who never claimed to be anybody.
+  if (!request.headers.get('Authorization')) return serveMcp(request, env, ctx, ANONYMOUS_CALLER)
 
   let runtime
   try {

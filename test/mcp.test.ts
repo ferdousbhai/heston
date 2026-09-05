@@ -73,16 +73,44 @@ describe('MCP bearer authentication', () => {
     store.close()
   })
 
-  it('rejects an unauthenticated request before any protocol handling', async () => {
+  it('serves a caller who presented nothing, from the public tier', async () => {
+    const { env, store } = await ownerHarness()
+    try {
+      const response = await handleMcpRequest(mcpRequest({
+        id: 1, jsonrpc: '2.0', method: 'tools/list', params: {},
+      }), env, executionContext)
+      expect(response.status).toBe(200)
+      const body = await response.text()
+      const names = z.object({ result: z.object({ tools: z.array(z.object({ name: z.string() })) }) })
+        .parse(JSON.parse(body.slice(body.indexOf('{'))))
+        .result.tools.map((tool) => tool.name)
+
+      // The reads that cost nothing per call, plus quotes from the website's cached snapshot.
+      for (const offered of ['read_instrument_quotes', 'read_price_history', 'read_catalysts', 'read_watchlist']) {
+        expect(names).toContain(offered)
+      }
+      // Nothing that spends a per-call broker request, writes to shared state, or is owner-only.
+      for (const withheld of [
+        'find_option_contracts', 'read_option_greeks', 'remember_symbols',
+        'read_account_history', 'publish_daily_recommendations',
+      ]) {
+        expect(names).not.toContain(withheld)
+      }
+    } finally {
+      store.close()
+    }
+  })
+
+  it('still challenges a credential that is present and does not verify', async () => {
+    // A caller trying to authenticate and failing can act on a challenge; one who never claimed
+    // to be anybody cannot, which is why only this case is refused. The challenge must also say
+    // how to authenticate, or a stale token is indistinguishable from a broken endpoint.
     const response = await handleMcpRequest(
-      mcpRequest({ id: 1, jsonrpc: '2.0', method: 'tools/list' }),
+      mcpRequest({ id: 1, jsonrpc: '2.0', method: 'tools/list' }, 'spice_0000000000000000_notarealsecret'),
       {},
       executionContext,
     )
     expect(response.status).toBe(401)
-    // A refusal has to say how to authenticate, or a stale token is indistinguishable from a
-    // broken endpoint. It must not name a resource-metadata URL: that would point the client
-    // at an OAuth authorization server Spice does not run.
     const challenge = response.headers.get('WWW-Authenticate') ?? ''
     expect(challenge).toMatch(/^Bearer\b/)
     expect(challenge).toContain('invalid_token')

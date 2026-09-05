@@ -146,8 +146,9 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         <h1>Connect your agent</h1>
         <p>
           Spice is a tool surface for an agent running on your own machine — Claude Code, Codex, or
-          anything that speaks MCP. Point it here and it can read live quotes, option chains and
-          Greeks, the catalyst calendar, the daily brief, and your watchlist and favorites.
+          anything that speaks MCP. Any agent can read the public market surface without signing in
+          at all. Connecting yours adds live quotes, option chains and Greeks, and lets it add
+          symbols to the watchlist.
         </p>
       </header>
 
