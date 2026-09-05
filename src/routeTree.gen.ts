@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthorizeRouteImport } from './routes/authorize'
 import { Route as DisclosuresRouteImport } from './routes/disclosures'
 import { Route as OpsRouteImport } from './routes/ops'
 import { Route as PrivacyRouteImport } from './routes/privacy'
@@ -26,11 +27,17 @@ import { Route as ApiPublicYearCandlesRouteImport } from './routes/api.public-ye
 import { Route as ApiSnapshotRouteImport } from './routes/api.snapshot'
 import { Route as ApiStreamRouteImport } from './routes/api.stream'
 import { Route as ApiViewerRouteImport } from './routes/api.viewer'
+import { Route as AuthorizeConsentRouteImport } from './routes/authorize.consent'
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthorizeRoute = AuthorizeRouteImport.update({
+  id: '/authorize',
+  path: '/authorize',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DisclosuresRoute = DisclosuresRouteImport.update({
@@ -115,6 +122,11 @@ const ApiViewerRoute = ApiViewerRouteImport.update({
   path: '/api/viewer',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthorizeConsentRoute = AuthorizeConsentRouteImport.update({
+  id: '/consent',
+  path: '/consent',
+  getParentRoute: () => AuthorizeRoute,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -123,6 +135,7 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/authorize': typeof AuthorizeRouteWithChildren
   '/disclosures': typeof DisclosuresRoute
   '/ops': typeof OpsRoute
   '/privacy': typeof PrivacyRoute
@@ -139,10 +152,12 @@ export interface FileRoutesByFullPath {
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
   '/api/viewer': typeof ApiViewerRoute
+  '/authorize/consent': typeof AuthorizeConsentRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/authorize': typeof AuthorizeRouteWithChildren
   '/disclosures': typeof DisclosuresRoute
   '/ops': typeof OpsRoute
   '/privacy': typeof PrivacyRoute
@@ -159,11 +174,13 @@ export interface FileRoutesByTo {
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
   '/api/viewer': typeof ApiViewerRoute
+  '/authorize/consent': typeof AuthorizeConsentRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/authorize': typeof AuthorizeRouteWithChildren
   '/disclosures': typeof DisclosuresRoute
   '/ops': typeof OpsRoute
   '/privacy': typeof PrivacyRoute
@@ -180,12 +197,14 @@ export interface FileRoutesById {
   '/api/snapshot': typeof ApiSnapshotRoute
   '/api/stream': typeof ApiStreamRoute
   '/api/viewer': typeof ApiViewerRoute
+  '/authorize/consent': typeof AuthorizeConsentRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/authorize'
     | '/disclosures'
     | '/ops'
     | '/privacy'
@@ -202,10 +221,12 @@ export interface FileRouteTypes {
     | '/api/snapshot'
     | '/api/stream'
     | '/api/viewer'
+    | '/authorize/consent'
     | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/authorize'
     | '/disclosures'
     | '/ops'
     | '/privacy'
@@ -222,10 +243,12 @@ export interface FileRouteTypes {
     | '/api/snapshot'
     | '/api/stream'
     | '/api/viewer'
+    | '/authorize/consent'
     | '/api/auth/$'
   id:
     | '__root__'
     | '/'
+    | '/authorize'
     | '/disclosures'
     | '/ops'
     | '/privacy'
@@ -242,11 +265,13 @@ export interface FileRouteTypes {
     | '/api/snapshot'
     | '/api/stream'
     | '/api/viewer'
+    | '/authorize/consent'
     | '/api/auth/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuthorizeRoute: typeof AuthorizeRouteWithChildren
   DisclosuresRoute: typeof DisclosuresRoute
   OpsRoute: typeof OpsRoute
   PrivacyRoute: typeof PrivacyRoute
@@ -273,6 +298,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/authorize': {
+      id: '/authorize'
+      path: '/authorize'
+      fullPath: '/authorize'
+      preLoaderRoute: typeof AuthorizeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/disclosures': {
@@ -387,6 +419,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiViewerRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/authorize/consent': {
+      id: '/authorize/consent'
+      path: '/consent'
+      fullPath: '/authorize/consent'
+      preLoaderRoute: typeof AuthorizeConsentRouteImport
+      parentRoute: typeof AuthorizeRoute
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -397,8 +436,21 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AuthorizeRouteChildren {
+  AuthorizeConsentRoute: typeof AuthorizeConsentRoute
+}
+
+const AuthorizeRouteChildren: AuthorizeRouteChildren = {
+  AuthorizeConsentRoute: AuthorizeConsentRoute,
+}
+
+const AuthorizeRouteWithChildren = AuthorizeRoute._addFileChildren(
+  AuthorizeRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuthorizeRoute: AuthorizeRouteWithChildren,
   DisclosuresRoute: DisclosuresRoute,
   OpsRoute: OpsRoute,
   PrivacyRoute: PrivacyRoute,
