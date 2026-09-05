@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { createFileRoute, useLocation } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { z } from 'zod'
 
 import { Button } from '#/components/ui/button'
@@ -27,7 +27,6 @@ const FailureSchema = z.object({ error_description: z.string().min(1) })
 
 function ConsentPage() {
   const viewer = useViewer()
-  const search = useLocation({ select: (location) => location.searchStr })
   const [submitting, setSubmitting] = useState(false)
   const [failure, setFailure] = useState<string>()
 
@@ -40,7 +39,11 @@ function ConsentPage() {
       // consent from being posted for a request nobody made. Posting only the answer -- as this
       // first did -- is refused with "missing oauth query", and the button appeared to do nothing.
       const response = await fetch('/api/auth/oauth2/consent', {
-        body: JSON.stringify({ accept, oauth_query: search }),
+        // The raw query exactly as it arrived. The router's own `searchStr` is re-serialized
+        // from parsed parameters, and the provider verifies a signature over the literal string,
+        // so any re-encoding -- an escape, an order -- invalidates it. Read at click time, which
+        // only ever runs in the browser.
+        body: JSON.stringify({ accept, oauth_query: window.location.search }),
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },
         method: 'POST',
@@ -70,8 +73,8 @@ function ConsentPage() {
         <>
           <p>
             An agent is asking to connect to your Spice account, signed in as{' '}
-            <strong>{viewer.user.name}</strong>. It will be able to read market data, research and
-            the daily brief, and to see and change your watchlist and favorites.
+            <strong>{viewer.user.name}</strong>. It will be able to read live market data, option
+            chains and Greeks, research and the daily brief, and to add symbols to the watchlist.
           </p>
           <p>
             It cannot reach your brokerage this way. Balances, positions and order placement need a
