@@ -79,6 +79,13 @@ describe('MCP bearer authentication', () => {
       executionContext,
     )
     expect(response.status).toBe(401)
+    // A refusal has to say how to authenticate, or a stale token is indistinguishable from a
+    // broken endpoint. It must not name a resource-metadata URL: that would point the client
+    // at an OAuth authorization server Spice does not run.
+    const challenge = response.headers.get('WWW-Authenticate') ?? ''
+    expect(challenge).toMatch(/^Bearer\b/)
+    expect(challenge).toContain('invalid_token')
+    expect(challenge).not.toContain('resource_metadata')
   })
 })
 

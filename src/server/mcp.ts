@@ -1,4 +1,10 @@
-import { McpServer, fromJsonSchema, type JsonSchemaType } from '@modelcontextprotocol/server'
+import {
+  McpServer,
+  OAuthError,
+  bearerAuthChallengeResponse,
+  fromJsonSchema,
+  type JsonSchemaType,
+} from '@modelcontextprotocol/server'
 import { createMcpHandler } from 'agents/mcp/server'
 import { type AgentTool } from '../domain/agent-tool'
 import { type TSchema } from 'typebox'
@@ -270,10 +276,25 @@ export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpEx
   const caller = await resolveMcpCaller(request, env)
   if (!caller) {
     console.error('McpAuthRejected')
-    return Response.json({ error: 'Unauthorized' }, { status: 401 })
+    // A bare 401 tells a client it was refused but not how to authenticate, so a caller with a
+    // stale or absent token cannot tell a credential problem from a broken endpoint. RFC 6750
+    // wants the challenge; this emits it. No `resourceMetadataUrl` is advertised on purpose:
+    // that field points a client at an OAuth authorization server, and Spice issues its own
+    // member tokens in the Connect tab. Advertising a discovery flow that does not exist would
+    // send clients somewhere there is nothing to find.
+    return bearerAuthChallengeResponse(new OAuthError(
+      'invalid_token',
+      'Spice needs an agent token. Create one in the Connect tab and send it as a bearer token.',
+    ))
   }
   const credential = brokerCredentialFromHeaders(request.headers)
   // SAFETY: the handler reads only `props` from the context (verified against its dist), which
   // McpExecutionContext carries; the platform type's other members are never touched.
-  return createMcpHandler(() => createSpiceMcpServer(env, caller, credential), { route: '/mcp' })(request, env, ctx as ExecutionContext)
+  return createMcpHandler(() => createSpiceMcpServer(env, caller, credential), {
+    route: '/mcp',
+    // Out-of-band failures — a rejected request, an error raised after the response is under
+    // way — are otherwise dropped without a trace. Named, never bodied: the argument may carry
+    // provider or caller content, so only the error's own name is recorded.
+    onerror: (error: Error) => console.error('McpHandlerError', error.name),
+  })(request, env, ctx as ExecutionContext)
 }
