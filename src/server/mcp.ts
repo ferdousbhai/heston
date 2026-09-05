@@ -26,7 +26,7 @@ import { createRecentCoverageTool, createRedditIngestTool } from './research-age
 import { DailyRecommendationsSubmissionSchema } from './research-submission'
 import { publishSubmittedDailyRecommendations } from './research-publish'
 import { createResearchReadTools } from './research-read-tools'
-import { PORTFOLIO_REVIEW_PROMPT, SPICE_MCP_INSTRUCTIONS, tradeIdeaPrompt } from './doctrine'
+import { PORTFOLIO_REVIEW_PROMPT, SPICE_GUIDE, SPICE_MCP_INSTRUCTIONS, tradeIdeaPrompt } from './doctrine'
 import { toolAnnotations } from './mcp-annotations'
 import { authenticateMcpToken } from './mcp-tokens'
 import { isOwnerEmail } from './auth'
@@ -165,6 +165,15 @@ export function createSpiceMcpServer(env: AppEnv, caller: McpCaller, credential?
         throw error
       }
     },
+  )
+
+  // Listed at connect time, fetched only when something wants it -- the orientation that is too
+  // long for `instructions` (a per-turn cost) and unreachable in a prompt (user-invoked).
+  server.registerResource(
+    'guide',
+    'spice://guide',
+    { description: 'What Spice can answer and which tool answers it.', mimeType: 'text/markdown', title: 'Spice guide' },
+    (uri) => ({ contents: [{ text: SPICE_GUIDE, uri: uri.href }] }),
   )
 
   server.registerPrompt(

@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { type JsonValue } from '../src/domain/json-payload'
 
+import { SPICE_GUIDE } from '../src/server/doctrine'
 import { handleMcpRequest, mcpEndpointRedirect, resolveMcpCaller, type McpExecutionContext } from '../src/server/mcp'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
@@ -307,6 +308,51 @@ describe('MCP tool annotations', () => {
   it('refuses to register a tool nobody has described', async () => {
     const { toolAnnotations } = await import('../src/server/mcp-annotations')
     expect(() => toolAnnotations('a_tool_that_was_never_declared')).toThrow('undeclared-tool')
+  })
+})
+
+describe('the guide resource', () => {
+  it('is advertised, readable, and names only tools and prompts that exist', async () => {
+    const { env, store, token } = await ownerHarness()
+    setBrokerApi(stubBroker())
+    try {
+      const listed = await handleMcpRequest(mcpRequest({
+        id: 20, jsonrpc: '2.0', method: 'resources/list', params: {},
+      }, token), env, executionContext)
+      const listBody = await listed.text()
+      const resources = z.object({ result: z.object({ resources: z.array(z.object({ uri: z.string() })) }) })
+        .parse(JSON.parse(listBody.slice(listBody.indexOf('{'))))
+      expect(resources.result.resources.map((entry) => entry.uri)).toContain('spice://guide')
+
+      const read = await handleMcpRequest(mcpRequest({
+        id: 21, jsonrpc: '2.0', method: 'resources/read', params: { uri: 'spice://guide' },
+      }, token), env, executionContext)
+      const readBody = await read.text()
+      const contents = z.object({ result: z.object({ contents: z.array(z.object({ text: z.string() })) }) })
+        .parse(JSON.parse(readBody.slice(readBody.indexOf('{'))))
+      const guide = contents.result.contents[0]!.text
+      expect(guide).toBe(SPICE_GUIDE)
+
+      // An index that names something gone is worse than no index: it sends an agent looking for
+      // a tool that will never answer. Every backticked name in the guide must be real.
+      const toolsResponse = await handleMcpRequest(mcpRequest({
+        id: 22, jsonrpc: '2.0', method: 'tools/list', params: {},
+      }, token), env, executionContext)
+      const toolsBody = await toolsResponse.text()
+      const tools = z.object({ result: z.object({ tools: z.array(z.object({ name: z.string() })) }) })
+        .parse(JSON.parse(toolsBody.slice(toolsBody.indexOf('{'))))
+      const known = new Set([
+        ...tools.result.tools.map((tool) => tool.name),
+        'portfolio_review',
+        'evaluate_trade_idea',
+      ])
+      const named = [...guide.matchAll(/`([a-z_]+)`/g)].map((match) => match[1]!)
+      expect(named.length).toBeGreaterThan(5)
+      expect(named.filter((name) => !known.has(name))).toEqual([])
+    } finally {
+      resetBrokerApi()
+      store.close()
+    }
   })
 })
 
