@@ -106,8 +106,10 @@ describe('authorization pages', () => {
   // holding a live authorization request, which is how the first version of this shipped.
   it.each([MCP_LOGIN_PAGE, MCP_CONSENT_PAGE])('%s is a real route', async (page) => {
     const routes = await readdir(new URL('../src/routes/', import.meta.url))
-    // `src/routes/authorize.consent.tsx` serves `/authorize/consent`: dots are path separators.
-    const expected = `${page.replace(/^\//, '').replaceAll('/', '.')}.tsx`
-    expect(routes).toContain(expected)
+    // Dots are path separators, and a path that also has children is served by its `.index`
+    // sibling: `/authorize` is `authorize.index.tsx`, `/authorize/consent` is
+    // `authorize.consent.tsx`. Either spelling counts as the route existing.
+    const base = page.replace(/^\//, '').replaceAll('/', '.')
+    expect(routes.filter((file) => file === `${base}.tsx` || file === `${base}.index.tsx`)).not.toEqual([])
   })
 })
