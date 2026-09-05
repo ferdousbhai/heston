@@ -1,11 +1,14 @@
 import { type TSchema, Type } from 'typebox'
 
-import { PublicMarketSnapshotSchema, type PublicMarketSnapshot } from '../domain/market'
+import { z } from 'zod'
+
+import { PublicMarketSnapshotSchema, PublicTickerSchema, type PublicMarketSnapshot } from '../domain/market'
 import { EquitySymbolType, equitySymbolFromModelText } from '../domain/instrument'
 import { type AgentTool } from '../domain/agent-tool'
 import { textResult } from './agent-tool-result'
 import { type AppEnv } from './env'
 import { servePublicSnapshot } from './public-snapshot-cache'
+import { servePublicSymbolSearch } from './public-symbol-search'
 
 /**
  * The market reads an unauthenticated caller gets.
@@ -29,19 +32,39 @@ const PublicQuoteParameters = Type.Object({
   symbols: Type.Array(EquitySymbolType, { maxItems: MAX_PUBLIC_SYMBOLS, minItems: 1 }),
 }, { additionalProperties: false })
 
+const MAX_SEARCH_QUERY_LENGTH = 64
+
+const PublicSearchParameters = Type.Object({
+  query: Type.String({ description: 'Ticker or company name.', maxLength: MAX_SEARCH_QUERY_LENGTH, minLength: 1 }),
+}, { additionalProperties: false })
+
 type PublicRow = PublicMarketSnapshot['tickers'][number]
 
+/** Whatever the public route answers, read at this boundary rather than passed through blind. */
+const SearchResultSchema = z.union([
+  z.object({ error: z.string() }),
+  z.object({ ticker: PublicTickerSchema, watchlisted: z.boolean().optional() }).passthrough(),
+])
+
 async function readCachedSnapshot(env: AppEnv): Promise<PublicMarketSnapshot> {
-  const origin = env.AUTH_BASE_URL
-  if (!origin) throw new Error('PublicSnapshotOriginMissing')
+  const origin = requiredOrigin(env)
   // The same URL the website requests, so this shares its cache entry rather than opening a
   // second one that would double the refresh cost it was meant to avoid.
-  // SAFETY: the Workers runtime exposes `caches.default`, which the standard `CacheStorage` type
-  // does not declare; `api.public-snapshot` reaches it the same way for the same reason.
-  const edgeCache = (caches as CacheStorage & { default: Cache }).default
-  const response = await servePublicSnapshot(new Request(`${origin}/api/public-snapshot`), env, edgeCache)
+  const response = await servePublicSnapshot(new Request(`${origin}/api/public-snapshot`), env, edgeCache())
   if (!response.ok) throw new Error('PublicSnapshotUnavailable')
   return PublicMarketSnapshotSchema.parse(await response.json())
+}
+
+function edgeCache(): Cache {
+  // SAFETY: the Workers runtime exposes `caches.default`, which the standard `CacheStorage` type
+  // does not declare; `api.public-snapshot` reaches it the same way for the same reason.
+  return (caches as CacheStorage & { default: Cache }).default
+}
+
+function requiredOrigin(env: AppEnv): string {
+  const origin = env.AUTH_BASE_URL
+  if (!origin) throw new Error('PublicSnapshotOriginMissing')
+  return origin
 }
 
 /** Resolve requested symbols against the snapshot, naming the ones it does not carry. */
@@ -114,6 +137,27 @@ export function createPublicMarketReadTools(env: AppEnv): AgentTool<TSchema>[] {
       label: 'Reading public market metrics',
       name: 'read_market_metrics',
       parameters: PublicQuoteParameters,
+    },
+    {
+      // The website's own search, which is edge-cached per query and, when a name resolves,
+      // admits it to the tracked universe. So an agent looking something up leaves the site
+      // knowing about it -- the visitor who never runs an agent sees the same row afterwards.
+      description: 'Resolve a ticker or company name. A name that resolves joins the tracked '
+        + 'universe and is quoted for everyone from then on.',
+      execute: async (_toolCallId, params) => {
+        // SAFETY: the MCP server validates every call against this tool's own JSON Schema before
+        // dispatch, and `PublicSearchParameters` requires `query` as a non-empty string.
+        const { query } = params as { query: string }
+        const response = await servePublicSymbolSearch(
+          new Request(`${requiredOrigin(env)}/api/public-symbol-search?q=${encodeURIComponent(query)}`),
+          env,
+          edgeCache(),
+        )
+        return textResult(SearchResultSchema.parse(await response.json()))
+      },
+      label: 'Searching symbols',
+      name: 'search_symbols',
+      parameters: PublicSearchParameters,
     },
   ]
 }

@@ -23,6 +23,7 @@ import {
 import { type AppEnv } from './env'
 import { createMarketResearchTools } from './market-research-tools'
 import { createPublicMarketReadTools } from './public-market-tools'
+import { noteSymbolAttention, readsSymbols, type SymbolNamingCall } from './symbol-attention'
 import { createExactOptionGreeksReadTool } from './option-greeks-tool'
 import { createRecentCoverageTool, createRedditIngestTool } from './research-agent-tools'
 import { DailyRecommendationsSubmissionSchema } from './research-submission'
@@ -73,13 +74,21 @@ function submissionJsonSchema(): JsonSchemaType {
   return schema as JsonSchemaType
 }
 
-export function createSpiceMcpServer(env: AppEnv, caller: McpCaller, credential?: BrokerCredential): McpServer {
+export function createSpiceMcpServer(
+  env: AppEnv,
+  caller: McpCaller,
+  credential?: BrokerCredential,
+  scheduleTask?: (task: Promise<unknown>) => void,
+): McpServer {
   // `instructions` reaches the caller's agent as system context, so it is assembled only from
   // this repository's own constants and never from anything a provider or model supplied.
   const server = new McpServer(
     { name: 'spice', version: '1.0.0' },
     { instructions: SPICE_MCP_INSTRUCTIONS },
   )
+  // Scheduling rather than awaiting: a search the caller did not ask for must not lengthen the
+  // turn they did ask for. Absent in a test harness, where doing the work inline is correct.
+  const waitUntil = (task: Promise<unknown>) => { scheduleTask?.(task) }
 
   const tools: AgentTool<TSchema>[] = [
     // Price history is the only historical read there is: quotes, metrics, chains and Greeks
@@ -130,6 +139,14 @@ export function createSpiceMcpServer(env: AppEnv, caller: McpCaller, credential?
           // SAFETY: the SDK validated `params` against this very tool's own JSON Schema before
           // dispatch, which is exactly the contract `execute` states for its parameters.
           const result = await tool.execute(crypto.randomUUID(), params as never)
+          // Reading a symbol is the same signal a reader opening it on the site is, and buys the
+          // same bounded catalyst search for everyone. Scheduled after the answer, never blocking
+          // it; `symbol-attention.ts` carries the reasoning and the bound.
+          if (readsSymbols(tool.name)) {
+            // SAFETY: `noteSymbolAttention` re-parses this with its own schema and ignores a call
+            // that names no symbol, so a shape it does not expect costs nothing.
+            waitUntil(noteSymbolAttention(env, params as SymbolNamingCall))
+          }
           // AgentToolResult content is already MCP CallToolResult content for text parts.
           return { content: result.content.filter((part) => part.type === 'text') }
         } catch (error) {
@@ -145,6 +162,67 @@ export function createSpiceMcpServer(env: AppEnv, caller: McpCaller, credential?
     )
   }
 
+  // Placement and cancellation need a broker credential, which needs a member. Advertising them
+  // to a caller who presented nothing would offer a destructive tool that can only ever refuse --
+  // the same reason the owner tools are absent from a member's list rather than present.
+  if (caller.signedIn) registerOrderTools(server, env, credential)
+
+  server.registerPrompt(
+    'portfolio_review',
+    {
+      description: 'Review every open position against the account\'s risk posture.',
+      title: 'Portfolio review',
+    },
+    () => ({ messages: [{ content: { text: PORTFOLIO_REVIEW_PROMPT, type: 'text' as const }, role: 'user' as const }] }),
+  )
+
+  server.registerPrompt(
+    'evaluate_trade_idea',
+    {
+      argsSchema: z.object({
+        symbol: z.string().min(1).max(16).describe('Underlying ticker'),
+        thesis: z.string().min(1).max(2_000).describe('The case to test, in the user\'s own words'),
+      }),
+      description: 'Test a trade idea against evidence, timing, and the account\'s loss budget.',
+      title: 'Evaluate a trade idea',
+    },
+    ({ symbol, thesis }) => ({
+      messages: [{ content: { text: tradeIdeaPrompt(symbol, thesis), type: 'text' as const }, role: 'user' as const }],
+    }),
+  )
+
+  // Owner only: publishing replaces the public brief and posts it to the public channel.
+  if (caller.owner) {
+    server.registerTool(
+      'publish_daily_recommendations',
+      {
+        description: 'Submit the day\'s finished research brief for publication. The server '
+          + 'reads every cited page itself and refuses any quote or catalyst date it cannot '
+          + 'find in that text; a rejected submission returns the exact reasons so citations '
+          + 'can be fixed and the brief submitted again. Publishing replaces the current '
+          + 'market date\'s brief and posts it to the public channel.',
+        annotations: toolAnnotations('publish_daily_recommendations'),
+        inputSchema: fromJsonSchema(submissionJsonSchema()),
+      },
+      async (params) => {
+        // SAFETY: `publishSubmittedDailyRecommendations` re-parses its input with the same
+        // submission schema at the trust boundary regardless of what the transport checked.
+        const publication = await publishSubmittedDailyRecommendations(env, params as never)
+        return { content: [{ text: JSON.stringify(publication), type: 'text' as const }] }
+      },
+    )
+  }
+
+  return server
+}
+
+
+/** The guarded mutations. Registered only for a caller who could hold a broker credential. */
+function registerOrderTools(
+  server: McpServer,
+  env: AppEnv,
+  credential: BrokerCredential | undefined,
+): void {
   server.registerTool(
     'place_brokerage_order',
     {
@@ -184,31 +262,6 @@ export function createSpiceMcpServer(env: AppEnv, caller: McpCaller, credential?
     { description: 'What Spice can answer and which tool answers it.', mimeType: 'text/markdown', title: 'Spice guide' },
     (uri) => ({ contents: [{ text: SPICE_GUIDE, uri: uri.href }] }),
   )
-
-  server.registerPrompt(
-    'portfolio_review',
-    {
-      description: 'Review every open position against the account\'s risk posture.',
-      title: 'Portfolio review',
-    },
-    () => ({ messages: [{ content: { text: PORTFOLIO_REVIEW_PROMPT, type: 'text' as const }, role: 'user' as const }] }),
-  )
-
-  server.registerPrompt(
-    'evaluate_trade_idea',
-    {
-      argsSchema: z.object({
-        symbol: z.string().min(1).max(16).describe('Underlying ticker'),
-        thesis: z.string().min(1).max(2_000).describe('The case to test, in the user\'s own words'),
-      }),
-      description: 'Test a trade idea against evidence, timing, and the account\'s loss budget.',
-      title: 'Evaluate a trade idea',
-    },
-    ({ symbol, thesis }) => ({
-      messages: [{ content: { text: tradeIdeaPrompt(symbol, thesis), type: 'text' as const }, role: 'user' as const }],
-    }),
-  )
-
   server.registerTool(
     'cancel_brokerage_order',
     {
@@ -235,30 +288,6 @@ export function createSpiceMcpServer(env: AppEnv, caller: McpCaller, credential?
       }
     },
   )
-
-  // Owner only: publishing replaces the public brief and posts it to the public channel.
-  if (caller.owner) {
-    server.registerTool(
-      'publish_daily_recommendations',
-      {
-        description: 'Submit the day\'s finished research brief for publication. The server '
-          + 'reads every cited page itself and refuses any quote or catalyst date it cannot '
-          + 'find in that text; a rejected submission returns the exact reasons so citations '
-          + 'can be fixed and the brief submitted again. Publishing replaces the current '
-          + 'market date\'s brief and posts it to the public channel.',
-        annotations: toolAnnotations('publish_daily_recommendations'),
-        inputSchema: fromJsonSchema(submissionJsonSchema()),
-      },
-      async (params) => {
-        // SAFETY: `publishSubmittedDailyRecommendations` re-parses its input with the same
-        // submission schema at the trust boundary regardless of what the transport checked.
-        const publication = await publishSubmittedDailyRecommendations(env, params as never)
-        return { content: [{ text: JSON.stringify(publication), type: 'text' as const }] }
-      },
-    )
-  }
-
-  return server
 }
 
 /**
@@ -336,7 +365,7 @@ function serveMcp(
   const credential = brokerCredentialFromHeaders(request.headers)
   // SAFETY: the handler reads only `props` from the context (verified against its dist), which
   // McpExecutionContext carries; the platform type's other members are never touched.
-  return createMcpHandler(() => createSpiceMcpServer(env, caller, credential), {
+  return createMcpHandler(() => createSpiceMcpServer(env, caller, credential, (task) => ctx.waitUntil(task)), {
     route: '/mcp',
     // Out-of-band failures — a rejected request, an error raised after the response is under
     // way — are otherwise dropped without a trace. Named, never bodied: the argument may carry

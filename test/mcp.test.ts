@@ -90,9 +90,16 @@ describe('MCP bearer authentication', () => {
         expect(names).toContain(offered)
       }
       // Nothing that spends a per-call broker request, writes to shared state, or is owner-only.
+      // Search is offered: the website already resolves names anonymously, and a name that
+      // resolves joins the tracked universe for every later visitor.
+      expect(names).toContain('search_symbols')
+      // Nothing that spends a per-call broker request, writes to shared state, mutates an
+      // account, or is owner-only. A destructive tool that could only ever refuse is worse than
+      // absent, so placement is withheld rather than advertised and rejected.
       for (const withheld of [
         'find_option_contracts', 'read_option_greeks', 'remember_symbols',
         'read_account_history', 'publish_daily_recommendations',
+        'place_brokerage_order', 'cancel_brokerage_order',
       ]) {
         expect(names).not.toContain(withheld)
       }
