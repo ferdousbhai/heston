@@ -88,6 +88,31 @@ const RECONNECT_MAX_EXPONENT = 6
 class FeedProtocolError extends Error {}
 
 /**
+ * dxLink's own ERROR codes.
+ *
+ * An upstream frame may echo credentials or private payloads, so no value from one reaches the
+ * logs — but a value that matches a constant written *here* is this file's vocabulary rather
+ * than the frame's, which is the same reading that lets a candle refusal name its field. The
+ * frame's code is used only to select one of these literals; anything not on the list is
+ * reported as unrecognised and never echoed. Without this, every upstream refusal collapsed to
+ * one string and the reason a year backfill is rejected could not be read from logs at all.
+ */
+const DxlinkErrorSchema = z.enum([
+  'BAD_ACTION',
+  'INVALID_MESSAGE',
+  'LIMIT_EXCEEDED',
+  'TIMEOUT',
+  'UNAUTHORIZED',
+  'UNKNOWN',
+  'UNSUPPORTED_PROTOCOL',
+])
+
+function upstreamErrorDetail(message: JsonObject): string {
+  const code = DxlinkErrorSchema.safeParse(TextFrameSchema.safeParse(message.error).data?.trim())
+  return `Upstream feed error: ${code.success ? code.data : 'unrecognised'}`
+}
+
+/**
  * A frame this parser refused, carrying the check that refused it. Every message thrown as
  * one is a literal written here: an upstream frame may echo credentials or private payloads,
  * so no value from a frame, and no schema message derived from one, may reach the client, the
@@ -622,7 +647,9 @@ export class MarketFeedCore {
       return
     }
     if (messageType === 'ERROR' || messageType === 'CHANNEL_CLOSED') {
-      throw new FeedProtocolError(messageType === 'ERROR' ? 'Upstream feed error' : 'Upstream channel closed')
+      throw new FeedProtocolError(
+        messageType === 'ERROR' ? upstreamErrorDetail(message) : 'Upstream channel closed',
+      )
     }
     throw new FeedFrameError('Unexpected upstream message.')
   }

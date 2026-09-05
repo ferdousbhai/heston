@@ -739,6 +739,18 @@ describe('MarketFeed option Greeks RPC', () => {
     ['a frame that is not text', new ArrayBuffer(4), 'Upstream feed frame was not text'],
     ['a message type it does not handle', '{"type":"NOPE","channel":0}', 'Unexpected upstream message.'],
     ['a keepalive off channel zero', '{"type":"KEEPALIVE","channel":3}', 'Unexpected keepalive channel.'],
+    // The code is used only to select one of this file's own literals, so a refusal can say why
+    // dxLink rejected a subscription without echoing anything the frame carried.
+    [
+      'an upstream error naming a protocol code',
+      '{"type":"ERROR","channel":0,"error":"LIMIT_EXCEEDED","message":"too many subscriptions"}',
+      'Upstream feed error: LIMIT_EXCEEDED',
+    ],
+    [
+      'an upstream error naming a code it does not know',
+      '{"type":"ERROR","channel":0,"error":"tok_live_should_never_be_logged"}',
+      'Upstream feed error: unrecognised',
+    ],
   ])('names the check that refused %s', async (_name, frame, detail) => {
     const client = downstream(['SPY'])
     const context = new FakeContext([client])
