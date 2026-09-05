@@ -231,9 +231,12 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         </p>
         <CopyBlock
           label="Store your credentials"
-          value={'secret-tool store --label="spice tastytrade" service spice key tastytrade-client-secret\n'
-            + 'secret-tool store --label="spice tastytrade" service spice key tastytrade-refresh-token'}
+          value={'./ops/spice-agent/store-credentials.sh tastytrade'}
         />
+        <p>
+          It prompts for each value and stores it in the keyring, so nothing reaches your shell
+          history or any file, then restarts the proxy so it picks them up.
+        </p>
         <p>
           With the proxy running, point your agent at <code>{PROXY_URL}</code> instead. It attaches
           both your Spice token and a freshly minted brokerage token to every request.

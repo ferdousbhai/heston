@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Store the credentials the local proxy needs, in the OS keyring.
+#
+# `secret-tool store` prompts for the value itself and reads it from the terminal, so nothing
+# here reaches your shell history, the process argument list, or any file. That is the whole
+# reason the proxy reads the keyring rather than an env file: a value in the environment is
+# readable by any tool the agent can run, and a tastytrade refresh token never expires.
+set -euo pipefail
+
+readonly SERVICE=spice
+
+usage() {
+  cat <<'EOF'
+Usage: store-credentials.sh [mcp-token|tastytrade|all]
+
+  mcp-token   The Spice agent token, created in the web app's Connect tab.
+  tastytrade  The personal-grant client secret and refresh token, from
+              my.tastytrade.com > OAuth Applications > Manage > Create Grant.
+              The read and trade scopes need two-factor auth on your account.
+  all         Both (default).
+
+Each value is prompted for; nothing is passed on the command line.
+EOF
+}
+
+store() {
+  local key=$1 label=$2
+  printf '\n%s\n' "${label}"
+  secret-tool store --label="spice ${key}" service "${SERVICE}" key "${key}"
+  if [[ -z $(secret-tool lookup service "${SERVICE}" key "${key}" 2>/dev/null) ]]; then
+    echo "  failed to store ${key}" >&2
+    exit 1
+  fi
+  echo "  stored ${key}"
+}
+
+command -v secret-tool >/dev/null || { echo 'secret-tool is not installed (package: libsecret).' >&2; exit 1; }
+
+case "${1:-all}" in
+  mcp-token) want_mcp=1; want_tasty=0 ;;
+  tastytrade) want_mcp=0; want_tasty=1 ;;
+  all) want_mcp=1; want_tasty=1 ;;
+  -h|--help) usage; exit 0 ;;
+  *) usage >&2; exit 1 ;;
+esac
+
+if [[ ${want_mcp} -eq 1 ]]; then
+  store mcp-token 'Spice agent token (Connect tab in the web app):'
+fi
+
+if [[ ${want_tasty} -eq 1 ]]; then
+  store tastytrade-client-secret 'tastytrade OAuth client secret:'
+  store tastytrade-refresh-token 'tastytrade refresh token (the grant you created):'
+fi
+
+# The proxy reads the keyring once at startup, so it has to be restarted to see a new value.
+if systemctl --user is-enabled spice-agent-proxy.service >/dev/null 2>&1; then
+  systemctl --user restart spice-agent-proxy.service
+  echo
+  systemctl --user is-active spice-agent-proxy.service >/dev/null \
+    && echo 'Proxy restarted. Check what it picked up with:' \
+    || echo 'Proxy failed to restart; check:'
+  echo '  journalctl --user -u spice-agent-proxy.service -n 5'
+else
+  echo
+  echo 'Proxy service is not installed. Enable it with:'
+  echo '  cp ops/spice-agent/systemd/spice-agent-proxy.service ~/.config/systemd/user/'
+  echo '  systemctl --user daemon-reload && systemctl --user enable --now spice-agent-proxy.service'
+fi
