@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useLocation } from '@tanstack/react-router'
 import { z } from 'zod'
 
 import { Button } from '#/components/ui/button'
@@ -23,9 +23,11 @@ export const Route = createFileRoute('/authorize/consent')({
 })
 
 const ConsentResponseSchema = z.object({ redirectURI: z.string().min(1) })
+const FailureSchema = z.object({ error_description: z.string().min(1) })
 
 function ConsentPage() {
   const viewer = useViewer()
+  const search = useLocation({ select: (location) => location.searchStr })
   const [submitting, setSubmitting] = useState(false)
   const [failure, setFailure] = useState<string>()
 
@@ -33,15 +35,22 @@ function ConsentPage() {
     setSubmitting(true)
     setFailure(undefined)
     try {
-      // The consent code travels in a signed cookie the provider set on the way here, so the
-      // browser supplies it and this page never has to hold it.
+      // The authorization request comes back as `oauth_query`: the provider signed it on the way
+      // here and re-verifies that signature before it will read the answer, which is what stops a
+      // consent from being posted for a request nobody made. Posting only the answer -- as this
+      // first did -- is refused with "missing oauth query", and the button appeared to do nothing.
       const response = await fetch('/api/auth/oauth2/consent', {
-        body: JSON.stringify({ accept }),
+        body: JSON.stringify({ accept, oauth_query: search }),
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },
         method: 'POST',
       })
-      if (!response.ok) throw new Error('Spice could not record that answer.')
+      if (!response.ok) {
+        // Say what the provider said. A generic message here is how a refused consent looked
+        // like a button that did nothing at all.
+        const reason = FailureSchema.safeParse(await response.json().catch(() => undefined))
+        throw new Error(reason.success ? reason.data.error_description : 'Spice could not record that answer.')
+      }
       const { redirectURI } = ConsentResponseSchema.parse(await response.json())
       window.location.replace(redirectURI)
     } catch (error) {
@@ -60,12 +69,17 @@ function ConsentPage() {
       {viewer.phase === 'ready' && viewer.user !== null && (
         <>
           <p>
-            An agent is asking to act as <strong>{viewer.user.name}</strong> on Spice: market data,
-            research, your watchlist and your favorites.
+            An agent is asking to connect to your Spice account, signed in as{' '}
+            <strong>{viewer.user.name}</strong>. It will be able to read market data, research and
+            the daily brief, and to see and change your watchlist and favorites.
           </p>
           <p>
-            It cannot reach your brokerage through this. Balances, positions and order placement
-            need a broker credential that stays on your own machine and is sent per request.
+            It cannot reach your brokerage this way. Balances, positions and order placement need a
+            broker credential that stays on your own machine and is sent with each request.
+          </p>
+          <p>
+            Approve only if you started this from your own agent. You can revoke it later from the
+            Connect tab.
           </p>
           {failure && <p className="authorize-error">{failure}</p>}
           <div className="authorize-actions">
