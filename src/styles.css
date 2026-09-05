@@ -622,6 +622,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .connect-screen header h1 { margin: 0 0 8px; font-size: 19px; }
 .connect-screen p { margin: 0 0 10px; color: #adafb7; font-size: 12px; line-height: 1.62; }
 .connect-screen code { padding: 1px 4px; border-radius: 3px; background: var(--surface-2); color: var(--text); font-size: 11px; overflow-wrap: anywhere; }
+/* The OAuth authorization and consent pages. Standalone: a browser arrives here mid-flow from an
+   agent, not by navigating the app, so they carry no shell and nothing to wander off into. */
+.authorize-page { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; justify-content: center; gap: 14px; width: min(100%, 420px); margin-inline: auto; padding: 32px 22px; background: var(--bg); }
+.authorize-page h1 { margin: 0; font-size: 18px; font-weight: 700; }
+.authorize-page p { margin: 0; color: var(--ink-muted, var(--text)); line-height: 1.5; }
+.authorize-error { color: var(--danger, #e5484d); }
+.authorize-actions { margin-top: 6px; display: flex; gap: 10px; }
+.authorize-actions button { flex: 1; }
+
 .connect-step { padding-top: 20px; border-top: 1px solid var(--hairline); min-width: 0; }
 .connect-step h2 { margin: 0 0 8px; font-size: 13px; font-weight: 700; letter-spacing: .04em; }
 .connect-optional { margin-left: 6px; color: var(--ink-faint); font-size: 9px; text-transform: uppercase; letter-spacing: .1em; }

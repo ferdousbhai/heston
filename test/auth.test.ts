@@ -1,7 +1,14 @@
+import { readdir } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
-import { configureAuth, isOwnerEmail, mcpResourceIdentifier } from '../src/server/auth'
+import {
+  MCP_CONSENT_PAGE,
+  MCP_LOGIN_PAGE,
+  configureAuth,
+  isOwnerEmail,
+  mcpResourceIdentifier,
+} from '../src/server/auth'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 
 describe('authorized app identity', () => {
@@ -91,5 +98,16 @@ describe('MCP authorization server', () => {
     } finally {
       store.close()
     }
+  })
+})
+
+describe('authorization pages', () => {
+  // The provider redirects a browser to these mid-flow. A path with no route behind it is a 404
+  // holding a live authorization request, which is how the first version of this shipped.
+  it.each([MCP_LOGIN_PAGE, MCP_CONSENT_PAGE])('%s is a real route', async (page) => {
+    const routes = await readdir(new URL('../src/routes/', import.meta.url))
+    // `src/routes/authorize.consent.tsx` serves `/authorize/consent`: dots are path separators.
+    const expected = `${page.replace(/^\//, '').replaceAll('/', '.')}.tsx`
+    expect(routes).toContain(expected)
   })
 })

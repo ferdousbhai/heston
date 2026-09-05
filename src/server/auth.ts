@@ -7,6 +7,15 @@ import { readBoundSecret } from './secrets'
 
 export const OWNER_EMAIL = 'ferdousbd@gmail.com'
 
+/**
+ * Where the provider sends a browser mid-authorization. These must be real routes: they were
+ * first pointed at `/connect`, which is a tab inside the application rather than a route, so the
+ * browser reached a 404 holding a live authorization request and the flow ended there. A test
+ * checks each one against the route files, because nothing else connects the two.
+ */
+export const MCP_LOGIN_PAGE = '/authorize'
+export const MCP_CONSENT_PAGE = '/authorize/consent'
+
 export function isOwnerEmail(email: string): boolean {
   return email.toLowerCase() === OWNER_EMAIL
 }
@@ -63,8 +72,8 @@ export function configureAuth(
       mcp({
         allowDynamicClientRegistration: true,
         allowUnauthenticatedClientRegistration: true,
-        consentPage: '/connect',
-        loginPage: '/connect',
+        consentPage: MCP_CONSENT_PAGE,
+        loginPage: MCP_LOGIN_PAGE,
         // Audience-binds every issued token to this endpoint (RFC 8707), so a token minted for
         // Spice cannot be replayed against another resource that trusts the same issuer.
         resource: mcpResourceIdentifier(baseURL),

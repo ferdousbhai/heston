@@ -70,14 +70,20 @@ function GoogleMark() {
     </svg>
   )
 }
-export function GoogleSignInButton({ compact = false }: { compact?: boolean }) {
+/**
+ * `callbackURL` exists for the OAuth authorization page, which must return the browser to the
+ * signed authorization request it arrived with rather than to the application root.
+ */
+export function GoogleSignInButton(
+  { callbackURL = '/', compact = false }: { callbackURL?: string; compact?: boolean },
+) {
   const [submitting, setSubmitting] = useState(false)
   const [signInError, setSignInError] = useState<string>()
   const beginSignIn = async () => {
     setSubmitting(true)
     setSignInError(undefined)
     try {
-      const result = await authClient.signIn.social({ provider: 'google', callbackURL: '/' })
+      const result = await authClient.signIn.social({ provider: 'google', callbackURL })
       if (result.error) throw new Error(result.error.message ?? 'Google sign-in failed')
     } catch (signInFailure) {
       setSubmitting(false)
