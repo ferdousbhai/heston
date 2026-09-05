@@ -28,6 +28,8 @@ const TokenResponseSchema = z.object({
   expires_in: z.number().int().positive(),
 })
 
+/** The only broker with an adapter that can place orders; also its keyring service name. */
+const BROKER = 'tastytrade'
 const LISTEN_HOST = '127.0.0.1'
 const DEFAULT_PORT = 8787
 const UPSTREAM = process.env.SPICE_MCP_URL ?? 'https://tryspice.xyz/mcp'
@@ -42,10 +44,17 @@ const TOKEN_REQUEST_TIMEOUT_MS = 20_000
 const REFRESH_SKEW_FRACTION = 0.1
 const MAX_REFRESH_SKEW_MS = 30_000
 
-/** Keyring reads go through the secret-tool binary, so no secret is ever an argv value here. */
-async function keyringSecret(key) {
+/**
+ * Keyring reads go through the secret-tool binary, so no secret is ever an argv value here.
+ *
+ * Credentials are filed under the service that issued them, not the app that spends them: the
+ * agent token is Spice's, while a client secret and refresh token are tastytrade's and would be
+ * Schwab's for a Schwab adapter. That keeps the keyring laid out the way `BROKER_ADAPTERS` is,
+ * so adding a broker adds a service rather than more keys under this one.
+ */
+async function keyringSecret(service, key) {
   try {
-    const { stdout } = await execFileAsync('secret-tool', ['lookup', 'service', 'spice', 'key', key])
+    const { stdout } = await execFileAsync('secret-tool', ['lookup', 'service', service, 'key', key])
     const value = stdout.trim()
     return value || undefined
   } catch {
@@ -93,17 +102,17 @@ async function readBody(request) {
 }
 
 async function main() {
-  const spiceToken = await keyringSecret('mcp-token')
+  const spiceToken = await keyringSecret('spice', 'mcp-token')
   if (!spiceToken) {
     process.stderr.write(
       'SpiceAgentProxy: no Spice token in the keyring. Create one in the Connect tab, then:\n'
-      + '  secret-tool store --label="spice" service spice key mcp-token\n',
+      + '  ./ops/spice-agent/store-credentials.sh mcp-token\n',
     )
     process.exit(1)
   }
   const [clientSecret, refreshToken] = await Promise.all([
-    keyringSecret('tastytrade-client-secret'),
-    keyringSecret('tastytrade-refresh-token'),
+    keyringSecret(BROKER, 'client-secret'),
+    keyringSecret(BROKER, 'refresh-token'),
   ])
   // Brokerage credentials are optional: without them this still forwards the market and
   // research surface, and the Worker answers account tools with its own connect-a-brokerage
@@ -125,7 +134,7 @@ async function main() {
           if (value) headers.set(name, value)
         }
         if (brokerageConfigured) {
-          headers.set('X-Spice-Broker', 'tastytrade')
+          headers.set('X-Spice-Broker', BROKER)
           headers.set('X-Spice-Broker-Token', await brokerAccessToken(clientSecret, refreshToken))
         }
         const body = request.method === 'GET' || request.method === 'HEAD'
@@ -147,8 +156,15 @@ async function main() {
         }
         response.end()
       } catch (error) {
-        // Name only. A failure here can carry provider or credential context.
-        process.stderr.write(`SpiceAgentProxy: ${error instanceof Error ? error.name : 'UnknownError'}\n`)
+        // Name and, for a transport failure, the OS-level cause code -- `ENOTFOUND`,
+        // `ECONNREFUSED`, `UND_ERR_CONNECT_TIMEOUT`. Both are fixed vocabulary, never content,
+        // and they are what separates "this machine could not reach the Worker" from a bug in
+        // here: undici reports every network failure as an indistinguishable `TypeError`.
+        const name = error instanceof Error ? error.name : 'UnknownError'
+        const cause = error instanceof Error && error.cause instanceof Error && 'code' in error.cause
+          ? ` ${String(error.cause.code)}`
+          : ''
+        process.stderr.write(`SpiceAgentProxy: ${request.method} ${name}${cause}\n`)
         if (!response.headersSent) response.writeHead(502, { 'content-type': 'application/json' })
         response.end(JSON.stringify({ error: 'The Spice proxy could not complete this request' }))
       }

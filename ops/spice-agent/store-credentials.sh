@@ -7,7 +7,6 @@
 # readable by any tool the agent can run, and a tastytrade refresh token never expires.
 set -euo pipefail
 
-readonly SERVICE=spice
 
 usage() {
   cat <<'EOF'
@@ -23,15 +22,18 @@ Each value is prompted for; nothing is passed on the command line.
 EOF
 }
 
+# Filed under the service that issued the credential, not the app that spends it, so a second
+# broker becomes its own service rather than more keys under Spice's. The label is only what
+# Seahorse displays; the service and key attributes are what the proxy looks up.
 store() {
-  local key=$1 label=$2
-  printf '\n%s\n' "${label}"
-  secret-tool store --label="spice ${key}" service "${SERVICE}" key "${key}"
-  if [[ -z $(secret-tool lookup service "${SERVICE}" key "${key}" 2>/dev/null) ]]; then
-    echo "  failed to store ${key}" >&2
+  local service=$1 key=$2 label=$3 prompt=$4
+  printf '\n%s\n' "${prompt}"
+  secret-tool store --label="${label}" service "${service}" key "${key}"
+  if [[ -z $(secret-tool lookup service "${service}" key "${key}" 2>/dev/null) ]]; then
+    echo "  failed to store ${service}/${key}" >&2
     exit 1
   fi
-  echo "  stored ${key}"
+  echo "  stored ${service}/${key}"
 }
 
 command -v secret-tool >/dev/null || { echo 'secret-tool is not installed (package: libsecret).' >&2; exit 1; }
@@ -45,12 +47,12 @@ case "${1:-all}" in
 esac
 
 if [[ ${want_mcp} -eq 1 ]]; then
-  store mcp-token 'Spice agent token (Connect tab in the web app):'
+  store spice mcp-token 'Spice agent token' 'Spice agent token (Connect tab in the web app):'
 fi
 
 if [[ ${want_tasty} -eq 1 ]]; then
-  store tastytrade-client-secret 'tastytrade OAuth client secret:'
-  store tastytrade-refresh-token 'tastytrade refresh token (the grant you created):'
+  store tastytrade client-secret 'tastytrade OAuth client secret' 'tastytrade OAuth client secret:'
+  store tastytrade refresh-token 'tastytrade refresh token' 'tastytrade refresh token (the grant you created):'
 fi
 
 # The proxy reads the keyring once at startup, so it has to be restarted to see a new value.

@@ -35,15 +35,19 @@ async function listen(handler: (request: IncomingMessage, response: ServerRespon
   return (upstream.address() as AddressInfo).port
 }
 
-/** A `secret-tool` stand-in on PATH, so the proxy's own keyring code path is what runs. */
+/**
+ * A `secret-tool` stand-in on PATH, so the proxy's own keyring code path is what runs. Keyed by
+ * `service/key` rather than key alone, because the service is what separates Spice's own token
+ * from a broker's credentials and a stub that ignored it would not notice them being confused.
+ */
 async function fakeKeyring(entries: Record<string, string>): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), 'spice-keyring-'))
   const cases = Object.entries(entries)
-    .map(([key, value]) => `    ${key}) printf '%s' '${value}' ;;`)
+    .map(([path, value]) => `    ${path}) printf '%s' '${value}' ;;`)
     .join('\n')
   await writeFile(join(directory, 'secret-tool'), `#!/usr/bin/env bash
-# usage: secret-tool lookup service spice key <key>
-case "$5" in
+# usage: secret-tool lookup service <service> key <key>
+case "$3/$5" in
 ${cases}
   *) exit 1 ;;
 esac
@@ -90,9 +94,9 @@ describe('local agent proxy', () => {
       })
     })
     const keyring = await fakeKeyring({
-      'mcp-token': SPICE_TOKEN,
-      'tastytrade-client-secret': CLIENT_SECRET,
-      'tastytrade-refresh-token': REFRESH_TOKEN,
+      'spice/mcp-token': SPICE_TOKEN,
+      'tastytrade/client-secret': CLIENT_SECRET,
+      'tastytrade/refresh-token': REFRESH_TOKEN,
     })
     const proxyPort = 18_787
     await startProxy({
@@ -134,7 +138,7 @@ describe('local agent proxy', () => {
         response.end(JSON.stringify({ ok: true }))
       })
     })
-    const keyring = await fakeKeyring({ 'mcp-token': SPICE_TOKEN })
+    const keyring = await fakeKeyring({ 'spice/mcp-token': SPICE_TOKEN })
     const proxyPort = 18_788
     await startProxy({
       PATH: `${keyring}:${process.env.PATH ?? ''}`,
