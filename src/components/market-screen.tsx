@@ -52,11 +52,11 @@ import { CatalystStories } from './catalyst-stories'
 import { compactElapsedLabel, useElapsedLabel } from './top-bar'
 
 const verdictCopy = {
-  cheap: { label: 'Cheap' },
-  fair: { label: 'Fair' },
-  rich: { label: 'Expensive' },
-  unavailable: { label: 'Unavailable' },
-} satisfies Record<VolatilityVerdict, { label: string }>
+  cheap: 'Cheap',
+  fair: 'Fair',
+  rich: 'Expensive',
+  unavailable: 'Unavailable',
+} satisfies Record<VolatilityVerdict, string>
 
 function premiumScore(ticker: Pick<Ticker, 'ivRank' | 'ivPercentile'>): number | undefined {
   if (ticker.ivRank === undefined || ticker.ivPercentile === undefined) return undefined
@@ -155,7 +155,7 @@ function listPill(ticker: Ticker, metric: ListMetric): ListPill {
       const age = metricsAgeLabel(ticker)
       return {
         tone: verdict,
-        value: [verdictCopy[verdict].label + (rank === undefined ? '' : ` ${rank}`), age].filter(Boolean).join(' · '),
+        value: [verdictCopy[verdict] + (rank === undefined ? '' : ` ${rank}`), age].filter(Boolean).join(' · '),
       }
     }
     case 'volume':
@@ -476,7 +476,7 @@ function InstrumentButton({
 
   return (
     <Button
-      aria-label={`${ticker.symbol}, ${issuerName(ticker.name)}, ${copy.label} option premium, IV rank ${ivRank}`}
+      aria-label={`${ticker.symbol}, ${issuerName(ticker.name)}, ${copy} option premium, IV rank ${ivRank}`}
       aria-pressed={isSelected}
       className="ticker-table-button"
       onClick={() => onSelect(ticker.symbol)}
@@ -566,7 +566,7 @@ const MarketTickerRow = memo(function MarketTickerRow({
       {/* IV rank rides along as the premium cell's third line rather than a column of its own,
           so the verdict keeps the reading that produced it next to it. */}
       <TableCell className={`premium-cell ${verdict}`}>
-        <strong>{copy.label}</strong>
+        <strong>{copy}</strong>
         <small>{formatIfReported(ticker.ivIndex, (iv) => `${formatMarketMetric(iv)}% IV`) ?? '—'}</small>
         <small>
           {[formatIfReported(ticker.ivRank, (rank) => `${formatMarketMetric(rank)} rank`) ?? '—', metricsAgeLabel(ticker)]
@@ -801,7 +801,7 @@ export function MarketScreen({
               leaves the recommendation and the runway as the panel's primary reading. */}
           <div className="premium-gauge">
             <span>Option premium</span>
-            <strong className="premium-verdict">{selectedCopy.label}</strong>
+            <strong className="premium-verdict">{selectedCopy}</strong>
             {selectedPremiumScore === undefined ? null : (
               <Progress className="premium-axis" aria-label={`Relative premium score ${selectedPremiumScore} out of 100, from cheap to expensive`} value={selectedPremiumScore} />
             )}
@@ -864,7 +864,7 @@ export function MarketScreen({
               </small>
             </span>
             <span className="focus-strip-read">
-              <em className="strip-verdict">{selectedCopy.label}</em>
+              <em className="strip-verdict">{selectedCopy}</em>
               {selectedRank === undefined ? '' : ` ${selectedRank}`}
               {formatIfReported(selected.ivIndex, (iv) => ` · IV ${formatMarketMetric(iv)}%`) ?? ''}
               {selectedCatalyst ? ` · ${catalystLabel(selectedCatalyst, now)}` : ''}
