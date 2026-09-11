@@ -5,14 +5,11 @@ import { z } from 'zod'
  * channel's own markup never reaches a reader's page; links are rendered from this list, and
  * only over HTTPS.
  */
-export const MAX_CHANNEL_POST_TEXT = 32_768
-export const MAX_CHANNEL_POST_LINKS = 32
-
 export const ChannelPostSchema = z.strictObject({
   id: z.number().int().positive(),
-  links: z.array(z.string().url().refine((url) => new URL(url).protocol === 'https:', 'Use an HTTPS link')).max(MAX_CHANNEL_POST_LINKS),
+  links: z.array(z.url({ error: 'Use an HTTPS link', protocol: /^https$/ })),
   postedAt: z.string().datetime({ offset: true }),
-  text: z.string().min(1).max(MAX_CHANNEL_POST_TEXT),
+  text: z.string().min(1),
 })
 
 export type ChannelPost = z.infer<typeof ChannelPostSchema>
