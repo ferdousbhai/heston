@@ -20,17 +20,30 @@ function isConstAssertion(node: TypeAssertion): boolean {
   );
 }
 
+function hasSafetyCommentBefore(
+  sourceCode: SourceCode,
+  target: ESTree.Node,
+  node: TypeAssertion,
+): boolean {
+  return sourceCode
+    .getCommentsBefore(target)
+    .some((comment) => comment.end <= node.start && /\bSAFETY\s*:/u.test(comment.value));
+}
+
 function hasSafetyComment(sourceCode: SourceCode, node: TypeAssertion): boolean {
   let current: ESTree.Node = node;
   while (true) {
-    if (
-      sourceCode
-        .getCommentsBefore(current)
-        .some((comment) => comment.end <= node.start && /\bSAFETY\s*:/u.test(comment.value))
-    ) {
-      return true;
+    if (hasSafetyCommentBefore(sourceCode, current, node)) return true;
+    if (commentOwnerKinds.has(current.type)) {
+      // An exported declaration starts at `const`, so a comment written above
+      // the `export` line attaches to the export node instead.
+      const { parent } = current;
+      return (
+        parent.type === "ExportNamedDeclaration" &&
+        hasSafetyCommentBefore(sourceCode, parent, node)
+      );
     }
-    if (commentOwnerKinds.has(current.type) || current.parent.type === "Program") return false;
+    if (current.parent.type === "Program") return false;
     current = current.parent;
   }
 }
