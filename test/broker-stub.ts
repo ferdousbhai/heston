@@ -40,6 +40,20 @@ export const stubBrokerCredential = {
   broker: STUB_BROKER_ID,
 } satisfies BrokerCredential
 
+/**
+ * The tastytrade `/balances` payload as the provider sends it: strings, kebab-case keys. Shared
+ * because the account context and the drawdown guard both read this one shape.
+ */
+export const tastytradeBalances = {
+  'available-trading-funds': '64000',
+  'cash-available-to-withdraw': '65000',
+  'cash-balance': '65000',
+  'day-trading-buying-power': '256000',
+  'derivative-buying-power': '64000',
+  'equity-buying-power': '128000',
+  'net-liquidating-value': '100000',
+}
+
 export function stubBrokerGate() {
   const gate = {
     acquire: vi.fn(async () => undefined),

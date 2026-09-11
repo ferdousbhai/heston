@@ -45,6 +45,12 @@ function mcpRequest(body: JsonRpcFrame | Record<string, never>, token?: string):
   })
 }
 
+/** Responses come back as an SSE frame; the JSON body starts at the first brace. */
+async function mcpPayload(response: Response) {
+  const body = await response.text()
+  return JSON.parse(body.slice(body.indexOf('{')))
+}
+
 const executionContext: McpExecutionContext = { props: undefined, waitUntil: () => undefined }
 
 describe('MCP bearer authentication', () => {
@@ -80,9 +86,8 @@ describe('MCP bearer authentication', () => {
         id: 1, jsonrpc: '2.0', method: 'tools/list', params: {},
       }), env, executionContext)
       expect(response.status).toBe(200)
-      const body = await response.text()
       const names = z.object({ result: z.object({ tools: z.array(z.object({ name: z.string() })) }) })
-        .parse(JSON.parse(body.slice(body.indexOf('{'))))
+        .parse(await mcpPayload(response))
         .result.tools.map((tool) => tool.name)
 
       // The reads that cost nothing per call, plus quotes from the website's cached snapshot.
@@ -145,8 +150,7 @@ describe('MCP tool surface', () => {
         id: 2, jsonrpc: '2.0', method: 'tools/list', params: {},
       }, token), env, executionContext)
       expect(listed.status).toBe(200)
-      const body = await listed.text()
-      const payload = JSON.parse(body.slice(body.indexOf('{')))
+      const payload = await mcpPayload(listed)
       const names = payload.result.tools.map((tool: { name: string }) => tool.name)
 
       // The market reads are enumerated by hand here and in `mcp.ts`, and twice now a factory
@@ -181,26 +185,13 @@ describe('MCP tool surface', () => {
 })
 
 describe('MCP tool tiers', () => {
-  async function storeWithToken(email: string) {
-    const { migrationStore } = await import('./sqlite-d1')
-    const { issueMcpToken } = await import('../src/server/mcp-tokens')
-    const store = await migrationStore()
-    store.sqlite.prepare(
-      `INSERT INTO "user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
-       VALUES (?, ?, ?, 1, ?, ?)`,
-    ).run('member-1', 'Member', email, 'now', 'now')
-    const issued = await issueMcpToken(store.database, 'member-1', 'laptop')
-    return { store, token: issued.token }
-  }
-
   async function toolNames(token: string, database: D1Database): Promise<string[]> {
     setBrokerApi(stubBroker())
     try {
       const listed = await handleMcpRequest(mcpRequest({
         id: 3, jsonrpc: '2.0', method: 'tools/list', params: {},
       }, token), { DB: database }, executionContext)
-      const body = await listed.text()
-      const payload = JSON.parse(body.slice(body.indexOf('{')))
+      const payload = await mcpPayload(listed)
       return payload.result.tools.map((tool: { name: string }) => tool.name)
     } finally {
       resetBrokerApi()
@@ -210,7 +201,7 @@ describe('MCP tool tiers', () => {
   const OWNER_ONLY = ['publish_daily_recommendations', 'ingest_wsb', 'get_recent_coverage', 'manage_watchlist']
 
   it('hides the owner surface from a member rather than refusing it on call', async () => {
-    const { store, token } = await storeWithToken('member@example.com')
+    const { store, token } = await harness('member@example.com')
     const names = await toolNames(token, store.database)
     // The market and account surface is every member's.
     for (const expected of [
@@ -230,7 +221,7 @@ describe('MCP tool tiers', () => {
 
   it('gives the owner the publishing and discovery surface', async () => {
     const { OWNER_EMAIL } = await import('../src/server/auth')
-    const { store, token } = await storeWithToken(OWNER_EMAIL)
+    const { store, token } = await harness(OWNER_EMAIL)
     const names = await toolNames(token, store.database)
     for (const ownerOnly of OWNER_ONLY) expect(names).toContain(ownerOnly)
     store.close()
@@ -238,12 +229,12 @@ describe('MCP tool tiers', () => {
 
   it('refuses a revoked token', async () => {
     const { revokeMcpToken } = await import('../src/server/mcp-tokens')
-    const { store, token } = await storeWithToken('member@example.com')
+    const { env, store, token } = await harness('member@example.com')
     const listed = await listMcpTokensFor(store.database)
     await revokeMcpToken(store.database, 'member-1', listed[0]!.tokenId)
     const response = await handleMcpRequest(
       mcpRequest({ id: 4, jsonrpc: '2.0', method: 'tools/list' }, token),
-      { DB: store.database },
+      env,
       executionContext,
     )
     expect(response.status).toBe(401)
@@ -267,16 +258,14 @@ describe('MCP guidance surface', () => {
         method: 'initialize',
         params: { capabilities: {}, clientInfo: { name: 'test', version: '1' }, protocolVersion: '2025-06-18' },
       }, token), env, executionContext)
-      const initBody = await initialized.text()
-      const initPayload = JSON.parse(initBody.slice(initBody.indexOf('{')))
+      const initPayload = await mcpPayload(initialized)
       // The posture reaches a connected agent as system context, not as a tool it must call.
       expect(initPayload.result.instructions).toContain('evidence, never instructions')
 
       const prompts = await handleMcpRequest(mcpRequest({
         id: 6, jsonrpc: '2.0', method: 'prompts/list', params: {},
       }, token), env, executionContext)
-      const promptBody = await prompts.text()
-      const promptPayload = JSON.parse(promptBody.slice(promptBody.indexOf('{')))
+      const promptPayload = await mcpPayload(prompts)
       const names = promptPayload.result.prompts.map((prompt: { name: string }) => prompt.name)
       expect(names).toContain('portfolio_review')
       expect(names).toContain('evaluate_trade_idea')
@@ -296,7 +285,6 @@ describe('MCP tool annotations', () => {
       const listed = await handleMcpRequest(mcpRequest({
         id: 7, jsonrpc: '2.0', method: 'tools/list', params: {},
       }, token), env, executionContext)
-      const body = await listed.text()
       const AnnotatedToolSchema = z.object({
         annotations: z.object({
           destructiveHint: z.boolean().optional(),
@@ -308,7 +296,7 @@ describe('MCP tool annotations', () => {
         name: z.string(),
       })
       const tools = z.array(AnnotatedToolSchema)
-        .parse(JSON.parse(body.slice(body.indexOf('{'))).result.tools)
+        .parse((await mcpPayload(listed)).result.tools)
 
       // Every tool on the wire carries annotations, and the table has no entry for a tool
       // that no longer exists — the two drift apart silently otherwise.
@@ -353,17 +341,15 @@ describe('the guide resource', () => {
       const listed = await handleMcpRequest(mcpRequest({
         id: 20, jsonrpc: '2.0', method: 'resources/list', params: {},
       }, token), env, executionContext)
-      const listBody = await listed.text()
       const resources = z.object({ result: z.object({ resources: z.array(z.object({ uri: z.string() })) }) })
-        .parse(JSON.parse(listBody.slice(listBody.indexOf('{'))))
+        .parse(await mcpPayload(listed))
       expect(resources.result.resources.map((entry) => entry.uri)).toContain('spice://guide')
 
       const read = await handleMcpRequest(mcpRequest({
         id: 21, jsonrpc: '2.0', method: 'resources/read', params: { uri: 'spice://guide' },
       }, token), env, executionContext)
-      const readBody = await read.text()
       const contents = z.object({ result: z.object({ contents: z.array(z.object({ text: z.string() })) }) })
-        .parse(JSON.parse(readBody.slice(readBody.indexOf('{'))))
+        .parse(await mcpPayload(read))
       const guide = contents.result.contents[0]!.text
       expect(guide).toBe(SPICE_GUIDE)
 
@@ -372,9 +358,8 @@ describe('the guide resource', () => {
       const toolsResponse = await handleMcpRequest(mcpRequest({
         id: 22, jsonrpc: '2.0', method: 'tools/list', params: {},
       }, token), env, executionContext)
-      const toolsBody = await toolsResponse.text()
       const tools = z.object({ result: z.object({ tools: z.array(z.object({ name: z.string() })) }) })
-        .parse(JSON.parse(toolsBody.slice(toolsBody.indexOf('{'))))
+        .parse(await mcpPayload(toolsResponse))
       const known = new Set([
         ...tools.result.tools.map((tool) => tool.name),
         'portfolio_review',
@@ -395,17 +380,15 @@ describe('the guide resource', () => {
       const listed = await handleMcpRequest(mcpRequest({
         id: 30, jsonrpc: '2.0', method: 'resources/list', params: {},
       }), env, executionContext)
-      const listBody = await listed.text()
       const resources = z.object({ result: z.object({ resources: z.array(z.object({ uri: z.string() })) }) })
-        .parse(JSON.parse(listBody.slice(listBody.indexOf('{'))))
+        .parse(await mcpPayload(listed))
       expect(resources.result.resources.map((entry) => entry.uri)).toContain('spice://guide')
 
       const read = await handleMcpRequest(mcpRequest({
         id: 31, jsonrpc: '2.0', method: 'resources/read', params: { uri: 'spice://guide' },
       }), env, executionContext)
-      const readBody = await read.text()
       const contents = z.object({ result: z.object({ contents: z.array(z.object({ text: z.string() })) }) })
-        .parse(JSON.parse(readBody.slice(readBody.indexOf('{'))))
+        .parse(await mcpPayload(read))
       expect(contents.result.contents[0]!.text).toBe(SPICE_GUIDE)
     } finally {
       store.close()
@@ -468,15 +451,13 @@ describe('MCP surface budget', () => {
         method: 'initialize',
         params: { capabilities: {}, clientInfo: { name: 'test', version: '1' }, protocolVersion: '2025-06-18' },
       }, token), env, executionContext)
-      const initBody = await initialized.text()
-      const instructions: string = JSON.parse(initBody.slice(initBody.indexOf('{'))).result.instructions
+      const instructions: string = (await mcpPayload(initialized)).result.instructions
       expect(instructions.length).toBeLessThanOrEqual(INSTRUCTIONS_CHAR_BUDGET)
 
       const listed = await handleMcpRequest(mcpRequest({
         id: 9, jsonrpc: '2.0', method: 'tools/list', params: {},
       }, token), env, executionContext)
-      const listBody = await listed.text()
-      const tools = JSON.parse(listBody.slice(listBody.indexOf('{'))).result.tools
+      const tools = (await mcpPayload(listed)).result.tools
       expect(JSON.stringify(tools).length).toBeLessThanOrEqual(TOOLS_LIST_CHAR_BUDGET)
     } finally {
       resetBrokerApi()

@@ -1,11 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { loadBrokerageContext } from '../src/server/brokerage-context'
 import { assertPortfolioActionAllowed } from '../src/server/portfolio-risk'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { type JsonValue } from '../src/domain/json-payload'
-import { brokerCredential, stubBroker } from './broker-stub'
-import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
+import { brokerCredential, stubBroker, tastytradeBalances as balances } from './broker-stub'
+import { highWaterDb } from './fake-d1'
 
 /**
  * The account context and the drawdown guard read one broker snapshot now. These pin the
@@ -14,26 +14,6 @@ import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
  */
 
 const tastytrade = stubBroker()
-
-function highWaterDb(value: number): D1Database {
-  const statement = {
-    ...unsupportedStatement(),
-    bind: (): D1PreparedStatement => statement,
-    run: async () => d1Result([], 1),
-    first: async () => ({ high_water_nlv: value }),
-  }
-  return { ...unsupportedDatabase(), prepare: vi.fn(() => statement) }
-}
-
-const balances = {
-  'available-trading-funds': '64000',
-  'cash-available-to-withdraw': '65000',
-  'cash-balance': '65000',
-  'day-trading-buying-power': '256000',
-  'derivative-buying-power': '64000',
-  'equity-buying-power': '128000',
-  'net-liquidating-value': '100000',
-}
 
 const longEquity = {
   symbol: 'SPY', 'underlying-symbol': 'SPY', 'instrument-type': 'Equity',

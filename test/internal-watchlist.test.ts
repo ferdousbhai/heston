@@ -21,6 +21,7 @@ import {
 } from '../src/server/instrument-catalog'
 import { publishInternalWatchlistUniverse } from '../src/server/public-market-universe'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
+import { symbolAt } from './symbols'
 
 let store: SqliteD1Store
 
@@ -57,17 +58,6 @@ function payloads() {
       pagination: { 'total-items': 1 },
     },
   }
-}
-
-function symbolAt(index: number): string {
-  let value = index + 1
-  let symbol = ''
-  while (value > 0) {
-    value--
-    symbol = String.fromCharCode(65 + value % 26) + symbol
-    value = Math.floor(value / 26)
-  }
-  return symbol
 }
 
 describe('one-time tastytrade watchlist seed', () => {
@@ -225,9 +215,8 @@ describe('one-time tastytrade watchlist seed', () => {
   })
 
   it('prunes only the maintained list and does not repopulate an explicit deletion', async () => {
-    const boundedStore = await migrationStore()
     const symbols = Array.from({ length: MAX_WATCHLIST_SYMBOLS + 5 }, (_, index) => symbolAt(index))
-    const env = { DB: boundedStore.database }
+    const env = { DB: store.database }
     await ensureInternalWatchlistSeeded(env, async () => ({
       privatePayload: [{
         name: 'Legacy private list',
@@ -238,7 +227,7 @@ describe('one-time tastytrade watchlist seed', () => {
 
     await expect(finalizeInternalWatchlist(env, [])).resolves.toMatchObject({ finalized: true })
     expect(await readInternalWatchlist(env)).toHaveLength(MAX_WATCHLIST_SYMBOLS)
-    expect(boundedStore.sqlite.prepare('SELECT count(*) AS count FROM internal_watchlist_seed_entries').get())
+    expect(store.sqlite.prepare('SELECT count(*) AS count FROM internal_watchlist_seed_entries').get())
       .toEqual({ count: MAX_WATCHLIST_SYMBOLS + 5 })
 
     await removeInternalWatchlistSymbols(env, [symbols[0]!])
@@ -247,7 +236,6 @@ describe('one-time tastytrade watchlist seed', () => {
       removedCount: 0,
     })
     expect(await readInternalWatchlist(env)).toHaveLength(MAX_WATCHLIST_SYMBOLS - 1)
-    boundedStore.close()
   })
 
   it('retains stable catalog candidates without resurrecting an explicit deletion on rerun', async () => {
@@ -345,41 +333,36 @@ describe('one-time tastytrade watchlist seed', () => {
 
 describe('delisted names', () => {
   it('keeps a name the broker no longer trades off the public universe', async () => {
-    const store = await migrationStore()
     const env = { DB: store.database }
-    try {
-      await ensureInternalWatchlistSeeded(env, async () => ({
-        privatePayload: [{
-          name: 'Seed',
-          'watchlist-entries': [
-            { symbol: 'BE', 'instrument-type': 'Equity' },
-            { symbol: 'ATVI', 'instrument-type': 'Equity' },
-          ],
-        }],
-        publicPayload: [],
-      }))
-      await finalizeInternalWatchlist(env, [])
-      // ATVI was acquired: the catalog still carries the row, and must, because a citation or a
-      // held position may still need to resolve it. It just may not be offered to a reader.
-      await persistInstrumentCatalog(env, [
-        ...instrumentCatalogFromPayload([
-          { active: false, description: 'Activision Blizzard', 'instrument-type': 'Equity', symbol: 'ATVI' },
-          { active: true, description: 'Bloom Energy', 'instrument-type': 'Equity', symbol: 'BE' },
-        ], ['ATVI', 'BE']),
-      ])
+    await ensureInternalWatchlistSeeded(env, async () => ({
+      privatePayload: [{
+        name: 'Seed',
+        'watchlist-entries': [
+          { symbol: 'BE', 'instrument-type': 'Equity' },
+          { symbol: 'ATVI', 'instrument-type': 'Equity' },
+        ],
+      }],
+      publicPayload: [],
+    }))
+    await finalizeInternalWatchlist(env, [])
+    // ATVI was acquired: the catalog still carries the row, and must, because a citation or a
+    // held position may still need to resolve it. It just may not be offered to a reader.
+    await persistInstrumentCatalog(env, [
+      ...instrumentCatalogFromPayload([
+        { active: false, description: 'Activision Blizzard', 'instrument-type': 'Equity', symbol: 'ATVI' },
+        { active: true, description: 'Bloom Energy', 'instrument-type': 'Equity', symbol: 'BE' },
+      ], ['ATVI', 'BE']),
+    ])
 
-      await publishInternalWatchlistUniverse(env)
-      const stored = store.sqlite
-        .prepare("SELECT payload_json FROM public_market_universe WHERE id='primary'").get()
-      const published = z.object({ symbols: z.array(z.string()) })
-        .parse(JSON.parse(z.object({ payload_json: z.string() }).parse(stored).payload_json))
-        .symbols
-      expect(published).toContain('BE')
-      expect(published).not.toContain('ATVI')
-      // Still on the maintained list -- excluded from readers, not deleted from the record.
-      expect((await readInternalWatchlist(env)).map((item) => item.symbol)).toContain('ATVI')
-    } finally {
-      store.close()
-    }
+    await publishInternalWatchlistUniverse(env)
+    const stored = store.sqlite
+      .prepare("SELECT payload_json FROM public_market_universe WHERE id='primary'").get()
+    const published = z.object({ symbols: z.array(z.string()) })
+      .parse(JSON.parse(z.object({ payload_json: z.string() }).parse(stored).payload_json))
+      .symbols
+    expect(published).toContain('BE')
+    expect(published).not.toContain('ATVI')
+    // Still on the maintained list -- excluded from readers, not deleted from the record.
+    expect((await readInternalWatchlist(env)).map((item) => item.symbol)).toContain('ATVI')
   })
 })

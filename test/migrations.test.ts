@@ -3,17 +3,14 @@ import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import { DailyRecommendationsSchema } from '../src/domain/market'
 
+/** Each test names the migration files it applies; `test/sqlite-d1.ts` explains why. */
+const read = (name: string) => readFile(new URL(`../migrations/${name}`, import.meta.url), 'utf8')
+
 describe('brokerage action migrations', () => {
   it('migrates daily recommendations and durable reader-link history', async () => {
-    const initial = await readFile(new URL('../migrations/0001_spice.sql', import.meta.url), 'utf8')
-    const telegram = await readFile(
-      new URL('../migrations/0018_research_brief_telegram_publications.sql', import.meta.url),
-      'utf8',
-    )
-    const recommendations = await readFile(
-      new URL('../migrations/0022_daily_recommendations_and_link_history.sql', import.meta.url),
-      'utf8',
-    )
+    const initial = await read('0001_spice.sql')
+    const telegram = await read('0018_research_brief_telegram_publications.sql')
+    const recommendations = await read('0022_daily_recommendations_and_link_history.sql')
     const db = new DatabaseSync(':memory:')
     db.exec('PRAGMA foreign_keys = ON')
     db.exec(initial)
@@ -90,8 +87,8 @@ describe('brokerage action migrations', () => {
   })
 
   it('stores only constrained, per-user favorite symbols and cascades account deletion', async () => {
-    const initial = await readFile(new URL('../migrations/0001_spice.sql', import.meta.url), 'utf8')
-    const favorites = await readFile(new URL('../migrations/0013_user_favorite_symbols.sql', import.meta.url), 'utf8')
+    const initial = await read('0001_spice.sql')
+    const favorites = await read('0013_user_favorite_symbols.sql')
     const db = new DatabaseSync(':memory:')
     db.exec('PRAGMA foreign_keys = ON')
     db.exec(initial)
@@ -119,7 +116,6 @@ describe('brokerage action migrations', () => {
   })
 
   it('rebuilds every symbol constraint onto tastytrade symbology and carries rows over', async () => {
-    const read = (name: string) => readFile(new URL(`../migrations/${name}`, import.meta.url), 'utf8')
     const db = new DatabaseSync(':memory:')
     db.exec('PRAGMA foreign_keys = ON')
     for (const name of [
@@ -180,8 +176,8 @@ describe('brokerage action migrations', () => {
   })
 
   it('serializes every order kind after the exact production-applied 0005 migration', async () => {
-    const initial = await readFile(new URL('../migrations/0001_spice.sql', import.meta.url), 'utf8')
-    const migration = await readFile(new URL('../migrations/0005_brokerage_action_state.sql', import.meta.url), 'utf8')
+    const initial = await read('0001_spice.sql')
+    const migration = await read('0005_brokerage_action_state.sql')
     const db = new DatabaseSync(':memory:')
     db.exec(initial)
     const insert = db.prepare(
@@ -204,11 +200,8 @@ describe('brokerage action migrations', () => {
   })
 
   it('quarantines an ambiguous submission per broker account, never globally', async () => {
-    const initial = await readFile(new URL('../migrations/0001_spice.sql', import.meta.url), 'utf8')
-    const migration = await readFile(
-      new URL('../migrations/0029_broker_submission_quarantine.sql', import.meta.url),
-      'utf8',
-    )
+    const initial = await read('0001_spice.sql')
+    const migration = await read('0029_broker_submission_quarantine.sql')
     const db = new DatabaseSync(':memory:')
     // 0029 carries executed orders forward, so the table it reads must already exist.
     db.exec(initial)
@@ -233,12 +226,9 @@ describe('brokerage action migrations', () => {
   })
 
   it('carries executed orders forward so a pre-deploy order stays replaceable', async () => {
-    const initial = await readFile(new URL('../migrations/0001_spice.sql', import.meta.url), 'utf8')
-    const inFlight = await readFile(new URL('../migrations/0005_brokerage_action_state.sql', import.meta.url), 'utf8')
-    const migration = await readFile(
-      new URL('../migrations/0029_broker_submission_quarantine.sql', import.meta.url),
-      'utf8',
-    )
+    const initial = await read('0001_spice.sql')
+    const inFlight = await read('0005_brokerage_action_state.sql')
+    const migration = await read('0029_broker_submission_quarantine.sql')
     const db = new DatabaseSync(':memory:')
     db.exec(initial)
     db.exec(inFlight)
@@ -262,11 +252,8 @@ describe('brokerage action migrations', () => {
   })
 
   it('carries the drawdown high-water mark forward and stops brokers sharing one', async () => {
-    const initial = await readFile(new URL('../migrations/0001_spice.sql', import.meta.url), 'utf8')
-    const migration = await readFile(
-      new URL('../migrations/0031_portfolio_risk_state_per_broker.sql', import.meta.url),
-      'utf8',
-    )
+    const initial = await read('0001_spice.sql')
+    const migration = await read('0031_portfolio_risk_state_per_broker.sql')
     const db = new DatabaseSync(':memory:')
     db.exec(initial)
     db.prepare(
@@ -294,13 +281,10 @@ describe('brokerage action migrations', () => {
   })
 
   it('adds the internal watchlist seed, normalized live items, and immutable provenance tables', async () => {
-    const publicUniverse = await readFile(new URL('../migrations/0003_public_market_universe.sql', import.meta.url), 'utf8')
-    const migration = await readFile(new URL('../migrations/0006_internal_watchlist.sql', import.meta.url), 'utf8')
-    const validation = await readFile(new URL('../migrations/0007_internal_watchlist_validation.sql', import.meta.url), 'utf8')
-    const positionOrigin = await readFile(
-      new URL('../migrations/0011_internal_watchlist_position_origin.sql', import.meta.url),
-      'utf8',
-    )
+    const publicUniverse = await read('0003_public_market_universe.sql')
+    const migration = await read('0006_internal_watchlist.sql')
+    const validation = await read('0007_internal_watchlist_validation.sql')
+    const positionOrigin = await read('0011_internal_watchlist_position_origin.sql')
     const db = new DatabaseSync(':memory:')
     db.exec(publicUniverse)
     db.exec(migration)
@@ -370,8 +354,8 @@ describe('brokerage action migrations', () => {
   })
 
   it('stores typed tastytrade Equity fields and normalized tick tiers without raw JSON', async () => {
-    const migration = await readFile(new URL('../migrations/0008_instrument_catalog.sql', import.meta.url), 'utf8')
-    const resolution = await readFile(new URL('../migrations/0009_instrument_catalog_resolution.sql', import.meta.url), 'utf8')
+    const migration = await read('0008_instrument_catalog.sql')
+    const resolution = await read('0009_instrument_catalog_resolution.sql')
     const db = new DatabaseSync(':memory:')
     db.exec(migration)
     db.exec(resolution)
@@ -390,37 +374,16 @@ describe('brokerage action migrations', () => {
   })
 
   it('splits source facts into constrained tables and composes only through views', async () => {
-    const initial = await readFile(new URL('../migrations/0001_spice.sql', import.meta.url), 'utf8')
-    const catalystDescription = await readFile(
-      new URL('../migrations/0004_catalyst_description.sql', import.meta.url),
-      'utf8',
-    )
-    const publicUniverse = await readFile(new URL('../migrations/0003_public_market_universe.sql', import.meta.url), 'utf8')
-    const instrumentCatalog = await readFile(new URL('../migrations/0008_instrument_catalog.sql', import.meta.url), 'utf8')
-    const instrumentResolution = await readFile(
-      new URL('../migrations/0009_instrument_catalog_resolution.sql', import.meta.url),
-      'utf8',
-    )
-    const sourceTables = await readFile(
-      new URL('../migrations/0010_source_specific_market_data.sql', import.meta.url),
-      'utf8',
-    )
-    const codexConfidence = await readFile(
-      new URL('../migrations/0012_codex_catalyst_confidence.sql', import.meta.url),
-      'utf8',
-    )
-    const retireSocial = await readFile(
-      new URL('../migrations/0019_retire_social_catalyst_tables.sql', import.meta.url),
-      'utf8',
-    )
-    const unifyCatalysts = await readFile(
-      new URL('../migrations/0020_unify_catalyst_store.sql', import.meta.url),
-      'utf8',
-    )
-    const retireCodexCatalysts = await readFile(
-      new URL('../migrations/0021_retire_codex_web_catalysts.sql', import.meta.url),
-      'utf8',
-    )
+    const initial = await read('0001_spice.sql')
+    const catalystDescription = await read('0004_catalyst_description.sql')
+    const publicUniverse = await read('0003_public_market_universe.sql')
+    const instrumentCatalog = await read('0008_instrument_catalog.sql')
+    const instrumentResolution = await read('0009_instrument_catalog_resolution.sql')
+    const sourceTables = await read('0010_source_specific_market_data.sql')
+    const codexConfidence = await read('0012_codex_catalyst_confidence.sql')
+    const retireSocial = await read('0019_retire_social_catalyst_tables.sql')
+    const unifyCatalysts = await read('0020_unify_catalyst_store.sql')
+    const retireCodexCatalysts = await read('0021_retire_codex_web_catalysts.sql')
     const db = new DatabaseSync(':memory:')
     db.exec(initial)
     db.exec(publicUniverse)

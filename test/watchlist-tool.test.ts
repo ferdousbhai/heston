@@ -4,7 +4,7 @@ import { loadBrokerageContext } from '../src/server/brokerage-context'
 import { ensureInternalWatchlistSeeded, finalizeInternalWatchlist } from '../src/server/internal-watchlist'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { createWatchlistReadTool } from '../src/server/watchlist-tool'
-import { brokerCredential, stubBroker } from './broker-stub'
+import { brokerCredential, stubBroker, tastytradeBalances } from './broker-stub'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 
 const tastytrade = stubBroker()
@@ -15,15 +15,7 @@ beforeEach(async () => {
   tastytrade.resolveAccountNumber.mockReset().mockResolvedValue('TEST123')
   tastytrade.tastyRequest.mockReset().mockImplementation((_env, path: string) => Promise.resolve(
     path.endsWith('/balances')
-      ? { data: {
-          'available-trading-funds': '64000',
-          'cash-available-to-withdraw': '65000',
-          'cash-balance': '65000',
-          'day-trading-buying-power': '256000',
-          'derivative-buying-power': '64000',
-          'equity-buying-power': '128000',
-          'net-liquidating-value': '100000',
-        } }
+      ? { data: tastytradeBalances }
       : { data: { items: [] } },
   ))
   store = await migrationStore()

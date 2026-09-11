@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import {
   brokerAdapterFor,
@@ -17,17 +17,7 @@ import {
   stubBrokerCredential,
   stubAdapter,
 } from './broker-stub'
-import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
-
-function highWaterDb(value: number): D1Database {
-  const statement = {
-    ...unsupportedStatement(),
-    bind: (): D1PreparedStatement => statement,
-    run: async () => d1Result([], 1),
-    first: async () => ({ high_water_nlv: value }),
-  }
-  return { ...unsupportedDatabase(), prepare: vi.fn(() => statement) }
-}
+import { highWaterDb } from './fake-d1'
 
 /**
  * Every tastytrade entry point, wired to fail. Installed for the stub-adapter run so the seam

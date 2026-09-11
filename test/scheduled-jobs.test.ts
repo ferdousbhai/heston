@@ -6,6 +6,7 @@ import { ensureInternalWatchlistSeeded, finalizeInternalWatchlist } from '../src
 import { refreshYearCandles } from '../src/server/scheduled-jobs'
 import { readYearCandleSeries } from '../src/server/year-candle-store'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
+import { symbolAt } from './symbols'
 
 let store: SqliteD1Store
 
@@ -14,17 +15,6 @@ beforeEach(async () => {
 })
 
 afterEach(() => store.close())
-
-function symbolAt(index: number): string {
-  let value = index + 1
-  let symbol = ''
-  while (value > 0) {
-    value--
-    symbol = String.fromCharCode(65 + value % 26) + symbol
-    value = Math.floor(value / 26)
-  }
-  return symbol
-}
 
 /** Fill the watchlist to its own bound, which is five times what one feed read may subscribe. */
 async function seededWatchlist(database: D1Database): Promise<void> {

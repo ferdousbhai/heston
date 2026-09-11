@@ -2,31 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { executeOrderPlacement } from '../src/server/brokerage'
 import { type AppEnv } from '../src/server/env'
-import { brokerCredential, stubBrokerGate } from './broker-stub'
-import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
+import { brokerCredential, stubBrokerGate, tastytradeBalances as balances } from './broker-stub'
+import { highWaterDb } from './fake-d1'
 
 function secret(value: string): SecretsStoreSecret {
   return { get: async () => value }
-}
-
-function highWaterDb(value: number): D1Database {
-  const statement = {
-    ...unsupportedStatement(),
-    bind: (): D1PreparedStatement => statement,
-    run: async () => d1Result([], 1),
-    first: async () => ({ high_water_nlv: value }),
-  }
-  return { ...unsupportedDatabase(), prepare: vi.fn(() => statement) }
-}
-
-const balances = {
-  'available-trading-funds': '64000',
-  'cash-available-to-withdraw': '65000',
-  'cash-balance': '65000',
-  'day-trading-buying-power': '256000',
-  'derivative-buying-power': '64000',
-  'equity-buying-power': '128000',
-  'net-liquidating-value': '100000',
 }
 
 afterEach(() => vi.unstubAllGlobals())

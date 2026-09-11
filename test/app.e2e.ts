@@ -306,7 +306,6 @@ test('mobile market, recommendations, search, sorting, and connect flows remain 
   await expect(page.getByRole('button', { name: /NVDA, NVIDIA, Expensive/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /SPCX, SpaceX Corporation, Cheap/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /BE, Bloom Energy, Fair/ })).toBeVisible()
-  await expect(page.getByRole('button', { name: /BE, Bloom Energy, Fair/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /INTC, Intel, Cheap/ })).toBeVisible()
 
   const selectedSymbol = page.locator('.selected-symbol')
@@ -543,47 +542,54 @@ test('two signed-out devices converge on the account union without granting owne
   const serverFavorites = new Set(['BE'])
   const anonymousMerges: string[][] = []
 
-  await page.route('**/api/viewer', (route) => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({
-      authRequired: true,
-      user: laptopSignedIn ? { id: 'member-1', name: 'Member', role: 'member' } : null,
-    }),
-  }))
-  await page.route('**/api/mcp-tokens', (route) => route.fulfill({
-    body: JSON.stringify({ tokens: [] }),
-    contentType: 'application/json',
-    status: 200,
-  }))
-  await page.route('**/api/public-snapshot*', (route) => route.fulfill({
-    contentType: 'application/json',
-    body: publicSnapshotJson(snapshot),
-  }))
-  await page.route('**/api/snapshot*', (route) => {
-    ownerSnapshotRequests += 1
-    return route.fulfill({ status: 403, body: '{}' })
-  })
-  await page.route('**/api/favorites', async (route) => {
-    if (route.request().method() === 'POST') {
-      if (rejectNextFavoriteMutation) {
-        rejectNextFavoriteMutation = false
-        rejectedFavoriteMutations += 1
-        await route.fulfill({ status: 503, body: '{"error":"temporarily unavailable"}' })
-        return
-      }
-      const action = FavoriteMutationRequestSchema.parse(route.request().postDataJSON())
-      if (action.kind === 'merge') {
-        anonymousMerges.push(action.symbols)
-        action.symbols.forEach((symbol) => serverFavorites.add(symbol))
-      } else {
-        action.symbols.forEach((symbol) => serverFavorites.delete(symbol))
-      }
-    }
-    await route.fulfill({
+  // Both devices share the one server state below, so they must be stubbed identically:
+  // a difference between the two route sets would make them diverge for reasons unrelated
+  // to the convergence under test.
+  const stubDevice = async (target: Page, signedIn: () => boolean) => {
+    await target.route('**/api/viewer', (route) => route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({ symbols: [...serverFavorites].sort() }),
+      body: JSON.stringify({
+        authRequired: true,
+        user: signedIn() ? { id: 'member-1', name: 'Member', role: 'member' } : null,
+      }),
+    }))
+    await target.route('**/api/mcp-tokens', (route) => route.fulfill({
+      body: JSON.stringify({ tokens: [] }),
+      contentType: 'application/json',
+      status: 200,
+    }))
+    await target.route('**/api/public-snapshot*', (route) => route.fulfill({
+      contentType: 'application/json',
+      body: publicSnapshotJson(snapshot),
+    }))
+    await target.route('**/api/snapshot*', (route) => {
+      ownerSnapshotRequests += 1
+      return route.fulfill({ status: 403, body: '{}' })
     })
-  })
+    await target.route('**/api/favorites', async (route) => {
+      if (route.request().method() === 'POST') {
+        if (rejectNextFavoriteMutation) {
+          rejectNextFavoriteMutation = false
+          rejectedFavoriteMutations += 1
+          await route.fulfill({ status: 503, body: '{"error":"temporarily unavailable"}' })
+          return
+        }
+        const action = FavoriteMutationRequestSchema.parse(route.request().postDataJSON())
+        if (action.kind === 'merge') {
+          anonymousMerges.push(action.symbols)
+          action.symbols.forEach((symbol) => serverFavorites.add(symbol))
+        } else {
+          action.symbols.forEach((symbol) => serverFavorites.delete(symbol))
+        }
+      }
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ symbols: [...serverFavorites].sort() }),
+      })
+    })
+  }
+
+  await stubDevice(page, () => laptopSignedIn)
 
   await page.goto('/')
   await page.getByRole('button', { name: 'Pin NVDA' }).click()
@@ -599,47 +605,7 @@ test('two signed-out devices converge on the account union without granting owne
 
   const mobileContext = await browser.newContext()
   const mobile = await mobileContext.newPage()
-  await mobile.route('**/api/viewer', (route) => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({
-      authRequired: true,
-      user: mobileSignedIn ? { id: 'member-1', name: 'Member', role: 'member' } : null,
-    }),
-  }))
-  await mobile.route('**/api/mcp-tokens', (route) => route.fulfill({
-    body: JSON.stringify({ tokens: [] }),
-    contentType: 'application/json',
-    status: 200,
-  }))
-  await mobile.route('**/api/public-snapshot*', (route) => route.fulfill({
-    contentType: 'application/json',
-    body: publicSnapshotJson(snapshot),
-  }))
-  await mobile.route('**/api/snapshot*', (route) => {
-    ownerSnapshotRequests += 1
-    return route.fulfill({ status: 403, body: '{}' })
-  })
-  await mobile.route('**/api/favorites', async (route) => {
-    if (route.request().method() === 'POST') {
-      if (rejectNextFavoriteMutation) {
-        rejectNextFavoriteMutation = false
-        rejectedFavoriteMutations += 1
-        await route.fulfill({ status: 503, body: '{"error":"temporarily unavailable"}' })
-        return
-      }
-      const action = FavoriteMutationRequestSchema.parse(route.request().postDataJSON())
-      if (action.kind === 'merge') {
-        anonymousMerges.push(action.symbols)
-        action.symbols.forEach((symbol) => serverFavorites.add(symbol))
-      } else {
-        action.symbols.forEach((symbol) => serverFavorites.delete(symbol))
-      }
-    }
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({ symbols: [...serverFavorites].sort() }),
-    })
-  })
+  await stubDevice(mobile, () => mobileSignedIn)
 
   await mobile.goto('/')
   await mobile.getByRole('button', { name: 'Pin SPCX' }).click()

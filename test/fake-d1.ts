@@ -1,3 +1,5 @@
+import { vi } from 'vitest'
+
 /**
  * Faithful, fully typed D1 stand-ins. Every call on them throws by default, so a test
  * spreads one in and overrides exactly the calls its code path makes; a query it did not
@@ -38,4 +40,18 @@ export function d1Result<T>(results: T[], changes = 0): D1Result<T> {
     results,
     success: true,
   }
+}
+
+/**
+ * The one row the drawdown guard reads: `portfolio_risk_state.high_water_nlv`. Every other
+ * query on this database throws, so a reader that strays off that path fails loudly.
+ */
+export function highWaterDb(value: number): D1Database {
+  const statement = {
+    ...unsupportedStatement(),
+    bind: (): D1PreparedStatement => statement,
+    run: async () => d1Result([], 1),
+    first: async () => ({ high_water_nlv: value }),
+  }
+  return { ...unsupportedDatabase(), prepare: vi.fn(() => statement) }
 }
