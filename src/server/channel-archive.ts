@@ -11,18 +11,14 @@ const StoredPostRowSchema = z.object({
 
 /**
  * Newest first, paged by post id. One row past the page is read so the page can say whether
- * an older one exists without a second query. A row the schema refuses is skipped rather than
- * failing the page: the import wrote it, and one bad row must not hide the rest.
+ * an older one exists without a second query.
  */
 export async function readChannelArchivePage(db: D1Database, before?: number): Promise<ChannelArchivePage> {
   const statement = before === undefined
     ? db.prepare('SELECT post_id, posted_at, text, links_json FROM long_vol_channel_posts ORDER BY post_id DESC LIMIT ?').bind(CHANNEL_ARCHIVE_PAGE_SIZE + 1)
     : db.prepare('SELECT post_id, posted_at, text, links_json FROM long_vol_channel_posts WHERE post_id < ? ORDER BY post_id DESC LIMIT ?').bind(before, CHANNEL_ARCHIVE_PAGE_SIZE + 1)
   const { results } = await statement.all()
-  const rows = results.flatMap((result) => {
-    const row = StoredPostRowSchema.safeParse(result)
-    return row.success ? [row.data] : []
-  })
+  const rows = z.array(StoredPostRowSchema).parse(results)
   const page = rows.slice(0, CHANNEL_ARCHIVE_PAGE_SIZE)
   const nextBefore = rows.length > CHANNEL_ARCHIVE_PAGE_SIZE ? page.at(-1)?.post_id : undefined
   return ChannelArchivePageSchema.parse({
