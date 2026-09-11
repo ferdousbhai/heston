@@ -58,7 +58,9 @@ function useAgentTokens() {
     setTokens(McpTokenListResponseSchema.parse(body).tokens)
   }, [])
 
-  const issue = useCallback(async (label: string) => {
+  // Reports whether the token was created, so the caller can keep what the member typed when
+  // it was not — a refusal at the token cap is the case where retyping the name is wasted.
+  const issue = useCallback(async (label: string): Promise<boolean> => {
     setBusy(true)
     try {
       const body = await readJson(await fetch('/api/mcp-tokens', {
@@ -70,8 +72,10 @@ function useAgentTokens() {
       setIssued(McpTokenIssuedResponseSchema.parse(body).token)
       setError(undefined)
       await reload()
+      return true
     } catch (cause) {
       setError(toError(cause)?.message ?? 'The token could not be created')
+      return false
     } finally {
       setBusy(false)
     }
@@ -99,22 +103,34 @@ function useAgentTokens() {
 }
 
 function CopyBlock({ label, value }: { label: string; value: string }) {
-  const [copied, setCopied] = useState(false)
+  const [copyState, setCopyState] = useState<'copied' | 'failed' | 'idle'>('idle')
   return (
     <div className="connect-code">
       <div className="connect-code-head">
         <span>{label}</span>
         <Button
           onClick={() => {
-            void navigator.clipboard?.writeText(value).then(() => {
-              setCopied(true)
-              setTimeout(() => setCopied(false), 2_000)
-            })
+            // One of these blocks holds a token the server never shows again, so a clipboard
+            // that refuses — a denied permission, an unfocused document, a webview, or no
+            // clipboard API at all outside a secure context — says so and sends the reader to
+            // the block below rather than leaving a button that reads "Copy" and did nothing.
+            const clipboard = navigator.clipboard
+            if (!clipboard) {
+              setCopyState('failed')
+              return
+            }
+            void clipboard.writeText(value).then(
+              () => {
+                setCopyState('copied')
+                setTimeout(() => setCopyState('idle'), 2_000)
+              },
+              () => setCopyState('failed'),
+            )
           }}
           size="sm"
           variant="ghost"
         >
-          {copied ? 'Copied' : 'Copy'}
+          {copyState === 'copied' ? 'Copied' : copyState === 'failed' ? 'Copy failed · select below' : 'Copy'}
         </Button>
       </div>
       <pre><code>{value}</code></pre>
@@ -212,7 +228,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
             event.preventDefault()
             const trimmed = label.trim()
             if (!trimmed || busy) return
-            void issue(trimmed).then(() => setLabel(''))
+            void issue(trimmed).then((created) => { if (created) setLabel('') })
           }}
         >
           <Input
