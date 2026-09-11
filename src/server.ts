@@ -32,9 +32,13 @@ export default {
     }
     if (url.pathname === '/mcp') return (await mcpSurface()).handleMcpRequest(request, env, ctx)
     // An agent aimed at the site rather than at `/mcp` would otherwise be handed the web app's
-    // HTML with a 200 and fail inside its JSON parser, saying nothing useful to anyone.
-    const misdirected = await (await mcpSurface()).mcpEndpointRedirect(request)
-    if (misdirected) return misdirected
+    // HTML with a 200 and fail inside its JSON parser, saying nothing useful to anyone. The
+    // handshake's own discriminators are checked here so that loading the MCP module graph
+    // stays what it is meant to be — something only an MCP-shaped request pays for.
+    if (request.method === 'POST' && request.headers.get('content-type')?.includes('application/json')) {
+      const misdirected = await (await mcpSurface()).mcpEndpointRedirect(request)
+      if (misdirected) return misdirected
+    }
     return finalizeDocumentResponse(request, await handler.fetch(request))
   },
   scheduled(controller: ScheduledController, env: AppEnv, context: ExecutionContext) {
