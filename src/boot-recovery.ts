@@ -4,7 +4,7 @@ import { STORAGE_PURGE_COOKIE } from './domain/storage-purge'
 /** Long enough that a slow first paint is never mistaken for a build that cannot load. */
 export const BOOT_RECOVERY_DELAY_MS = 10_000
 
-export const BOOT_RECOVERY_STORAGE_KEY = 'spice.boot-recovery.v1'
+export const BOOT_RECOVERY_COOKIE = 'spice.boot-recovery.v1'
 
 /**
  * How long the cleanup may hold the reload. Unregistering a worker takes a healthy browser
@@ -22,11 +22,14 @@ export const BOOT_RECOVERY_CLEANUP_TIMEOUT_MS = 3_000
  * whose modules never loaded. If nothing has reported hydration by the deadline, it drops
  * the caches and workers that could be pinning the reader to a dead build, and reloads.
  *
- * The attempt is recorded in session storage so a genuinely broken deploy cannot loop, and
- * it expires on the same cooldown the deployment reload uses: iOS restores tabs across app
- * restarts, so session storage there is effectively permanent, and a latch that never expired
- * would turn one failed attempt into a tab that never tries again. Storage that cannot be read
- * cannot bound a loop either, so it counts as an attempt in progress.
+ * The attempt is recorded so a genuinely broken deploy cannot loop, and it is recorded in a
+ * cookie because the guard's own reload drops the purge receipt: the reloaded document then
+ * carries `Clear-Site-Data: "storage"`, which empties session storage before it commits, so a
+ * session-storage latch would be gone every time it was read and the loop it exists to stop
+ * would run forever. Cookies are the one class that purge spares. The latch expires on the same
+ * cooldown the deployment reload uses: iOS restores tabs across app restarts, and a latch that
+ * never expired would turn one failed attempt into a tab that never tries again. A cookie that
+ * cannot be read cannot bound a loop either, so it counts as an attempt in progress.
  *
  * The reload is the part that must happen. The registration and cache APIs it waits on live
  * in the same worker process that may be the problem, so the wait is bounded, and the purge
@@ -39,12 +42,22 @@ export function bootRecoveryScript(
   cleanupTimeoutMs: number = BOOT_RECOVERY_CLEANUP_TIMEOUT_MS,
 ): string {
   return `(function(){
-  var KEY='${BOOT_RECOVERY_STORAGE_KEY}';
+  var KEY='${BOOT_RECOVERY_COOKIE}';
   var COOLDOWN=${cooldownMs};
+  var MAX_AGE=${Math.ceil(cooldownMs / 1_000)};
   var PURGE_COOKIE='${STORAGE_PURGE_COOKIE}';
-  function attemptedAt(){ try { return Number(sessionStorage.getItem(KEY)) } catch (error) { return Infinity } }
-  function remember(){ try { sessionStorage.setItem(KEY, String(Date.now())) } catch (error) {} }
-  window.__spiceBooted=function(){ clearTimeout(timer); try { sessionStorage.removeItem(KEY) } catch (error) {} };
+  var SECURE=location.protocol === 'https:' ? '; Secure' : '';
+  function attemptedAt(){ try {
+    var pairs=document.cookie.split(';');
+    for (var i=0;i<pairs.length;i++) {
+      var separator=pairs[i].indexOf('=');
+      if (separator === -1) continue;
+      if (pairs[i].slice(0, separator).trim() === KEY) return Number(pairs[i].slice(separator + 1).trim());
+    }
+    return 0;
+  } catch (error) { return Infinity } }
+  function remember(){ try { document.cookie=KEY+'='+Date.now()+'; Max-Age='+MAX_AGE+'; Path=/; SameSite=Lax'+SECURE } catch (error) {} }
+  window.__spiceBooted=function(){ clearTimeout(timer); try { document.cookie=KEY+'=; Max-Age=0; Path=/' } catch (error) {} };
   var timer=setTimeout(function(){
     var at=attemptedAt();
     if (at > 0 && Date.now() - at < COOLDOWN) return;

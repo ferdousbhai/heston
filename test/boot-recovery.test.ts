@@ -2,7 +2,7 @@ import { runInNewContext } from 'node:vm'
 
 import { describe, expect, it, vi } from 'vitest'
 
-import { BOOT_RECOVERY_STORAGE_KEY, bootRecoveryScript } from '../src/boot-recovery'
+import { BOOT_RECOVERY_COOKIE, bootRecoveryScript } from '../src/boot-recovery'
 import { STORAGE_PURGE_COOKIE } from '../src/domain/storage-purge'
 
 const DELAY_MS = 10_000
@@ -17,26 +17,43 @@ type RecoveryWindow = {
   caches: { delete: (name: string) => Promise<boolean>; keys: () => Promise<string[]> }
 }
 
-function loadDocument(options: { blockedStorage?: boolean; hungWorkerApis?: boolean; stored?: Map<string, string> } = {}) {
-  const stored = options.stored ?? new Map<string, string>()
+/** `document.cookie` as a browser implements it: one assignment edits one cookie. */
+function cookieDocument(jar: Map<string, string>) {
+  return {
+    get cookie(): string {
+      return [...jar].map(([name, value]) => `${name}=${value}`).join('; ')
+    },
+    set cookie(assignment: string) {
+      const [pair, ...attributes] = assignment.split(';')
+      const separator = pair.indexOf('=')
+      const name = pair.slice(0, separator).trim()
+      const maxAge = attributes
+        .map((attribute) => attribute.trim().toLowerCase())
+        .find((attribute) => attribute.startsWith('max-age='))
+      if (maxAge && Number(maxAge.slice('max-age='.length)) <= 0) {
+        jar.delete(name)
+        return
+      }
+      jar.set(name, pair.slice(separator + 1).trim())
+    },
+  }
+}
+
+function loadDocument(options: { blockedCookies?: boolean; hungWorkerApis?: boolean; cookies?: Map<string, string> } = {}) {
+  const jar = options.cookies ?? new Map([[STORAGE_PURGE_COOKIE, '1']])
   const clock = { now: 1_700_000_000_000 }
   const timers = new Map<number, { delay: number; fire: () => void }>()
   let nextTimer = 1
-  const document = { cookie: `${STORAGE_PURGE_COOKIE}=1` }
+  const blocked = () => { throw new Error('SecurityError') }
+  const document = options.blockedCookies
+    ? { get cookie(): string { return blocked() }, set cookie(_assignment: string) { blocked() } }
+    : cookieDocument(jar)
   const registration = { unregister: vi.fn(async (): Promise<boolean> => true) }
   const cacheStorage = {
     delete: vi.fn(async (_name: string): Promise<boolean> => true),
     keys: vi.fn(async (): Promise<string[]> => ['spice-public-shell-v2']),
   }
   const reload = vi.fn()
-  const blocked = () => { throw new Error('SecurityError') }
-  const sessionStorage = options.blockedStorage
-    ? { getItem: blocked, removeItem: blocked, setItem: blocked }
-    : {
-        getItem: (key: string) => stored.get(key) ?? null,
-        removeItem: (key: string) => { stored.delete(key) },
-        setItem: (key: string, value: string) => { stored.set(key, value) },
-      }
   const window: RecoveryWindow = { caches: cacheStorage }
   const context = {
     Date: { now: () => clock.now },
@@ -47,9 +64,8 @@ function loadDocument(options: { blockedStorage?: boolean; hungWorkerApis?: bool
     caches: cacheStorage,
     clearTimeout: (id: number) => { timers.delete(id) },
     document,
-    location: { reload },
+    location: { protocol: 'https:', reload },
     navigator: { serviceWorker: { getRegistrations: () => options.hungWorkerApis ? new Promise<never>(() => undefined) : Promise.resolve([registration]) } },
-    sessionStorage,
     setTimeout: (fire: () => void, delay: number) => { const id = nextTimer++; timers.set(id, { delay, fire }); return id },
     window,
   }
@@ -61,7 +77,7 @@ function loadDocument(options: { blockedStorage?: boolean; hungWorkerApis?: bool
     },
     cacheStorage,
     clock,
-    document,
+    cookies: jar,
     /** Fire the one scheduled timer whose delay matches, as the browser would once it passes. */
     async elapse(delay: number): Promise<void> {
       const due = [...timers.entries()].find(([, timer]) => timer.delay === delay)
@@ -74,7 +90,6 @@ function loadDocument(options: { blockedStorage?: boolean; hungWorkerApis?: bool
     registration,
     reload,
     scheduled: () => timers.size > 0,
-    stored,
   }
 }
 
@@ -87,9 +102,9 @@ describe('boot recovery guard', () => {
     expect(page.registration.unregister).toHaveBeenCalledOnce()
     expect(page.cacheStorage.delete).toHaveBeenCalledWith('spice-public-shell-v2')
     expect(page.reload).toHaveBeenCalledOnce()
-    expect(page.stored.get(BOOT_RECOVERY_STORAGE_KEY)).toBe(String(page.clock.now))
+    expect(page.cookies.get(BOOT_RECOVERY_COOKIE)).toBe(String(page.clock.now))
     // The reloaded document must arrive without the purge receipt, so the server purges again.
-    expect(page.document.cookie).toBe(`${STORAGE_PURGE_COOKIE}=; Max-Age=0; Path=/`)
+    expect(page.cookies.has(STORAGE_PURGE_COOKIE)).toBe(false)
     // Cleanup finished first, so the bounded wait must not reload a second time.
     await page.elapse(CLEANUP_TIMEOUT_MS)
     expect(page.reload).toHaveBeenCalledOnce()
@@ -103,23 +118,25 @@ describe('boot recovery guard', () => {
     await page.elapse(CLEANUP_TIMEOUT_MS)
 
     expect(page.reload).toHaveBeenCalledOnce()
-    expect(page.document.cookie).toBe(`${STORAGE_PURGE_COOKIE}=; Max-Age=0; Path=/`)
+    expect(page.cookies.has(STORAGE_PURGE_COOKIE)).toBe(false)
   })
 
   it('stands down and forgets the attempt once the app reports hydration', () => {
-    const stored = new Map([[BOOT_RECOVERY_STORAGE_KEY, '1']])
-    const page = loadDocument({ stored })
+    const cookies = new Map([[BOOT_RECOVERY_COOKIE, '1']])
+    const page = loadDocument({ cookies })
 
     page.booted()
 
     expect(page.scheduled()).toBe(false)
-    expect(stored.has(BOOT_RECOVERY_STORAGE_KEY)).toBe(false)
+    expect(cookies.has(BOOT_RECOVERY_COOKIE)).toBe(false)
   })
 
   it('does not reload again inside the cooldown, so a broken deploy cannot loop', async () => {
     const first = loadDocument()
     await first.elapse(DELAY_MS)
-    const second: Harness = loadDocument({ stored: first.stored })
+    // The reload the guard just asked for purges storage on the way back, which is why the
+    // latch is a cookie: only what the purge spares survives into the document that reads it.
+    const second: Harness = loadDocument({ cookies: first.cookies })
     second.clock.now = first.clock.now + COOLDOWN_MS - 1
 
     await second.elapse(DELAY_MS)
@@ -128,20 +145,20 @@ describe('boot recovery guard', () => {
     expect(second.registration.unregister).not.toHaveBeenCalled()
   })
 
-  it('tries again after the cooldown, because iOS keeps session storage across restarts', async () => {
+  it('tries again after the cooldown, because iOS keeps tabs across restarts', async () => {
     const first = loadDocument()
     await first.elapse(DELAY_MS)
-    const later = loadDocument({ stored: first.stored })
+    const later = loadDocument({ cookies: first.cookies })
     later.clock.now = first.clock.now + COOLDOWN_MS
 
     await later.elapse(DELAY_MS)
 
     expect(later.reload).toHaveBeenCalledOnce()
-    expect(later.stored.get(BOOT_RECOVERY_STORAGE_KEY)).toBe(String(later.clock.now))
+    expect(later.cookies.get(BOOT_RECOVERY_COOKIE)).toBe(String(later.clock.now))
   })
 
-  it('never reloads when storage cannot record the attempt', async () => {
-    const page = loadDocument({ blockedStorage: true })
+  it('never reloads when the attempt cannot be recorded', async () => {
+    const page = loadDocument({ blockedCookies: true })
 
     await page.elapse(DELAY_MS)
 
