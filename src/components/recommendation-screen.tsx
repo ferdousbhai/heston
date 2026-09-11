@@ -109,27 +109,34 @@ function RecommendationNavigation({
 function ChannelArchive() {
   const [posts, setPosts] = useState<ChannelPost[]>([])
   const [nextBefore, setNextBefore] = useState<number>()
-  const [state, setState] = useState<'failed' | 'idle' | 'loading'>('loading')
+  const [loading, setLoading] = useState(true)
+  // A failed page is held apart from the paging state so it cannot take the control away with
+  // it: the cursor is still known, so the next tap is the retry, and a reader who reloads
+  // instead would lose every page already fetched.
+  const [failed, setFailed] = useState(false)
 
   const take = (page: Awaited<ReturnType<typeof loadChannelArchivePage>>) => {
     setPosts((current) => [...current, ...page.posts])
     setNextBefore(page.nextBefore)
-    setState('idle')
+    setFailed(false)
   }
   // The first page arrives with the section; every later one is a tap away.
   useEffect(() => {
     const controller = new AbortController()
     loadChannelArchivePage(undefined, controller.signal)
       .then((page) => { if (!controller.signal.aborted) take(page) })
-      .catch(() => { if (!controller.signal.aborted) setState('failed') })
+      .catch(() => { if (!controller.signal.aborted) setFailed(true) })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
   }, [])
   const loadOlder = async (before: number) => {
-    setState('loading')
+    setLoading(true)
     try {
       take(await loadChannelArchivePage(before))
     } catch {
-      setState('failed')
+      setFailed(true)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -164,17 +171,17 @@ function ChannelArchive() {
           )
         })}
       </ol>
-      {state === 'failed' && (
+      {failed && (
         <Alert className="recommendation-archive-error" variant="destructive">
           <AlertTitle>Channel archive unavailable</AlertTitle>
           <AlertDescription>The channel archive could not be loaded.</AlertDescription>
         </Alert>
       )}
-      {state === 'loading' && <div className="channel-archive-loading" role="status"><Spinner />Loading posts</div>}
-      {state === 'idle' && nextBefore !== undefined && (
+      {loading && <div className="channel-archive-loading" role="status"><Spinner />Loading posts</div>}
+      {!loading && nextBefore !== undefined && (
         <Button onClick={() => void loadOlder(nextBefore)} size="sm" type="button" variant="outline">Older posts</Button>
       )}
-      {state === 'idle' && nextBefore === undefined && posts.length > 0 && (
+      {!loading && nextBefore === undefined && posts.length > 0 && (
         <p className="channel-archive-end">That is the whole surviving channel.</p>
       )}
     </section>
