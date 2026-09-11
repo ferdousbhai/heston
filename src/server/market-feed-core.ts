@@ -442,7 +442,12 @@ export class MarketFeedCore {
   }
 
   private desiredSymbols(type: FeedType): Set<string> {
-    return type === 'Greeks' ? this.greekRequests.demandSymbols() : this.downstreamSymbols()
+    if (type === 'Greeks') return this.greekRequests.demandSymbols()
+    // A daily-candle read demands the Candle channel with no browser attached — the cron path
+    // has no downstream socket at all — so its symbols must count here too, or the setup
+    // timeout and the `live` status both decide the feed is healthy without that channel.
+    if (type === 'Candle') return new Set([...this.downstreamSymbols(), ...this.dailyRequests.demandSymbols()])
+    return this.downstreamSymbols()
   }
 
   private async reconcile(): Promise<void> {
