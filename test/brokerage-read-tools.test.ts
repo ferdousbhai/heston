@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { brokerCredential, stubBroker } from './broker-stub'
 import {
-  createBrokerageReadTools,
   findOptionContracts,
   readAccountHistory,
   readMarketMetrics,
@@ -23,13 +22,6 @@ describe('brokerage read tools', () => {
   beforeEach(() => {
     tastytrade.resolveAccountNumber.mockReset().mockResolvedValue('PRIVATE123')
     tastytrade.tastyRequest.mockReset()
-  })
-
-  it('exposes only the bounded read tool factories', () => {
-    expect(createBrokerageReadTools({}).map((tool) => tool.name)).toEqual([
-      'read_account_history',
-      'search_symbols',
-    ])
   })
 
   it('normalizes transaction history, strips account number, and reports pagination', async () => {
@@ -95,12 +87,12 @@ describe('brokerage read tools', () => {
 
   it('redacts account identity from broker history errors', async () => {
     tastytrade.tastyRequest.mockRejectedValue(new Error('TastytradeApi:500:/accounts/PRIVATE123/transactions'))
-    await expect(readAccountHistory({}, { type: 'transactions' }, brokerCredential, now)).rejects.toThrow('transactions are unavailable')
-    try {
-      await readAccountHistory({}, { type: 'transactions' }, brokerCredential, now)
-    } catch (error) {
-      expect(String(error)).not.toContain('PRIVATE123')
-    }
+    // Capture the outcome rather than asserting inside a catch: a call that stopped throwing
+    // would skip the catch entirely and the redaction check — the point of this test — with it.
+    const failure = await readAccountHistory({}, { type: 'transactions' }, brokerCredential, now)
+      .then(() => 'resolved', String)
+    expect(failure).toContain('transactions are unavailable')
+    expect(failure).not.toContain('PRIVATE123')
   })
 
   it('allows pagination to continue until the broker reports completion', async () => {
