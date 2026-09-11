@@ -208,7 +208,7 @@ function catalogUpserts(
   const statements: D1PreparedStatement[] = []
   for (let start = 0; start < items.length; start += CATALOG_ROWS_PER_STATEMENT) {
     const chunk = items.slice(start, start + CATALOG_ROWS_PER_STATEMENT)
-    const row = `(${Array.from({ length: 32 }, () => '?').join(', ')})`
+    const row = `(${Array.from({ length: CATALOG_BOUND_PARAMETERS_PER_ROW }, () => '?').join(', ')})`
     statements.push(db.prepare(
       `INSERT INTO instrument_catalog (
         symbol, source_name, description, short_description, instrument_type, instrument_sub_type,

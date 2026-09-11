@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 import { MarketStateSchema, type MarketSnapshot } from '../domain/market'
 import { type AppEnv } from './env'
-import { rowsPerD1Statement } from './d1-limits'
+import { D1_MAX_BOUND_PARAMETERS, rowsPerD1Statement } from './d1-limits'
 
 const METRIC_BOUND_PARAMETERS_PER_ROW = 16
 const QUOTE_BOUND_PARAMETERS_PER_ROW = 8
@@ -148,7 +148,9 @@ const StoredQuoteRowSchema = z.object({
   observed_at: z.string(),
 })
 
-const SQL_SYMBOL_CHUNK_SIZE = 90
+// One bound parameter per symbol in the `symbol IN (...)` list, so the chunk is the
+// platform's own statement limit rather than a hand-tuned number beside it.
+const SQL_SYMBOL_CHUNK_SIZE = D1_MAX_BOUND_PARAMETERS
 
 function optional(value: number | null): number | undefined {
   return value === null ? undefined : value
