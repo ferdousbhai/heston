@@ -17,7 +17,6 @@ const ViewerSchema = z.object({
 export type Viewer = z.infer<typeof ViewerSchema>
 
 const ViewerResponseSchema = z.object({
-  authRequired: z.boolean(),
   user: ViewerSchema.nullable(),
 })
 

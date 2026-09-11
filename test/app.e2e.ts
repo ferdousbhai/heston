@@ -54,7 +54,7 @@ test('a newer deployment reloads once before restoring the local snapshot', asyn
   })
   await page.route('**/api/viewer', (route) => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify({ authRequired: true, user: null }),
+    body: JSON.stringify({ user: null }),
   }))
   await page.route('**/api/mcp-tokens', (route) => route.fulfill({
     body: JSON.stringify({ tokens: [] }),
@@ -94,7 +94,7 @@ test('unauthenticated visitors can read market data but connecting an agent need
     .map((ticker) => ({ ...ticker, sparkline: ticker.sparkline.slice(-2) }))
   await page.route('**/api/viewer', (route) => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify({ authRequired: true, user: null }),
+    body: JSON.stringify({ user: null }),
   }))
   await page.route('**/api/mcp-tokens', (route) => route.fulfill({
     body: JSON.stringify({ tokens: [] }),
@@ -209,7 +209,7 @@ test('mobile market, recommendations, search, sorting, and connect flows remain 
   })
   await page.route('**/api/viewer', (route) => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify({ authRequired: true, user: { id: 'owner-1', name: 'Owner', role: 'owner' } }),
+    body: JSON.stringify({ user: { id: 'owner-1', name: 'Owner', role: 'owner' } }),
   }))
   await page.route('**/api/mcp-tokens', (route) => route.fulfill({
     body: JSON.stringify({ tokens: [] }),
@@ -412,7 +412,6 @@ test('authenticated favorites consume only unchanged anonymous staging across ta
   await page.route('**/api/viewer', (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({
-      authRequired: true,
       user: signedIn ? { id: 'member-1', name: 'Member', role: 'member' } : null,
     }),
   }))
@@ -463,7 +462,7 @@ test('authenticated favorites consume only unchanged anonymous staging across ta
   const staleAnonymous = await context.newPage()
   await staleAnonymous.route('**/api/viewer', (route) => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify({ authRequired: true, user: null }),
+    body: JSON.stringify({ user: null }),
   }))
   await staleAnonymous.route('**/api/mcp-tokens', (route) => route.fulfill({
     body: JSON.stringify({ tokens: [] }),
@@ -549,7 +548,6 @@ test('two signed-out devices converge on the account union without granting owne
     await target.route('**/api/viewer', (route) => route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
-        authRequired: true,
         user: signedIn() ? { id: 'member-1', name: 'Member', role: 'member' } : null,
       }),
     }))

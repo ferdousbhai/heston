@@ -11,7 +11,6 @@ export const Route = createFileRoute('/api/viewer')({
         try {
           const identity = await getAuthenticatedIdentity(request, appEnv)
           return jsonNoStore({
-            authRequired: true,
             user: identity ? {
               id: identity.id,
               name: identity.name,

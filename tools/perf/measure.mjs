@@ -124,7 +124,7 @@ for (let i = 0; i < runs; i++) {
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 })
   }
   if (mockBody) {
-    await mockJson(page, '**/api/viewer', 120, JSON.stringify({ authRequired: true, user: null }))
+    await mockJson(page, '**/api/viewer', 120, JSON.stringify({ user: null }))
     await mockJson(page, '**/api/public-snapshot', 150, mockBody)
   }
   const requests = new Map()
