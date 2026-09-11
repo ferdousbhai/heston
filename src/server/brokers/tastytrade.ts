@@ -370,7 +370,7 @@ async function cancelOrder(
   try {
     await brokerApi().tastyRequest(
       env,
-      `/accounts/${segment(ref.accountNumber)}/orders/${orderId}`,
+      `/accounts/${segment(ref.accountNumber)}/orders/${segment(orderId)}`,
       { method: 'DELETE' },
       credential,
     )

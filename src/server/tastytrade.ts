@@ -45,7 +45,6 @@ import { tastytradeApiVersion } from './tastytrade-version'
 import { persistTastytradeMarketSnapshot } from './tastytrade-market-store'
 import {
   catalogTickerInstrument,
-  liveTickerFromRecords,
   marketOpensAtFromTastytradeSession,
   marketStateFromTastytradeSession,
   tickerFromStoredRecords,
@@ -70,8 +69,6 @@ import {
   readStoredMarketSession,
   type TastytradeMarketQuoteRecord,
 } from './tastytrade-market-store'
-
-export { liveTickerFromRecords, selectSnapshotSymbols }
 
 const USER_AGENT = 'Spice/0.1'
 // tastytrade names every requested symbol in the query string. This is the symbol count
@@ -243,6 +240,7 @@ export async function tastyRequest(
   const method = (init.method ?? 'GET').toUpperCase()
   if (!accountPath && response.status === 401 && (method === 'GET' || method === 'HEAD')) {
     if (cachedAccess?.token === token) cachedAccess = undefined
+    await response.body?.cancel()
     token = await tokenForPath(env, path, credential)
     response = await authorizedRequest(env, path, init, token, gate)
   }

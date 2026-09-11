@@ -15,7 +15,7 @@ import { marketSnapshotFixture } from './fixtures/market'
 import {
   liveTickerFromRecords,
   selectSnapshotSymbols,
-} from '../src/server/tastytrade'
+} from '../src/server/tastytrade-market-normalization'
 
 describe('volatility classification', () => {
   it('formats market metrics with at most one decimal place', () => {
