@@ -369,7 +369,11 @@ export function applyLiveMarketEvent(untrusted: JsonValue): void {
       if (event.price !== undefined) ticker.price = event.price
       if (event.change !== undefined) ticker.change = event.change
       else if (event.price !== undefined && priorClose > 0) ticker.change = event.price - priorClose
-      const referenceClose = event.change !== undefined ? ticker.price - ticker.change : priorClose
+      // Only a frame that carried a price alongside the change implies a new close; a
+      // change-only frame leaves `ticker.price` stale, so the stored pair's close still rules.
+      const referenceClose = event.price !== undefined && event.change !== undefined
+        ? ticker.price - ticker.change
+        : priorClose
       if (referenceClose > 0) ticker.changePercent = (ticker.change / referenceClose) * 100
       ticker.updatedAt = event.timestamp
     }
