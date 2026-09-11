@@ -19,10 +19,12 @@ export const Route = createFileRoute('/api/public-year-candles')({
       GET: async () => {
         if (!appEnv.DB) return jsonNoStore({ error: 'Year history is unavailable' }, { status: 503 })
         try {
-          const stored = await readYearCandleSeries(appEnv.DB)
+          const { asOf, series } = await readYearCandleSeries(appEnv.DB)
+          // The instant is the store's, never the request's: a reader asking when this was
+          // refreshed is not asking when they asked.
           const response = jsonPublic(YearCandlesSchema.parse({
-            asOf: new Date().toISOString(),
-            series: [...stored].map(([symbol, closes]) => ({ closes, symbol })),
+            asOf,
+            series: [...series].map(([symbol, closes]) => ({ closes, symbol })),
           }))
           // The scheduled refresh writes this once a market day, so the default snapshot
           // freshness would spend a request an hour on an answer that cannot have changed.

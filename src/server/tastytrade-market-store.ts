@@ -4,7 +4,7 @@ import { MarketStateSchema, type MarketSnapshot } from '../domain/market'
 import { type AppEnv } from './env'
 import { rowsPerD1Statement } from './d1-limits'
 
-const METRIC_BOUND_PARAMETERS_PER_ROW = 15
+const METRIC_BOUND_PARAMETERS_PER_ROW = 16
 const QUOTE_BOUND_PARAMETERS_PER_ROW = 8
 const METRIC_ROWS_PER_STATEMENT = rowsPerD1Statement(METRIC_BOUND_PARAMETERS_PER_ROW)
 const QUOTE_ROWS_PER_STATEMENT = rowsPerD1Statement(QUOTE_BOUND_PARAMETERS_PER_ROW)
@@ -25,6 +25,8 @@ export type TastytradeMarketMetricRecord = {
   }
   liquidity?: number
   marketCap?: number
+  /** tastytrade's own instant for these readings; absent only on rows stored before it was kept. */
+  providerUpdatedAt?: string
   symbol: string
 }
 
@@ -64,8 +66,8 @@ export async function persistTastytradeMarketSnapshot(
           iv_index_5_day_change_points, historical_volatility_30_day_percent,
           iv_hv_30_day_difference_points, front_expiration, front_iv_percent,
           back_expiration, back_iv_percent, liquidity_rating, market_cap,
-          earnings_date, observed_at
-        ) VALUES ${chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ')}
+          earnings_date, provider_updated_at, observed_at
+        ) VALUES ${chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ')}
         ON CONFLICT(symbol) DO UPDATE SET
           iv_index_percent = excluded.iv_index_percent,
           iv_rank_percent = excluded.iv_rank_percent,
@@ -80,6 +82,7 @@ export async function persistTastytradeMarketSnapshot(
           liquidity_rating = excluded.liquidity_rating,
           market_cap = excluded.market_cap,
           earnings_date = excluded.earnings_date,
+          provider_updated_at = excluded.provider_updated_at,
           observed_at = excluded.observed_at`,
       ).bind(...chunk.flatMap((metric) => {
         const term = metric.ivTermStructure
@@ -88,7 +91,8 @@ export async function persistTastytradeMarketSnapshot(
         metric.ivHistoricalVolatility30DayDifference ?? null,
         term?.frontExpiration ?? null, term?.frontIv ?? null,
         term?.backExpiration ?? null, term?.backIv ?? null,
-        metric.liquidity ?? null, metric.marketCap ?? null, metric.earningsDate, timestamp]
+        metric.liquidity ?? null, metric.marketCap ?? null, metric.earningsDate,
+        metric.providerUpdatedAt ?? null, timestamp]
       })))
   }
   for (let start = 0; start < records.quotes.length; start += QUOTE_ROWS_PER_STATEMENT) {
@@ -129,6 +133,7 @@ const StoredMetricRowSchema = z.object({
   liquidity_rating: z.number().nullable(),
   market_cap: z.number().nullable(),
   earnings_date: z.string().nullable(),
+  provider_updated_at: z.string().nullable(),
   observed_at: z.string(),
 })
 
@@ -170,6 +175,7 @@ function storedMetricRecord(row: z.infer<typeof StoredMetricRowSchema>): Tastytr
     ivTermStructure: term,
     liquidity: optional(row.liquidity_rating),
     marketCap: optional(row.market_cap),
+    providerUpdatedAt: row.provider_updated_at ?? undefined,
     symbol: row.symbol,
   }
 }

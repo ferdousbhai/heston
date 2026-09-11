@@ -23,6 +23,7 @@ const metric = {
   },
   liquidity: 5,
   marketCap: 3_500_000_000_000,
+  providerUpdatedAt: '2026-08-28T09:05:00.000Z',
   symbol: 'AAPL',
 }
 
@@ -72,6 +73,8 @@ describe('stored market read model', () => {
       price: 236.41,
       symbol: 'AAPL',
       updatedAt: '2026-08-28T13:31:00.000Z',
+      // The two provider instants stay distinct: the quote's and the metrics' own.
+      metricsUpdatedAt: '2026-08-28T09:05:00.000Z',
     })
     // Candle history is live-only state and is never reconstructed from the store.
     expect(ticker.sparkline).toEqual([])

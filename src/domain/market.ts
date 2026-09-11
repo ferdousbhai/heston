@@ -62,7 +62,14 @@ export const TickerSchema = z.object({
   yearHigh: z.number().positive().optional(),
   yearLow: z.number().positive().optional(),
   earningsDate: z.string().nullable(),
+  /** The provider's instant for the quote. */
   updatedAt: z.string(),
+  /**
+   * The provider's instant for the volatility and liquidity readings, which it computes on its
+   * own schedule and can leave hours behind the quote. Absent for a row stored before the
+   * instant was kept; the screen says so rather than borrowing the quote's.
+   */
+  metricsUpdatedAt: z.string().optional(),
 })
 
 /**
@@ -134,7 +141,8 @@ export function parseStoredDailyRecommendations(value: JsonValue): DailyRecommen
  * by index because a daily grid is near-uniform, so the instants would be sent and never read.
  */
 export const YearCandlesSchema = z.object({
-  asOf: z.string(),
+  /** The oldest stored refresh among the series carried; absent when nothing is stored. */
+  asOf: z.string().optional(),
   series: z.array(z.object({
     closes: z.array(z.number().finite().positive()).max(MAX_YEAR_CANDLES),
     symbol: EquitySymbolSchema,

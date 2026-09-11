@@ -35,6 +35,7 @@ function sourceRecords(
       ivTermStructure: ticker.ivTermStructure,
       liquidity: ticker.liquidity,
       marketCap: ticker.marketCap,
+      providerUpdatedAt: ticker.metricsUpdatedAt,
       symbol: ticker.symbol,
     })),
     quotes: tickers.map((ticker) => ({
@@ -96,10 +97,13 @@ describe('source-specific tastytrade market storage', () => {
     )
 
     expect(store.sqlite.prepare(
-      'SELECT symbol, iv_rank_percent, market_cap, observed_at FROM tastytrade_market_metrics',
+      'SELECT symbol, iv_rank_percent, market_cap, provider_updated_at, observed_at FROM tastytrade_market_metrics',
     ).get()).toEqual({
       iv_rank_percent: 72,
       market_cap: 4_730_000_000_000,
+      // The provider's instant is kept beside the Worker's own, since only one of them says
+      // how old the reading is.
+      provider_updated_at: ticker.metricsUpdatedAt ?? null,
       observed_at: '2026-08-26T20:00:00.000Z',
       symbol: 'NVDA',
     })

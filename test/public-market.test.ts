@@ -393,6 +393,9 @@ describe('public market boundary', () => {
         'implied-volatility-index-rank': '0.55',
         'implied-volatility-percentile': '0.61',
         'liquidity-rating': '4',
+        // Metrics are computed on the provider's own schedule, hours behind the quote here;
+        // BE's row carries no instant at all (JSON drops the undefined).
+        'updated-at': symbol === 'NVDA' ? '2026-08-26T05:02:00.000Z' : undefined,
       })) } })
       if (url.includes('/market-data/by-type')) return Response.json({ data: { items: ['BE', 'NVDA'].map((symbol) => ({
         symbol, mark: '100', 'previous-close': '98', description: symbol,
@@ -443,9 +446,11 @@ describe('public market boundary', () => {
 
     expect(snapshot.watchlists[0]?.symbols).toEqual(['BE', 'NVDA'])
     expect(snapshot.tickers).toEqual([
-      expect.objectContaining({ symbol: 'BE' }),
-      expect.objectContaining({ symbol: 'NVDA' }),
+      expect.objectContaining({ symbol: 'BE', updatedAt: '2026-08-26T13:31:00.000Z' }),
+      expect.objectContaining({ symbol: 'NVDA', updatedAt: '2026-08-26T13:31:00.000Z', metricsUpdatedAt: '2026-08-26T05:02:00.000Z' }),
     ])
+    // A metrics row the provider did not date carries no instant, rather than the quote's.
+    expect(snapshot.tickers[0]?.metricsUpdatedAt).toBeUndefined()
     expect(snapshot.tickers.every((ticker) => !('position' in ticker))).toBe(true)
     const requestedUrls = fetchMock.mock.calls.map(([input]) => String(input))
     expect(requestedUrls.some((url) => url.includes('/accounts/') || url.includes('/watchlists'))).toBe(false)

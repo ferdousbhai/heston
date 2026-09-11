@@ -15,7 +15,7 @@ const StoredClosesSchema = z.array(CandlePointSchema).max(MAX_YEAR_CANDLES)
 const SYMBOL_CHUNK_SIZE = 90
 
 const StoredYearAnchorRowSchema = z.object({ symbol: z.string(), year_ago_close: z.number() })
-const StoredYearSeriesRowSchema = z.object({ symbol: z.string(), closes_json: z.string() })
+const StoredYearSeriesRowSchema = z.object({ as_of: z.string(), symbol: z.string(), closes_json: z.string() })
 
 export type YearCandleSeries = { asOf: string; closes: CandlePoint[] }
 
@@ -53,17 +53,23 @@ export async function readYearAgoCloses(
  * Every stored year, oldest close first. Only the closes travel: the year chart spaces points
  * by index because a daily grid is near-uniform, so the instants would be sent and never read.
  */
-export async function readYearCandleSeries(db: D1Database): Promise<Map<string, number[]>> {
+/**
+ * Every stored series, with the oldest refresh among them: one instant has to stand for the
+ * whole answer, and the oldest is the only one that is true of every row in it.
+ */
+export async function readYearCandleSeries(db: D1Database): Promise<{ asOf?: string; series: Map<string, number[]> }> {
   const series = new Map<string, number[]>()
-  const { results } = await db.prepare('SELECT symbol, closes_json FROM year_candles').all()
+  let asOf: string | undefined
+  const { results } = await db.prepare('SELECT symbol, closes_json, as_of FROM year_candles').all()
   for (const result of results) {
     const row = StoredYearSeriesRowSchema.safeParse(result)
     if (!row.success) continue
     const closes = StoredClosesSchema.safeParse(JSON.parse(row.data.closes_json))
     if (!closes.success || !closes.data.length) continue
     series.set(row.data.symbol, closes.data.map((point) => point.close))
+    if (asOf === undefined || row.data.as_of < asOf) asOf = row.data.as_of
   }
-  return series
+  return { asOf, series }
 }
 
 export async function readYearCandles(

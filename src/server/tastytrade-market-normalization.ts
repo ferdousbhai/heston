@@ -254,6 +254,15 @@ export function normalizeTastytradeMarketTicker(
   )
   const ivTermStructure = optionTermStructure(metrics, symbol)
   const earningsDate = earningsDateFromMetric(metrics)
+  // The provider's own instant for the metrics. A quote is refused without one; metrics are
+  // kept without one, since the readings are still the readings, but a malformed instant is
+  // refused rather than replaced by the moment this Worker happened to ask.
+  const metricsUpdatedAtText = optionalText(metrics['updated-at'] ?? metrics.updatedAt, 'metrics-updated-at')
+  const metricsUpdatedAtTime = metricsUpdatedAtText === undefined ? undefined : Date.parse(metricsUpdatedAtText)
+  if (metricsUpdatedAtTime !== undefined && !Number.isFinite(metricsUpdatedAtTime)) {
+    throw new Error('TastytradeSnapshot:invalid-metrics-updated-at')
+  }
+  const metricsUpdatedAt = metricsUpdatedAtTime === undefined ? undefined : new Date(metricsUpdatedAtTime).toISOString()
   const metricRecord: TastytradeMarketMetricRecord = {
     earningsDate: reportedEarningsDate(metrics),
     historicalVolatility30Day,
@@ -265,6 +274,7 @@ export function normalizeTastytradeMarketTicker(
     ivTermStructure,
     liquidity,
     marketCap,
+    providerUpdatedAt: metricsUpdatedAt,
     symbol,
   }
   const quoteRecord: TastytradeMarketQuoteRecord = {
@@ -302,6 +312,7 @@ export function normalizeTastytradeMarketTicker(
     yearLow,
     earningsDate,
     updatedAt,
+    metricsUpdatedAt,
   } }
 }
 
@@ -356,6 +367,7 @@ export function tickerFromStoredRecords(
     yearLow: quote.yearLow,
     earningsDate: metric?.earningsDate ?? null,
     updatedAt: quote.providerUpdatedAt,
+    metricsUpdatedAt: metric?.providerUpdatedAt,
   }
 }
 

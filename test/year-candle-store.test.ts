@@ -56,7 +56,8 @@ describe('year series read paths', () => {
   it('serves the series as bare closes, oldest first', async () => {
     await upsertYearCandles(store.database, '2026-08-31', new Map([['SPY', closes]]))
 
-    // The chart spaces points by index, so the instants would be sent and never read.
-    await expect(readYearCandleSeries(store.database)).resolves.toEqual(new Map([['SPY', [100, 104]]]))
+    // The chart spaces points by index, so the instants would be sent and never read; the one
+    // instant that travels is the store's own refresh date, never the request's.
+    await expect(readYearCandleSeries(store.database)).resolves.toEqual({ asOf: '2026-08-31', series: new Map([['SPY', [100, 104]]]) })
   })
 })
