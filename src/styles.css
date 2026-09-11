@@ -28,6 +28,9 @@
   --cheap: #a9e04b;
   --fair-tone: #e8c455;
   --rich: #ff5f6b;
+  /* Direction of a move, distinct from the premium trio: a price up is not a premium cheap. */
+  --up: #5fd08a;
+  --down: #d8636f;
   --mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
   --axis-gradient: linear-gradient(90deg, var(--cheap), #d7d26d 49%, var(--rich));
   --ease: cubic-bezier(.22, 1, .36, 1);
@@ -99,9 +102,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .top-actions { display: flex; align-items: center; gap: 8px; }
 .market-status { display: flex; align-items: center; gap: 6px; color: var(--ink-muted); font-family: var(--mono); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
 .market-status > span:first-child { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: currentColor; }
-.market-status[data-tone="open"] { color: #5fd08a; }
+.market-status[data-tone="open"] { color: var(--up); }
 .market-status[data-tone="waiting"] { color: var(--spice); }
-.market-status[data-tone="closed"] { color: #d8636f; }
+.market-status[data-tone="closed"] { color: var(--down); }
 .last-updated { color: var(--ink-faint); font-size: 10px; font-variant-numeric: tabular-nums; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
 .top-link { padding: 12px 6px; color: var(--ink-muted); font-size: 11px; font-weight: 400; text-transform: uppercase; text-decoration: none; }
 .top-link:hover { color: var(--text); }
@@ -266,6 +269,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .focus-tape > div:not(:last-child)::after { content: "·"; margin: 0 9px; color: #3a3d45; }
 .focus-tape dt { color: var(--ink-faint); text-transform: uppercase; letter-spacing: .06em; }
 .focus-tape dd { margin: 0; color: #c9cbd1; font-weight: 400; }
+/* The age of each fact on the card, under the readings it describes. */
+.focus-freshness { margin: 0; padding: 0 0 16px; display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-faint); font: 10px/1.4 var(--mono); font-variant-numeric: tabular-nums; text-transform: uppercase; letter-spacing: .06em; }
+.focus-freshness time { color: #a3a6b0; text-transform: none; letter-spacing: 0; }
+.runway-as-of { white-space: nowrap; }
 
 .watch-table, .recommendations-section { padding: 24px 20px 0; }
 .section-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 14px; margin-bottom: 12px; }
@@ -283,7 +290,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 /* Eight narrow columns spread over an ultra-wide viewport put a ticker's numbers far from
    its name, so the table stops widening once every column has the room it needs. */
 .premium-data-table { min-width: 850px; max-width: 1120px; border-top: 1px solid var(--hairline); font-size: 12px; }
-.premium-data-table [data-slot="table-head"] { height: 30px; padding: 0 8px; color: var(--spice); font: 10px/1 var(--mono); text-transform: uppercase; }
+.premium-data-table [data-slot="table-head"] { height: 26px; padding: 0 8px; color: var(--spice); font: 10px/1 var(--mono); text-transform: uppercase; }
 .premium-data-table [data-slot="table-head"]:first-child { width: 34px; padding: 0; }
 .premium-data-table [data-slot="table-head"]:nth-child(n + 3) { text-align: right; }
 .sort-button { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-transform: inherit; letter-spacing: inherit; cursor: pointer; }
@@ -292,7 +299,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .premium-data-table [data-slot="table-head"][aria-sort] .sort-button { color: var(--spice); }
 .premium-data-table [data-slot="table-row"] { border-color: var(--hairline); }
 .premium-data-table [data-slot="table-row"][data-state="selected"] { background: rgba(255, 171, 74, .09); box-shadow: inset 3px 0 0 var(--spice); }
-.premium-data-table [data-slot="table-cell"] { padding: 7px 8px 8px; vertical-align: top; }
+.premium-data-table [data-slot="table-cell"] { padding: 5px 8px 6px; vertical-align: top; }
 .premium-data-table .pin-cell { width: 34px; padding-inline: 0; }
 .pin-button[data-slot="button"] { color: #5f626b; }
 .pin-button[data-slot="button"].pinned { color: var(--spice); }
@@ -329,8 +336,57 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .premium-data-table .premium-cell.rich strong { color: var(--rich); }
 .premium-data-table .market-cap-cell strong, .premium-data-table .price-cell strong, .premium-data-table .liquidity-cell strong, .premium-data-table .volume-cell strong { font-size: 12px; }
 .premium-data-table .price-cell small, .premium-data-table .premium-cell small, .premium-data-table .liquidity-cell small, .premium-data-table .volume-cell small { color: var(--ink-faint); font-size: 10px; font-variant-numeric: tabular-nums; }
-.premium-data-table .premium-cell > small, .premium-data-table .liquidity-cell > small, .premium-data-table .volume-cell > small { display: block; margin-top: 4px; }
+.premium-data-table .premium-cell > small, .premium-data-table .liquidity-cell > small, .premium-data-table .volume-cell > small { display: block; margin-top: 2px; }
 .watch-empty { min-height: 100px; margin: 0; display: grid; place-items: center; color: var(--ink-muted); font-size: 11px; }
+
+/* The phone list. One row is one screen wide: star, instrument, the session chart when there
+   is one, then the price over a solid pill carrying whichever reading the reader last tapped
+   for. Row height is set by the three-line instrument cell, so about nine rows fit a phone. */
+.watch-list { margin: 0; padding: 0; border-top: 1px solid var(--hairline); list-style: none; }
+.watch-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto auto; align-items: center; column-gap: 8px; min-height: 56px; padding: 7px 0; border-bottom: 1px solid var(--hairline); }
+.watch-row[data-state="selected"] { margin-inline: -20px; padding-inline: 20px; background: rgba(255, 171, 74, .09); box-shadow: inset 3px 0 0 var(--spice); }
+.watch-row .pin-button[data-slot="button"] { width: 28px; height: 28px; margin-left: -4px; }
+.watch-row .ticker-table-button[data-slot="button"] { gap: 2px; }
+.watch-row .sparkline { grid-column: 3; width: 56px; max-width: none; margin: 0; }
+/* Always the last column, whether or not a chart sits before it. */
+.watch-row-quote .price-range[data-slot="progress"] { width: 72px; margin: 0; }
+.watch-row-quote { grid-column: 4; display: grid; justify-items: end; row-gap: 4px; text-align: right; font-variant-numeric: tabular-nums; }
+.watch-row-quote strong { font-size: 13px; }
+.watch-pill { min-width: 72px; padding: 3px 7px; border: 0; background: var(--surface-2); color: #c9cbd1; font: 700 11px/1.3 var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; }
+.watch-pill[data-tone="up"] { background: var(--up); color: #06120b; }
+.watch-pill[data-tone="down"] { background: var(--down); color: #1b0a0c; }
+.watch-pill[data-tone="cheap"] { background: var(--cheap); color: #121603; }
+.watch-pill[data-tone="fair"] { background: var(--fair-tone); color: #1a1503; }
+.watch-pill[data-tone="rich"] { background: var(--rich); color: #1e0508; }
+.watch-sort { display: flex; align-items: center; gap: 2px; height: 36px; border: 1px solid var(--hairline); background: var(--surface); color: var(--ink-muted); font-size: 11px; }
+.watch-sort select { height: 100%; padding: 0 6px 0 10px; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.watch-sort .sort-button { height: 100%; padding: 0 9px; color: var(--spice); }
+
+/* The selected name at a glance while the list is the screen: two lines, the second the
+   reading the verdict is drawn from. A tap opens the whole card as a sheet. */
+.focus-strip { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto 16px; grid-template-rows: auto auto; column-gap: 10px; row-gap: 3px; align-items: baseline; padding: 10px 20px; border: 0; border-bottom: 1px solid var(--hairline); background: var(--surface); color: var(--text); text-align: left; cursor: pointer; }
+.focus-strip-name { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.focus-strip-name strong { font-size: 15px; }
+.focus-strip-name small { overflow: hidden; color: var(--ink-faint); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.focus-strip-quote { display: flex; align-items: baseline; gap: 7px; font-variant-numeric: tabular-nums; }
+.focus-strip-quote strong { font-size: 15px; }
+.focus-strip-quote small { font-size: 11px; color: #c9cbd1; }
+.focus-strip-quote small[data-tone="up"] { color: var(--up); }
+.focus-strip-quote small[data-tone="down"] { color: var(--down); }
+.focus-strip-read { grid-column: 1 / 3; overflow: hidden; color: var(--ink-muted); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; text-overflow: ellipsis; white-space: nowrap; }
+.focus-strip svg { grid-column: 3; grid-row: 1 / 3; width: 16px; height: 16px; align-self: center; color: var(--ink-faint); }
+.strip-verdict { font-style: normal; font-weight: 700; }
+.focus-strip.cheap .strip-verdict { color: var(--cheap); }
+.focus-strip.fair .strip-verdict { color: var(--fair-tone); }
+.focus-strip.rich .strip-verdict { color: var(--rich); }
+
+/* The card as a sheet. The popup takes the page's own ground rather than the popover's, and
+   the card scrolls inside it so a long runway never pushes the close control off screen. */
+.focus-sheet[data-slot="drawer-popup"] { background: var(--bg); border-top: 1px solid var(--hairline); }
+.focus-sheet-scroll { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; }
+.focus-sheet .instrument-focus { border-bottom: 0; padding-bottom: 8px; }
+.focus-sheet-close { position: absolute; top: 6px; right: 10px; z-index: 1; width: 34px; height: 34px; display: grid; place-items: center; border: 0; background: transparent; color: var(--ink-muted); cursor: pointer; }
+.focus-sheet-close svg { width: 16px; height: 16px; }
 
 .bottom-nav { position: fixed; z-index: 20; left: 50%; bottom: 0; transform: translateX(-50%); width: 100%; height: calc(71px + env(safe-area-inset-bottom)); padding: 6px 18px env(safe-area-inset-bottom); background: rgba(13, 14, 19, .84); backdrop-filter: blur(28px) saturate(150%); border-top: 1px solid var(--hairline); display: grid; grid-template-columns: repeat(3, 1fr); }
 
@@ -480,6 +536,19 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   .instrument-focus:has(.focus-recommendation) { grid-template-columns: clamp(300px, 20vw, 380px) minmax(0, .82fr) minmax(0, 1.1fr); }
   .instrument-focus:has(.focus-recommendation) .focus-recommendation { grid-column: 2; grid-row: 1 / -1; align-self: stretch; margin-top: 0; padding: 0 0 0 clamp(22px, 2.4vw, 40px); border-top: 0; border-left: 1px solid var(--hairline); }
 }
+
+/* A phone. The top bar keeps what a glance needs and drops the word and the link it has no
+   room for; the recommendation keeps its headline and order, with the argument and the risk one
+   tap away on their own tab; the empty calendar keeps its verdict and drops the explanation. */
+@media (max-width: 959px) {
+  .top-link, .last-updated-word { display: none; }
+  .focus-recommendation .recommendation-body, .focus-recommendation .recommendation-risk { display: none; }
+  .runway-empty-detail { display: none; }
+}
+
+.connect-footer { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 18px 20px 24px; color: #686b73; font-size: 10px; }
+.connect-footer a { color: inherit; text-decoration: none; }
+.connect-footer a:hover { color: #b7b9c0; }
 
 @media (max-width: 390px) {
   .auth-copy { padding-bottom: 6vh; }

@@ -30,6 +30,22 @@ export function elapsedLabel(at: string, now: number): string | undefined {
 }
 
 /**
+ * The same age at table-cell width: "3m", "5h", "2d". Under a minute reads as "now", since a
+ * cell has no room to say "just" and a reader glancing at a column wants one glyph per row.
+ */
+export function compactElapsedLabel(at: string, now: number): string | undefined {
+  const updated = Date.parse(at)
+  if (!Number.isFinite(updated)) return undefined
+  const seconds = Math.max(0, Math.round((now - updated) / 1_000))
+  if (seconds < 60) return 'now'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h`
+  return `${Math.floor(hours / 24)}d`
+}
+
+/**
  * Elapsed time only stays true if it keeps counting, so the clock is read on a timer and held
  * in state. Rendering may not read it directly, so a label can trail the real instant by up to
  * one tick — immaterial at the minute granularity a reader is being told about.
@@ -44,7 +60,7 @@ function useTick(enabled: boolean): number {
   return now
 }
 
-function useElapsedLabel(at: string | undefined): string | undefined {
+export function useElapsedLabel(at: string | undefined): string | undefined {
   const now = useTick(Boolean(at))
   return at ? elapsedLabel(at, now) : undefined
 }
@@ -99,8 +115,8 @@ export function TopBar({
           </span>
         )}
         {updated && (
-          <span className="last-updated" title={`Market data last updated ${lastUpdatedAt}`}>
-            Updated {updated}
+          <span className="last-updated" title={`Quotes last updated ${lastUpdatedAt}`}>
+            <span className="last-updated-word">Updated </span>{updated}
           </span>
         )}
         <Button nativeButton={false} render={<Link className="top-link" to="/support" />} size="sm" variant="link">Support</Button>

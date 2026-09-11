@@ -115,4 +115,20 @@ describe('watchlist market data', () => {
     expect(html).toContain('Easy To Borrow')
     expect(html).not.toContain('borrow')
   })
+
+  it('dates the quote and the metrics separately, and says when the metrics carry no date', () => {
+    const snapshot = marketSnapshotFixture()
+    const nvda = snapshot.tickers.find((ticker) => ticker.symbol === 'NVDA')!
+    nvda.metricsUpdatedAt = '2026-08-13T05:00:00.000Z'
+
+    const dated = renderMarket(snapshot, { symbol: 'NVDA' })
+    const freshness = dated.match(/<p class="focus-freshness">(.*?)<\/p>/s)?.[1]
+    expect(freshness).toContain('dateTime="2026-08-13T13:31:00.000Z"')
+    expect(freshness).toContain('dateTime="2026-08-13T05:00:00.000Z"')
+    expect(freshness).toMatch(/Quote <time[^>]*>\d+ days? ago<\/time>/)
+    expect(freshness).toMatch(/IV &amp; liquidity <time[^>]*>\d+ days? ago<\/time>/)
+
+    const undated = renderMarket(snapshot, { symbol: 'SPY' })
+    expect(undated.match(/<p class="focus-freshness">(.*?)<\/p>/s)?.[1]).toContain('age not reported')
+  })
 })

@@ -1,10 +1,11 @@
-import { memo, useMemo, useState, useSyncExternalStore } from 'react'
-import { ArrowDown, ArrowUp, ArrowUpRight, Search, Star } from 'lucide-react'
+import { memo, useCallback, useMemo, useState, useSyncExternalStore } from 'react'
+import { ArrowDown, ArrowUp, ArrowUpRight, ChevronRight, Search, Star, X } from 'lucide-react'
 import { matchSorter } from 'match-sorter'
 
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader } from '#/components/ui/card'
+import { Drawer, DrawerClose, DrawerContent, DrawerTitle } from '#/components/ui/drawer'
 import { Empty, EmptyDescription, EmptyHeader } from '#/components/ui/empty'
 import { Progress } from '#/components/ui/progress'
 import {
@@ -48,6 +49,7 @@ import { useCatalystSearch } from '../data/catalyst-refresh'
 import { useYearCandles } from '../data/year-candles'
 import { useSymbolSearch, type SymbolSearchState } from '../data/symbol-search'
 import { CatalystStories } from './catalyst-stories'
+import { compactElapsedLabel, useElapsedLabel } from './top-bar'
 
 const verdictCopy = {
   cheap: { label: 'Cheap' },
@@ -91,19 +93,75 @@ type SortKey = 'symbol' | 'marketCap' | 'price' | 'year' | 'volume' | 'premium' 
 
 /** The breakpoint the year column appears at, so nothing loads history a screen cannot show. */
 const WIDE_VIEWPORT = '(min-width: 1120px)'
+/**
+ * Below this the table gives way to a list. Eight columns need 850px, and a phone showed the
+ * first three of them with the price off the right edge; a list keeps every row one screen
+ * wide. It is the same bound the focus card stacks at, so both surfaces change shape together.
+ */
+const NARROW_VIEWPORT = '(max-width: 959px)'
 
-function useWideViewport(): boolean {
+function useMediaQuery(query: string): boolean {
   return useSyncExternalStore(
     (onChange) => {
-      // A renderer without matchMedia — jsdom, or a server pass — reports a narrow viewport,
-      // so nothing asks for history behind a column it was never going to draw.
-      const query = window.matchMedia?.(WIDE_VIEWPORT)
-      query?.addEventListener('change', onChange)
-      return () => query?.removeEventListener('change', onChange)
+      // A renderer without matchMedia — jsdom, or a server pass — matches nothing, so it draws
+      // the table without asking for history behind a column it was never going to draw.
+      const list = window.matchMedia?.(query)
+      list?.addEventListener('change', onChange)
+      return () => list?.removeEventListener('change', onChange)
     },
-    () => window.matchMedia?.(WIDE_VIEWPORT).matches ?? false,
+    () => window.matchMedia?.(query).matches ?? false,
     () => false,
   )
+}
+
+/**
+ * What the pill beside a listed price shows. One tap cycles every row together, the way a phone
+ * stocks app does, so a reader compares the list on any of these without it growing a column.
+ * Day change leads because it is what a glance at a list is for; the rest are the table's own
+ * columns in the order the table sorts them.
+ */
+type ListMetric = 'change' | 'premium' | 'volume' | 'marketCap'
+const LIST_METRICS: readonly ListMetric[] = ['change', 'premium', 'volume', 'marketCap']
+const LIST_METRIC_LABELS = {
+  change: 'Day change',
+  marketCap: 'Market cap',
+  premium: 'Option premium',
+  volume: 'Volume',
+} satisfies Record<ListMetric, string>
+
+type ListPill = { tone: 'down' | 'flat' | 'up' | VolatilityVerdict; value: string }
+
+/**
+ * How old a row's volatility readings are, read at render. Rows re-render with every snapshot
+ * and live tick, which is at least as often as an hour-granular age can change meaningfully.
+ */
+function metricsAgeLabel(ticker: Pick<Ticker, 'metricsUpdatedAt'>): string | undefined {
+  return ticker.metricsUpdatedAt === undefined ? undefined : compactElapsedLabel(ticker.metricsUpdatedAt, Date.now())
+}
+
+function listPill(ticker: Ticker, metric: ListMetric): ListPill {
+  switch (metric) {
+    case 'change':
+      return {
+        tone: ticker.changePercent > 0 ? 'up' : ticker.changePercent < 0 ? 'down' : 'flat',
+        value: formatSignedMetric(ticker.changePercent, '%'),
+      }
+    case 'premium': {
+      // The verdict keeps the rank that produced it beside it, as the table's premium cell does,
+      // and the age of both: the provider computes them on its own schedule.
+      const verdict = volatilityVerdict(ticker)
+      const rank = formatIfReported(ticker.ivRank, formatMarketMetric)
+      const age = metricsAgeLabel(ticker)
+      return {
+        tone: verdict,
+        value: [verdictCopy[verdict].label + (rank === undefined ? '' : ` ${rank}`), age].filter(Boolean).join(' · '),
+      }
+    }
+    case 'volume':
+      return { tone: 'flat', value: compactMetric(ticker.volume) }
+    case 'marketCap':
+      return { tone: 'flat', value: compactMetric(ticker.marketCap, '$') }
+  }
 }
 
 const SORT_COLUMNS: { defaultDirection: SortDirection; key: SortKey; label: string }[] = [
@@ -279,7 +337,7 @@ function RunwayEmpty({ searching, symbol }: { searching: boolean; symbol: string
       ]
   return (
     <div className="runway-empty" aria-live="polite">
-      <p><strong>{heading}</strong>{detail}</p>
+      <p><strong>{heading}</strong><span className="runway-empty-detail">{detail}</span></p>
     </div>
   )
 }
@@ -320,10 +378,16 @@ function CatalystRunway({
                     </div>
                     <span aria-hidden="true" className="runway-mark" />
                     <div className="runway-body">
+                      {/* The date the source last stated this, so an estimate that has not been
+                          revisited in months reads as exactly that. */}
                       <p className="runway-kind">
                         {[catalystKindName(catalyst.kind), catalystTimingLabel(catalyst.timing), catalyst.confidence]
                           .filter(Boolean)
                           .join(' · ')}
+                        {' · '}
+                        <span className="runway-as-of">
+                          as of <time dateTime={catalyst.updatedAt}>{catalystDateFormatter.format(new Date(catalyst.updatedAt))}</time>
+                        </span>
                       </p>
                       <strong>{catalyst.title}</strong>
                       {catalyst.description && <p className="runway-detail">{catalyst.description}</p>}
@@ -450,7 +514,11 @@ const MarketTickerRow = memo(function MarketTickerRow({
       <TableCell className={`premium-cell ${verdict}`}>
         <strong>{copy.label}</strong>
         <small>{formatIfReported(ticker.ivIndex, (iv) => `${formatMarketMetric(iv)}% IV`) ?? '—'}</small>
-        <small>{formatIfReported(ticker.ivRank, (rank) => `${formatMarketMetric(rank)} rank`) ?? '—'}</small>
+        <small>
+          {[formatIfReported(ticker.ivRank, (rank) => `${formatMarketMetric(rank)} rank`) ?? '—', metricsAgeLabel(ticker)]
+            .filter(Boolean)
+            .join(' · ')}
+        </small>
       </TableCell>
       <TableCell className="liquidity-cell">
         <strong>{formatIfReported(ticker.liquidity, (liquidity) => `${formatMarketMetric(liquidity)}/5`) ?? '—'}</strong>
@@ -459,6 +527,123 @@ const MarketTickerRow = memo(function MarketTickerRow({
     </TableRow>
   )
 })
+
+/**
+ * The phone row: what the table says, one screen wide. Symbol, issuer and next catalyst on the
+ * left, the session chart when the feed carries one, and the price with one switchable reading
+ * under it on the right. Memoized on the same terms as the table row.
+ */
+const MarketListRow = memo(function MarketListRow({
+  catalyst,
+  isPinned,
+  isSelected,
+  metric,
+  now,
+  onCycleMetric,
+  onSelectTicker,
+  onTogglePinned,
+  ticker,
+}: {
+  catalyst: Catalyst | undefined
+  isPinned: boolean
+  isSelected: boolean
+  metric: ListMetric
+  now: Date
+  onCycleMetric: () => void
+  onSelectTicker: (symbol: string) => void
+  onTogglePinned: (symbol: string) => void
+  ticker: Ticker
+}) {
+  const verdict = volatilityVerdict(ticker)
+  const copy = verdictCopy[verdict]
+  const type = assetLabel(ticker)
+  const ivRank = ticker.ivRank === undefined ? '—' : formatMarketMetric(ticker.ivRank)
+  const pill = listPill(ticker, metric)
+  const nextMetric = LIST_METRICS[(LIST_METRICS.indexOf(metric) + 1) % LIST_METRICS.length]!
+  const rangePosition = fiftyTwoWeekPosition(ticker)
+
+  return (
+    <li className={cn('watch-row', verdict)} data-state={isSelected ? 'selected' : undefined}>
+      <Button
+        aria-label={`${isPinned ? 'Unpin' : 'Pin'} ${ticker.symbol}`}
+        aria-pressed={isPinned}
+        className={cn('pin-button', isPinned && 'pinned')}
+        onClick={() => onTogglePinned(ticker.symbol)}
+        size="icon-sm"
+        type="button"
+        variant="ghost"
+      >
+        <Star aria-hidden="true" fill={isPinned ? 'currentColor' : 'none'} />
+      </Button>
+      <Button
+        aria-label={`${ticker.symbol}, ${issuerName(ticker.name)}, ${copy.label} option premium, IV rank ${ivRank}`}
+        aria-pressed={isSelected}
+        className="ticker-table-button"
+        onClick={() => onSelectTicker(ticker.symbol)}
+        type="button"
+        variant="ghost"
+      >
+        <span>
+          <strong>{ticker.symbol}</strong>
+          {type ? <small>{type}</small> : null}
+        </span>
+        <small>{issuerName(ticker.name)}</small>
+        {catalyst ? <small>{catalystLabel(catalyst, now)}</small> : null}
+      </Button>
+      {/* Snapshot quotes carry two synthetic endpoints; only render a chart for a richer live candle series. */}
+      {ticker.sparkline.length > 2 ? <Sparkline points={ticker.sparkline} /> : null}
+      <div className="watch-row-quote">
+        <strong>{formatMarketPrice(ticker.price)}</strong>
+        <button
+          aria-label={`${LIST_METRIC_LABELS[metric]} ${pill.value}. Show ${LIST_METRIC_LABELS[nextMetric].toLowerCase()}`}
+          className="watch-pill"
+          data-tone={pill.tone}
+          onClick={onCycleMetric}
+          type="button"
+        >
+          {pill.value}
+        </button>
+        {/* Where the price sits in its year, as the table's price cell shows it. */}
+        {rangePosition === undefined
+          ? null
+          : <Progress className="price-range" aria-label={`${Math.round(rangePosition)}% of 52-week range`} value={rangePosition} />}
+      </div>
+    </li>
+  )
+})
+
+/** The table's sortable headers, as one control a phone has room for. */
+function SortControl({
+  onChange,
+  sort,
+}: {
+  onChange: (sort: { direction: SortDirection; key: SortKey }) => void
+  sort: { direction: SortDirection; key: SortKey }
+}) {
+  const flipped = sort.direction === 'asc' ? 'desc' : 'asc'
+  return (
+    <div className="watch-sort">
+      <select
+        aria-label="Sort by"
+        onChange={(event) => {
+          const column = SORT_COLUMNS.find((candidate) => candidate.key === event.target.value)
+          if (column) onChange({ direction: column.defaultDirection, key: column.key })
+        }}
+        value={sort.key}
+      >
+        {SORT_COLUMNS.map((column) => <option key={column.key} value={column.key}>{column.label}</option>)}
+      </select>
+      <button
+        aria-label={`Sort ${flipped === 'asc' ? 'ascending' : 'descending'}`}
+        className="sort-button"
+        onClick={() => onChange({ direction: flipped, key: sort.key })}
+        type="button"
+      >
+        {sort.direction === 'asc' ? <ArrowUp aria-hidden="true" /> : <ArrowDown aria-hidden="true" />}
+      </button>
+    </div>
+  )
+}
 
 export function MarketScreen({
   activeWatchlist,
@@ -489,6 +674,10 @@ export function MarketScreen({
   const now = useMemo(() => new Date(`${marketDay}T12:00:00Z`), [marketDay])
   const [sort, setSort] = useState<{ direction: SortDirection; key: SortKey }>({ direction: 'desc', key: 'volume' })
   const [query, setQuery] = useState('')
+  const [listMetric, setListMetric] = useState<ListMetric>('change')
+  // On a phone the focus card lives in a sheet over the list, so the list is the screen.
+  const [detailOpen, setDetailOpen] = useState(false)
+  const narrow = useMediaQuery(NARROW_VIEWPORT)
   const pinned = new Set(pinnedSymbols)
   const trimmedQuery = query.trim()
   const matched = trimmedQuery
@@ -514,7 +703,16 @@ export function MarketScreen({
   const catalystSearch = useCatalystSearch(selected.symbol, catalysts, now)
   // The year column only exists at the wide breakpoint, so its history is only fetched there.
   // A phone never spends a request on a chart it has no room to draw.
-  const yearCloses = useYearCandles(useWideViewport())
+  const yearCloses = useYearCandles(useMediaQuery(WIDE_VIEWPORT))
+  const cycleListMetric = useCallback(() => {
+    setListMetric((current) => LIST_METRICS[(LIST_METRICS.indexOf(current) + 1) % LIST_METRICS.length]!)
+  }, [])
+  // A tap on a phone both selects and opens the detail, as a stocks app does; a wide screen
+  // keeps the card beside the list and only selects.
+  const selectFromList = useCallback((symbol: string) => {
+    onSelectTicker(symbol)
+    if (narrow) setDetailOpen(true)
+  }, [narrow, onSelectTicker])
   // The search state is a new object on every render, so the merge watches the catalysts a
   // found symbol carried rather than the state that carried them, and holds between searches.
   const looked = search.status === 'found' ? search.lookup.catalysts : undefined
@@ -539,11 +737,15 @@ export function MarketScreen({
     (recommendation) => recommendation.symbol === selected.symbol,
   )
   const selectedTape = focusTape(selected)
+  // Two ages, because they are two facts: the quote moves with the market, while the provider
+  // recomputes volatility and liquidity on its own schedule and can leave them hours behind.
+  // One "updated" label for the card would let the newer of the two vouch for the older.
+  const quoteAge = useElapsedLabel(selected.updatedAt)
+  const metricsAge = useElapsedLabel(selected.metricsUpdatedAt)
+  const selectedCatalyst = nextCatalysts.get(selected.symbol)
+  const selectedRank = formatIfReported(selected.ivRank, formatMarketMetric)
 
-  return (
-    <div className="market-screen">
-      <CatalystStories catalysts={visibleCatalysts} now={now} onSelect={onSelectTicker} tickers={pinnedTickers} />
-
+  const focusCard = (
       <Card className={cn('instrument-focus', selectedVerdict)} variant="flat" aria-labelledby="selected-instrument-title">
         <CardHeader>
           <div className="selected-summary">
@@ -582,8 +784,65 @@ export function MarketScreen({
               <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
             ))}
           </dl>
+          <p className="focus-freshness">
+            <span>Quote <time dateTime={selected.updatedAt}>{quoteAge}</time></span>
+            <span>
+              {'IV & liquidity '}
+              {selected.metricsUpdatedAt
+                ? <time dateTime={selected.metricsUpdatedAt}>{metricsAge}</time>
+                : 'age not reported'}
+            </span>
+          </p>
         </CardFooter>
       </Card>
+  )
+
+  return (
+    <div className="market-screen">
+      {/* A phone has no row to spare for an empty rail; the star on every row says what pinning does. */}
+      {(!narrow || pinnedTickers.length > 0) && (
+        <CatalystStories catalysts={visibleCatalysts} now={now} onSelect={selectFromList} tickers={pinnedTickers} />
+      )}
+
+      {narrow ? (
+        <>
+          {/* The selected name in two lines, so the list can be the screen without losing the
+              reading a tap just changed. The full card is one tap away in the sheet. */}
+          <button
+            aria-label={`Open ${selected.symbol} detail`}
+            className={cn('focus-strip', selectedVerdict)}
+            onClick={() => setDetailOpen(true)}
+            type="button"
+          >
+            <span className="focus-strip-name">
+              <strong className="focus-strip-symbol">{selected.symbol}</strong>
+              <small>{issuerName(selected.name)}</small>
+            </span>
+            <span className="focus-strip-quote">
+              <strong>{formatMarketPrice(selected.price)}</strong>
+              <small data-tone={selected.changePercent > 0 ? 'up' : selected.changePercent < 0 ? 'down' : 'flat'}>
+                {formatSignedMetric(selected.changePercent, '%')}
+              </small>
+            </span>
+            <span className="focus-strip-read">
+              <em className="strip-verdict">{selectedCopy.label}</em>
+              {selectedRank === undefined ? '' : ` ${selectedRank}`}
+              {formatIfReported(selected.ivIndex, (iv) => ` · IV ${formatMarketMetric(iv)}%`) ?? ''}
+              {selectedCatalyst ? ` · ${catalystLabel(selectedCatalyst, now)}` : ''}
+            </span>
+            <ChevronRight aria-hidden="true" />
+          </button>
+          <Drawer onOpenChange={setDetailOpen} open={detailOpen} showSwipeHandle>
+            <DrawerContent className="focus-sheet">
+              <DrawerTitle className="sr-only">{selected.symbol} detail</DrawerTitle>
+              <DrawerClose aria-label="Close detail" className="focus-sheet-close">
+                <X aria-hidden="true" />
+              </DrawerClose>
+              <div className="focus-sheet-scroll">{focusCard}</div>
+            </DrawerContent>
+          </Drawer>
+        </>
+      ) : focusCard}
 
       <section
         className="watch-table"
@@ -605,7 +864,37 @@ export function MarketScreen({
               value={query}
             />
           </div>
+          {narrow && <SortControl onChange={setSort} sort={sort} />}
         </header>
+        {narrow ? (
+          <ol className="watch-list">
+            {watchTickers.map((ticker) => (
+              <MarketListRow
+                catalyst={nextCatalysts.get(ticker.symbol)}
+                isPinned={pinned.has(ticker.symbol)}
+                isSelected={ticker.symbol === selected.symbol}
+                key={ticker.symbol}
+                metric={listMetric}
+                now={now}
+                onCycleMetric={cycleListMetric}
+                onSelectTicker={selectFromList}
+                onTogglePinned={onTogglePinned}
+                ticker={ticker}
+              />
+            ))}
+            {!watchTickers.length && (
+              <li>
+                <Empty className="watch-empty">
+                  <EmptyHeader>
+                    <EmptyDescription>
+                      {searchEmptyMessage(trimmedQuery, search.status)}
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              </li>
+            )}
+          </ol>
+        ) : (
         <Table className="premium-data-table">
           <TableHeader>
             <TableRow>
@@ -655,6 +944,7 @@ export function MarketScreen({
             )}
           </TableBody>
         </Table>
+        )}
       </section>
     </div>
   )

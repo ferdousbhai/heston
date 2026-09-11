@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { Link } from '@tanstack/react-router'
 import { Gauge, Newspaper, Plug } from 'lucide-react'
 import { z } from 'zod'
 
@@ -123,6 +124,16 @@ function SpiceWorkspace({
             )}
             {tab === 'connect' && !viewer && <OwnerAccessScreen authError={authError} signedIn={false} />}
             {tab === 'connect' && viewer && <ConnectScreen owner={owner} />}
+            {/* The top bar has no room for these on a phone, so the tab about the reader's own
+                account carries them for every width. */}
+            {tab === 'connect' && (
+              <nav aria-label="Legal and support" className="connect-footer">
+                <Link to="/support">Support</Link>
+                <Link to="/terms">Terms</Link>
+                <Link to="/privacy">Privacy</Link>
+                <Link to="/disclosures">Disclosures</Link>
+              </nav>
+            )}
             {tab !== 'connect' && !snapshotReady && (
               <MarketState loading={!market.bootstrapComplete} message={market.bootstrapComplete ? 'Market data is unavailable.' : 'Loading market data…'} />
             )}

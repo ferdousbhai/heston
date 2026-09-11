@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { z } from 'zod'
 
 import { SPICE_DEPLOYMENT_ID_HEADER } from '../src/domain/deployment'
@@ -9,6 +9,17 @@ const FavoriteMutationRequestSchema = z.object({
   kind: z.enum(['merge', 'remove']),
   symbols: z.array(z.string()),
 })
+
+/** On a phone the focus card is a sheet: opened to read it, closed to reach the list again. */
+async function openDetail(page: Page, symbol: string): Promise<void> {
+  await page.getByRole('button', { name: `Open ${symbol} detail` }).click()
+  await expect(page.locator('.instrument-focus')).toBeVisible()
+}
+
+async function closeDetail(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Close detail' }).click()
+  await expect(page.locator('.instrument-focus')).toHaveCount(0)
+}
 
 function isoDateAfter(days: number): string {
   const date = new Date()
@@ -99,7 +110,7 @@ test('unauthenticated visitors can read market data but connecting an agent need
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible()
   await expect(page.getByText('Premium looks')).toHaveCount(0)
   await expect(page.locator('.intent-label')).toHaveCount(0)
-  await expect(page.locator('.premium-data-table [data-slot="badge"]')).toHaveCount(0)
+  await expect(page.locator('.watch-list [data-slot="badge"]')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /NVDA, NVIDIA, Expensive option premium/ })).toBeVisible()
   expect(await page.evaluate(() => Object.keys(localStorage).filter((key) => (
     key.startsWith('spice.snapshot.v')
@@ -110,28 +121,50 @@ test('unauthenticated visitors can read market data but connecting an agent need
   await expect(page.getByRole('combobox', { name: 'Watchlist' })).toHaveCount(0)
   await expect(page.locator('.watchlist-title')).toHaveCount(0)
   await expect(page.getByRole('region', { name: 'Options Watch' })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Upcoming catalysts' })).toBeVisible()
-  await expect(page.getByText('Pin a ticker to see its upcoming events.')).toBeVisible()
+  // A phone spends no row on an empty rail; it appears once something is pinned.
+  await expect(page.getByRole('region', { name: 'Upcoming catalysts' })).toHaveCount(0)
+  await expect(page.getByText('Pin a ticker to see its upcoming events.')).toHaveCount(0)
   await expect(page.locator('.story')).toHaveCount(0)
+  // The list is the screen; the selected name keeps a two-line strip and the card is a sheet.
+  await expect(page.locator('.focus-strip-symbol')).toHaveText('NVDA')
+  await expect(page.locator('.focus-strip-read')).toContainText('Expensive 72')
+  await expect(page.locator('.instrument-focus')).toHaveCount(0)
+  await openDetail(page, 'NVDA')
   await expect(page.locator('.selected-instrument')).toContainText('NVIDIA')
   await expect(page.locator('.focus-tape')).toContainText('Front +6.6 pts')
   await expect(page.locator('.selected-price')).toContainText('$191.68')
-  await expect(page.getByRole('button', { exact: true, name: 'Market cap' })).toBeVisible()
-  await expect(page.getByRole('button', { exact: true, name: 'Price' })).toBeVisible()
-  await expect(page.getByRole('button', { exact: true, name: 'Volume' })).toBeVisible()
+  await expect(page.locator('.focus-freshness')).toContainText('Quote')
+  await closeDetail(page)
+  // A phone gets the list, not the table: the sort is one control, and no row scrolls sideways.
+  await expect(page.locator('.premium-data-table')).toHaveCount(0)
+  await expect(page.getByRole('combobox', { name: 'Sort by' })).toHaveValue('volume')
   await expect(page.getByRole('button', { exact: true, name: 'Session' })).toHaveCount(0)
   await expect(page.getByRole('button', { exact: true, name: 'Activity' })).toHaveCount(0)
-  await expect(page.locator('.premium-data-table tbody .session-sparkline')).toHaveCount(0)
-  const nvdaRow = page.locator('.premium-data-table tbody tr', { hasText: 'NVDA' })
-  await expect(nvdaRow.locator('.market-cap-cell')).toContainText('$4.7T')
-  await expect(nvdaRow.locator('.price-cell')).toContainText('$191.68')
-  await expect(nvdaRow.locator('.price-cell')).toContainText('+2.6%')
-  await expect(nvdaRow.getByRole('progressbar', { name: /% of 52-week range/ })).toBeVisible()
-  await expect(nvdaRow.locator('.volume-cell')).toContainText('128.4M')
-  await expect(nvdaRow.locator('.liquidity-cell')).toContainText('5/5')
-  await expect(nvdaRow.locator('.liquidity-cell')).toContainText('Easy To Borrow')
+  await expect(page.locator('.watch-list .session-sparkline')).toHaveCount(0)
+  const nvdaRow = page.locator('.watch-list .watch-row', { hasText: 'NVDA' })
+  expect(await nvdaRow.evaluate((row) => row.scrollWidth <= row.clientWidth)).toBe(true)
+  await expect(nvdaRow.locator('.watch-row-quote')).toContainText('$191.68')
+  await expect(nvdaRow.locator('.watch-pill')).toHaveText('+2.6%')
+  // One tap on any pill turns every row to the next reading, and the cycle comes back around.
+  await nvdaRow.getByRole('button', { name: /^Day change/ }).click()
+  await expect(nvdaRow.locator('.watch-pill')).toHaveText('Expensive 72')
+  await expect(page.locator('.watch-row', { hasText: 'SPCX' }).locator('.watch-pill')).toHaveText('Cheap 26')
+  await nvdaRow.getByRole('button', { name: /^Option premium/ }).click()
+  await expect(nvdaRow.locator('.watch-pill')).toHaveText('128.4M')
+  await nvdaRow.getByRole('button', { name: /^Volume/ }).click()
+  await expect(nvdaRow.locator('.watch-pill')).toHaveText('$4.7T')
+  await nvdaRow.getByRole('button', { name: /^Market cap/ }).click()
+  await expect(nvdaRow.locator('.watch-pill')).toHaveText('+2.6%')
+  // Liquidity and lendability read from the focus tape for the selected name.
+  await openDetail(page, 'NVDA')
+  await expect(page.locator('.focus-tape')).toContainText('5/5')
+  await expect(page.locator('.focus-tape')).toContainText('Easy To Borrow')
+  await expect(page.locator('.focus-tape')).not.toContainText('borrow')
+  await closeDetail(page)
   await page.getByRole('button', { name: 'Pin META' }).click()
-  await expect(page.locator('.premium-data-table tbody tr').first()).toContainText('META')
+  await expect(page.locator('.watch-list .watch-row').first()).toContainText('META')
+  await expect(page.getByRole('region', { name: 'Upcoming catalysts' })).toBeVisible()
+  await expect(page.getByText('No pinned catalysts are scheduled.')).toBeVisible()
   await expect(page.locator('.story')).toHaveCount(0)
   await page.getByRole('button', { name: 'Pin NVDA' }).click()
   await expect(page.locator('.story')).toHaveCount(1)
@@ -234,26 +267,32 @@ test('mobile market, recommendations, search, sorting, and connect flows remain 
   await expect(page.getByRole('button', { name: /sign out/i })).toHaveCount(0)
   await expect(page.getByText('Premium looks')).toHaveCount(0)
   await expect(page.locator('.intent-label')).toHaveCount(0)
-  await expect(page.locator('.premium-data-table [data-slot="badge"]')).toHaveCount(0)
+  await expect(page.locator('.watch-list [data-slot="badge"]')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /NVDA, NVIDIA, Expensive option premium/ })).toBeVisible()
   await expect(page.getByRole('tab', { name: 'Watch', exact: true })).toHaveAttribute('aria-selected', 'true')
-  await expect(page.locator('.premium-verdict')).toHaveText('Expensive')
-  await expect(page.getByRole('region', { name: 'Upcoming catalysts' })).toBeVisible()
+  await expect(page.locator('.focus-strip .strip-verdict')).toHaveText('Expensive')
+  // The rail appears with the first pin; a phone spends no row on it empty.
+  await expect(page.getByRole('region', { name: 'Upcoming catalysts' })).toHaveCount(0)
   await expect(page.locator('.story')).toHaveCount(0)
   await page.getByRole('button', { name: 'Pin NVDA' }).click()
+  await expect(page.getByRole('region', { name: 'Upcoming catalysts' })).toBeVisible()
   await expect(page.locator('.story')).toHaveCount(1)
   await page.getByRole('button', { name: 'Pin TSLA' }).click()
   await expect(page.locator('.story')).toHaveCount(2)
   await expect(page.locator('.story').first()).toContainText('NVDA')
   await expect(page.locator('.story').first()).toContainText('EARN')
+  // A story tap selects and opens the sheet, as a row tap does.
   await page.getByRole('button', { name: /TSLA: TSLA earnings/ }).click()
   await expect(page.locator('.selected-symbol')).toHaveText('TSLA')
+  await closeDetail(page)
   await page.getByRole('button', { name: /NVDA: NVDA earnings/ }).click()
   await expect(page.locator('.selected-symbol')).toHaveText('NVDA')
   await expect(page.locator('.focus-runway')).toContainText('NVDA earnings')
   await expect(page.locator('.focus-runway')).toContainText('earnings \u00b7 After hours \u00b7 estimated')
+  await expect(page.locator('.focus-runway')).toContainText('as of')
   await expect(page.locator('.focus-recommendation')).toContainText('Demand checks keep the AI capex case alive')
   await expect(page.locator('.focus-recommendation')).toContainText('A guide-down or capex pause would break the demand case.')
+  await closeDetail(page)
   await expect(page.locator('.watchlist-title')).toHaveText('Watchlist')
   await expect(page.getByRole('combobox', { name: 'Watchlist' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /NVDA, NVIDIA, Expensive/ })).toBeVisible()
@@ -265,11 +304,12 @@ test('mobile market, recommendations, search, sorting, and connect flows remain 
   const selectedSymbol = page.locator('.selected-symbol')
   const search = page.getByLabel('Search all symbols')
   await search.fill('intel')
-  await expect(page.locator('.premium-data-table tbody tr')).toHaveCount(1)
+  await expect(page.locator('.watch-list .watch-row')).toHaveCount(1)
   await page.getByRole('button', { name: /INTC, Intel, Cheap/ }).click()
   await expect(selectedSymbol).toHaveText('INTC')
   await page.reload()
-  await expect(selectedSymbol).toHaveText('INTC')
+  // The selection survives the reload; the sheet does not, so the strip is what says so.
+  await expect(page.locator('.focus-strip-symbol')).toHaveText('INTC')
   await search.fill('zzzz')
   await expect(page.getByText('No listed symbol matches your search.')).toBeVisible()
 
@@ -287,22 +327,22 @@ test('mobile market, recommendations, search, sorting, and connect flows remain 
   expect(symbolSearches).toEqual(['zzzz', 'TQQQ'])
   await search.fill('')
 
-  const rows = page.locator('.premium-data-table tbody tr')
-  const premiumHeader = page.getByRole('button', { exact: true, name: 'Option premium' })
-  await premiumHeader.click()
+  const rows = page.locator('.watch-list .watch-row')
+  const sortBy = page.getByRole('combobox', { name: 'Sort by' })
+  await sortBy.selectOption('premium')
   await expect(rows.nth(0)).toContainText('TSLA')
   await expect(rows.nth(1)).toContainText('NVDA')
   await expect(rows.nth(2)).toContainText('BE')
-  await premiumHeader.click()
+  await page.getByRole('button', { name: 'Sort ascending' }).click()
   await expect(rows.nth(0)).toContainText('NVDA')
   await expect(rows.nth(2)).toContainText('SPY')
 
-  await page.getByRole('button', { exact: true, name: 'Price' }).click()
+  await sortBy.selectOption('price')
   await expect(rows.nth(0)).toContainText('TSLA')
-  const beRow = page.locator('.premium-data-table tbody tr', { hasText: 'BE' })
-  await expect(beRow.locator('.price-cell')).toContainText('$43.16')
-  await expect(beRow.locator('.price-cell')).toContainText('+3%')
-  await expect(page.locator('.premium-data-table tbody .session-sparkline')).toHaveCount(11)
+  const beRow = page.locator('.watch-list .watch-row', { hasText: 'BE' })
+  await expect(beRow.locator('.watch-row-quote')).toContainText('$43.16')
+  await expect(beRow.locator('.watch-pill')).toHaveText('+3%')
+  await expect(page.locator('.watch-list .session-sparkline')).toHaveCount(11)
 
   await page.getByRole('tab', { name: 'Recommendations' }).click()
   await expect(page.getByRole('tab', { name: 'Recommendations' })).toHaveAttribute('aria-selected', 'true')
@@ -327,12 +367,12 @@ test('mobile market, recommendations, search, sorting, and connect flows remain 
   // and a failed sync used to flash a stale-data banner on and off over nothing.
   await expect(page.getByRole('alert')).toHaveCount(0)
   await expect(page.locator('.last-updated')).toContainText('Updated')
-  await expect(selectedSymbol).toHaveText('INTC')
+  await expect(page.locator('.focus-strip-symbol')).toHaveText('INTC')
 
   rejectSnapshots = true
   await context.setOffline(false)
   await page.evaluate(() => window.dispatchEvent(new Event('online')))
-  await expect(selectedSymbol).toHaveText('INTC')
+  await expect(page.locator('.focus-strip-symbol')).toHaveText('INTC')
   await expect(page.getByRole('alert')).toHaveCount(0)
   rejectSnapshots = false
 })
