@@ -132,7 +132,7 @@ const UPCOMING_CATALYSTS_QUERY =
      WHERE event_date >= ?
      ORDER BY event_date ASC, symbol ASC`
 
-/** The same read `persistAndLoadCatalysts` ends with, for a caller that must not write. */
+/** The upcoming-catalyst read, for a caller that must not write. */
 export async function readUpcomingCatalysts(env: AppEnv, now = new Date()): Promise<Catalyst[]> {
   if (!env.DB) throw new Error('CatalystStoreUnavailable')
   const result = await env.DB.prepare(UPCOMING_CATALYSTS_QUERY).bind(marketDate(now)).all()
@@ -157,8 +157,7 @@ export async function persistAndLoadCatalysts(
   }
   statements.push(...catalystUpsertStatements(env.DB, 'tastytrade', observed, now.toISOString()))
   if (statements.length) await env.DB.batch(statements)
-  const result = await env.DB.prepare(UPCOMING_CATALYSTS_QUERY).bind(marketDate(now)).all()
-  return CatalystSchema.array().parse(result.results ?? [])
+  return readUpcomingCatalysts(env, now)
 }
 
 /**
