@@ -12,7 +12,6 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthorizeRouteImport } from './routes/authorize'
 import { Route as DisclosuresRouteImport } from './routes/disclosures'
-import { Route as OpsRouteImport } from './routes/ops'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as SupportRouteImport } from './routes/support'
 import { Route as TermsRouteImport } from './routes/terms'
@@ -45,11 +44,6 @@ const AuthorizeRoute = AuthorizeRouteImport.update({
 const DisclosuresRoute = DisclosuresRouteImport.update({
   id: '/disclosures',
   path: '/disclosures',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OpsRoute = OpsRouteImport.update({
-  id: '/ops',
-  path: '/ops',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PrivacyRoute = PrivacyRouteImport.update({
@@ -149,7 +143,6 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/authorize': typeof AuthorizeRouteWithChildren
   '/disclosures': typeof DisclosuresRoute
-  '/ops': typeof OpsRoute
   '/privacy': typeof PrivacyRoute
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
@@ -172,7 +165,6 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/disclosures': typeof DisclosuresRoute
-  '/ops': typeof OpsRoute
   '/privacy': typeof PrivacyRoute
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
@@ -197,7 +189,6 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/authorize': typeof AuthorizeRouteWithChildren
   '/disclosures': typeof DisclosuresRoute
-  '/ops': typeof OpsRoute
   '/privacy': typeof PrivacyRoute
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
@@ -223,7 +214,6 @@ export interface FileRouteTypes {
     | '/'
     | '/authorize'
     | '/disclosures'
-    | '/ops'
     | '/privacy'
     | '/support'
     | '/terms'
@@ -246,7 +236,6 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/disclosures'
-    | '/ops'
     | '/privacy'
     | '/support'
     | '/terms'
@@ -270,7 +259,6 @@ export interface FileRouteTypes {
     | '/'
     | '/authorize'
     | '/disclosures'
-    | '/ops'
     | '/privacy'
     | '/support'
     | '/terms'
@@ -295,7 +283,6 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthorizeRoute: typeof AuthorizeRouteWithChildren
   DisclosuresRoute: typeof DisclosuresRoute
-  OpsRoute: typeof OpsRoute
   PrivacyRoute: typeof PrivacyRoute
   SupportRoute: typeof SupportRoute
   TermsRoute: typeof TermsRoute
@@ -335,13 +322,6 @@ declare module '@tanstack/react-router' {
       path: '/disclosures'
       fullPath: '/disclosures'
       preLoaderRoute: typeof DisclosuresRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/ops': {
-      id: '/ops'
-      path: '/ops'
-      fullPath: '/ops'
-      preLoaderRoute: typeof OpsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/privacy': {
@@ -491,7 +471,6 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthorizeRoute: AuthorizeRouteWithChildren,
   DisclosuresRoute: DisclosuresRoute,
-  OpsRoute: OpsRoute,
   PrivacyRoute: PrivacyRoute,
   SupportRoute: SupportRoute,
   TermsRoute: TermsRoute,

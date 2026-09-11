@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { z } from 'zod'
 
@@ -48,16 +48,6 @@ export function useViewer(): AuthState {
   }, [])
 
   return state
-}
-
-export function AuthGate({ children }: { children: (viewer: Viewer) => ReactNode }) {
-  const state = useViewer()
-
-  if (state.phase === 'checking') return <AuthScreen checking />
-  if (state.phase === 'error') return <AuthScreen error={state.message} />
-  if (!state.user) return <AuthScreen />
-  if (state.user.role !== 'owner') return <OwnerAccessScreen signedIn />
-  return children(state.user)
 }
 
 function GoogleMark() {
