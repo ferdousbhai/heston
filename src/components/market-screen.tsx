@@ -203,8 +203,12 @@ function YearSparkline({ closes }: { closes: readonly number[] }) {
   )
 }
 
-function Sparkline({ points }: { points: readonly CandlePoint[] }) {
-  const session = latestSessionCandles(points)
+/**
+ * Draws one session, which the caller narrows: the stored series deliberately keeps the prior
+ * session, so a guard on the stored length would pass on yesterday's bars while this session
+ * holds one point, and the polyline would be a single vertex — an empty chart in a filled slot.
+ */
+function Sparkline({ session }: { session: readonly CandlePoint[] }) {
   const closes = session.map((point) => point.close)
   const low = Math.min(...closes)
   const span = Math.max(...closes) - low || 1
@@ -420,6 +424,74 @@ function CatalystRunway({
   )
 }
 
+/** The pin affordance, shared by the table row, the phone row and the focus sheet. */
+function PinButton({
+  className,
+  onToggle,
+  pinned,
+  symbol,
+}: {
+  className?: string
+  onToggle: (symbol: string) => void
+  pinned: boolean
+  symbol: string
+}) {
+  return (
+    <Button
+      aria-label={`${pinned ? 'Unpin' : 'Pin'} ${symbol}`}
+      aria-pressed={pinned}
+      className={cn('pin-button', pinned && 'pinned', className)}
+      onClick={() => onToggle(symbol)}
+      size="icon-sm"
+      type="button"
+      variant="ghost"
+    >
+      <Star aria-hidden="true" fill={pinned ? 'currentColor' : 'none'} />
+    </Button>
+  )
+}
+
+/**
+ * The row's own control: symbol, asset type, issuer and next catalyst, with the reading a
+ * screen reader hears in place of the columns it cannot see. One definition, so the table row
+ * and the phone row can never announce a name differently.
+ */
+function InstrumentButton({
+  catalyst,
+  isSelected,
+  now,
+  onSelect,
+  ticker,
+}: {
+  catalyst: Catalyst | undefined
+  isSelected: boolean
+  now: Date
+  onSelect: (symbol: string) => void
+  ticker: Ticker
+}) {
+  const copy = verdictCopy[volatilityVerdict(ticker)]
+  const type = assetLabel(ticker)
+  const ivRank = ticker.ivRank === undefined ? '—' : formatMarketMetric(ticker.ivRank)
+
+  return (
+    <Button
+      aria-label={`${ticker.symbol}, ${issuerName(ticker.name)}, ${copy.label} option premium, IV rank ${ivRank}`}
+      aria-pressed={isSelected}
+      className="ticker-table-button"
+      onClick={() => onSelect(ticker.symbol)}
+      type="button"
+      variant="ghost"
+    >
+      <span>
+        <strong>{ticker.symbol}</strong>
+        {type ? <small>{type}</small> : null}
+      </span>
+      <small>{issuerName(ticker.name)}</small>
+      {catalyst ? <small>{catalystLabel(catalyst, now)}</small> : null}
+    </Button>
+  )
+}
+
 // A live quote replaces one ticker object at a time, so memoizing on the default shallow
 // prop compare keeps every other row off the render path. The screen passes only
 // referentially stable props, `now` included.
@@ -445,40 +517,21 @@ const MarketTickerRow = memo(function MarketTickerRow({
   const verdict = volatilityVerdict(ticker)
   const copy = verdictCopy[verdict]
   const rangePosition = fiftyTwoWeekPosition(ticker)
-  const type = assetLabel(ticker)
-  const ivRank = ticker.ivRank === undefined ? '—' : formatMarketMetric(ticker.ivRank)
+  const session = latestSessionCandles(ticker.sparkline)
 
   return (
     <TableRow data-state={isSelected ? 'selected' : undefined}>
       <TableCell className="pin-cell">
-        <Button
-          aria-label={`${isPinned ? 'Unpin' : 'Pin'} ${ticker.symbol}`}
-          aria-pressed={isPinned}
-          className={cn('pin-button', isPinned && 'pinned')}
-          onClick={() => onTogglePinned(ticker.symbol)}
-          size="icon-sm"
-          type="button"
-          variant="ghost"
-        >
-          <Star aria-hidden="true" fill={isPinned ? 'currentColor' : 'none'} />
-        </Button>
+        <PinButton onToggle={onTogglePinned} pinned={isPinned} symbol={ticker.symbol} />
       </TableCell>
       <TableCell className="instrument-cell">
-        <Button
-          aria-label={`${ticker.symbol}, ${issuerName(ticker.name)}, ${copy.label} option premium, IV rank ${ivRank}`}
-          aria-pressed={isSelected}
-          className="ticker-table-button"
-          onClick={() => onSelectTicker(ticker.symbol)}
-          type="button"
-          variant="ghost"
-        >
-          <span>
-            <strong>{ticker.symbol}</strong>
-            {type ? <small>{type}</small> : null}
-          </span>
-          <small>{issuerName(ticker.name)}</small>
-          {catalyst ? <small>{catalystLabel(catalyst, now)}</small> : null}
-        </Button>
+        <InstrumentButton
+          catalyst={catalyst}
+          isSelected={isSelected}
+          now={now}
+          onSelect={onSelectTicker}
+          ticker={ticker}
+        />
       </TableCell>
       <TableCell className="market-cap-cell">
         <strong>{compactMetric(ticker.marketCap, '$')}</strong>
@@ -486,7 +539,7 @@ const MarketTickerRow = memo(function MarketTickerRow({
       <TableCell className="price-cell">
         <div className="price-session">
           {/* Snapshot quotes carry two synthetic endpoints; only render a chart for a richer live candle series. */}
-          {ticker.sparkline.length > 2 ? <Sparkline points={ticker.sparkline} /> : null}
+          {session.length > 2 ? <Sparkline session={session} /> : null}
           <span>
             <strong>{formatMarketPrice(ticker.price)}</strong>
             <small>{formatSignedMetric(ticker.changePercent, '%')}</small>
@@ -557,45 +610,25 @@ const MarketListRow = memo(function MarketListRow({
   yearCloses?: readonly number[]
 }) {
   const verdict = volatilityVerdict(ticker)
-  const copy = verdictCopy[verdict]
-  const type = assetLabel(ticker)
-  const ivRank = ticker.ivRank === undefined ? '—' : formatMarketMetric(ticker.ivRank)
   const pill = listPill(ticker, metric)
   const nextMetric = LIST_METRICS[(LIST_METRICS.indexOf(metric) + 1) % LIST_METRICS.length]!
   const rangePosition = fiftyTwoWeekPosition(ticker)
+  const session = latestSessionCandles(ticker.sparkline)
 
   return (
     <li className={cn('watch-row', verdict)} data-state={isSelected ? 'selected' : undefined}>
-      <Button
-        aria-label={`${isPinned ? 'Unpin' : 'Pin'} ${ticker.symbol}`}
-        aria-pressed={isPinned}
-        className={cn('pin-button', isPinned && 'pinned')}
-        onClick={() => onTogglePinned(ticker.symbol)}
-        size="icon-sm"
-        type="button"
-        variant="ghost"
-      >
-        <Star aria-hidden="true" fill={isPinned ? 'currentColor' : 'none'} />
-      </Button>
-      <Button
-        aria-label={`${ticker.symbol}, ${issuerName(ticker.name)}, ${copy.label} option premium, IV rank ${ivRank}`}
-        aria-pressed={isSelected}
-        className="ticker-table-button"
-        onClick={() => onSelectTicker(ticker.symbol)}
-        type="button"
-        variant="ghost"
-      >
-        <span>
-          <strong>{ticker.symbol}</strong>
-          {type ? <small>{type}</small> : null}
-        </span>
-        <small>{issuerName(ticker.name)}</small>
-        {catalyst ? <small>{catalystLabel(catalyst, now)}</small> : null}
-      </Button>
+      <PinButton onToggle={onTogglePinned} pinned={isPinned} symbol={ticker.symbol} />
+      <InstrumentButton
+        catalyst={catalyst}
+        isSelected={isSelected}
+        now={now}
+        onSelect={onSelectTicker}
+        ticker={ticker}
+      />
       {/* The session chart when the feed carries one; otherwise the year, which every reader
           has. A row with neither draws nothing rather than a synthetic two-point line. */}
-      {ticker.sparkline.length > 2
-        ? <Sparkline points={ticker.sparkline} />
+      {session.length > 2
+        ? <Sparkline session={session} />
         : yearCloses && yearCloses.length > 1 ? <YearSparkline closes={yearCloses} /> : null}
       <div className="watch-row-quote">
         <strong>{formatMarketPrice(ticker.price)}</strong>
@@ -842,17 +875,12 @@ export function MarketScreen({
               <DrawerTitle className="sr-only">{selected.symbol} detail</DrawerTitle>
               {/* The pin travels with the card, so a reader deciding on a name in the sheet
                   need not go back to the row to keep it. */}
-              <Button
-                aria-label={`${pinned.has(selected.symbol) ? 'Unpin' : 'Pin'} ${selected.symbol}`}
-                aria-pressed={pinned.has(selected.symbol)}
-                className={cn('pin-button focus-sheet-pin', pinned.has(selected.symbol) && 'pinned')}
-                onClick={() => onTogglePinned(selected.symbol)}
-                size="icon-sm"
-                type="button"
-                variant="ghost"
-              >
-                <Star aria-hidden="true" fill={pinned.has(selected.symbol) ? 'currentColor' : 'none'} />
-              </Button>
+              <PinButton
+                className="focus-sheet-pin"
+                onToggle={onTogglePinned}
+                pinned={pinned.has(selected.symbol)}
+                symbol={selected.symbol}
+              />
               <DrawerClose aria-label="Close detail" className="focus-sheet-close">
                 <X aria-hidden="true" />
               </DrawerClose>
