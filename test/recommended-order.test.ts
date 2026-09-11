@@ -6,7 +6,6 @@ import {
   recommendedOrderLabel,
   type RecommendedOrder,
 } from '../src/domain/recommended-order'
-import { orderPlacementFromRecommendedOrder } from '../src/server/recommended-order-placement'
 
 const CALL = {
   action: 'Buy to Open' as const,
@@ -82,6 +81,14 @@ describe('recommended order contract', () => {
         { ...order.legs[1], contract: { ...CALL.contract, strike: 225 } },
       ],
     }).success).toBe(false)
+    // Both legs are one spread or they are not a spread at all.
+    expect(recommendation({
+      ...order,
+      legs: [
+        CALL,
+        { ...order.legs[1], contract: { ...CALL.contract, expiry: '2026-11-20', strike: 240 } },
+      ],
+    }).success).toBe(false)
   })
 
   it('preserves visibly degraded legacy labels without treating them as actionable', () => {
@@ -93,46 +100,5 @@ describe('recommended order contract', () => {
       kind: 'legacy-unstructured',
       label: 'NVDA 225c 10/16',
     })).toBe('Legacy terms · NVDA 225c 10/16')
-  })
-})
-
-describe('Dan recommendation promotion', () => {
-  it('requires fresh quantity and limit price before producing an OrderPlacement', () => {
-    const order = ActionableRecommendedOrderSchema.parse({
-      kind: 'equity-option-vertical',
-      legs: [
-        CALL,
-        {
-          action: 'Sell to Open',
-          contract: { ...CALL.contract, strike: 240 },
-          instrumentType: 'Equity Option',
-        },
-      ],
-    })
-
-    expect(orderPlacementFromRecommendedOrder(order, { limitPrice: 4.5, quantity: 2 })).toEqual({
-      expiry: '2026-10-16',
-      kind: 'place_vertical_spread_order',
-      limitPrice: 4.5,
-      longStrike: 225,
-      optionType: 'C',
-      priceEffect: 'Debit',
-      quantity: 2,
-      shortStrike: 240,
-      underlying: 'NVDA',
-    })
-    expect(() => orderPlacementFromRecommendedOrder(order, { limitPrice: 15, quantity: 2 }))
-      .toThrow('The debit must be less than the spread width')
-    expect(() => orderPlacementFromRecommendedOrder({
-      kind: 'equity-option-vertical',
-      legs: [
-        CALL,
-        {
-          action: 'Sell to Open',
-          contract: { ...CALL.contract, expiry: '2026-11-20', strike: 240 },
-          instrumentType: 'Equity Option',
-        },
-      ],
-    }, { limitPrice: 4.5, quantity: 2 })).toThrow('Both vertical legs must share')
   })
 })

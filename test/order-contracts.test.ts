@@ -38,6 +38,12 @@ describe('brokerage input boundary', () => {
       expiry: '2026-09-18', longStrike: 710, shortStrike: 700,
       quantity: 2, limitPrice: 3.5, priceEffect: 'Debit',
     }).success).toBe(false)
+    // A debit at or above the width is a structure that cannot profit, whatever the model said.
+    expect(OrderPlacementSchema.safeParse({
+      kind: 'place_vertical_spread_order', underlying: 'SPY', optionType: 'C',
+      expiry: '2026-09-18', longStrike: 700, shortStrike: 710,
+      quantity: 2, limitPrice: 10, priceEffect: 'Debit',
+    }).success).toBe(false)
     expect(OrderPlacementSchema.parse({ kind: 'replace_order', orderId: '12345', limitPrice: 3.55 }).kind)
       .toBe('replace_order')
   })

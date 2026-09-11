@@ -1,6 +1,5 @@
-import { PORTFOLIO_POLICY, survivalBudget } from '../domain/portfolio-risk'
+import { survivalBudget } from '../domain/portfolio-risk'
 import { type FreshOrderPlacement } from './agent-contracts'
-import { type BrokerageContext } from './brokerage-context'
 import { type AppEnv } from './env'
 import { OwnerVisibleError } from './owner-visible-error'
 import { resolveEquityOptionContract, type EquityOptionContract } from './option-contract'
@@ -28,16 +27,6 @@ export interface PortfolioActionAssessment {
   maxLoss: number
   reason?: string
   remainingLossBudget: number
-}
-
-export interface PortfolioPolicyContext {
-  availableNewRisk: number
-  cash: number
-  cashPercent: number
-  modeledFloor: number
-  highWaterValue: number
-  maxDrawdownPercent: typeof PORTFOLIO_POLICY.maxDrawdownPercent
-  status: 'approximate-new-risk-budget' | 'risk-increasing-actions-blocked'
 }
 
 export class PortfolioRiskError extends OwnerVisibleError {
@@ -221,31 +210,4 @@ export async function assertPortfolioActionAllowed(
   const assessment = assessPortfolioAction(action, account, highWaterValue, optionContracts)
   if (!assessment.allowed) throw new PortfolioRiskError(assessment.reason ?? 'This trade was rejected at the portfolio boundary.')
   return assessment
-}
-
-export async function buildPortfolioPolicyContext(
-  env: AppEnv,
-  account: BrokerageContext,
-  credential: BrokerCredential | undefined,
-): Promise<PortfolioPolicyContext> {
-  const netLiquidatingValue = account.balances.netLiquidatingValue
-  const cashBalance = account.balances.cashBalance
-  const withdrawableCash = account.balances.cashAvailableToWithdraw
-  if (netLiquidatingValue <= 0) throw new PortfolioRiskError('The portfolio context has an invalid net liquidation value.')
-  const cash = Math.min(cashBalance, withdrawableCash)
-  const highWaterValue = await recordPortfolioHighWater(env, account.accountNumber, netLiquidatingValue, credential)
-  const budget = survivalBudget(highWaterValue, cash)
-  const supported = budget.allowed
-    && account.orders.length === 0
-    && account.positions.every((position) => position.direction === 'Long'
-      && (position.instrumentType === 'Equity' || position.instrumentType === 'Equity Option'))
-  return {
-    maxDrawdownPercent: PORTFOLIO_POLICY.maxDrawdownPercent,
-    status: supported ? 'approximate-new-risk-budget' : 'risk-increasing-actions-blocked',
-    highWaterValue,
-    modeledFloor: budget.floor,
-    cash,
-    cashPercent: (cash / netLiquidatingValue) * 100,
-    availableNewRisk: supported ? budget.remainingLossBudget : 0,
-  }
 }
