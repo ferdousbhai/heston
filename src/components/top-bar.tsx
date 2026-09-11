@@ -110,9 +110,11 @@ export function TopBar({
   marketState?: MarketState
   viewerName?: string
 }) {
-  const updated = useElapsedLabel(lastUpdatedAt)
-  // Shares the elapsed clock's tick, so the countdown advances without a second timer.
-  const now = useTick(Boolean(marketState))
+  // One clock for both readings, on one timer. It also keeps ticking while another tab is
+  // open — the age used to stop with it, and resumed from the instant the reader left, so a
+  // return to the market showed forty-minute-old quotes as "Updated just now".
+  const now = useTick(Boolean(lastUpdatedAt) || Boolean(marketState))
+  const updated = lastUpdatedAt ? elapsedLabel(lastUpdatedAt, now) : undefined
   const status = marketState ? marketStatusLabel(marketState, marketOpensAt, now) : undefined
   return (
     <header className="top-bar">
