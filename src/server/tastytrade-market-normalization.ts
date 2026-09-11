@@ -16,6 +16,7 @@ import {
   type JsonObject,
   type JsonValue,
 } from '../domain/json-payload'
+import { marketDate } from '../domain/catalyst'
 import { earningsDateFromMetric } from './catalysts'
 import {
   type TastytradeMarketMetricRecord,
@@ -91,18 +92,6 @@ function percentagePoints(value: JsonValue, field: string): number {
 function optionalPercentagePoints(value: JsonValue, field: string): number | undefined {
   if (unreported(value)) return undefined
   return percentagePoints(value, field)
-}
-
-function reportedEarningsDate(metrics: JsonObject): string | null {
-  const value = metrics.earnings
-  if (unreported(value)) return null
-  const earnings = jsonObject(value)
-  if (!earnings) throw new Error('TastytradeSnapshot:invalid-earnings')
-  const rawDate = earnings['expected-report-date']
-  if (unreported(rawDate)) return null
-  const date = optionalText(rawDate, 'earnings-date')
-  if (!date || !isValidIsoDate(date)) throw new Error('TastytradeSnapshot:invalid-earnings-date')
-  return date
 }
 
 function optionTermStructure(metrics: JsonObject, symbol: string): Ticker['ivTermStructure'] {
@@ -264,7 +253,10 @@ export function normalizeTastytradeMarketTicker(
   }
   const metricsUpdatedAt = metricsUpdatedAtTime === undefined ? undefined : new Date(metricsUpdatedAtTime).toISOString()
   const metricRecord: TastytradeMarketMetricRecord = {
-    earningsDate: reportedEarningsDate(metrics),
+    // The same upcoming, provider-visible date the live ticker carries. Storing the raw
+    // reported value instead let a stored read show an earnings date the live path filtered
+    // out, so the two read models are written from one derivation.
+    earningsDate,
     historicalVolatility30Day,
     ivHistoricalVolatility30DayDifference,
     ivIndex,
@@ -337,6 +329,7 @@ export function tickerFromStoredRecords(
   quote: TastytradeMarketQuoteRecord,
   instrument?: JsonObject,
   yearAgoClose?: number,
+  now = new Date(),
 ): Ticker {
   const change = quote.price - quote.previousClose
   return {
@@ -365,7 +358,9 @@ export function tickerFromStoredRecords(
     volume: quote.volume,
     yearHigh: quote.yearHigh,
     yearLow: quote.yearLow,
-    earningsDate: metric?.earningsDate ?? null,
+    // A stored row outlives the date it holds, so an earnings date the store was right about
+    // when it was written is dropped once it is past -- the same filter the live path applies.
+    earningsDate: metric?.earningsDate && metric.earningsDate >= marketDate(now) ? metric.earningsDate : null,
     updatedAt: quote.providerUpdatedAt,
     metricsUpdatedAt: metric?.providerUpdatedAt,
   }

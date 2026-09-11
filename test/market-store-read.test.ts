@@ -62,6 +62,8 @@ describe('stored market read model', () => {
       records.metrics.get('AAPL'),
       records.quotes.get('AAPL')!,
       { description: 'Apple', 'is-etf': false, 'is-index': false, lendability: 'Easy To Borrow' },
+      undefined,
+      new Date('2026-08-28T13:31:00.000Z'),
     )
     expect(ticker).toMatchObject({
       assetType: 'stock',
@@ -79,6 +81,24 @@ describe('stored market read model', () => {
     // Candle history is live-only state and is never reconstructed from the store.
     expect(ticker.sparkline).toEqual([])
     expect(ticker.changePercent).toBeCloseTo(((236.41 - 238.25) / 238.25) * 100, 10)
+  })
+
+  it('drops an earnings date the store has outlived, as the live path does', async () => {
+    const env = { DB: store.database }
+    await persistTastytradeMarketSnapshot(env, { metrics: [metric], quotes: [quote] })
+    const records = await readStoredMarketRecords(env, ['AAPL'])
+
+    // The row is still the provider's record; what a reader is shown is only an upcoming date,
+    // so a stored snapshot never advertises an earnings date that has already been reported.
+    const ticker = tickerFromStoredRecords(
+      'AAPL',
+      records.metrics.get('AAPL'),
+      records.quotes.get('AAPL')!,
+      undefined,
+      undefined,
+      new Date('2026-10-30T13:31:00.000Z'),
+    )
+    expect(ticker.earningsDate).toBeNull()
   })
 
   it('grants the refresh claim to one caller and releases it only by expiry', async () => {

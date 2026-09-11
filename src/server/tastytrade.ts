@@ -669,15 +669,13 @@ async function cacheMarketSession(
 }
 
 /**
- * Build the public snapshot entirely from the store, so an ordinary visitor never causes a
- * provider request. Absence is returned rather than thrown: a cold store has nothing to serve
- * and the caller falls back to one guarded live build.
+ * Everything a stored snapshot is assembled from, for one symbol list. Both audiences read the
+ * same tables and build the same rows; only the symbol list, the watchlist descriptor and the
+ * schema that parses the result differ, so the stored read model is derived in one place and a
+ * fix to it cannot land on one audience and miss the other.
  */
-async function loadStoredPublicMarketSnapshot(env: AppEnv): Promise<PublicMarketSnapshot | undefined> {
-  if (!env.DB) return undefined
-  const storedUniverse = await loadStoredPublicMarketUniverse(env)
-  const symbols = [...new Set(storedUniverse.symbols)]
-  if (!symbols.length) return undefined
+async function storedSnapshotParts(env: AppEnv, symbols: readonly string[]) {
+  if (!env.DB || !symbols.length) return undefined
   const [records, catalog, yearCandles, catalysts, session, recommendations] = await Promise.all([
     readStoredMarketRecords(env, symbols),
     readInstrumentCatalog(env, symbols),
@@ -699,20 +697,33 @@ async function loadStoredPublicMarketSnapshot(env: AppEnv): Promise<PublicMarket
       yearCandles.get(symbol),
     ))
   if (!tickers.length || !records.observedAt) return undefined
+  return { catalysts, observedAt: records.observedAt, recommendations, session, tickers }
+}
+
+/**
+ * Build the public snapshot entirely from the store, so an ordinary visitor never causes a
+ * provider request. Absence is returned rather than thrown: a cold store has nothing to serve
+ * and the caller falls back to one guarded live build.
+ */
+async function loadStoredPublicMarketSnapshot(env: AppEnv): Promise<PublicMarketSnapshot | undefined> {
+  if (!env.DB) return undefined
+  const storedUniverse = await loadStoredPublicMarketUniverse(env)
+  const parts = await storedSnapshotParts(env, [...new Set(storedUniverse.symbols)])
+  if (!parts) return undefined
   return PublicMarketSnapshotSchema.parse({
     source: 'tastytrade',
-    syncedAt: records.observedAt,
-    marketState: session?.state ?? 'unknown',
-    marketOpensAt: session?.opensAt,
+    syncedAt: parts.observedAt,
+    marketState: parts.session?.state ?? 'unknown',
+    marketOpensAt: parts.session?.opensAt,
     watchlists: [{
       id: 'public-options-watch',
       kind: 'public' as const,
       name: 'Options Watch',
       symbols: storedUniverse.symbols,
     }],
-    tickers: tickers.map(publicTickerFromTicker),
-    catalysts,
-    recommendations,
+    tickers: parts.tickers.map(publicTickerFromTicker),
+    catalysts: parts.catalysts,
+    recommendations: parts.recommendations,
   })
 }
 
@@ -723,35 +734,17 @@ async function loadStoredPublicMarketSnapshot(env: AppEnv): Promise<PublicMarket
 async function loadStoredMarketSnapshot(env: AppEnv): Promise<MarketSnapshot | undefined> {
   if (!env.DB) return undefined
   const { kept: focusSymbols } = await pruneInternalWatchlistToFocus(env, MAX_WATCHLIST_SYMBOLS)
-  const symbols = selectSnapshotSymbols([], [], focusSymbols)
-  const [records, catalog, yearCandles, catalysts, session, recommendations] = await Promise.all([
-    readStoredMarketRecords(env, symbols),
-    readInstrumentCatalog(env, symbols),
-    readYearAgoCloses(env.DB, symbols),
-    readUpcomingCatalysts(env),
-    readStoredMarketSession(env),
-    loadStoredDailyRecommendations(env),
-  ])
-  const tickers = symbols
-    .map((symbol) => ({ quote: records.quotes.get(symbol), symbol }))
-    .filter((entry): entry is { quote: TastytradeMarketQuoteRecord; symbol: string } => Boolean(entry.quote))
-    .map(({ quote, symbol }) => tickerFromStoredRecords(
-      symbol,
-      records.metrics.get(symbol),
-      quote,
-      catalogTickerInstrument(catalog.get(symbol)),
-      yearCandles.get(symbol),
-    ))
-  if (!tickers.length || !records.observedAt) return undefined
+  const parts = await storedSnapshotParts(env, selectSnapshotSymbols([], [], focusSymbols))
+  if (!parts) return undefined
   return MarketSnapshotSchema.parse({
     source: 'tastytrade',
-    syncedAt: records.observedAt,
-    marketState: session?.state ?? 'unknown',
-    marketOpensAt: session?.opensAt,
+    syncedAt: parts.observedAt,
+    marketState: parts.session?.state ?? 'unknown',
+    marketOpensAt: parts.session?.opensAt,
     watchlists: [{ id: 'watchlist', kind: 'private' as const, name: 'Watchlist', symbols: focusSymbols }],
-    tickers,
-    catalysts,
-    recommendations,
+    tickers: parts.tickers,
+    catalysts: parts.catalysts,
+    recommendations: parts.recommendations,
   })
 }
 
