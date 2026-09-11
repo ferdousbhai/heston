@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { z } from 'zod'
 
 import { type JsonValue } from '../domain/json-payload'
@@ -23,14 +23,15 @@ const HIDDEN_DISCONNECT_MS = 90 * 1_000
  */
 const HEARTBEAT_MS = 30 * 1_000
 
-export type LiveMarketState = {
-  detail?: string
-  state: 'connecting' | 'degraded' | 'disabled' | 'live' | 'reconnecting'
-}
-
-export function useLiveMarket(symbols: readonly string[], enabled: boolean): LiveMarketState {
+/**
+ * Opens the subscription and writes what it receives into the market collections. The
+ * connection's own transient states are deliberately not rendered: a reconnect is the feed
+ * healing itself, and how old the data is — which the bar already states — is what tells a
+ * reader whether the feed is working. Holding them in state re-rendered the whole market tree
+ * on every status frame to update a value nothing read.
+ */
+export function useLiveMarket(symbols: readonly string[], enabled: boolean): void {
   const key = [...new Set(symbols)].sort().join(',')
-  const [status, setStatus] = useState<LiveMarketState>({ state: 'disabled' })
 
   useEffect(() => {
     if (!enabled || !key) {
@@ -46,7 +47,6 @@ export function useLiveMarket(symbols: readonly string[], enabled: boolean): Liv
 
     const connect = () => {
       if (stopped || idle) return
-      setStatus({ state: attempts ? 'reconnecting' : 'connecting' })
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
       const url = new URL('/api/stream', `${protocol}//${window.location.host}`)
       url.searchParams.set('symbols', key)
@@ -55,15 +55,16 @@ export function useLiveMarket(symbols: readonly string[], enabled: boolean): Liv
         try {
           const frame = RelayFrameSchema.parse(event.data)
           const payload: JsonValue = JSON.parse(frame)
+          // A status frame is not a market event: it only tells the backoff that the upstream
+          // feed is live again.
           const status = MarketFeedStatusSchema.safeParse(payload)
           if (status.success) {
             if (status.data.state === 'live') attempts = 0
-            setStatus({ detail: status.data.detail, state: status.data.state })
             return
           }
           applyLiveMarketEvent(payload)
         } catch {
-          setStatus({ detail: 'The live feed returned an invalid frame.', state: 'degraded' })
+          // A frame this bundle cannot read is dropped; the data on screen keeps its own age.
         }
       })
       socket.addEventListener('open', () => {
@@ -81,11 +82,7 @@ export function useLiveMarket(symbols: readonly string[], enabled: boolean): Liv
           RECONNECT_MAX_DELAY_MS,
           RECONNECT_BASE_DELAY_MS * 2 ** Math.min(attempts++, RECONNECT_MAX_EXPONENT),
         )
-        setStatus({ detail: 'The live feed disconnected.', state: 'reconnecting' })
         reconnectTimer = setTimeout(connect, delay)
-      })
-      socket.addEventListener('error', () => {
-        if (!stopped) setStatus({ detail: 'The live feed connection failed.', state: 'degraded' })
       })
     }
 
@@ -99,7 +96,6 @@ export function useLiveMarket(symbols: readonly string[], enabled: boolean): Liv
       // Closing the last client socket is what lets the relay drop its upstream connection.
       socket?.close(1000, 'Viewer idle')
       socket = undefined
-      setStatus({ detail: 'Live updates paused while this tab is hidden.', state: 'disabled' })
     }
 
     const onVisibilityChange = () => {
@@ -127,5 +123,4 @@ export function useLiveMarket(symbols: readonly string[], enabled: boolean): Liv
       socket?.close(1000, 'Subscription changed')
     }
   }, [enabled, key])
-  return enabled && key ? status : { state: 'disabled' }
 }
