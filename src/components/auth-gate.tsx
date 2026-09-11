@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { Link } from '@tanstack/react-router'
 import { z } from 'zod'
 
 import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
@@ -128,41 +127,5 @@ export function OwnerAccessScreen({
       )}
       {!signedIn && <GoogleSignInButton />}
     </section>
-  )
-}
-
-export function AuthScreen({ checking = false, error }: { checking?: boolean; error?: string }) {
-
-  return (
-    <main className="auth-shell">
-      <header className="auth-brand" aria-label="Spice Must Flow">
-        <img alt="" src="/spice-mark.svg" />
-        <span>SPICE<small>MUST FLOW</small></span>
-      </header>
-      <section className="auth-copy" aria-busy={checking}>
-        <h1>Your market.<br /><em>In motion.</em></h1>
-        <p>Public options intelligence and a daily market read. Sign in to connect your own agent and sync your favorites; your brokerage credentials stay on your machine.</p>
-        {checking ? (
-          <div className="auth-checking" role="status"><Spinner />Checking your session</div>
-        ) : error ? (
-          <Alert className="auth-error" variant="destructive">
-            <AlertTitle>Session check failed</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-            <Button onClick={() => window.location.reload()} size="sm" type="button" variant="outline">Try again</Button>
-          </Alert>
-        ) : (
-          <GoogleSignInButton />
-        )}
-      </section>
-      <footer className="auth-footer">
-        <span>Synced favorites · bring your own agent</span>
-        <nav aria-label="Legal and support">
-          <Link to="/support">Support</Link>
-          <Link to="/terms">Terms</Link>
-          <Link to="/privacy">Privacy</Link>
-          <Link to="/disclosures">Disclosures</Link>
-        </nav>
-      </footer>
-    </main>
   )
 }
