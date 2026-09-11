@@ -1,4 +1,5 @@
 import { Type } from 'typebox'
+import { z } from 'zod'
 
 export const ISO_DATE_PATTERN = '^\\d{4}-\\d{2}-\\d{2}$'
 export const ISO_DATE_REGEX = new RegExp(ISO_DATE_PATTERN)
@@ -18,6 +19,12 @@ export function isValidIsoDate(value: string): boolean {
     && parsed.getUTCMonth() === month - 1
     && parsed.getUTCDate() === day
 }
+
+/**
+ * The one zod spelling of a calendar date. `isValidIsoDate` tests the wire pattern before the
+ * calendar, so a schema using this needs no `.regex()` of its own.
+ */
+export const IsoDateSchema = z.string().refine(isValidIsoDate, 'Use a real YYYY-MM-DD date')
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',

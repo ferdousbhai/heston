@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { CatalystSchema } from './catalyst'
 import { CandlePointSchema, MAX_YEAR_CANDLES } from './candle'
 import { EquitySymbolSchema } from './instrument'
-import { isValidIsoDate } from './iso-date'
+import { IsoDateSchema } from './iso-date'
 import { type JsonValue } from './json-payload'
 import {
   RecommendedOrderSchema,
@@ -22,12 +22,10 @@ export const WatchlistSchema = z.object({
   symbols: z.array(EquitySymbolSchema),
 })
 
-const MarketDateSchema = z.string().refine(isValidIsoDate, 'Use a real YYYY-MM-DD date')
-
 const IvTermStructureSchema = z.object({
-  backExpiration: MarketDateSchema,
+  backExpiration: IsoDateSchema,
   backIv: z.number().min(0),
-  frontExpiration: MarketDateSchema,
+  frontExpiration: IsoDateSchema,
   frontIv: z.number().min(0),
 })
 

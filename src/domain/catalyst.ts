@@ -1,9 +1,7 @@
 import { z } from 'zod'
 
 import { EquitySymbolSchema } from './instrument'
-import { addDays, isValidIsoDate } from './iso-date'
-
-export { isValidIsoDate } from './iso-date'
+import { addDays, IsoDateSchema } from './iso-date'
 
 /**
  * How far ahead a catalyst may be scheduled and still be worth carrying. The write
@@ -27,7 +25,7 @@ export const CatalystSchema = z.object({
   kind: CatalystKindSchema,
   title: z.string().min(1).max(MAX_CATALYST_TITLE_LENGTH),
   description: z.string().min(1).max(MAX_CATALYST_DESCRIPTION_LENGTH).nullable().optional(),
-  date: z.string().refine(isValidIsoDate, 'Use a real YYYY-MM-DD date'),
+  date: IsoDateSchema,
   timing: CatalystTimingSchema,
   confidence: CatalystConfidenceSchema,
   source: z.string(),

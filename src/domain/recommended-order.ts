@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { EquitySymbolSchema } from './instrument'
-import { ISO_DATE_REGEX, isValidIsoDate } from './iso-date'
+import { IsoDateSchema } from './iso-date'
 
 /** Exact tastytrade leg actions; recommendation legs deliberately use only opening actions. */
 export const OrderLegActionSchema = z.enum([
@@ -11,12 +11,8 @@ export const OrderLegActionSchema = z.enum([
   'Sell to Close',
 ])
 
-const ExpirySchema = z.string()
-  .regex(ISO_DATE_REGEX)
-  .refine(isValidIsoDate, 'Use a real YYYY-MM-DD date')
-
 export const RecommendedOptionContractSchema = z.strictObject({
-  expiry: ExpirySchema,
+  expiry: IsoDateSchema,
   optionType: z.enum(['C', 'P']),
   strike: z.number().positive(),
   underlying: EquitySymbolSchema,

@@ -10,7 +10,7 @@ import {
   type Catalyst,
 } from '../domain/catalyst'
 import { EquitySymbolSchema } from '../domain/instrument'
-import { addDays, ISO_DATE_REGEX, isValidIsoDate, textMentionsIsoDate } from '../domain/iso-date'
+import { addDays, IsoDateSchema, textMentionsIsoDate } from '../domain/iso-date'
 import { readBoundedJson } from './bounded-response'
 import { type AppEnv } from './env'
 import { readStoredSecret } from './secrets'
@@ -83,7 +83,7 @@ const ExaResponseSchema = z.object({
 })
 
 const ExaEventSchema = z.object({
-  date: z.string().regex(ISO_DATE_REGEX).refine(isValidIsoDate, 'Use a real YYYY-MM-DD date'),
+  date: IsoDateSchema,
   description: z.string().min(1).max(MAX_CATALYST_DESCRIPTION_LENGTH).optional(),
   kind: CatalystKindSchema,
   sourceUrl: z.string().url(),
