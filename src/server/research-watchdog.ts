@@ -10,7 +10,7 @@ import { dailyRecommendationsId } from './research-contracts'
  * agent stuck — all invisible from here except as absence.
  *
  * It records, it does not notify. The runner writes its own outcome to a local log
- * (`ops/local-research/run.sh`, `~/.local/state/spice/research-run.log`), which is where the
+ * (the run script in the private `spice-research` repository, `~/.local/state/spice/research-run.log`), which is where the
  * reason lives; this is the second opinion for the case that log cannot cover, because a
  * machine that never woke writes nothing. `DailyBriefMissing` in the Worker logs is the
  * record. There is deliberately no push channel: the one that existed alerted a chat id that
