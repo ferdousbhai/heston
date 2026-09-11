@@ -35,10 +35,6 @@ function isoDateAfter(days: number): string {
   return date.toISOString().slice(0, 10)
 }
 
-function publicSnapshotJson(snapshot: ReturnType<typeof marketSnapshotFixture>): string {
-  return JSON.stringify(snapshot)
-}
-
 test('a newer deployment reloads once before restoring the local snapshot', async ({ page }) => {
   const snapshot = marketSnapshotFixture()
   snapshot.watchlists = [{
@@ -66,7 +62,7 @@ test('a newer deployment reloads once before restoring the local snapshot', asyn
     return route.fulfill({
       contentType: 'application/json',
       headers: { [SPICE_DEPLOYMENT_ID_HEADER]: documentRequests === 1 ? 'next-deployment' : 'development' },
-      body: publicSnapshotJson(snapshot),
+      body: JSON.stringify(snapshot),
     })
   })
 
@@ -106,7 +102,7 @@ test('unauthenticated visitors can read market data but connecting an agent need
     publicSnapshotRequests += 1
     return route.fulfill({
       contentType: 'application/json',
-      body: publicSnapshotJson(publicSnapshot),
+      body: JSON.stringify(publicSnapshot),
     })
   })
   await page.addInitScript(() => {
@@ -422,7 +418,7 @@ test('authenticated favorites consume only unchanged anonymous staging across ta
   }))
   await page.route('**/api/public-snapshot*', (route) => route.fulfill({
     contentType: 'application/json',
-    body: publicSnapshotJson(snapshot),
+    body: JSON.stringify(snapshot),
   }))
   await page.route('**/api/favorites', async (route) => {
     if (route.request().method() === 'POST') {
@@ -471,7 +467,7 @@ test('authenticated favorites consume only unchanged anonymous staging across ta
   }))
   await staleAnonymous.route('**/api/public-snapshot*', (route) => route.fulfill({
     contentType: 'application/json',
-    body: publicSnapshotJson(snapshot),
+    body: JSON.stringify(snapshot),
   }))
   await staleAnonymous.goto('/')
   await expect(staleAnonymous.getByRole('button', { name: 'Unpin NVDA' })).toBeVisible()
@@ -558,7 +554,7 @@ test('two signed-out devices converge on the account union without granting owne
     }))
     await target.route('**/api/public-snapshot*', (route) => route.fulfill({
       contentType: 'application/json',
-      body: publicSnapshotJson(snapshot),
+      body: JSON.stringify(snapshot),
     }))
     await target.route('**/api/snapshot*', (route) => {
       ownerSnapshotRequests += 1

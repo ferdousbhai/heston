@@ -94,7 +94,6 @@ describe('MCP bearer authentication', () => {
       for (const offered of ['read_instrument_quotes', 'read_price_history', 'read_catalysts', 'read_watchlist']) {
         expect(names).toContain(offered)
       }
-      // Nothing that spends a per-call broker request, writes to shared state, or is owner-only.
       // Search is offered: the website already resolves names anonymously, and a name that
       // resolves joins the tracked universe for every later visitor.
       expect(names).toContain('search_symbols')
@@ -228,9 +227,9 @@ describe('MCP tool tiers', () => {
   })
 
   it('refuses a revoked token', async () => {
-    const { revokeMcpToken } = await import('../src/server/mcp-tokens')
+    const { listMcpTokens, revokeMcpToken } = await import('../src/server/mcp-tokens')
     const { env, store, token } = await harness('member@example.com')
-    const listed = await listMcpTokensFor(store.database)
+    const listed = await listMcpTokens(store.database, 'member-1')
     await revokeMcpToken(store.database, 'member-1', listed[0]!.tokenId)
     const response = await handleMcpRequest(
       mcpRequest({ id: 4, jsonrpc: '2.0', method: 'tools/list' }, token),
@@ -241,11 +240,6 @@ describe('MCP tool tiers', () => {
     store.close()
   })
 })
-
-async function listMcpTokensFor(database: D1Database) {
-  const { listMcpTokens } = await import('../src/server/mcp-tokens')
-  return listMcpTokens(database, 'member-1')
-}
 
 describe('MCP guidance surface', () => {
   it('publishes the doctrine as server instructions and the workflows as prompts', async () => {
