@@ -6,7 +6,9 @@ import { appEnv } from '../server/worker-env'
 async function handleAuth(request: Request) {
   try {
     const { auth } = await getAuthRuntime(appEnv)
-    return auth.handler(request)
+    // Awaited, not returned bare: a returned promise is adopted after the try/catch frame is
+    // left, so a rejection from the handler would miss this catch and its 503 entirely.
+    return await auth.handler(request)
   } catch (error) {
     console.error('AuthUnavailable', error instanceof Error ? error.message : 'UnknownError')
     return Response.json({ error: 'Authentication is temporarily unavailable' }, {
