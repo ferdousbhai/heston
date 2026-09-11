@@ -40,6 +40,13 @@ import {
   type BrokerCredential,
 } from './broker-credential'
 
+function asJsonSchema(schema: TSchema): JsonSchemaType {
+  // SAFETY: a TypeBox schema is a plain JSON Schema object at runtime. `TUnsafe` (which the
+  // order-placement union and the submission schema use) merely hides the structural properties
+  // from the type system, not from the wire, so this asserts nothing that is not already true.
+  return schema as JsonSchemaType
+}
+
 /**
  * The web app as a tool surface for an agent that runs on the owner's machine. Agent loops do
  * not run in this Worker any more — a year of closes, a grown conversation, and a 128 MB
@@ -49,31 +56,6 @@ import {
  * Every tool here is stateless per call; all state lives in D1 and at the broker, which is
  * why the stateless handler lane fits and no Durable Object is involved.
  */
-/**
- * SAFETY: a TypeBox schema is a plain JSON Schema object at runtime. `TUnsafe` (which the
- * order-placement union uses) merely hides the structural properties from the type system,
- * not from the wire, so widening through `unknown` asserts nothing that is not already true.
- */
-function orderPlacementJsonSchema(): JsonSchemaType {
-  const schema: unknown = OrderPlacementParameters
-  // SAFETY: see above — the runtime value is the JSON Schema the type hides.
-  return schema as JsonSchemaType
-}
-
-/** SAFETY: as above — a TypeBox schema is plain JSON Schema on the wire. */
-function cancelOrderJsonSchema(): JsonSchemaType {
-  const schema: unknown = CancelOrderParameters
-  // SAFETY: see above — the runtime value is the JSON Schema the type hides.
-  return schema as JsonSchemaType
-}
-
-/** SAFETY: as above — the submission schema's TUnsafe members are plain JSON Schema on the wire. */
-function submissionJsonSchema(): JsonSchemaType {
-  const schema: unknown = DailyRecommendationsSubmissionSchema
-  // SAFETY: see above — the runtime value is the JSON Schema the type hides.
-  return schema as JsonSchemaType
-}
-
 export function createSpiceMcpServer(
   env: AppEnv,
   caller: McpCaller,
@@ -213,7 +195,7 @@ export function createSpiceMcpServer(
           + 'can be fixed and the brief submitted again. Publishing replaces the current '
           + 'market date\'s brief and posts it to the public channel.',
         annotations: toolAnnotations('publish_daily_recommendations'),
-        inputSchema: fromJsonSchema(submissionJsonSchema()),
+        inputSchema: fromJsonSchema(asJsonSchema(DailyRecommendationsSubmissionSchema)),
       },
       async (params) => {
         // SAFETY: `publishSubmittedDailyRecommendations` re-parses its input with the same
@@ -243,7 +225,7 @@ function registerOrderTools(
         + 'is placed without endorsement. The server resolves the exact contract from the live '
         + 'chain, runs its portfolio and market guards, and requires a clean broker dry-run '
         + 'before submitting; it refuses on its own authority and the refusal is final.',
-      inputSchema: fromJsonSchema(orderPlacementJsonSchema()),
+      inputSchema: fromJsonSchema(asJsonSchema(OrderPlacementParameters)),
       // Annotated destructive and non-idempotent so a client can see that calling this twice
       // places two orders. Annotations are hints a client may ignore, and the spec says to
       // treat them as untrusted anyway — they inform a confirmation prompt, they are not one.
@@ -272,7 +254,7 @@ function registerOrderTools(
         + 'guard refuses a new order while any order is working, so this is how a stuck order is '
         + 'cleared. An ambiguous result is reported as ambiguous and is never retried: read the '
         + 'account history to find out what happened before doing anything else.',
-      inputSchema: fromJsonSchema(cancelOrderJsonSchema()),
+      inputSchema: fromJsonSchema(asJsonSchema(CancelOrderParameters)),
       // Destructive but idempotent: cancelling an order already cancelled changes nothing
       // further, which is the useful thing for a client to know after an ambiguous result.
       annotations: toolAnnotations('cancel_brokerage_order'),
