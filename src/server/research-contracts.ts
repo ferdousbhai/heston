@@ -1,5 +1,7 @@
 // One transcript may read at most this many public pages. Link-history checks derive the same
-// ceiling because a candidate reader link must have come from one of those reads.
+// ceiling because a candidate reader link must have come from one of those reads. Daily
+// recommendations publish at most three ranked source/link pairs; the larger budget leaves room
+// for the competing candidates and counterevidence the editor discards.
 export const MAX_RESEARCH_PAGE_READS = 30
 
 /**

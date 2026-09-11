@@ -2,12 +2,10 @@ import { type AgentTool } from '../domain/agent-tool'
 import { Type } from 'typebox'
 import { z } from 'zod'
 
-import { marketDate } from '../domain/catalyst'
 import { equitySymbolFromModelText, ModelTextEquitySymbolType } from '../domain/instrument'
 import { textResult } from './agent-tool-result'
 import { MAX_MARKET_SYMBOLS } from './brokerage-read-contracts'
 import { readBoundedJson } from './bounded-response'
-import { type JsonValue } from '../domain/json-payload'
 import { type AppEnv } from './env'
 import {
   MAX_RESEARCH_LOOKBACK_DAYS,
@@ -16,16 +14,6 @@ import {
 } from './research-coverage'
 import { collectRedditSources, type RedditDiscussion } from './research-reddit'
 import { readStoredSecret } from './secrets'
-import {
-  createInstrumentQuoteReadTool,
-  createMarketMetricsReadTool,
-  createOptionContractFindTool,
-  createSymbolSearchTool,
-} from './brokerage-read-tools'
-import { createMarketResearchTools } from './market-research-tools'
-import { createRecommendationLinkHistoryTool } from './recommendation-links'
-import { dailyRecommendationsId, MAX_RESEARCH_PAGE_READS } from './research-contracts'
-import { createResearchReadTools } from './research-read-tools'
 import { recommendationLinkKey } from './research-url'
 
 const RedditSearchParameters = Type.Object({}, { additionalProperties: false })
@@ -50,26 +38,14 @@ export interface RedditResearchResult {
   source: 'reddit'
 }
 
-const ReadPageParameters = Type.Object({
-  url: Type.String({ description: 'HTTPS address of a page to read.' }),
-}, { additionalProperties: false })
-
 export type RetainedPage = { markdown: string; readAt: string }
-
-const RetainedPageSchema = z.object({
-  markdown: z.string(),
-  readAt: z.string(),
-  url: z.string(),
-})
 
 /*
  * A citation is worth what this Worker can show was read. Native web search happens inside
  * the provider, so a page it opened leaves nothing here to bind a claim to; a page read
- * through this tool leaves its text behind, and the binder afterwards refuses any citation
+ * through this function leaves its text behind, and the binder afterwards refuses any citation
  * or quote absent from it.
  *
- * Daily recommendations publish at most three ranked source/link pairs. The larger page-read
- * budget leaves room for competing candidates and counterevidence that the editor discards.
  * Markdown is capped far inside the durable workflow step output so a retained page survives replay intact.
  */
 const MAX_PAGE_MARKDOWN_CHARS = 120_000
@@ -81,8 +57,8 @@ export function retentionKey(value: string): string | undefined {
 }
 
 /**
- * One page read through the Worker's browser, shared by the transcript's read_page tool and
- * the publish boundary so a citation is always checked against text fetched the same way.
+ * One page read through the Worker's browser, used at the publish boundary so a citation is
+ * always checked against text this Worker fetched itself.
  * A browser timeout, session limit, or oversized body all return undefined: the caller's
  * contract is "cite something else", never a run-ending error.
  */
@@ -99,15 +75,6 @@ export async function readResearchPageMarkdown(
   } catch {
     return undefined
   }
-}
-
-export interface ResearchAgentToolOptions {
-  checkedRecommendationLinks?: Map<string, boolean>
-  fetcher?: typeof fetch
-  retained?: Map<string, RetainedPage>
-  includeReddit?: boolean
-  now?: Date
-  runStep?: <T>(name: string, task: () => Promise<T>) => Promise<T>
 }
 
 export async function searchRedditResearch(
@@ -165,104 +132,4 @@ export function createRecentCoverageTool(
     name: 'get_recent_coverage',
     parameters: RecentCoverageParameters,
   }
-}
-
-export function createResearchAgentTools(
-  env: AppEnv,
-  options: ResearchAgentToolOptions = {},
-): AgentTool[] {
-  const now = options.now ?? new Date()
-  const runRead = <T>(name: string, task: () => Promise<T>): Promise<T> => (
-    options.runStep ? options.runStep(name, task) : task()
-  )
-  const retained = options.retained
-  const checkedRecommendationLinks = options.checkedRecommendationLinks
-  // A page is retained from what the step returned, not from inside it. A workflow replay
-  // serves a cached step result without running its closure, so retaining inside would leave
-  // the map empty on replay and every citation would fail to bind through no fault of the
-  // model. Reading the durable result rebuilds the same map either way.
-  const withRetention = (tool: AgentTool): AgentTool => {
-    if (tool.name !== 'read_page' || !retained) return tool
-    const execute = tool.execute
-    return {
-      ...tool,
-      execute: async (toolCallId, params, signal, onUpdate) => {
-        const result = await execute(toolCallId, params, signal, onUpdate)
-        const page = RetainedPageSchema.safeParse(result.details).data
-        if (page) retained.set(page.url, { markdown: page.markdown, readAt: page.readAt })
-        return result
-      },
-    }
-  }
-  const withRunStep = (tool: AgentTool): AgentTool => {
-    const execute = tool.execute
-    return {
-      ...tool,
-      execute: (toolCallId, params, signal, onUpdate) => runRead(
-        tool.name,
-        () => execute(toolCallId, params, signal, onUpdate),
-      ),
-    }
-  }
-  const withRecommendationLinkCheck = (tool: AgentTool): AgentTool => {
-    if (tool.name !== 'check_recommendation_links' || !checkedRecommendationLinks) return tool
-    const execute = tool.execute
-    return {
-      ...tool,
-      execute: async (toolCallId, params, signal, onUpdate) => {
-        const result = await execute(toolCallId, params, signal, onUpdate)
-        const parsed = z.object({
-          checkedUrls: z.string().array(),
-          previouslyPublished: z.object({
-            dailyRecommendationsId: z.string(),
-            firstPublishedAt: z.string(),
-            url: z.string(),
-          }).array(),
-        }).safeParse(result.details).data
-        if (parsed) {
-          const previouslyPublished = new Set(parsed.previouslyPublished.map((row) => row.url))
-          for (const url of parsed.checkedUrls) {
-            checkedRecommendationLinks.set(url, previouslyPublished.has(url))
-          }
-        }
-        return result
-      },
-    }
-  }
-  const reddit = createRedditIngestTool(env, now, options.fetcher)
-  const readPage: AgentTool<typeof ReadPageParameters, JsonValue> = {
-    description: 'Read a page as Markdown. Cite only pages read this way.',
-    execute: async (_toolCallId, params) => {
-      const key = recommendationLinkKey(params.url)
-      if (!key) return textResult({ error: 'not a readable https page address' })
-      const already = retained?.get(key)
-      if (already) return textResult({ markdown: already.markdown, url: key })
-      if (retained && retained.size >= MAX_RESEARCH_PAGE_READS) {
-        return textResult({ error: 'no page reads left in this run' })
-      }
-      // SAFETY: this tool is only registered when env.BROWSER is bound, in this factory's
-      // return statement below.
-      const markdown = await readResearchPageMarkdown(env.BROWSER as NonNullable<AppEnv['BROWSER']>, key)
-      if (markdown === undefined) return textResult({ error: 'the page did not open' })
-      return textResult({ markdown, readAt: now.toISOString(), url: key })
-    },
-    label: 'Reading a source page',
-    name: 'read_page',
-    parameters: ReadPageParameters,
-  }
-  const coverage = createRecentCoverageTool(env, now)
-  return [
-    ...(options.includeReddit === false ? [] : [reddit]),
-    ...(env.BROWSER ? [readPage] : []),
-    coverage,
-    ...createResearchReadTools(env, now),
-    ...(checkedRecommendationLinks
-      ? [createRecommendationLinkHistoryTool(env, dailyRecommendationsId(marketDate(now)))]
-      : []),
-    createSymbolSearchTool(env),
-    createMarketMetricsReadTool(env),
-    ...createMarketResearchTools(),
-    createOptionContractFindTool(env),
-    createInstrumentQuoteReadTool(env),
-  ].map(withRunStep).map(withRetention).map(withRecommendationLinkCheck)
 }

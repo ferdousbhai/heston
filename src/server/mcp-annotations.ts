@@ -37,7 +37,6 @@ const ANNOTATIONS = {
   read_instrument_quotes: read('Read quotes', true),
   read_market_metrics: read('Read market metrics', true),
   read_option_greeks: read('Read option Greeks', true),
-  read_page: read('Read a web page', true),
   read_price_history: read('Read price history', true),
   search_symbols: read('Search symbols', true),
   // Reads answered entirely from Spice's own stores.
