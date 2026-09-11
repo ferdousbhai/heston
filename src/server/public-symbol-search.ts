@@ -2,6 +2,7 @@ import { type AppEnv } from './env'
 import { jsonNoStore, jsonPublic } from './http'
 import { type PublicSnapshotCache } from './public-snapshot-cache'
 import { searchableQuery } from './symbol-search'
+import { SYMBOL_REFRESH_LEASE_PREFIX } from './tastytrade-market-store'
 import { brokerApi } from './tastytrade'
 
 /**
@@ -59,7 +60,7 @@ export async function servePublicSymbolSearch(
     // A symbol anyone has already searched is in the store, so losing the claim still answers.
     const stored = await brokerApi().lookupStoredMarketSymbol(env, query)
       .catch(() => undefined)
-    const claimed = await brokerApi().claimMarketRefresh(env, LOOKUP_LEASE_MS, new Date(), `symbol:${query}`)
+    const claimed = await brokerApi().claimMarketRefresh(env, LOOKUP_LEASE_MS, new Date(), `${SYMBOL_REFRESH_LEASE_PREFIX}${query}`)
     if (!claimed && stored) return await store(edgeCache, cacheKey, jsonPublic(stored), FOUND_RETENTION_SECONDS)
     const lookup = await brokerApi().lookupPublicMarketSymbol(env, query)
     if (!lookup) {

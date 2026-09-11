@@ -66,5 +66,18 @@ export default {
         'YearCandleRefreshFailed',
         cause instanceof Error ? cause.name : 'UnknownError',
       )))
+    // Anonymous symbol search claims a lease keyed by the reader's own query text, so each
+    // distinct search leaves a row behind and nothing else ever removes one. A lapsed lease
+    // guards nothing, so the tick drops the expired per-symbol rows.
+    context.waitUntil(import('./server/tastytrade-market-store')
+      .then(({ sweepExpiredSymbolRefreshLeases }) => sweepExpiredSymbolRefreshLeases(env, scheduledAt))
+      .then((leaseCount) => console.info(JSON.stringify({
+        event: 'SymbolRefreshLeasesSwept',
+        leaseCount,
+      })))
+      .catch((cause: unknown) => console.error(
+        'SymbolRefreshLeaseSweepFailed',
+        cause instanceof Error ? cause.name : 'UnknownError',
+      )))
   },
 }

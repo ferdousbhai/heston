@@ -7,6 +7,8 @@ import {
   persistTastytradeMarketSnapshot,
   readStoredMarketRecords,
   readStoredMarketSession,
+  sweepExpiredSymbolRefreshLeases,
+  SYMBOL_REFRESH_LEASE_PREFIX,
 } from '../src/server/tastytrade-market-store'
 import { unsupportedDatabase } from './fake-d1'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
@@ -126,6 +128,26 @@ describe('stored market read model', () => {
     await expect(claimMarketRefresh(env, 30_000, now, 'symbol:AAPL')).resolves.toBe(false)
     // A different resource is unaffected, and needs no seeded row to be claimable.
     await expect(claimMarketRefresh(env, 30_000, now, 'symbol:NVDA')).resolves.toBe(true)
+  })
+
+  it('sweeps lapsed per-symbol leases without touching the held or the public one', async () => {
+    const env = { DB: store.database }
+    const now = new Date('2026-08-28T13:31:00.000Z')
+    // Anonymous search keys a lease by the reader's own query text, so without a sweep every
+    // distinct query is a permanent row.
+    await claimMarketRefresh(env, 30_000, now, `${SYMBOL_REFRESH_LEASE_PREFIX}AAPL`)
+    await claimMarketRefresh(env, 30_000, now, `${SYMBOL_REFRESH_LEASE_PREFIX}NVDA`)
+    await claimMarketRefresh(env, 30_000, now)
+
+    const held = new Date(now.getTime() + 29_000)
+    await expect(sweepExpiredSymbolRefreshLeases(env, held)).resolves.toBe(0)
+    // A lease still held guards a lookup in flight, so only a lapsed one is dropped.
+    await expect(claimMarketRefresh(env, 30_000, held, `${SYMBOL_REFRESH_LEASE_PREFIX}AAPL`)).resolves.toBe(false)
+
+    const lapsed = new Date(now.getTime() + 31_000)
+    await expect(sweepExpiredSymbolRefreshLeases(env, lapsed)).resolves.toBe(2)
+    const remaining = await store.database.prepare('SELECT id FROM market_refresh_lease').all()
+    expect(remaining.results).toEqual([{ id: 'public-snapshot' }])
   })
 
   it('grants the claim when the store cannot answer, rather than denying every visitor', async () => {

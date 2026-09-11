@@ -240,6 +240,26 @@ export async function readStoredMarketRecords(
 }
 
 /**
+ * The lease id a per-symbol lookup claims under. Unlike the single public-snapshot lease, the
+ * key here is reader-supplied text, so these rows are the ones that accumulate and the prefix
+ * is what a sweep recognises them by.
+ */
+export const SYMBOL_REFRESH_LEASE_PREFIX = 'symbol:'
+
+/**
+ * Drop per-symbol leases that have lapsed. Anonymous search mints one row per distinct query
+ * and nothing ever claimed them again, so the table grew without bound; an expired lease holds
+ * nobody back, which is what makes deleting it safe rather than a lost guard.
+ */
+export async function sweepExpiredSymbolRefreshLeases(env: AppEnv, now = new Date()): Promise<number> {
+  if (!env.DB) return 0
+  const result = await env.DB.prepare(
+    'DELETE FROM market_refresh_lease WHERE id LIKE ? AND expires_at <= ?',
+  ).bind(`${SYMBOL_REFRESH_LEASE_PREFIX}%`, now.toISOString()).run()
+  return result.meta.changes ?? 0
+}
+
+/**
  * Claim the exclusive right to refresh, without queueing. D1 applies one statement atomically,
  * so exactly one caller sees a changed row and every other caller serves the stored copy instead
  * of piling a second fan-out onto the provider. The claim expires on its own, so a refresh that
