@@ -2,22 +2,15 @@ import { z } from 'zod'
 
 import { CandlePointSchema, MAX_YEAR_CANDLES, type CandlePoint } from '../domain/candle'
 import { EquitySymbolSchema } from '../domain/instrument'
-
-const StoredYearCandleRowSchema = z.object({
-  symbol: z.string(),
-  as_of: z.string(),
-  closes_json: z.string(),
-})
+import { D1_MAX_BOUND_PARAMETERS } from './d1-limits'
 
 const StoredClosesSchema = z.array(CandlePointSchema).max(MAX_YEAR_CANDLES)
 
-/** D1 binds a bounded parameter list, so a long watchlist is read in request-sized chunks. */
-const SYMBOL_CHUNK_SIZE = 90
+// One bound parameter per symbol, so a long watchlist is read in statement-sized chunks.
+const SYMBOL_CHUNK_SIZE = D1_MAX_BOUND_PARAMETERS
 
 const StoredYearAnchorRowSchema = z.object({ symbol: z.string(), year_ago_close: z.number() })
 const StoredYearSeriesRowSchema = z.object({ as_of: z.string(), symbol: z.string(), closes_json: z.string() })
-
-export type YearCandleSeries = { asOf: string; closes: CandlePoint[] }
 
 /**
  * A stored row that no longer parses is treated as absent rather than fatal: the year chart is
@@ -70,29 +63,6 @@ export async function readYearCandleSeries(db: D1Database): Promise<{ asOf?: str
     if (asOf === undefined || row.data.as_of < asOf) asOf = row.data.as_of
   }
   return { asOf, series }
-}
-
-export async function readYearCandles(
-  db: D1Database,
-  symbols: readonly string[],
-): Promise<Map<string, YearCandleSeries>> {
-  const series = new Map<string, YearCandleSeries>()
-  for (let start = 0; start < symbols.length; start += SYMBOL_CHUNK_SIZE) {
-    const chunk = symbols.slice(start, start + SYMBOL_CHUNK_SIZE)
-    if (!chunk.length) continue
-    const placeholders = chunk.map(() => '?').join(', ')
-    const { results } = await db.prepare(
-      `SELECT symbol, as_of, closes_json FROM year_candles WHERE symbol IN (${placeholders})`,
-    ).bind(...chunk).all()
-    for (const result of results) {
-      const row = StoredYearCandleRowSchema.safeParse(result)
-      if (!row.success) continue
-      const closes = StoredClosesSchema.safeParse(JSON.parse(row.data.closes_json))
-      if (!closes.success) continue
-      series.set(row.data.symbol, { asOf: row.data.as_of, closes: closes.data })
-    }
-  }
-  return series
 }
 
 export function yearCandlesUpsertStatement(

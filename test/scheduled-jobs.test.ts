@@ -4,7 +4,7 @@ import { MAX_LIVE_STREAM_SYMBOLS, MAX_WATCHLIST_SYMBOLS } from '../src/domain/wa
 import { type AppEnv } from '../src/server/env'
 import { ensureInternalWatchlistSeeded, finalizeInternalWatchlist } from '../src/server/internal-watchlist'
 import { refreshYearCandles } from '../src/server/scheduled-jobs'
-import { readYearCandles } from '../src/server/year-candle-store'
+import { readYearCandleSeries } from '../src/server/year-candle-store'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 
 let store: SqliteD1Store
@@ -65,10 +65,8 @@ describe('year candle refresh', () => {
     const requested = readDailyCandles.mock.calls[0]![0]
     expect(requested).toHaveLength(MAX_LIVE_STREAM_SYMBOLS)
     expect(count).toBe(MAX_LIVE_STREAM_SYMBOLS)
-    await expect(readYearCandles(store.database, [requested[0]!]))
-      .resolves.toEqual(new Map([[requested[0]!, {
-        asOf: '2026-09-07',
-        closes: [{ time: 1_786_000_000_000, sequence: 0, close: 100 }],
-      }]]))
+    const stored = await readYearCandleSeries(store.database)
+    expect(stored.asOf).toBe('2026-09-07')
+    expect(stored.series.get(requested[0]!)).toEqual([100])
   })
 })
