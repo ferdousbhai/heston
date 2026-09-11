@@ -13,6 +13,7 @@ import { brokerCredential, stubAdapter, stubBroker, STUB_BROKER_ID, stubBrokerCr
 
 afterEach(() => {
   resetBrokerApi()
+  resetBrokerAdapters()
   resetInternalWatchlistWriter()
   resetTradeGuards()
   vi.restoreAllMocks()
@@ -227,7 +228,6 @@ describe('cancelling a working order', () => {
     await expect(cancelBrokerageOrder({}, '12345', stubBrokerCredential))
       .resolves.toMatchObject({ cancelled: '12345' })
     expect(cancelled).toEqual([{ account: 'STUB-1', orderId: '12345' }])
-    resetBrokerAdapters()
   })
 
   it('refuses without a broker credential rather than choosing an account', async () => {
@@ -246,7 +246,6 @@ describe('cancelling a working order', () => {
     // let the next placement through on a false reading of the account.
     await expect(cancelBrokerageOrder({}, '12345', stubBrokerCredential))
       .rejects.toBeInstanceOf(BrokerCancellationAmbiguousError)
-    resetBrokerAdapters()
   })
 })
 
@@ -257,6 +256,5 @@ describe('brokers without placement', () => {
     // to say that placement specifically is missing for this broker.
     await expect(placeBrokerageOrder({ DB: quarantineDatabase(undefined).db }, EQUITY_ORDER, stubBrokerCredential))
       .rejects.toThrow(/not implemented for/)
-    resetBrokerAdapters()
   })
 })

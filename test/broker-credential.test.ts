@@ -198,5 +198,6 @@ describe('request-scoped broker credential', () => {
       type: 'text',
     }])
     expect(fetchMock).not.toHaveBeenCalled()
+    store.close()
   })
 })

@@ -102,18 +102,8 @@ class FakeContext implements FeedContext {
   }
 }
 
-function downstream(symbols: string[], seenAt = Date.now()): FeedClientSocket {
+function downstream(symbols: string[], seenAt = Date.now()): FeedControlSocket {
   let attachment: JsonValue = { seenAt, symbols }
-  return {
-    close: vi.fn(),
-    deserializeAttachment: () => attachment,
-    send: vi.fn(),
-    serializeAttachment: vi.fn((next: JsonValue) => { attachment = next }),
-  }
-}
-
-function controlSocket(symbols: string[]): FeedControlSocket {
-  let attachment: JsonValue = { seenAt: Date.now(), symbols }
   return {
     close: vi.fn(),
     deserializeAttachment: () => attachment,
@@ -131,6 +121,10 @@ function liveEnvironment(): AppEnv {
 }
 
 afterEach(() => {
+  // A test that fails under fake timers must not leave them installed: every later test here
+  // waits on a real-timer `vi.waitFor`, so one failure would cascade into unrelated timeouts.
+  vi.useRealTimers()
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
   resetBrokerApi()
 })
@@ -154,7 +148,7 @@ describe('MarketFeed option Greeks RPC', () => {
     expect(initial.status).toBe(400)
     expect(context.acceptWebSocket).not.toHaveBeenCalled()
 
-    const client = controlSocket(['SPY'])
+    const client = downstream(['SPY'])
     await feed.webSocketMessage(client, JSON.stringify({ type: 'subscribe', symbols: ['NVDA', '../secret'] }))
     expect(client.serializeAttachment).not.toHaveBeenCalled()
     expect(client.close).toHaveBeenCalledWith(1008, 'Invalid subscription request')
@@ -162,7 +156,7 @@ describe('MarketFeed option Greeks RPC', () => {
       JsonObjectSchema.parse(JSON.parse(frame)).state === 'degraded'
     ))).toBe(true)
 
-    const oversized = controlSocket(['SPY'])
+    const oversized = downstream(['SPY'])
     await feed.webSocketMessage(oversized, JSON.stringify({
       type: 'subscribe',
       symbols: Array.from({ length: 101 }, (_, index) => `A${index}`),
@@ -397,11 +391,10 @@ describe('MarketFeed option Greeks RPC', () => {
     await feed.webSocketClose()
     await context.drain()
     expect(socket.readyState).toBe(FakeUpstreamWebSocket.CLOSED)
-    vi.useRealTimers()
   })
 
   it('keeps a reader that is still announcing itself', async () => {
-    const live = controlSocket(['SPY'])
+    const live = downstream(['SPY'])
     const context = new FakeContext([live])
     const feed = new MarketFeedCore(context, liveEnvironment())
     await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(1))
@@ -557,7 +550,6 @@ describe('MarketFeed option Greeks RPC', () => {
     await context.drain()
     expect(FakeUpstreamWebSocket.instances[0]?.readyState).toBe(FakeUpstreamWebSocket.CLOSED)
     expect(context.setAlarm).toHaveBeenCalled()
-    vi.useRealTimers()
   })
 
   it('treats a second pre-authorization rejection as an invalid token', async () => {

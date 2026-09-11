@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { type AddressInfo } from 'node:net'
-import { chmod, mkdtemp, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -15,6 +15,8 @@ type Captured = { body: string; headers: IncomingMessage['headers'] }
 
 let proxy: ChildProcess | undefined
 let upstream: Server | undefined
+/** Each fake keyring holds the test's secrets in an executable script; none may outlive the run. */
+const keyrings: string[] = []
 
 afterEach(async () => {
   proxy?.kill('SIGKILL')
@@ -25,6 +27,7 @@ afterEach(async () => {
     else resolve()
   })
   upstream = undefined
+  await Promise.all(keyrings.splice(0).map((directory) => rm(directory, { force: true, recursive: true })))
 })
 
 async function listen(handler: (request: IncomingMessage, response: ServerResponse) => void): Promise<number> {
@@ -53,6 +56,7 @@ ${cases}
 esac
 `)
   await chmod(join(directory, 'secret-tool'), 0o755)
+  keyrings.push(directory)
   return directory
 }
 
