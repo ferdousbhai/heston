@@ -117,7 +117,7 @@ export function createSpiceMcpServer(
         createRememberSymbolsTool(env),
         createBrokerageReconciliationTool(env, credential),
       ]
-      : createPublicMarketReadTools(env)),
+      : createPublicMarketReadTools(env, waitUntil)),
     // Publishing the public brief and private Reddit discovery are owner acts. A member is not
     // shown a surface they cannot use, so these are absent from their tool list rather than
     // present and refused.

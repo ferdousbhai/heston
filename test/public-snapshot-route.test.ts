@@ -8,7 +8,9 @@ import { SPICE_DEPLOYMENT_ID_HEADER } from '../src/domain/deployment'
 import { PUBLIC_RESPONSE_CACHE_CONTROL } from '../src/server/http'
 import {
   type PublicSnapshotCache,
+  providerRefreshDue,
   servePublicSnapshot,
+  SNAPSHOT_CACHED_AT_HEADER,
   SNAPSHOT_GENERATED_AT_HEADER,
 } from '../src/server/public-snapshot-cache'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
@@ -40,39 +42,48 @@ class MemoryPublicSnapshotCache implements PublicSnapshotCache {
   }
 }
 
-function publicSnapshot(): PublicMarketSnapshot {
+/** Collects what the route scheduled past the response, so a test can wait for it. */
+class Background {
+  tasks: Promise<unknown>[] = []
+  schedule = (task: Promise<unknown>): void => { this.tasks.push(task) }
+  async settle(): Promise<void> { await Promise.all(this.tasks) }
+}
+
+function publicSnapshot(overrides: Partial<PublicMarketSnapshot> = {}): PublicMarketSnapshot {
   const snapshot = marketSnapshotFixture()
   return PublicMarketSnapshotSchema.parse({
     ...snapshot,
     watchlists: [{ id: 'public', kind: 'public', name: 'Options Watch', symbols: [] }],
     tickers: [],
+    ...overrides,
   })
 }
 
-function storedSnapshot(age: number, label: string): Response {
+function retainedCopy(age: number, label: string): Response {
   return Response.json({ label }, {
     headers: {
       'Cache-Control': 'public, max-age=900',
       [SPICE_DEPLOYMENT_ID_HEADER]: 'previous-deployment',
+      [SNAPSHOT_CACHED_AT_HEADER]: new Date(NOW - age).toISOString(),
       [SNAPSHOT_GENERATED_AT_HEADER]: new Date(NOW - age).toISOString(),
     },
   })
 }
 
-/** A snapshot as the store would return it, aged relative to the serving instant. */
-function storedPublicSnapshot(ageMs: number): PublicMarketSnapshot {
-  return { ...publicSnapshot(), syncedAt: new Date(NOW - ageMs).toISOString() }
+/** A snapshot as the store would return it, observed by the provider this long ago. */
+function storedPublicSnapshot(ageMs: number, overrides: Partial<PublicMarketSnapshot> = {}): PublicMarketSnapshot {
+  return { ...publicSnapshot(overrides), syncedAt: new Date(NOW - ageMs).toISOString() }
 }
 
-function serve(cache: PublicSnapshotCache): Promise<Response> {
-  return servePublicSnapshot(new Request(SNAPSHOT_URL), {}, cache, NOW)
+function serve(cache: PublicSnapshotCache, background = new Background()): Promise<Response> {
+  return servePublicSnapshot(new Request(SNAPSHOT_URL), {}, cache, background.schedule, NOW)
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
   // clearAllMocks drops recorded calls but keeps implementations, so each case restores the
   // defaults it depends on rather than inheriting whatever the previous one installed.
-  broker.loadPublicMarketSnapshot.mockResolvedValue(publicSnapshot())
+  broker.loadPublicMarketSnapshot.mockResolvedValue(publicSnapshot({ marketState: 'open' }))
   broker.loadStoredPublicMarketSnapshot.mockResolvedValue(undefined)
   broker.claimMarketRefresh.mockResolvedValue(true)
   setBrokerApi(broker)
@@ -84,89 +95,148 @@ afterEach(() => {
 
 describe('public snapshot route cache', () => {
   it('serves a fresh retained copy without rebuilding it', async () => {
-    const cache = new MemoryPublicSnapshotCache(storedSnapshot(30_000, 'fresh'))
+    const cache = new MemoryPublicSnapshotCache(retainedCopy(30_000, 'fresh'))
+    const background = new Background()
 
-    const response = await serve(cache)
+    const response = await serve(cache, background)
 
     await expect(response.json()).resolves.toEqual({ label: 'fresh' })
     expect(response.headers.get('Cache-Control')).toBe(PUBLIC_RESPONSE_CACHE_CONTROL)
     expect(response.headers.get(SPICE_DEPLOYMENT_ID_HEADER)).toBe('test')
-    expect(broker.loadPublicMarketSnapshot).not.toHaveBeenCalled()
+    expect(background.tasks).toHaveLength(0)
+    expect(broker.loadStoredPublicMarketSnapshot).not.toHaveBeenCalled()
     expect(cache.putCalls).toBe(0)
     expect(cache.matchedUrls).toEqual([
       'https://tryspice.xyz/api/public-snapshot?schema=4&deployment=test&copy=fresh',
     ])
   })
 
-  it('rebuilds a copy as soon as it is stale', async () => {
-    const cache = new MemoryPublicSnapshotCache(storedSnapshot(61_000, 'stale'))
+  it('serves a stale retained copy at once and rebuilds it behind the response', async () => {
+    // The store answers only once released, which is what proves the reader never waited on it.
+    let release!: (snapshot: PublicMarketSnapshot) => void
+    broker.loadStoredPublicMarketSnapshot.mockReturnValue(new Promise<PublicMarketSnapshot>((resolve) => { release = resolve }))
+    const cache = new MemoryPublicSnapshotCache(retainedCopy(61_000, 'stale'))
+    const background = new Background()
 
-    const response = await serve(cache)
+    const response = await serve(cache, background)
 
-    await expect(response.json()).resolves.toMatchObject({ source: 'tastytrade' })
-    expect(broker.loadPublicMarketSnapshot).toHaveBeenCalledTimes(1)
+    await expect(response.json()).resolves.toEqual({ label: 'stale' })
+    expect(cache.putCalls).toBe(0)
+    expect(background.tasks).toHaveLength(1)
+
+    release(storedPublicSnapshot(30_000, { marketState: 'open' }))
+    await background.settle()
+
     expect(cache.putCalls).toBe(1)
+    await expect(cache.current()?.json()).resolves.toMatchObject({ source: 'tastytrade' })
+    expect(cache.current()?.headers.get(SNAPSHOT_CACHED_AT_HEADER)).toBe(new Date(NOW).toISOString())
+    // A provider reading inside its own bound is reused; only the store was re-read.
+    expect(broker.loadPublicMarketSnapshot).not.toHaveBeenCalled()
   })
 
-  it('stores rebuilt snapshots with the same one-minute freshness bound', async () => {
-    const cache = new MemoryPublicSnapshotCache(storedSnapshot(10 * 60 * 1_000 + 1, 'too-stale'))
-
-    const response = await serve(cache)
-
-    await expect(response.json()).resolves.toMatchObject({ source: 'tastytrade' })
-    expect(response.headers.get('Cache-Control')).toBe(PUBLIC_RESPONSE_CACHE_CONTROL)
-    expect(response.headers.get(SNAPSHOT_GENERATED_AT_HEADER)).not.toBeNull()
-    expect(broker.loadPublicMarketSnapshot).toHaveBeenCalledTimes(1)
-    expect(cache.putCalls).toBe(1)
-    expect(cache.current()?.headers.get('Cache-Control')).toBe('public, max-age=60')
-  })
-
-  it('serves a fresh stored snapshot without claiming a refresh or calling the provider', async () => {
+  it('retains rebuilt copies long enough to serve them while the next refresh runs', async () => {
     broker.loadStoredPublicMarketSnapshot.mockResolvedValue(storedPublicSnapshot(30_000))
     const cache = new MemoryPublicSnapshotCache()
 
     const response = await serve(cache)
 
+    expect(response.headers.get('Cache-Control')).toBe(PUBLIC_RESPONSE_CACHE_CONTROL)
+    expect(response.headers.get(SNAPSHOT_GENERATED_AT_HEADER)).toBe(new Date(NOW - 30_000).toISOString())
+    expect(cache.current()?.headers.get('Cache-Control')).toBe('public, max-age=90')
+  })
+
+  it('serves a fresh stored snapshot without claiming a refresh or calling the provider', async () => {
+    broker.loadStoredPublicMarketSnapshot.mockResolvedValue(storedPublicSnapshot(30_000, { marketState: 'open' }))
+    const cache = new MemoryPublicSnapshotCache()
+    const background = new Background()
+
+    const response = await serve(cache, background)
+
     await expect(response.json()).resolves.toMatchObject({ source: 'tastytrade' })
+    expect(background.tasks).toHaveLength(0)
     expect(broker.claimMarketRefresh).not.toHaveBeenCalled()
     expect(broker.loadPublicMarketSnapshot).not.toHaveBeenCalled()
   })
 
-  it('serves the stale copy to every visitor that loses the refresh claim', async () => {
-    broker.loadStoredPublicMarketSnapshot.mockResolvedValue(storedPublicSnapshot(10 * 60_000))
-    broker.claimMarketRefresh.mockResolvedValue(false)
+  it('serves the stale stored snapshot and refreshes the provider behind the response', async () => {
+    broker.loadStoredPublicMarketSnapshot.mockResolvedValue(storedPublicSnapshot(10 * 60_000, { marketState: 'open' }))
+    // The provider answers only once released, which is what proves the reader never waited on it.
+    let release!: (snapshot: PublicMarketSnapshot) => void
+    broker.loadPublicMarketSnapshot.mockReturnValue(new Promise<PublicMarketSnapshot>((resolve) => { release = resolve }))
     const cache = new MemoryPublicSnapshotCache()
+    const background = new Background()
 
-    const responses = await Promise.all([serve(cache), serve(cache), serve(cache)])
+    const response = await serve(cache, background)
 
-    for (const response of responses) {
-      expect(response.status).toBe(200)
-      await expect(response.json()).resolves.toMatchObject({ source: 'tastytrade' })
-    }
-    // The whole point: a burst of stale readers costs the provider nothing.
-    expect(broker.loadPublicMarketSnapshot).not.toHaveBeenCalled()
+    await expect(response.json()).resolves.toMatchObject({
+      source: 'tastytrade',
+      syncedAt: new Date(NOW - 10 * 60_000).toISOString(),
+    })
+    expect(cache.putCalls).toBe(1)
+
+    release(publicSnapshot({ marketState: 'open' }))
+    await background.settle()
+
+    expect(broker.claimMarketRefresh).toHaveBeenCalledTimes(1)
+    expect(broker.loadPublicMarketSnapshot).toHaveBeenCalledTimes(1)
+    // The retained copy now carries the provider's fresh reading.
+    await expect(cache.current()?.json()).resolves.toMatchObject({ marketState: 'open', syncedAt: publicSnapshot().syncedAt })
   })
 
-  it('lets exactly the claim winner rebuild from the provider', async () => {
-    broker.loadStoredPublicMarketSnapshot.mockResolvedValue(storedPublicSnapshot(10 * 60_000))
-    broker.claimMarketRefresh.mockResolvedValueOnce(true).mockResolvedValue(false)
+  it('runs one refresh for a burst of stale readers', async () => {
+    broker.loadStoredPublicMarketSnapshot.mockResolvedValue(storedPublicSnapshot(10 * 60_000, { marketState: 'open' }))
     const cache = new MemoryPublicSnapshotCache()
+    const background = new Background()
 
-    await Promise.all([serve(cache), serve(cache), serve(cache)])
+    const responses = await Promise.all([serve(cache, background), serve(cache, background), serve(cache, background)])
+    await background.settle()
 
-    expect(broker.claimMarketRefresh).toHaveBeenCalledTimes(3)
+    for (const response of responses) expect(response.status).toBe(200)
+    // The whole point: a burst of stale readers costs the provider one call, not one each.
+    expect(broker.claimMarketRefresh).toHaveBeenCalledTimes(1)
     expect(broker.loadPublicMarketSnapshot).toHaveBeenCalledTimes(1)
   })
 
-  it('falls back to the stored copy when the provider refresh fails', async () => {
-    broker.loadStoredPublicMarketSnapshot.mockResolvedValue(storedPublicSnapshot(10 * 60_000))
+  it('keeps the stored copy when the refresh claim is lost', async () => {
+    broker.loadStoredPublicMarketSnapshot.mockResolvedValue(storedPublicSnapshot(10 * 60_000, { marketState: 'open' }))
+    broker.claimMarketRefresh.mockResolvedValue(false)
+    const cache = new MemoryPublicSnapshotCache()
+    const background = new Background()
+
+    await serve(cache, background)
+    await background.settle()
+
+    expect(broker.loadPublicMarketSnapshot).not.toHaveBeenCalled()
+    await expect(cache.current()?.json()).resolves.toMatchObject({ syncedAt: new Date(NOW - 10 * 60_000).toISOString() })
+  })
+
+  it('keeps the stored copy when the provider refresh fails', async () => {
+    broker.loadStoredPublicMarketSnapshot.mockResolvedValue(storedPublicSnapshot(10 * 60_000, { marketState: 'open' }))
     broker.loadPublicMarketSnapshot.mockRejectedValue(new Error('TastytradeApi:503'))
     const cache = new MemoryPublicSnapshotCache()
+    const background = new Background()
 
-    const response = await serve(cache)
+    const response = await serve(cache, background)
+    await background.settle()
 
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toMatchObject({ source: 'tastytrade' })
+    expect(cache.putCalls).toBe(2)
+    await expect(cache.current()?.json()).resolves.toMatchObject({ source: 'tastytrade' })
+  })
+
+  it('lets a closed market age until the bell the provider named', async () => {
+    broker.loadStoredPublicMarketSnapshot.mockResolvedValue(storedPublicSnapshot(10 * 60 * 60_000, {
+      marketOpensAt: new Date(NOW + 60 * 60_000).toISOString(),
+      marketState: 'closed',
+    }))
+    const cache = new MemoryPublicSnapshotCache()
+    const background = new Background()
+
+    const response = await serve(cache, background)
+
+    await expect(response.json()).resolves.toMatchObject({ marketState: 'closed' })
+    expect(background.tasks).toHaveLength(0)
+    expect(broker.claimMarketRefresh).not.toHaveBeenCalled()
   })
 
   it('waits for the claim winner rather than piling onto a cold store', async () => {
@@ -182,6 +252,14 @@ describe('public snapshot route cache', () => {
     expect(broker.loadPublicMarketSnapshot).not.toHaveBeenCalled()
   })
 
+  it('builds from the provider in the reader path only when the store is cold', async () => {
+    const response = await serve(new MemoryPublicSnapshotCache())
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({ source: 'tastytrade' })
+    expect(broker.loadPublicMarketSnapshot).toHaveBeenCalledTimes(1)
+  })
+
   it('reports unavailability only when the store is cold and the provider fails', async () => {
     broker.loadStoredPublicMarketSnapshot.mockResolvedValue(undefined)
     broker.loadPublicMarketSnapshot.mockRejectedValue(new Error('TastytradeApi:503'))
@@ -189,5 +267,28 @@ describe('public snapshot route cache', () => {
     const response = await serve(new MemoryPublicSnapshotCache())
 
     expect(response.status).toBe(502)
+  })
+})
+
+describe('provider refresh policy', () => {
+  const minute = 60_000
+  const hour = 60 * minute
+
+  it('refreshes an open market once its reading is a minute old', () => {
+    expect(providerRefreshDue(storedPublicSnapshot(minute - 1, { marketState: 'open' }), NOW)).toBe(false)
+    expect(providerRefreshDue(storedPublicSnapshot(minute, { marketState: 'open' }), NOW)).toBe(true)
+  })
+
+  it('lets a closed market stand until the next open, then refreshes', () => {
+    const closed = { marketOpensAt: new Date(NOW + hour).toISOString(), marketState: 'closed' as const }
+    expect(providerRefreshDue(storedPublicSnapshot(12 * hour, closed), NOW)).toBe(false)
+    expect(providerRefreshDue(storedPublicSnapshot(12 * hour, closed), NOW + hour)).toBe(true)
+    expect(providerRefreshDue(storedPublicSnapshot(12 * hour, { ...closed, marketState: 'after' }), NOW)).toBe(false)
+    expect(providerRefreshDue(storedPublicSnapshot(12 * hour, { ...closed, marketState: 'pre' }), NOW)).toBe(false)
+  })
+
+  it('errs toward refreshing when the session is unlabelled or names no open', () => {
+    expect(providerRefreshDue(storedPublicSnapshot(minute, { marketState: 'unknown' }), NOW)).toBe(true)
+    expect(providerRefreshDue(storedPublicSnapshot(minute, { marketOpensAt: undefined, marketState: 'closed' }), NOW)).toBe(true)
   })
 })

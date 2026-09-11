@@ -7,7 +7,7 @@ import { EquitySymbolType, equitySymbolFromModelText } from '../domain/instrumen
 import { type AgentTool } from '../domain/agent-tool'
 import { textResult } from './agent-tool-result'
 import { type AppEnv } from './env'
-import { servePublicSnapshot } from './public-snapshot-cache'
+import { type BackgroundScheduler, servePublicSnapshot } from './public-snapshot-cache'
 import { servePublicSymbolSearch } from './public-symbol-search'
 
 /**
@@ -46,11 +46,11 @@ const SearchResultSchema = z.union([
   z.object({ ticker: PublicTickerSchema, watchlisted: z.boolean().optional() }).passthrough(),
 ])
 
-async function readCachedSnapshot(env: AppEnv): Promise<PublicMarketSnapshot> {
+async function readCachedSnapshot(env: AppEnv, schedule: BackgroundScheduler): Promise<PublicMarketSnapshot> {
   const origin = requiredOrigin(env)
   // The same URL the website requests, so this shares its cache entry rather than opening a
   // second one that would double the refresh cost it was meant to avoid.
-  const response = await servePublicSnapshot(new Request(`${origin}/api/public-snapshot`), env, edgeCache())
+  const response = await servePublicSnapshot(new Request(`${origin}/api/public-snapshot`), env, edgeCache(), schedule)
   if (!response.ok) throw new Error('PublicSnapshotUnavailable')
   return PublicMarketSnapshotSchema.parse(await response.json())
 }
@@ -85,7 +85,8 @@ function unavailableNote(missing: readonly string[]): string | undefined {
   return `not in the tracked universe: ${missing.join(', ')}. A signed-in caller can quote any symbol live.`
 }
 
-export function createPublicMarketReadTools(env: AppEnv): AgentTool<TSchema>[] {
+/** `schedule` runs the snapshot refresh past the tool's answer, exactly as the website's route does. */
+export function createPublicMarketReadTools(env: AppEnv, schedule: BackgroundScheduler): AgentTool<TSchema>[] {
   return [
     {
       description: 'Price and daily move for tracked symbols, from the public snapshot refreshed '
@@ -94,7 +95,7 @@ export function createPublicMarketReadTools(env: AppEnv): AgentTool<TSchema>[] {
         // SAFETY: the MCP server validates every call against this tool's own JSON Schema before
         // dispatch, and `PublicQuoteParameters` requires `symbols` as a non-empty string array.
         const { symbols } = params as { symbols: string[] }
-        const snapshot = await readCachedSnapshot(env)
+        const snapshot = await readCachedSnapshot(env, schedule)
         const { missing, rows } = selectRows(snapshot, symbols)
         return textResult({
           asOf: snapshot.syncedAt,
@@ -119,7 +120,7 @@ export function createPublicMarketReadTools(env: AppEnv): AgentTool<TSchema>[] {
         // SAFETY: the MCP server validates every call against this tool's own JSON Schema before
         // dispatch, and `PublicQuoteParameters` requires `symbols` as a non-empty string array.
         const { symbols } = params as { symbols: string[] }
-        const snapshot = await readCachedSnapshot(env)
+        const snapshot = await readCachedSnapshot(env, schedule)
         const { missing, rows } = selectRows(snapshot, symbols)
         return textResult({
           asOf: snapshot.syncedAt,
