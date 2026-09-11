@@ -195,6 +195,10 @@ describe('public snapshot route cache', () => {
     // The whole point: a burst of stale readers costs the provider one call, not one each.
     expect(broker.claimMarketRefresh).toHaveBeenCalledTimes(1)
     expect(broker.loadPublicMarketSnapshot).toHaveBeenCalledTimes(1)
+    // And the readers that lost the race schedule nothing at all. The winner's pending promise
+    // is a request-context I/O object; continuing it from another request's waitUntil is
+    // rejected by the runtime, which no test that runs every request in one context can show.
+    expect(background.tasks).toHaveLength(1)
   })
 
   it('keeps the stored copy when the refresh claim is lost', async () => {

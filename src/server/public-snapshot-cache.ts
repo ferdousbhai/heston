@@ -167,8 +167,13 @@ function refreshRetainedCopy(
   edgeCache: PublicSnapshotCache,
   cacheKey: Request,
   now: number,
-): Promise<void> {
-  refreshInFlight ??= (async () => {
+): Promise<void> | undefined {
+  // The pending promise is never handed to a second request. It is a request-context I/O
+  // object created in the first reader's context, and continuing it from another reader's
+  // `waitUntil` is rejected by the runtime; it also pins that first caller's env, cache key
+  // and instant. A reader that loses the race serves what it has and schedules nothing.
+  if (refreshInFlight) return undefined
+  refreshInFlight = (async () => {
     try {
       const stored = await brokerApi().loadStoredPublicMarketSnapshot(env)
       // A cold store is filled in a reader's own path, where the wait is at least visible.
@@ -207,7 +212,8 @@ export async function servePublicSnapshot(
   }
   if (retained) {
     if (copyAgeMs(retained, now) >= SNAPSHOT_FRESH_MS) {
-      schedule(refreshRetainedCopy(env, edgeCache, cacheKey, now))
+      const task = refreshRetainedCopy(env, edgeCache, cacheKey, now)
+      if (task) schedule(task)
     }
     return responseForVisitor(retained)
   }
@@ -215,7 +221,10 @@ export async function servePublicSnapshot(
   try {
     const stored = await brokerApi().loadStoredPublicMarketSnapshot(env)
     if (stored) {
-      if (providerRefreshDue(stored, now)) schedule(refreshRetainedCopy(env, edgeCache, cacheKey, now))
+      if (providerRefreshDue(stored, now)) {
+        const task = refreshRetainedCopy(env, edgeCache, cacheKey, now)
+        if (task) schedule(task)
+      }
       return await retain(edgeCache, cacheKey, stored, now)
     }
     return await retain(edgeCache, cacheKey, await buildFromColdStore(env), now)
