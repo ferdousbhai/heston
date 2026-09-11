@@ -60,7 +60,7 @@ export function useAudienceMarket(audience: SnapshotAudience | undefined) {
   )
   const preference = (preferenceQuery.data ?? [])[0]
 
-  const synchronize = useCallback(async (signal?: AbortSignal, force = false): Promise<void> => {
+  const synchronize = useCallback(async (signal?: AbortSignal): Promise<void> => {
     // Nothing may be fetched before the session check names the audience it belongs to.
     if (!audience) return
     // No `navigator.onLine` gate: WebKit on iOS reports offline for connected devices often
@@ -68,7 +68,7 @@ export function useAudienceMarket(audience: SnapshotAudience | undefined) {
     // lived. A request that fails is the only reliable answer, and it costs nothing offline.
     const active = syncOperation.current
     if (active) {
-      if (!force && active.audience === audience) return active.promise
+      if (active.audience === audience) return active.promise
       active.controller.abort()
     }
     const controller = new AbortController()
@@ -169,7 +169,6 @@ export function useAudienceMarket(audience: SnapshotAudience | undefined) {
     collectionFailed: tickerQuery.isError || snapshotQuery.isError || preferenceQuery.isError,
     preference,
     snapshot,
-    synchronize,
     tickers,
     warning,
   }
