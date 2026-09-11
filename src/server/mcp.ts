@@ -191,6 +191,17 @@ export function createSpiceMcpServer(
     }),
   )
 
+  // Listed at connect time, fetched only when something wants it -- the orientation that is too
+  // long for `instructions` (a per-turn cost) and unreachable in a prompt (user-invoked).
+  // Registered for every tier, including the anonymous one: `instructions` points every caller
+  // at this URI, and the guide describes the credential-free tier as well.
+  server.registerResource(
+    'guide',
+    'spice://guide',
+    { description: 'What Spice can answer and which tool answers it.', mimeType: 'text/markdown', title: 'Spice guide' },
+    (uri) => ({ contents: [{ text: SPICE_GUIDE, uri: uri.href }] }),
+  )
+
   // Owner only: publishing replaces the public brief and posts it to the public channel.
   if (caller.owner) {
     server.registerTool(
@@ -254,14 +265,6 @@ function registerOrderTools(
     },
   )
 
-  // Listed at connect time, fetched only when something wants it -- the orientation that is too
-  // long for `instructions` (a per-turn cost) and unreachable in a prompt (user-invoked).
-  server.registerResource(
-    'guide',
-    'spice://guide',
-    { description: 'What Spice can answer and which tool answers it.', mimeType: 'text/markdown', title: 'Spice guide' },
-    (uri) => ({ contents: [{ text: SPICE_GUIDE, uri: uri.href }] }),
-  )
   server.registerTool(
     'cancel_brokerage_order',
     {
@@ -328,10 +331,7 @@ export async function resolveMcpCaller(request: Request, env: AppEnv): Promise<M
   if (!env.DB) return undefined
   const identity = await authenticateMcpToken(env.DB, presented)
   if (!identity) return undefined
-  const row = await env.DB.prepare('SELECT email FROM "user" WHERE id = ?')
-    .bind(identity.userId).first<{ email: string }>()
-  // A row without an email cannot be the owner; absence is never elevated.
-  return { owner: Boolean(row?.email) && isOwnerEmail(row?.email ?? ''), signedIn: true, tokenId: identity.tokenId, userId: identity.userId }
+  return callerForUser(env, identity.userId, identity.tokenId)
 }
 
 /**

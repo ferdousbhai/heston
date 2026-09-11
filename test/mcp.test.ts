@@ -388,6 +388,29 @@ describe('the guide resource', () => {
       store.close()
     }
   })
+
+  it('reaches a caller who presented nothing, whose instructions also point at it', async () => {
+    const { env, store } = await ownerHarness()
+    try {
+      const listed = await handleMcpRequest(mcpRequest({
+        id: 30, jsonrpc: '2.0', method: 'resources/list', params: {},
+      }), env, executionContext)
+      const listBody = await listed.text()
+      const resources = z.object({ result: z.object({ resources: z.array(z.object({ uri: z.string() })) }) })
+        .parse(JSON.parse(listBody.slice(listBody.indexOf('{'))))
+      expect(resources.result.resources.map((entry) => entry.uri)).toContain('spice://guide')
+
+      const read = await handleMcpRequest(mcpRequest({
+        id: 31, jsonrpc: '2.0', method: 'resources/read', params: { uri: 'spice://guide' },
+      }), env, executionContext)
+      const readBody = await read.text()
+      const contents = z.object({ result: z.object({ contents: z.array(z.object({ text: z.string() })) }) })
+        .parse(JSON.parse(readBody.slice(readBody.indexOf('{'))))
+      expect(contents.result.contents[0]!.text).toBe(SPICE_GUIDE)
+    } finally {
+      store.close()
+    }
+  })
 })
 
 describe('misdirected MCP clients', () => {
