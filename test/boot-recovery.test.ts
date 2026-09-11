@@ -9,8 +9,6 @@ const DELAY_MS = 10_000
 const COOLDOWN_MS = 600_000
 const CLEANUP_TIMEOUT_MS = 3_000
 
-type Harness = ReturnType<typeof loadDocument>
-
 /** The globals the inline guard touches on the page, as the guard sees them. */
 type RecoveryWindow = {
   __spiceBooted?: () => void
@@ -136,7 +134,7 @@ describe('boot recovery guard', () => {
     await first.elapse(DELAY_MS)
     // The reload the guard just asked for purges storage on the way back, which is why the
     // latch is a cookie: only what the purge spares survives into the document that reads it.
-    const second: Harness = loadDocument({ cookies: first.cookies })
+    const second = loadDocument({ cookies: first.cookies })
     second.clock.now = first.clock.now + COOLDOWN_MS - 1
 
     await second.elapse(DELAY_MS)

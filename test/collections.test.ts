@@ -134,9 +134,7 @@ describe('offline snapshot boundary', () => {
   it('serializes overlapping audience replacements so the last requested snapshot wins', async () => {
     const owner = marketSnapshotFixture()
     const privateTicker = owner.tickers[0]!
-    const publicTicker = {
-      ...owner.tickers[1]!,
-      }
+    const publicTicker = owner.tickers[1]!
     const publicSnapshot = {
       ...owner,
       tickers: [publicTicker],

@@ -7,9 +7,8 @@ const OWNER_SNAPSHOT = marketSnapshotFixture()
 const PRIVATE_TICKER = OWNER_SNAPSHOT.tickers[0]
 if (!PRIVATE_TICKER) throw new Error('Fixture requires at least one ticker')
 const PUBLIC_SNAPSHOT = marketSnapshotFixture()
-const publicBase = PUBLIC_SNAPSHOT.tickers[0]
-if (!publicBase) throw new Error('Fixture requires a public ticker')
-const PUBLIC_TICKER = { ...publicBase, position: false }
+const PUBLIC_TICKER = PUBLIC_SNAPSHOT.tickers[0]
+if (!PUBLIC_TICKER) throw new Error('Fixture requires a public ticker')
 
 describe('audience market projection', () => {
   it('hides live rows until the atomic snapshot matches the requested audience', () => {

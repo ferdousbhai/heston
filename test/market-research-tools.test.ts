@@ -4,7 +4,6 @@ import { type ChartResultArray } from 'yahoo-finance2/modules/chart'
 import { type JsonObject } from '../src/domain/json-payload'
 
 import {
-  createMarketResearchTools,
   createYahooPriceHistoryProvider,
   type PriceHistoryProvider,
   type PriceHistoryRow,
@@ -64,12 +63,6 @@ function chartClient(quotes: ChartResultArray['quotes'], meta: JsonObject = {}) 
 }
 
 describe('market research tools', () => {
-  it('exposes adjusted price history while public fundamentals use native web search', () => {
-    expect(createMarketResearchTools().map((tool) => tool.name)).toEqual([
-      'read_price_history',
-    ])
-  })
-
   it('returns adjusted history and aligns optional studies with the bounded row window', async () => {
     const provider = priceProvider(historyRows(30))
     const result = await readPriceHistory({

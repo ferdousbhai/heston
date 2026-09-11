@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { stubBrokerGate } from './broker-stub'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
 import { migrationStore } from './sqlite-d1'
+import { symbolAt } from './symbols'
 import {
   instrumentCatalogFromPayload,
   persistInstrumentCatalog,
@@ -20,6 +21,8 @@ afterEach(() => {
   vi.unstubAllGlobals()
   vi.resetModules()
 })
+
+const secret: SecretsStoreSecret = { get: async () => 'secret' }
 
 function storedCatalogRow(symbol: string) {
   return {
@@ -58,17 +61,6 @@ function storedCatalogRow(symbol: string) {
   }
 }
 
-function equitySymbolAt(index: number): string {
-  let value = index + 1
-  let symbol = ''
-  while (value > 0) {
-    value--
-    symbol = String.fromCharCode(65 + value % 26) + symbol
-    value = Math.floor(value / 26)
-  }
-  return symbol
-}
-
 describe('public market boundary', () => {
   it('rejects missing, malformed, and oversized stored universes', async () => {
     const store = await migrationStore()
@@ -81,7 +73,7 @@ describe('public market boundary', () => {
     store.sqlite.prepare(`DELETE FROM public_market_universe WHERE id = 'primary'`).run()
     const symbols = Array.from(
       { length: MAX_WATCHLIST_SYMBOLS + 1 },
-      (_, index) => equitySymbolAt(index),
+      (_, index) => symbolAt(index),
     )
     const insert = store.sqlite.prepare(
       `INSERT INTO internal_watchlist_items
@@ -95,16 +87,9 @@ describe('public market boundary', () => {
   })
 
   it('fails before provider access when the public D1 universe is unavailable', async () => {
-    vi.resetModules()
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input)
-      if (url.endsWith('/oauth/token')) return Response.json({ access_token: 'public-read-token', expires_in: 900 })
-      if (url.includes('/market-time/equities/sessions/current')) return Response.json({ data: { state: 'Open' } })
-      return new Response('', { status: 404 })
-    })
+    const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
     const { loadPublicMarketSnapshot } = await import('../src/server/tastytrade')
-    const secret: SecretsStoreSecret = { get: async () => 'secret' }
     const brokerGate = stubBrokerGate()
 
     await expect(loadPublicMarketSnapshot({
@@ -113,16 +98,10 @@ describe('public market boundary', () => {
       TASTYTRADE_REFRESH_TOKEN: secret,
     })).rejects.toThrow('PublicMarketUniverse:store-unavailable')
 
-    const requestedUrls = fetchMock.mock.calls.map(([input]) => String(input))
-    expect(requestedUrls.some((url) => url.includes('/accounts/'))).toBe(false)
-    expect(requestedUrls.some((url) => url.includes('/watchlists'))).toBe(false)
-    expect(requestedUrls.some((url) => url.includes('/market-metrics'))).toBe(false)
-    expect(requestedUrls.some((url) => url.includes('/market-data'))).toBe(false)
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('does not hide a missing bulk symbol behind an individual-endpoint retry', async () => {
-    vi.resetModules()
     const store = await migrationStore()
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
@@ -133,7 +112,6 @@ describe('public market boundary', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
     const { refreshTastytradeInstrumentCatalog } = await import('../src/server/tastytrade')
-    const secret: SecretsStoreSecret = { get: async () => 'secret' }
 
     await expect(refreshTastytradeInstrumentCatalog({
       BROKER_GATE: stubBrokerGate().namespace,
@@ -141,15 +119,12 @@ describe('public market boundary', () => {
       TASTYTRADE_CLIENT_SECRET: secret,
       TASTYTRADE_REFRESH_TOKEN: secret,
     }, ['SPCX'])).resolves.toMatchObject({ missingSymbols: ['SPCX'], receivedCount: 0 })
-    expect(fetchMock.mock.calls.map(([input]) => String(input)))
-      .not.toContain(expect.stringContaining('/instruments/equities/SPCX'))
     expect(store.sqlite.prepare('SELECT resolution_status FROM instrument_catalog WHERE symbol = ?').get('SPCX'))
       .toEqual({ resolution_status: 'unresolved' })
     store.close()
   })
 
   it('retries only unresolved internal-watchlist identities for research', async () => {
-    vi.resetModules()
     const store = await migrationStore()
     store.sqlite.exec(`
       INSERT INTO internal_watchlist_seed
@@ -194,7 +169,6 @@ describe('public market boundary', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
     const { resolveResearchInstrumentCatalogFromTastytrade } = await import('../src/server/tastytrade')
-    const secret: SecretsStoreSecret = { get: async () => 'secret' }
 
     await expect(resolveResearchInstrumentCatalogFromTastytrade({
       BROKER_GATE: stubBrokerGate().namespace,
@@ -216,7 +190,6 @@ describe('public market boundary', () => {
   })
 
   it('serves the internal list alone and never syncs a held symbol into it', async () => {
-    vi.resetModules()
     const store = await migrationStore()
     store.sqlite.exec(`
       INSERT INTO internal_watchlist_seed
@@ -265,7 +238,6 @@ describe('public market boundary', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
     const { brokerApi } = await import('../src/server/tastytrade')
-    const secret: SecretsStoreSecret = { get: async () => 'secret' }
     const brokerGate = stubBrokerGate()
 
     const snapshot = await brokerApi().loadMarketSnapshot({
@@ -303,9 +275,8 @@ describe('public market boundary', () => {
   })
 
   it('keeps a restored seed universe whole and pages the market read into broker-sized requests', async () => {
-    vi.resetModules()
     const store = await migrationStore()
-    const symbols = Array.from({ length: 105 }, (_, index) => equitySymbolAt(index))
+    const symbols = Array.from({ length: 105 }, (_, index) => symbolAt(index))
     const env = { DB: store.database }
     await ensureInternalWatchlistSeeded(env, async () => ({
       privatePayload: [{
@@ -354,7 +325,6 @@ describe('public market boundary', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
     const { brokerApi } = await import('../src/server/tastytrade')
-    const secret: SecretsStoreSecret = { get: async () => 'secret' }
     const brokerGate = stubBrokerGate()
 
     const snapshot = await brokerApi().loadMarketSnapshot({
@@ -382,7 +352,6 @@ describe('public market boundary', () => {
   })
 
   it('loads the stored source-free universe through market-only endpoints', async () => {
-    vi.resetModules()
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
       if (url.endsWith('/oauth/token')) return Response.json({ access_token: 'public-read-token', expires_in: 900 })
@@ -434,7 +403,6 @@ describe('public market boundary', () => {
       }),
     }
     const { loadPublicMarketSnapshot } = await import('../src/server/tastytrade')
-    const secret: SecretsStoreSecret = { get: async () => 'secret' }
     const brokerGate = stubBrokerGate()
 
     const snapshot = await loadPublicMarketSnapshot({

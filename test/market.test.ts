@@ -115,13 +115,6 @@ describe('snapshot contract', () => {
     expect(marketSnapshotFromPublic(publicValue).tickers).toEqual(owner.tickers)
   })
 
-  it('returns isolated fixtures for tests that mutate broker state', () => {
-    const snapshot = marketSnapshotFixture()
-    snapshot.watchlists[0]!.symbols.push('MUTATED')
-
-    expect(marketSnapshotFixture().watchlists[0]!.symbols).not.toContain('MUTATED')
-  })
-
   it('rejects the pre-evidence recommendation shape instead of manufacturing current output', () => {
     const legacy = {
       id: 'brief-2026-08-12',

@@ -23,10 +23,6 @@ class MemoryCache implements PublicSnapshotCache {
     this.putCalls += 1
     this.responses.set(request.url, response.clone())
   }
-
-  keys(): string[] {
-    return [...this.responses.keys()]
-  }
 }
 
 function lookup(): PublicSymbolLookup {
