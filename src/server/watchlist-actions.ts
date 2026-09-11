@@ -9,7 +9,6 @@ import {
   readInternalWatchlist,
   removeInternalWatchlistSymbols,
 } from './internal-watchlist'
-import { defineSeam, type SeamValue } from './seam'
 
 export async function executeWatchlistAction(
   env: AppEnv,
@@ -42,13 +41,3 @@ export async function executeWatchlistAction(
     discardedSymbols: discarded,
   }
 }
-
-const watchlistWriterSeam = defineSeam(() => ({ executeWatchlistAction }))
-
-export type WatchlistWriter = SeamValue<typeof watchlistWriterSeam>
-
-export const watchlistWriter = watchlistWriterSeam.current
-
-export const setWatchlistWriter = watchlistWriterSeam.set
-
-export const resetWatchlistWriter = watchlistWriterSeam.reset

@@ -5,7 +5,7 @@ import { EQUITY_SYMBOL_PATTERN, EquitySymbolType } from '../domain/instrument'
 import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 import { WatchlistActionParameters, WatchlistActionSchema } from './agent-contracts'
 import { internalWatchlistWriter } from './internal-watchlist'
-import { watchlistWriter } from './watchlist-actions'
+import { executeWatchlistAction } from './watchlist-actions'
 import { textResult } from './agent-tool-result'
 import { type AppEnv } from './env'
 import {
@@ -112,7 +112,7 @@ export function createWatchlistManageTool(
   return {
     description: 'Add or remove symbols on the shared internal watchlist.',
     execute: async (_toolCallId, params) => textResult(
-      await watchlistWriter().executeWatchlistAction(env, WatchlistActionSchema.parse(params)),
+      await executeWatchlistAction(env, WatchlistActionSchema.parse(params)),
     ),
     executionMode: 'sequential',
     label: 'Updating watchlist',
