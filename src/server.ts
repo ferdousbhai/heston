@@ -1,12 +1,17 @@
 import handler from '@tanstack/react-start/server-entry'
 
 import { type AppEnv } from './server/env'
-import { handleWellKnownDiscovery } from './server/auth'
 import { canonicalHostRedirect, finalizeDocumentResponse } from './server/http'
-import { handleMcpRequest, mcpEndpointRedirect } from './server/mcp'
-import { watchDailyBrief } from './server/research-watchdog'
-import { refreshYearCandles } from './server/scheduled-jobs'
 import { configureTypeboxRuntime } from './server/typebox-runtime'
+
+/*
+ * The MCP surface, OAuth discovery, and the scheduled jobs are loaded when a request needs
+ * them rather than when the isolate starts. Each pulls a large dependency graph — the MCP
+ * server, the broker client, the research pipeline — that a visitor fetching the market never
+ * runs, and a cold isolate pays for every module it evaluates before it can answer anyone.
+ */
+const mcpSurface = () => import('./server/mcp')
+const authSurface = () => import('./server/auth')
 
 configureTypeboxRuntime()
 
@@ -20,12 +25,15 @@ export default {
     // The tool surface for the agent on the owner's machine. Bearer-authed inside the
     // handler; the session/cookie path stays untouched and the token opens nothing else.
     // An MCP client reads these before it can authenticate at all, and only ever at the origin.
-    const discovery = await handleWellKnownDiscovery(request, env)
-    if (discovery) return discovery
-    if (new URL(request.url).pathname === '/mcp') return handleMcpRequest(request, env, ctx)
+    const url = new URL(request.url)
+    if (url.pathname.startsWith('/.well-known/')) {
+      const discovery = await (await authSurface()).handleWellKnownDiscovery(request, env)
+      if (discovery) return discovery
+    }
+    if (url.pathname === '/mcp') return (await mcpSurface()).handleMcpRequest(request, env, ctx)
     // An agent aimed at the site rather than at `/mcp` would otherwise be handed the web app's
     // HTML with a 200 and fail inside its JSON parser, saying nothing useful to anyone.
-    const misdirected = await mcpEndpointRedirect(request)
+    const misdirected = await (await mcpSurface()).mcpEndpointRedirect(request)
     if (misdirected) return misdirected
     return finalizeDocumentResponse(request, await handler.fetch(request))
   },
@@ -34,7 +42,7 @@ export default {
     // Late-morning New York: the local research run should have published by now, and this
     // Worker's only view of that machine is whether today's brief exists.
     if (controller.cron === '30 15 * * 1-5') {
-      context.waitUntil(watchDailyBrief(env, scheduledAt)
+      context.waitUntil(import('./server/research-watchdog').then(({ watchDailyBrief }) => watchDailyBrief(env, scheduledAt))
         .then((result) => console.info(JSON.stringify({ event: 'DailyBriefWatchdog', result })))
         .catch((cause: unknown) => console.error(
           'DailyBriefWatchdogFailed',
@@ -45,7 +53,7 @@ export default {
     // The year chart is decoration over live prices, so a failed refresh leaves the last good
     // series in place rather than failing the tick that also starts research. Record the
     // degraded run without logging symbols or provider content.
-    context.waitUntil(refreshYearCandles(env, scheduledAt)
+    context.waitUntil(import('./server/scheduled-jobs').then(({ refreshYearCandles }) => refreshYearCandles(env, scheduledAt))
       .then((symbolCount) => console.info(JSON.stringify({
         event: 'YearCandlesRefreshed',
         symbolCount,
