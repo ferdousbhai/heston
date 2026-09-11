@@ -9,13 +9,11 @@ const StoredClosesSchema = z.array(CandlePointSchema).max(MAX_YEAR_CANDLES)
 // One bound parameter per symbol, so a long watchlist is read in statement-sized chunks.
 const SYMBOL_CHUNK_SIZE = D1_MAX_BOUND_PARAMETERS
 
+// A stored row that no longer parses is treated as absent rather than fatal: the year chart is
+// decoration over live prices, and one poisoned row must not take the whole market read down.
 const StoredYearAnchorRowSchema = z.object({ symbol: z.string(), year_ago_close: z.number() })
 const StoredYearSeriesRowSchema = z.object({ as_of: z.string(), symbol: z.string(), closes_json: z.string() })
 
-/**
- * A stored row that no longer parses is treated as absent rather than fatal: the year chart is
- * decoration over live prices, and one poisoned row must not take the whole market read down.
- */
 /**
  * Where each symbol's year began. The snapshot needs only this to sort by return and print the
  * move; the series itself is large enough that carrying it in every market response cost more
@@ -28,7 +26,6 @@ export async function readYearAgoCloses(
   const anchors = new Map<string, number>()
   for (let start = 0; start < symbols.length; start += SYMBOL_CHUNK_SIZE) {
     const chunk = symbols.slice(start, start + SYMBOL_CHUNK_SIZE)
-    if (!chunk.length) continue
     const placeholders = chunk.map(() => '?').join(', ')
     const { results } = await db.prepare(
       `SELECT symbol, year_ago_close FROM year_candles
@@ -43,12 +40,8 @@ export async function readYearAgoCloses(
 }
 
 /**
- * Every stored year, oldest close first. Only the closes travel: the year chart spaces points
- * by index because a daily grid is near-uniform, so the instants would be sent and never read.
- */
-/**
- * Every stored series, with the oldest refresh among them: one instant has to stand for the
- * whole answer, and the oldest is the only one that is true of every row in it.
+ * Every stored series, oldest close first, with the oldest refresh among them: one instant has
+ * to stand for the whole answer, and the oldest is the only one that is true of every row in it.
  */
 export async function readYearCandleSeries(db: D1Database): Promise<{ asOf?: string; series: Map<string, number[]> }> {
   const series = new Map<string, number[]>()

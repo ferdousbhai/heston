@@ -207,7 +207,6 @@ export async function readStoredMarketRecords(
   }
   for (let start = 0; start < symbols.length; start += SQL_SYMBOL_CHUNK_SIZE) {
     const chunk = symbols.slice(start, start + SQL_SYMBOL_CHUNK_SIZE)
-    if (!chunk.length) continue
     const placeholders = chunk.map(() => '?').join(', ')
     const [metricResult, quoteResult] = await Promise.all([
       env.DB.prepare(`SELECT * FROM tastytrade_market_metrics WHERE symbol IN (${placeholders})`)

@@ -4,16 +4,15 @@ import { Type } from 'typebox'
 import { EQUITY_SYMBOL_PATTERN, EquitySymbolType } from '../domain/instrument'
 import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 import { WatchlistActionParameters, WatchlistActionSchema } from './agent-contracts'
-import { internalWatchlistWriter } from './internal-watchlist'
 import { executeWatchlistAction } from './watchlist-actions'
 import { textResult } from './agent-tool-result'
 import { type AppEnv } from './env'
 import {
+  internalWatchlistWriter,
   readInternalWatchlist,
   readInternalWatchlistSymbolDetails,
   type InternalWatchlistSymbolDetails,
 } from './internal-watchlist'
-
 
 export type WatchlistReadResult =
   | {
