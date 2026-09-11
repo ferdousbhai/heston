@@ -66,26 +66,37 @@ export function useElapsedLabel(at: string | undefined): string | undefined {
 }
 
 /**
- * Pre-market is the only state with something to wait for, so it is the only one that counts.
- * Everything else a reader needs is whether the bell has rung, which the dot carries.
+ * The session as the provider names it, and how long until the next bell. Outside the open
+ * session the wait is what a reader wants from the bar; the age of the data is on the card.
  */
 export type MarketStatus = { label: string; tone: 'open' | 'waiting' | 'closed' }
+
+const SESSION_NAMES = {
+  after: 'After hours',
+  closed: 'Closed',
+  open: 'Open',
+  pre: 'Pre-market',
+  unknown: 'Closed',
+} satisfies Record<MarketState, string>
 
 export function marketStatusLabel(
   state: MarketState,
   opensAt: string | undefined,
   now: number,
 ): MarketStatus {
-  if (state === 'open') return { label: 'Open', tone: 'open' }
-  if (state !== 'pre') return { label: 'Closed', tone: 'closed' }
+  const name = SESSION_NAMES[state]
+  if (state === 'open') return { label: name, tone: 'open' }
+  const tone = state === 'pre' ? 'waiting' : 'closed'
   const opens = opensAt ? Date.parse(opensAt) : Number.NaN
   const minutes = Number.isFinite(opens) ? Math.ceil((opens - now) / 60_000) : Number.NaN
   // A bell already rung, or one the provider never named, leaves nothing honest to count down.
-  if (!Number.isFinite(minutes) || minutes <= 0) return { label: 'Pre-market', tone: 'waiting' }
+  if (!Number.isFinite(minutes) || minutes <= 0) return { label: name, tone }
   const hours = Math.floor(minutes / 60)
   const remainder = minutes % 60
-  const wait = hours ? `${hours}h ${remainder}m` : `${remainder}m`
-  return { label: `Opens in ${wait}`, tone: 'waiting' }
+  const wait = hours >= 24
+    ? `${Math.floor(hours / 24)}d ${hours % 24}h`
+    : hours ? `${hours}h ${remainder}m` : `${remainder}m`
+  return { label: `${name} · opens in ${wait}`, tone }
 }
 
 export function TopBar({
@@ -114,7 +125,9 @@ export function TopBar({
             <span aria-hidden="true" /><span>{status.label}</span>
           </span>
         )}
-        {updated && (
+        {/* The age matters while quotes move. Outside the session the bar counts down instead,
+            and each reading's own age is stated on the card that shows it. */}
+        {updated && marketState === 'open' && (
           <span className="last-updated" title={`Quotes last updated ${lastUpdatedAt}`}>
             <span className="last-updated-word">Updated </span>{updated}
           </span>

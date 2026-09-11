@@ -396,18 +396,21 @@ export function marketStateFromTastytradeSession(payload: JsonValue): MarketSnap
 }
 
 /**
- * When the current session opens. Pre-market is the only state a reader can count down from,
- * and the provider is the only thing that knows about holidays and half days, so the instant
- * comes from the session rather than from a clock.
+ * The next bell. The provider is the only thing that knows about holidays and half days, so
+ * the instant comes from the session it describes rather than from a clock: the current
+ * session's open while that is still ahead, otherwise the next session's. A payload naming
+ * neither ahead of now yields nothing, and the reader gets the state without a countdown.
  */
-export function marketOpensAtFromTastytradeSession(payload: JsonValue): string | undefined {
+export function marketOpensAtFromTastytradeSession(payload: JsonValue, now = new Date()): string | undefined {
   const body = jsonObject(payload)
   const session = jsonObject(body?.data ?? payload)
   if (!session) return undefined
-  const opensAt = jsonText(session['open-at'])
-  if (!opensAt) return undefined
-  const parsed = Date.parse(opensAt)
-  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : undefined
+  const next = jsonObject(session['next-session'])
+  const candidates = [session['open-at'], next?.['open-at']]
+    .map((value) => Date.parse(jsonText(value) ?? ''))
+    .filter((instant) => Number.isFinite(instant) && instant > now.getTime())
+  if (!candidates.length) return undefined
+  return new Date(Math.min(...candidates)).toISOString()
 }
 
 export function selectSnapshotSymbols(

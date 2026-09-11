@@ -29,15 +29,17 @@ describe('last updated label', () => {
 describe('market status', () => {
   const opensAt = '2026-09-01T13:30:00.000Z'
 
-  it('counts down only through pre-market, and says the state otherwise', () => {
+  it('names the session and counts down to the next bell outside the open one', () => {
     expect(marketStatusLabel('open', opensAt, NOW)).toEqual({ label: 'Open', tone: 'open' })
     expect(marketStatusLabel('pre', opensAt, Date.parse('2026-09-01T11:00:00.000Z')))
-      .toEqual({ label: 'Opens in 2h 30m', tone: 'waiting' })
+      .toEqual({ label: 'Pre-market · opens in 2h 30m', tone: 'waiting' })
     expect(marketStatusLabel('pre', opensAt, Date.parse('2026-09-01T13:12:00.000Z')))
-      .toEqual({ label: 'Opens in 18m', tone: 'waiting' })
-    // After hours and holidays read the same to a reader: the bell is not ringing.
-    expect(marketStatusLabel('after', opensAt, NOW)).toEqual({ label: 'Closed', tone: 'closed' })
-    expect(marketStatusLabel('closed', undefined, NOW)).toEqual({ label: 'Closed', tone: 'closed' })
+      .toEqual({ label: 'Pre-market · opens in 18m', tone: 'waiting' })
+    expect(marketStatusLabel('after', '2026-09-02T13:30:00.000Z', Date.parse('2026-09-01T21:00:00.000Z')))
+      .toEqual({ label: 'After hours · opens in 16h 30m', tone: 'closed' })
+    // A weekend counts in days, so the wait reads at the scale it is.
+    expect(marketStatusLabel('closed', '2026-09-08T13:30:00.000Z', Date.parse('2026-09-05T15:00:00.000Z')))
+      .toEqual({ label: 'Closed · opens in 2d 22h', tone: 'closed' })
     expect(marketStatusLabel('unknown', undefined, NOW)).toEqual({ label: 'Closed', tone: 'closed' })
   })
 
@@ -45,5 +47,6 @@ describe('market status', () => {
     expect(marketStatusLabel('pre', undefined, NOW)).toEqual({ label: 'Pre-market', tone: 'waiting' })
     expect(marketStatusLabel('pre', opensAt, Date.parse('2026-09-01T13:31:00.000Z')))
       .toEqual({ label: 'Pre-market', tone: 'waiting' })
+    expect(marketStatusLabel('closed', undefined, NOW)).toEqual({ label: 'Closed', tone: 'closed' })
   })
 })
