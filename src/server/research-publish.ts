@@ -1,6 +1,6 @@
 import { Compile } from 'typebox/compile'
 
-import { CatalystSchema, marketDate, type Catalyst } from '../domain/catalyst'
+import { marketDate, type Catalyst } from '../domain/catalyst'
 import { DailyRecommendationsSchema, type DailyRecommendations } from '../domain/market'
 import { type AppEnv } from './env'
 import { type JsonValue } from '../domain/json-payload'
@@ -8,11 +8,7 @@ import {
   DailyRecommendationsSubmissionSchema,
   type DailyRecommendationsSubmission,
 } from './research-submission'
-import {
-  readResearchPageMarkdown,
-  retentionKey,
-  type RetainedPage,
-} from './research-agent-tools'
+import { readResearchPageMarkdown, type RetainedPage } from './research-agent-tools'
 import { bindCatalystCandidates } from './research-catalyst-output'
 import { bindRecommendationCitations } from './research-citation-binding'
 import { catalystUpsertStatements } from './catalysts'
@@ -128,7 +124,7 @@ export async function publishSubmittedDailyRecommendations(
     const sourceUrl = submission.sources[index]?.sourceUrl
     // An index past the end of sources has no page to read; the binders reject the citation.
     if (sourceUrl === undefined) continue
-    const key = retentionKey(sourceUrl)
+    const key = recommendationLinkKey(sourceUrl)
     if (key === undefined) rejected.push(`source ${index}: not a readable https page address`)
     else pageKeys.add(key)
   }
@@ -154,7 +150,7 @@ export async function publishSubmittedDailyRecommendations(
     return { rejected: [...catalystBinding.rejected, ...citationBinding.rejected], status: 'rejected' }
   }
 
-  const catalysts = CatalystSchema.array().parse(catalystBinding.catalysts)
+  const catalysts = catalystBinding.catalysts
   const sources = bindSubmissionSources(submission.sources)
   const recommendations = recommendationsFromCandidates(citationBinding.recommendations, sources)
   const links = linksFromCandidates(submission.links, sources, recommendations.length)

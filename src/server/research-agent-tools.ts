@@ -14,7 +14,6 @@ import {
 } from './research-coverage'
 import { collectRedditSources, type RedditDiscussion } from './research-reddit'
 import { readStoredSecret } from './secrets'
-import { recommendationLinkKey } from './research-url'
 
 const RedditSearchParameters = Type.Object({}, { additionalProperties: false })
 const RecentCoverageParameters = Type.Object({
@@ -50,11 +49,6 @@ export type RetainedPage = { markdown: string; readAt: string }
  */
 const MAX_PAGE_MARKDOWN_CHARS = 120_000
 const MAX_PAGE_RESPONSE_BYTES = 4_000_000
-
-/** A page is retained and cited under one spelling, so both sides agree what "same page" is. */
-export function retentionKey(value: string): string | undefined {
-  return recommendationLinkKey(value)
-}
 
 /**
  * One page read through the Worker's browser, used at the publish boundary so a citation is

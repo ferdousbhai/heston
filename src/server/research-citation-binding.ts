@@ -1,5 +1,6 @@
 import { type DailyRecommendationsSubmission } from './research-submission'
-import { retentionKey, type RetainedPage } from './research-agent-tools'
+import { type RetainedPage } from './research-agent-tools'
+import { recommendationLinkKey } from './research-url'
 
 /*
  * A citation is bound to what this Worker actually read. Native web search runs inside the
@@ -36,10 +37,10 @@ export function bindRecommendationCitations(
   sources: readonly { sourceUrl: string }[],
   retained: ReadonlyMap<string, RetainedPage>,
 ): CitationBinding {
-  const pages = new Map([...retained].map(([url, page]) => [retentionKey(url) ?? url, normalized(page.markdown)]))
+  const pages = new Map([...retained].map(([url, page]) => [recommendationLinkKey(url) ?? url, normalized(page.markdown)]))
   const readPage = (index: number | undefined): string | undefined => {
     const cited = index === undefined ? undefined : sources[index]?.sourceUrl
-    const key = cited === undefined ? undefined : retentionKey(cited)
+    const key = cited === undefined ? undefined : recommendationLinkKey(cited)
     return key === undefined ? undefined : pages.get(key)
   }
   const kept: CitationBinding['recommendations'] = []
