@@ -5,10 +5,6 @@ import { DailyRecommendationsSchema, type DailyRecommendations } from '../domain
 import { type AppEnv } from './env'
 import { type JsonValue } from '../domain/json-payload'
 import {
-  publishDailyRecommendationsToTelegram,
-  type PublishDailyRecommendationsToTelegramOptions,
-} from './recommendation-telegram-publication'
-import {
   DailyRecommendationsSubmissionSchema,
   type DailyRecommendationsSubmission,
 } from './research-submission'
@@ -91,12 +87,10 @@ export type DailyRecommendationsPublication =
     linkCount: number
     recommendationCount: number
     status: 'published'
-    telegramMessageCount: number
   }
   | { rejected: string[]; status: 'rejected' }
 
 export interface PublishSubmissionOptions {
-  fetcher?: typeof fetch
   now?: Date
 }
 
@@ -175,17 +169,13 @@ export async function publishSubmittedDailyRecommendations(
     summary: submission.summary,
     title: submission.title,
   })
+  // The site is the publication. The channel that once mirrored it is retired.
   await persistDailyRecommendations(env, dailyRecommendations, catalysts)
-  // The channel post follows the committed public record, never precedes it.
-  const telegramOptions: PublishDailyRecommendationsToTelegramOptions = {}
-  if (options.fetcher) telegramOptions.fetcher = options.fetcher
-  const telegramMessageCount = await publishDailyRecommendationsToTelegram(env, dailyRecommendations, telegramOptions)
   return {
     catalystCount: catalysts.length,
     id: dailyRecommendations.id,
     linkCount: links.length,
     recommendationCount: recommendations.length,
     status: 'published',
-    telegramMessageCount,
   }
 }

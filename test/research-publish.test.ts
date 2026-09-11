@@ -8,8 +8,6 @@ import { migrationStore } from './sqlite-d1'
 const NOW = new Date('2026-09-02T13:45:00.000Z')
 const EVIDENCE_URL = 'https://www.reuters.com/technology/nvidia-supply'
 const PAGE_MARKDOWN = '# NVIDIA\n\nThe company **signed a multi-year supply agreement** this week, with an investor day set for September 15, 2026.'
-const BOT_TOKEN = '123456:telegram_test_token'
-const CHAT_ID = '-1001234567890'
 
 function submission(): DailyRecommendationsSubmission {
   return {
@@ -57,30 +55,22 @@ function submission(): DailyRecommendationsSubmission {
   }
 }
 
-function telegramFetcher() {
-  return vi.fn<typeof fetch>(async () => Response.json({ ok: true, result: { message_id: 321 } }))
-}
-
 describe('publishing a submission produced off this Worker', () => {
-  it('re-reads the cited page, binds everything, persists, and posts to the channel', async () => {
+  it('re-reads the cited page, binds everything, and persists', async () => {
     const store = await migrationStore()
     vi.spyOn(console, 'info').mockImplementation(() => undefined)
-    const fetcher = telegramFetcher()
     try {
       const publication = await publishSubmittedDailyRecommendations({
         BROWSER: markdownBrowser(PAGE_MARKDOWN),
         DB: store.database,
-        TELEGRAM_BOT_TOKEN: BOT_TOKEN,
-        TELEGRAM_LONG_VOL_CHAT_ID: CHAT_ID,
-      }, submission(), { fetcher, now: NOW })
+      }, submission(), { now: NOW })
 
-      expect(publication).toMatchObject({
+      expect(publication).toEqual({
         catalystCount: 1,
         id: 'recommendations-2026-09-02',
         linkCount: 1,
         recommendationCount: 1,
         status: 'published',
-        telegramMessageCount: 1,
       })
       expect(store.sqlite.prepare('SELECT id FROM daily_recommendations WHERE id = ?')
         .get('recommendations-2026-09-02')).toEqual({ id: 'recommendations-2026-09-02' })
@@ -93,22 +83,18 @@ describe('publishing a submission produced off this Worker', () => {
 
   it('rejects with exact reasons when the page the Worker reads does not contain the quote', async () => {
     const store = await migrationStore()
-    const fetcher = telegramFetcher()
     try {
       const publication = await publishSubmittedDailyRecommendations({
         BROWSER: markdownBrowser('# NVIDIA\n\nAn unrelated page that never mentions the agreement.'),
         DB: store.database,
-        TELEGRAM_BOT_TOKEN: BOT_TOKEN,
-        TELEGRAM_LONG_VOL_CHAT_ID: CHAT_ID,
-      }, submission(), { fetcher, now: NOW })
+      }, submission(), { now: NOW })
 
       expect(publication.status).toBe('rejected')
       if (publication.status !== 'rejected') throw new Error('expected rejection')
       expect(publication.rejected.join('; ')).toContain('NVDA')
-      // A rejected submission publishes nothing anywhere: no row, no channel post.
+      // A rejected submission publishes nothing: no row.
       expect(store.sqlite.prepare('SELECT COUNT(*) AS rows FROM daily_recommendations').get())
         .toEqual({ rows: 0 })
-      expect(fetcher).not.toHaveBeenCalled()
     } finally {
       store.sqlite.close()
     }

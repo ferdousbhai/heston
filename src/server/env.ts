@@ -39,6 +39,4 @@ export interface AppEnv {
   TASTYTRADE_API_BASE?: string
   TASTYTRADE_CLIENT_SECRET?: SecretsStoreSecret
   TASTYTRADE_REFRESH_TOKEN?: SecretsStoreSecret
-  TELEGRAM_BOT_TOKEN?: string
-  TELEGRAM_LONG_VOL_CHAT_ID?: string
 }

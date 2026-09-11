@@ -14,9 +14,8 @@
     "enabled": true,
     "head_sampling_rate": 1,
     "logs": { "enabled": true, "head_sampling_rate": 1 },
-    // Telegram requires the bot token in the request path, while automatic fetch
-    // spans persist url.full and url.path. Keep structured logs, but never trace
-    // a secret-bearing Telegram subrequest.
+    // Automatic fetch spans persist url.full, and the sign-in callback carries a one-time
+    // authorization code in its query. Keep structured logs; do not trace request URLs.
     "traces": { "enabled": false }
   },
   "durable_objects": {
@@ -34,9 +33,6 @@
   // Cited pages are read through Browser Run so the brief is bound to text this Worker
   // retained, rather than to a page the model reports having opened somewhere we cannot see.
   "browser": { "binding": "BROWSER" },
-  "secrets": {
-    "required": ["TELEGRAM_BOT_TOKEN"]
-  },
   "secrets_store_secrets": [
     {
       "binding": "EXA_API_KEY",
@@ -77,7 +73,6 @@
   },
   "vars": {
     "AUTH_BASE_URL": "https://tryspice.xyz",
-    "TASTYTRADE_API_BASE": "https://api.tastyworks.com",
-    "TELEGRAM_LONG_VOL_CHAT_ID": "@longvolatility"
+    "TASTYTRADE_API_BASE": "https://api.tastyworks.com"
   }
 }
