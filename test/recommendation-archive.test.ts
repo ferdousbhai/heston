@@ -22,7 +22,9 @@ describe('recommendation archive navigation', () => {
       regime: 'Earlier selective tape',
     }
     let archiveRequests = 0
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      // The channel archive loads with the tab and is not what this test counts.
+      if (String(input).startsWith('/api/public-channel-archive')) return Response.json({ posts: [] })
       archiveRequests += 1
       return Response.json({ dailyRecommendations: archiveRequests === 1 ? previous : null })
     })
@@ -49,6 +51,6 @@ describe('recommendation archive navigation', () => {
     expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Previous' }).disabled).toBe(false)
     fireEvent.click(screen.getByRole('button', { name: 'Previous' }))
     expect(await screen.findByText('Earlier selective tape')).toBeTruthy()
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(archiveRequests).toBe(2)
   })
 })

@@ -20,6 +20,7 @@ import { Route as ApiFavoritesRouteImport } from './routes/api.favorites'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
 import { Route as ApiMcpTokensRouteImport } from './routes/api.mcp-tokens'
 import { Route as ApiPublicCatalystRefreshRouteImport } from './routes/api.public-catalyst-refresh'
+import { Route as ApiPublicChannelArchiveRouteImport } from './routes/api.public-channel-archive'
 import { Route as ApiPublicDailyRecommendationsRouteImport } from './routes/api.public-daily-recommendations'
 import { Route as ApiPublicSnapshotRouteImport } from './routes/api.public-snapshot'
 import { Route as ApiPublicSymbolSearchRouteImport } from './routes/api.public-symbol-search'
@@ -87,6 +88,11 @@ const ApiPublicCatalystRefreshRoute =
     path: '/api/public-catalyst-refresh',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicChannelArchiveRoute = ApiPublicChannelArchiveRouteImport.update({
+  id: '/api/public-channel-archive',
+  path: '/api/public-channel-archive',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicDailyRecommendationsRoute =
   ApiPublicDailyRecommendationsRouteImport.update({
     id: '/api/public-daily-recommendations',
@@ -151,6 +157,7 @@ export interface FileRoutesByFullPath {
   '/api/health': typeof ApiHealthRoute
   '/api/mcp-tokens': typeof ApiMcpTokensRoute
   '/api/public-catalyst-refresh': typeof ApiPublicCatalystRefreshRoute
+  '/api/public-channel-archive': typeof ApiPublicChannelArchiveRoute
   '/api/public-daily-recommendations': typeof ApiPublicDailyRecommendationsRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
   '/api/public-symbol-search': typeof ApiPublicSymbolSearchRoute
@@ -173,6 +180,7 @@ export interface FileRoutesByTo {
   '/api/health': typeof ApiHealthRoute
   '/api/mcp-tokens': typeof ApiMcpTokensRoute
   '/api/public-catalyst-refresh': typeof ApiPublicCatalystRefreshRoute
+  '/api/public-channel-archive': typeof ApiPublicChannelArchiveRoute
   '/api/public-daily-recommendations': typeof ApiPublicDailyRecommendationsRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
   '/api/public-symbol-search': typeof ApiPublicSymbolSearchRoute
@@ -197,6 +205,7 @@ export interface FileRoutesById {
   '/api/health': typeof ApiHealthRoute
   '/api/mcp-tokens': typeof ApiMcpTokensRoute
   '/api/public-catalyst-refresh': typeof ApiPublicCatalystRefreshRoute
+  '/api/public-channel-archive': typeof ApiPublicChannelArchiveRoute
   '/api/public-daily-recommendations': typeof ApiPublicDailyRecommendationsRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
   '/api/public-symbol-search': typeof ApiPublicSymbolSearchRoute
@@ -222,6 +231,7 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/api/mcp-tokens'
     | '/api/public-catalyst-refresh'
+    | '/api/public-channel-archive'
     | '/api/public-daily-recommendations'
     | '/api/public-snapshot'
     | '/api/public-symbol-search'
@@ -244,6 +254,7 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/api/mcp-tokens'
     | '/api/public-catalyst-refresh'
+    | '/api/public-channel-archive'
     | '/api/public-daily-recommendations'
     | '/api/public-snapshot'
     | '/api/public-symbol-search'
@@ -267,6 +278,7 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/api/mcp-tokens'
     | '/api/public-catalyst-refresh'
+    | '/api/public-channel-archive'
     | '/api/public-daily-recommendations'
     | '/api/public-snapshot'
     | '/api/public-symbol-search'
@@ -291,6 +303,7 @@ export interface RootRouteChildren {
   ApiHealthRoute: typeof ApiHealthRoute
   ApiMcpTokensRoute: typeof ApiMcpTokensRoute
   ApiPublicCatalystRefreshRoute: typeof ApiPublicCatalystRefreshRoute
+  ApiPublicChannelArchiveRoute: typeof ApiPublicChannelArchiveRoute
   ApiPublicDailyRecommendationsRoute: typeof ApiPublicDailyRecommendationsRoute
   ApiPublicSnapshotRoute: typeof ApiPublicSnapshotRoute
   ApiPublicSymbolSearchRoute: typeof ApiPublicSymbolSearchRoute
@@ -378,6 +391,13 @@ declare module '@tanstack/react-router' {
       path: '/api/public-catalyst-refresh'
       fullPath: '/api/public-catalyst-refresh'
       preLoaderRoute: typeof ApiPublicCatalystRefreshRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public-channel-archive': {
+      id: '/api/public-channel-archive'
+      path: '/api/public-channel-archive'
+      fullPath: '/api/public-channel-archive'
+      preLoaderRoute: typeof ApiPublicChannelArchiveRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public-daily-recommendations': {
@@ -479,6 +499,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiHealthRoute: ApiHealthRoute,
   ApiMcpTokensRoute: ApiMcpTokensRoute,
   ApiPublicCatalystRefreshRoute: ApiPublicCatalystRefreshRoute,
+  ApiPublicChannelArchiveRoute: ApiPublicChannelArchiveRoute,
   ApiPublicDailyRecommendationsRoute: ApiPublicDailyRecommendationsRoute,
   ApiPublicSnapshotRoute: ApiPublicSnapshotRoute,
   ApiPublicSymbolSearchRoute: ApiPublicSymbolSearchRoute,

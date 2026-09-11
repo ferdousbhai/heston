@@ -10,6 +10,14 @@ const FavoriteMutationRequestSchema = z.object({
   symbols: z.array(z.string()),
 })
 
+// The channel archive loads with the recommendations tab and is not under test here.
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/public-channel-archive*', (route) => route.fulfill({
+    body: JSON.stringify({ posts: [] }),
+    contentType: 'application/json',
+  }))
+})
+
 /** On a phone the focus card is a sheet: opened to read it, closed to reach the list again. */
 async function openDetail(page: Page, symbol: string): Promise<void> {
   await page.getByRole('button', { name: `Open ${symbol} detail` }).click()

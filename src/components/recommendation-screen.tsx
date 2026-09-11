@@ -7,7 +7,9 @@ import { Button } from '#/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '#/components/ui/card'
 import { Empty, EmptyDescription, EmptyHeader } from '#/components/ui/empty'
 import { Spinner } from '#/components/ui/spinner'
+import { loadChannelArchivePage } from '../data/channel-archive'
 import { loadPreviousDailyRecommendations } from '../data/recommendation-archive'
+import { type ChannelPost } from '../domain/channel-post'
 import { type DailyRecommendations } from '../domain/market'
 import { recommendedOrderLabel } from '../domain/recommended-order'
 import { DAILY_RESEARCH_SCHEDULE, nextDailyResearchRun } from '../domain/research-schedule'
@@ -99,6 +101,86 @@ function RecommendationNavigation({
   )
 }
 
+/**
+ * What survives of the Telegram channel this site replaced. Telegram deleted the channel's
+ * messages after a month until March 2026, so the archive begins there and ends with the
+ * channel's last post; it is finite and read newest first, a page per tap.
+ */
+function ChannelArchive() {
+  const [posts, setPosts] = useState<ChannelPost[]>([])
+  const [nextBefore, setNextBefore] = useState<number>()
+  const [state, setState] = useState<'failed' | 'idle' | 'loading'>('loading')
+
+  const take = (page: Awaited<ReturnType<typeof loadChannelArchivePage>>) => {
+    setPosts((current) => [...current, ...page.posts])
+    setNextBefore(page.nextBefore)
+    setState('idle')
+  }
+  // The first page arrives with the section; every later one is a tap away.
+  useEffect(() => {
+    const controller = new AbortController()
+    loadChannelArchivePage(undefined, controller.signal)
+      .then((page) => { if (!controller.signal.aborted) take(page) })
+      .catch(() => { if (!controller.signal.aborted) setState('failed') })
+    return () => controller.abort()
+  }, [])
+  const loadOlder = async (before: number) => {
+    setState('loading')
+    try {
+      take(await loadChannelArchivePage(before))
+    } catch {
+      setState('failed')
+    }
+  }
+
+  return (
+    <section aria-labelledby="channel-archive-title" className="channel-archive">
+      <h2 id="channel-archive-title">From the Long Vol channel</h2>
+      <p className="channel-archive-note">
+        The Telegram channel this site replaced, March to September 2026. Telegram deleted older messages after a month.
+      </p>
+      <ol className="channel-posts">
+        {posts.map((post) => {
+          // A post that is only a link is shown as that link; otherwise the links follow the text.
+          const bareLink = post.links.length === 1 && post.text === post.links[0]
+          return (
+            <li className="channel-post" key={post.id}>
+              <time dateTime={post.postedAt}>{issueDate.format(new Date(post.postedAt))}</time>
+              {bareLink
+                ? <a href={post.links[0]} rel="noreferrer" target="_blank">{new URL(post.links[0]!).host}<ArrowUpRight aria-hidden="true" /></a>
+                : (
+                    <>
+                      <p>{post.text}</p>
+                      {post.links.length > 0 && (
+                        <span className="channel-post-links">
+                          {post.links.map((link) => (
+                            <a href={link} key={link} rel="noreferrer" target="_blank">{new URL(link).host}<ArrowUpRight aria-hidden="true" /></a>
+                          ))}
+                        </span>
+                      )}
+                    </>
+                  )}
+            </li>
+          )
+        })}
+      </ol>
+      {state === 'failed' && (
+        <Alert className="recommendation-archive-error" variant="destructive">
+          <AlertTitle>Channel archive unavailable</AlertTitle>
+          <AlertDescription>The channel archive could not be loaded.</AlertDescription>
+        </Alert>
+      )}
+      {state === 'loading' && <div className="channel-archive-loading" role="status"><Spinner />Loading posts</div>}
+      {state === 'idle' && nextBefore !== undefined && (
+        <Button onClick={() => void loadOlder(nextBefore)} size="sm" type="button" variant="outline">Older posts</Button>
+      )}
+      {state === 'idle' && nextBefore === undefined && posts.length > 0 && (
+        <p className="channel-archive-end">That is the whole surviving channel.</p>
+      )}
+    </section>
+  )
+}
+
 function RecommendationArchive({
   availableSymbols,
   latest,
@@ -173,6 +255,7 @@ function RecommendationArchive({
         {navigation}
         {archiveFailure}
         <NextRecommendationRun fixedNow={now} />
+        <ChannelArchive />
       </div>
     )
   }
@@ -258,6 +341,7 @@ function RecommendationArchive({
         </div>
         <p className="disclaimer">Not financial advice.</p>
       </div>
+      <ChannelArchive />
     </div>
   )
 }
