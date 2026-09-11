@@ -3,7 +3,7 @@ import { type JsonValue } from '../src/domain/json-payload'
 
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { brokerCredential, stubBroker } from './broker-stub'
-import { buildAgentRuntimeContext, loadBrokerageContext } from '../src/server/brokerage-context'
+import { loadBrokerageContext } from '../src/server/brokerage-context'
 
 const tastytrade = stubBroker()
 
@@ -56,9 +56,8 @@ describe('always-on brokerage context', () => {
     tastytrade.tastyRequest.mockReset().mockImplementation((_env, path: string) => Promise.resolve(payloadFor(path)))
   })
 
-  it('loads accurately named balances and compact account state without exposing account identity', async () => {
+  it('loads accurately named balances and compact account state', async () => {
     const context = await loadBrokerageContext({}, brokerCredential)
-    const runtime = buildAgentRuntimeContext(context)
 
     expect(context.balances).toMatchObject({
       cashBalance: 70_000,
@@ -76,12 +75,9 @@ describe('always-on brokerage context', () => {
     expect(context.orders[0]?.legs).toHaveLength(2)
     expect(context.asOf).toMatch(/^\d{4}-\d{2}-\d{2}T/)
     expect(context.source).toBe('tastytrade')
-    expect(JSON.stringify(runtime)).not.toContain('A1')
-    expect(runtime).toMatchObject({
-      source: 'tastytrade',
-      balances: { availableTradingFunds: 61_000, cashBalance: 70_000 },
-      orders: [{ id: '101', legs: [{ symbol: 'SPY call' }, { symbol: 'SPY call short' }] }],
-    })
+    expect(context.orders).toMatchObject([
+      { id: '101', legs: [{ symbol: 'SPY call' }, { symbol: 'SPY call short' }] },
+    ])
     expect(tastytrade.tastyRequest).toHaveBeenCalledTimes(4)
   })
 

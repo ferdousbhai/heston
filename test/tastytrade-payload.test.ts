@@ -4,7 +4,6 @@ import {
   accountBalanceRecord,
   accountBalancesFromPayload,
   isWorkingOrderRecord,
-  tradeTransactionRecord,
   workingOrderRecords,
 } from '../src/server/brokers/tastytrade-payload'
 
@@ -84,28 +83,5 @@ describe('tastytrade live order payloads', () => {
       expect.objectContaining({ id: '100', complexOrderId: 'complex-1' }),
     ])
     expect(() => workingOrderRecords({ id: 'broken', status: 'Live' })).toThrow('invalid-complex-order')
-  })
-  it('normalizes canonical Trade transactions and rejects incomplete trade rows', () => {
-    expect(tradeTransactionRecord({
-      'transaction-type': 'Trade',
-      'executed-at': '2026-08-13T12:00:00Z',
-      'order-id': 9001,
-      action: 'Buy to Open',
-      quantity: '2',
-      price: '1.20',
-      symbol: 'SPY option',
-      'underlying-symbol': 'SPY',
-      'instrument-type': 'Equity Option',
-    })).toEqual({
-      action: 'Buy to Open',
-      executedAt: '2026-08-13T12:00:00Z',
-      instrumentType: 'Equity Option',
-      orderId: '9001',
-      price: 1.2,
-      quantity: 2,
-      symbol: 'SPY option',
-      underlying: 'SPY',
-    })
-    expect(() => tradeTransactionRecord({ 'transaction-type': 'Trade' })).toThrow('invalid-trade-transaction')
   })
 })

@@ -2,10 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import { survivalBudget } from '../src/domain/portfolio-risk'
 import { OrderPlacementSchema, type OrderPlacement } from '../src/server/agent-contracts'
-import {
-  buildAgentRuntimeContext,
-  type BrokerageContext,
-} from '../src/server/brokerage-context'
 import { assessPortfolioAction } from '../src/server/portfolio-risk'
 
 const longOnlyAccount = {
@@ -124,48 +120,4 @@ describe('portfolio action boundary', () => {
       limitPrice: 700, priceEffect: 'Credit',
     }).success).toBe(false)
   })
-})
-
-describe('model context', () => {
-  // The doctrine's own contract is pinned in doctrine.test.ts, against PORTFOLIO_POLICY itself
-  // rather than a spelled-out percentage that can drift from it.
-  it('builds compact model context without exposing account identity', () => {
-    const account: BrokerageContext = {
-      accountNumber: 'SECRET123',
-      asOf: '2026-08-13T12:00:00.000Z',
-      source: 'tastytrade',
-      balances: {
-        netLiquidatingValue: 100_000,
-        cashBalance: 70_000, cashAvailableToWithdraw: 65_000, availableTradingFunds: 62_000,
-        equityBuyingPower: 160_000, derivativeBuyingPower: 80_000, dayTradingBuyingPower: 320_000,
-      },
-      positions: [{
-        direction: 'Long', instrumentType: 'Equity Option', quantity: 2,
-        symbol: 'SPY option', underlying: 'SPY',
-      }],
-      orders: [],
-      liveOrders: [],
-    }
-    const context = buildAgentRuntimeContext(account)
-
-    expect(context).toMatchObject({
-      asOf: '2026-08-13T12:00:00.000Z',
-      source: 'tastytrade',
-      balances: {
-        availableTradingFunds: 62_000,
-        cashAvailableToWithdraw: 65_000,
-        cashBalance: 70_000,
-        dayTradingBuyingPower: 320_000,
-        derivativeBuyingPower: 80_000,
-        equityBuyingPower: 160_000,
-        netLiquidatingValue: 100_000,
-      },
-      orders: [],
-    })
-    expect(JSON.stringify(context)).not.toContain('SECRET123')
-    expect(context).toHaveProperty('balances')
-    expect(JSON.stringify(context)).not.toContain('"cash":')
-    expect(JSON.stringify(context)).not.toContain('"buyingPower":')
-  })
-
 })

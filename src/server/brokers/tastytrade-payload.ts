@@ -15,17 +15,6 @@ import { type BrokerBalances, type BrokerWorkingOrder } from '../../domain/broke
 // larger total or a full page without a total, so this is a completeness boundary.
 export const BROKER_ACCOUNT_PAGE_SIZE = 200
 
-export interface RecentTrade {
-  action: string
-  executedAt: string
-  instrumentType: string
-  orderId: string
-  price: number
-  quantity: number
-  symbol: string
-  underlying: string
-}
-
 /** Parse one complete account page; malformed or ambiguous pagination fails closed. */
 export function completeAccountRows(payload: JsonValue, label: string): JsonObject[] {
   const candidate = envelopeRows(payload)
@@ -173,28 +162,4 @@ export function workingOrderRecords(row: JsonObject): BrokerWorkingOrder[] {
   }
   if (!nested.length) throw new Error('TastytradePayload:invalid-complex-order')
   return nested.filter(isWorkingOrderRecord).map((order) => workingOrder(order, complexOrderId))
-}
-
-export function tradeTransactionRecord(row: JsonObject): RecentTrade {
-  const action = jsonText(row.action)
-  const executedAt = jsonText(row['executed-at']) ?? jsonText(row['transaction-date'])
-  const instrumentType = jsonText(row['instrument-type'])
-  const orderId = id(row['order-id'])
-  const price = jsonNumber(row.price)
-  const quantity = jsonNumber(row.quantity)
-  const symbol = jsonText(row.symbol)
-  const underlying = jsonText(row['underlying-symbol'])
-  if (jsonText(row['transaction-type']) !== 'Trade'
-    || !action
-    || !executedAt
-    || !instrumentType
-    || !orderId
-    || price === undefined
-    || quantity === undefined
-    || quantity <= 0
-    || !symbol
-    || !underlying) {
-    throw new Error('TastytradePayload:invalid-trade-transaction')
-  }
-  return { action, executedAt, instrumentType, orderId, price, quantity, symbol, underlying }
 }

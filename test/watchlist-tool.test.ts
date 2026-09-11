@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { buildAgentRuntimeContext, loadBrokerageContext } from '../src/server/brokerage-context'
+import { loadBrokerageContext } from '../src/server/brokerage-context'
 import { ensureInternalWatchlistSeeded, finalizeInternalWatchlist } from '../src/server/internal-watchlist'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { createWatchlistReadTool } from '../src/server/watchlist-tool'
@@ -54,11 +54,10 @@ describe('watchlist context boundary', () => {
   it('does not fetch or serialize watchlists during the default brokerage load', async () => {
     const account = await loadBrokerageContext({}, brokerCredential)
     const paths = tastytrade.tastyRequest.mock.calls.map(([, path]) => path)
-    const runtimeContext = buildAgentRuntimeContext(account)
 
     expect(paths).not.toContain('/watchlists')
-    expect(runtimeContext).not.toHaveProperty('watchlists')
-    expect(JSON.stringify(runtimeContext)).not.toContain('watchlist')
+    expect(account).not.toHaveProperty('watchlists')
+    expect(JSON.stringify(account)).not.toContain('watchlist')
   })
 
   it('reads the consolidated Spice list without touching tastytrade watchlist endpoints', async () => {
