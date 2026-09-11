@@ -1,5 +1,5 @@
 // Walk the public preview of the retired channel and print one JSON line per post, oldest
-// first: {id, postedAt, html}. Service messages carry no text and are skipped downstream.
+// first: {id, postedAt, html}.
 //   node tools/export-channel-archive.mjs > channel.jsonl
 const CHANNEL = 'longvolatility'
 const PAGE_PAUSE_MS = 400
@@ -7,7 +7,10 @@ const out = new Map()
 let before
 for (;;) {
   const url = `https://t.me/s/${CHANNEL}${before ? `?before=${before}` : ''}`
-  const html = await (await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0' } })).text()
+  // An empty page is how the walk ends, so a refusal must throw rather than read as the end.
+  const response = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0' } })
+  if (!response.ok) throw new Error(`Channel page refused (${response.status})`)
+  const html = await response.text()
   const blocks = [...html.matchAll(/<div class="tgme_widget_message_wrap[\s\S]*?(?=<div class="tgme_widget_message_wrap|<\/section>)/g)].map((m) => m[0])
   let lowest = Number.POSITIVE_INFINITY
   for (const block of blocks) {
