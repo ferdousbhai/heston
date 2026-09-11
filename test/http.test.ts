@@ -66,7 +66,10 @@ describe('document response', () => {
 
 describe('personal API authorization', () => {
   it('reports runtime authentication failure as temporary unavailability', async () => {
-    const response = await authorizePersonalRequest(new Request('https://spice.test/api/snapshot'), {})
+    // A session cookie is what reaches the runtime at all; without one the answer is a plain 401.
+    const response = await authorizePersonalRequest(new Request('https://spice.test/api/snapshot', {
+      headers: { cookie: '__Secure-better-auth.session_token=abc' },
+    }), {})
     expect(response?.status).toBe(503)
     await expect(response?.json()).resolves.toEqual({ error: 'Authentication is temporarily unavailable' })
   })

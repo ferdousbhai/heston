@@ -138,11 +138,25 @@ export function getAuthRuntime(env: AppEnv): Promise<AuthRuntime> {
   return cachedRuntime
 }
 
-/** Google identity is available to favorite sync; it grants no brokerage or agent authority. */
+/**
+ * The name better-auth gives its session cookie, prefix and `__Secure-` aside. Only its
+ * presence is read here, never its value.
+ */
+const SESSION_COOKIE_NAME = 'session_token'
+
+/**
+ * Google identity is available to favorite sync; it grants no brokerage or agent authority.
+ *
+ * A request carrying no session cookie has no session, and is answered without building the
+ * auth runtime: that build is the slowest part of an anonymous visitor's first request, and
+ * every visitor's boot waits on this answer before the market is drawn. A cookie that is
+ * present goes through the full check whatever it holds, so nothing here can admit anyone.
+ */
 export async function getAuthenticatedIdentity(
   request: Request,
   env: AppEnv,
 ): Promise<AuthenticatedIdentity | null> {
+  if (!request.headers.get('cookie')?.includes(SESSION_COOKIE_NAME)) return null
   const runtime = await getAuthRuntime(env)
   const session = await runtime.auth.api.getSession({ headers: request.headers })
   if (!session) return null

@@ -6,6 +6,7 @@ import {
   MCP_CONSENT_PAGE,
   MCP_LOGIN_PAGE,
   configureAuth,
+  getAuthenticatedIdentity,
   isOwnerEmail,
   mcpResourceIdentifier,
 } from '../src/server/auth'
@@ -17,6 +18,21 @@ describe('authorized app identity', () => {
     expect(isOwnerEmail('FERDOUSBD@GMAIL.COM')).toBe(true)
     expect(isOwnerEmail('another@example.com')).toBe(false)
     expect(isOwnerEmail('ferdousbd@gmail.com.example.com')).toBe(false)
+  })
+
+  it('answers a request with no session cookie without building the auth runtime', async () => {
+    // No database and no secrets: building the runtime would throw, so resolving to null is
+    // the proof that the anonymous path never reached it.
+    await expect(getAuthenticatedIdentity(new Request('https://tryspice.xyz/api/viewer'), {})).resolves.toBeNull()
+    await expect(getAuthenticatedIdentity(new Request('https://tryspice.xyz/api/viewer', {
+      headers: { cookie: 'spice.purge=1' },
+    }), {})).resolves.toBeNull()
+  })
+
+  it('still checks a request that carries a session cookie', async () => {
+    await expect(getAuthenticatedIdentity(new Request('https://tryspice.xyz/api/viewer', {
+      headers: { cookie: '__Secure-better-auth.session_token=abc' },
+    }), {})).rejects.toThrow('AuthDatabaseMissing')
   })
 })
 
