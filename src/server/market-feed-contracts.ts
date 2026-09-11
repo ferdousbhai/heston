@@ -14,12 +14,7 @@ import { jsonNumber, type JsonObject } from '../domain/json-payload'
 import { MAX_LIVE_STREAM_SYMBOLS } from '../domain/watchlist'
 
 export { DXLINK_REMOVE_EVENT }
-export {
-  DXLINK_SNAPSHOT_BEGIN,
-  DXLINK_SNAPSHOT_END,
-  DXLINK_SNAPSHOT_SNIP,
-  DXLINK_TX_PENDING,
-} from '../domain/candle'
+export { DXLINK_SNAPSHOT_BEGIN } from '../domain/candle'
 
 const MarketSymbolSchema = EquitySymbolSchema
 

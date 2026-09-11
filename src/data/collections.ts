@@ -3,13 +3,13 @@ import { z } from 'zod'
 
 import { EquitySymbolSchema } from '../domain/instrument'
 import { type JsonValue } from '../domain/json-payload'
-import { reconcileCandleSeries, updateCandleSeries, type CandlePoint } from '../domain/candle'
 import {
+  CandleSnapshotAccumulator,
   DXLINK_REMOVE_EVENT,
-  DXLINK_SNAPSHOT_BEGIN,
-  DXLINK_SNAPSHOT_END,
-  DXLINK_SNAPSHOT_SNIP,
-  DXLINK_TX_PENDING,
+  reconcileCandleSeries,
+  updateCandleSeries,
+} from '../domain/candle'
+import {
   LiveMarketEventSchema,
   type LiveMarketEvent,
 } from '../server/market-feed-contracts'
@@ -142,6 +142,9 @@ async function replaceLiveTickers(
   // TanStack applies deletes optimistically, so snapshot the iterator before mutating it.
   const deletedKeys = Array.from(tickerCollection.keys()).filter((key) => !incoming.has(key))
   if (deletedKeys.length) mutations.push(tickerCollection.delete(deletedKeys))
+  // A symbol that leaves the overlay takes its half-delivered snapshot with it; otherwise the
+  // buffered points outlive the row they were being assembled for.
+  for (const key of deletedKeys) candleSnapshots.forget(key)
   const insertedRows: Ticker[] = []
   const updatedRows: Ticker[] = []
   for (const row of rows) {
@@ -239,7 +242,7 @@ async function hydrateCollectionsImmediately(snapshot: MarketSnapshot, audience:
     await offlineSnapshotCollection.delete('snapshot').isPersisted.promise
   }
   const replaceExisting = audience === 'public' || audienceChanged
-  if (replaceExisting) pendingCandleSnapshots.clear()
+  if (replaceExisting) candleSnapshots.clear()
   await replaceLiveTickers(snapshot.tickers, replaceExisting)
   await persistOfflineSnapshot(snapshot, audience)
   await updateSnapshotPreference(snapshot)
@@ -269,7 +272,7 @@ async function restoreOfflineSnapshotImmediately(audience: SnapshotAudience): Pr
   const record = offlineSnapshotCollection.get('snapshot')
   if (record?.audience === audience) {
     const replaceExisting = audience === 'public'
-    if (replaceExisting) pendingCandleSnapshots.clear()
+    if (replaceExisting) candleSnapshots.clear()
     await replaceLiveTickers(record.snapshot.tickers, replaceExisting)
     await updateSnapshotPreference(record.snapshot)
     return
@@ -277,7 +280,7 @@ async function restoreOfflineSnapshotImmediately(audience: SnapshotAudience): Pr
 
   // A record for another audience is unusable even when no component has observed it.
   if (record) await offlineSnapshotCollection.delete('snapshot').isPersisted.promise
-  pendingCandleSnapshots.clear()
+  candleSnapshots.clear()
   await replaceLiveTickers([], true)
 }
 
@@ -288,7 +291,7 @@ async function previewPublicSnapshotImmediately(): Promise<void> {
   // record is the one thing that must wait: on a shared device the person looking may have
   // signed out, and the audience tag exists so they never see what the last session held.
   if (record?.audience !== 'public') return
-  pendingCandleSnapshots.clear()
+  candleSnapshots.clear()
   await replaceLiveTickers(record.snapshot.tickers, true)
 }
 
@@ -349,8 +352,7 @@ export async function selectTicker(symbol: string): Promise<void> {
   await mutation.isPersisted.promise
 }
 
-type PendingCandleSnapshot = { endSeen: boolean; points: CandlePoint[] }
-const pendingCandleSnapshots = new Map<string, PendingCandleSnapshot>()
+const candleSnapshots = new CandleSnapshotAccumulator()
 
 export function applyLiveMarketEvent(untrusted: JsonValue): void {
   // A closing owner stream may still deliver a queued frame after the public snapshot
@@ -372,32 +374,20 @@ export function applyLiveMarketEvent(untrusted: JsonValue): void {
       ticker.updatedAt = event.timestamp
     }
     if (event.candleSnapshot?.length) {
-      pendingCandleSnapshots.delete(event.symbol)
+      candleSnapshots.forget(event.symbol)
       ticker.sparkline = event.candleSnapshot
     }
     if (event.candle) {
       const { eventFlags, ...point } = event.candle
-      if (eventFlags & DXLINK_SNAPSHOT_BEGIN) {
-        pendingCandleSnapshots.set(event.symbol, { endSeen: false, points: [] })
-      }
-      const pending = pendingCandleSnapshots.get(event.symbol)
-      if (pending) {
-        pending.points = updateCandleSeries(
-          pending.points,
-          point,
-          Boolean(eventFlags & DXLINK_REMOVE_EVENT),
-        )
-        pending.endSeen ||= Boolean(eventFlags & (DXLINK_SNAPSHOT_END | DXLINK_SNAPSHOT_SNIP))
-        if (pending.endSeen && !(eventFlags & DXLINK_TX_PENDING)) {
-          if (pending.points.length) ticker.sparkline = pending.points
-          pendingCandleSnapshots.delete(event.symbol)
-        }
-      } else {
+      const result = candleSnapshots.accept(event.symbol, event.candle)
+      if (result.status === 'live') {
         ticker.sparkline = updateCandleSeries(
           ticker.sparkline,
           point,
           Boolean(eventFlags & DXLINK_REMOVE_EVENT),
         )
+      } else if (result.status === 'complete' && result.points.length) {
+        ticker.sparkline = result.points
       }
     }
   })
