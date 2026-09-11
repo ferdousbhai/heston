@@ -26,18 +26,16 @@ const { profile } = await cdp.send('Profiler.stop')
 await browser.close()
 const nodeById = new Map(profile.nodes.map((node) => [node.id, node]))
 const selfTime = new Map()
+const byFile = new Map()
 for (let i = 0; i < profile.samples.length; i++) {
   const frame = nodeById.get(profile.samples[i]).callFrame
   const source = frame.url.replace(/^.*\/(node_modules|src)\//, '$1/').split('?')[0]
   const key = `${frame.functionName || '(anon)'} ${source}:${frame.lineNumber + 1}`
-  selfTime.set(key, (selfTime.get(key) ?? 0) + (profile.timeDeltas[i] ?? 0))
+  const micros = profile.timeDeltas[i] ?? 0
+  selfTime.set(key, (selfTime.get(key) ?? 0) + micros)
+  byFile.set(source, (byFile.get(source) ?? 0) + micros)
 }
 const total = [...selfTime.values()].reduce((sum, micros) => sum + micros, 0)
-const byFile = new Map()
-for (const [key, micros] of selfTime) {
-  const file = key.split(' ')[1].split(':')[0]
-  byFile.set(file, (byFile.get(file) ?? 0) + micros)
-}
 const report = (heading, tallies, limit) => {
   console.log(heading)
   for (const [key, micros] of [...tallies].sort((left, right) => right[1] - left[1]).slice(0, limit)) {

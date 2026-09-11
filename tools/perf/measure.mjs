@@ -140,10 +140,11 @@ for (let i = 0; i < runs; i++) {
     new PerformanceObserver((l) => { for (const e of l.getEntries()) if (e.name === 'first-contentful-paint') window.__fcp = e.startTime }).observe({ type: 'paint', buffered: true })
   })
   await page.goto(url, { waitUntil: 'commit' })
-  const firstRowMs = await page.locator('.premium-data-table tbody tr').first()
+  // A run whose first row never rendered measured nothing: let the rejection fail the harness
+  // rather than folding a sentinel into the medians, which would report a faster number.
+  await page.locator('.premium-data-table tbody tr').first()
     .waitFor({ state: 'visible', timeout: 60_000 })
-    .then(() => Date.now() - t0)
-    .catch(() => -1)
+  const firstRowMs = Date.now() - t0
   await page.waitForTimeout(1500)
   const nav = await page.evaluate(() => {
     const navigation = performance.getEntriesByType('navigation')[0]

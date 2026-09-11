@@ -26,6 +26,10 @@ if [[ "$preview_ready" == true ]]; then
 else
   # Restricted sandboxes may deny every TCP listener. Playwright can still serve the exact
   # built Worker document and Brotli client assets through request interception.
+  # The readiness loop also exits here when the child is alive but never answered (late bind,
+  # or another process already on the port), so terminate it before reaping: waiting on a live
+  # preview server would block forever.
+  kill "$preview_pid" 2>/dev/null || true
   wait "$preview_pid" 2>/dev/null || true
   PERF_STATIC_ROOT="dist/client" PERF_SERVER_ENTRY="dist/server/index.js" node tools/perf/measure.mjs "http://localhost:$proxy_port/" "$runs" throttle "mock=$snapshot"
 fi
