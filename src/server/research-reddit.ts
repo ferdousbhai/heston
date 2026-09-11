@@ -27,7 +27,6 @@ export type RedditDiscussion = {
 }
 
 const USER_AGENT = 'SpiceMustFlow/0.2 personal-options-research'
-export const REDDIT_RESEARCH_SOURCE = 'Reddit · r/wallstreetbets'
 // Reddit is untrusted and then embedded in one mandatory research packet. These caps bound
 // upstream requests, Worker memory, and model context; no post or comment is authoritative.
 const MAX_POSTS_REVIEWED = 20

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   readLatestDailyRecommendations,
   readDailyRecommendationsBefore,
-  upsertDailyRecommendations,
+  dailyRecommendationsUpsertStatement,
 } from '../src/server/daily-recommendations-store'
 import { unsupportedDatabase, unsupportedStatement } from './fake-d1'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
@@ -32,8 +32,8 @@ describe('research dailyRecommendations store', () => {
   it('returns absence and upserts a strictly valid latest dailyRecommendations', async () => {
     await expect(readLatestDailyRecommendations(store.database)).resolves.toBeUndefined()
 
-    await upsertDailyRecommendations(store.database, dailyRecommendations)
-    await upsertDailyRecommendations(store.database, { ...dailyRecommendations, summary: 'Conditions improved.' })
+    await dailyRecommendationsUpsertStatement(store.database, dailyRecommendations).run()
+    await dailyRecommendationsUpsertStatement(store.database, { ...dailyRecommendations, summary: 'Conditions improved.' }).run()
 
     await expect(readLatestDailyRecommendations(store.database)).resolves.toMatchObject({
       id: dailyRecommendations.id,
@@ -57,8 +57,8 @@ describe('research dailyRecommendations store', () => {
 
   it('reads one older dailyRecommendations at a time in publication order', async () => {
     const older = { ...dailyRecommendations, id: 'daily-2026-08-27', publishedAt: '2026-08-27T13:30:00.000Z' }
-    await upsertDailyRecommendations(store.database, older)
-    await upsertDailyRecommendations(store.database, dailyRecommendations)
+    await dailyRecommendationsUpsertStatement(store.database, older).run()
+    await dailyRecommendationsUpsertStatement(store.database, dailyRecommendations).run()
 
     await expect(readDailyRecommendationsBefore(store.database, dailyRecommendations.publishedAt)).resolves.toMatchObject({
       id: older.id,

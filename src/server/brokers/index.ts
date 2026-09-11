@@ -1,5 +1,5 @@
 import { type BrokerCredential, BrokerCredentialMissingError } from '../broker-credential'
-import { defineSeam, type SeamValue } from '../seam'
+import { defineSeam } from '../seam'
 import { UnknownBrokerError, type BrokerAdapter } from './contract'
 import { tastytradeAdapter } from './tastytrade'
 
@@ -14,9 +14,7 @@ const brokerAdaptersSeam = defineSeam<Readonly<Record<string, BrokerAdapter>>>((
   tastytrade: tastytradeAdapter,
 }))
 
-export type BrokerAdapters = SeamValue<typeof brokerAdaptersSeam>
-
-export const brokerAdapters = brokerAdaptersSeam.current
+const brokerAdapters = brokerAdaptersSeam.current
 
 export const setBrokerAdapters = brokerAdaptersSeam.set
 

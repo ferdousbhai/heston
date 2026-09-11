@@ -45,10 +45,3 @@ export function dailyRecommendationsUpsertStatement(
      ON CONFLICT(id) DO UPDATE SET published_at = excluded.published_at, payload_json = excluded.payload_json`,
   ).bind(stored.id, stored.publishedAt, JSON.stringify(stored))
 }
-
-export async function upsertDailyRecommendations(
-  db: D1Database,
-  dailyRecommendations: DailyRecommendations,
-): Promise<void> {
-  await dailyRecommendationsUpsertStatement(db, dailyRecommendations).run()
-}

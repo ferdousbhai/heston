@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { equitySymbolFromModelText } from '../domain/instrument'
-import { CATALYST_REFRESH_INTERVAL_DAYS, refreshCatalystsForSymbol } from './catalyst-refresh'
+import { refreshCatalystsForSymbol } from './catalyst-refresh'
 import { type AppEnv } from './env'
 
 /**
@@ -78,5 +78,3 @@ export async function noteSymbolAttention(env: AppEnv, call: SymbolNamingCall): 
     }
   }
 }
-
-export { CATALYST_REFRESH_INTERVAL_DAYS }

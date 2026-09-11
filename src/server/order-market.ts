@@ -196,7 +196,3 @@ export async function assertOrderMarketSafe(
   ])
   return orderMarketFromPayloads(action, quotePayload, instrumentPayload, resolvedOption, now)
 }
-
-export function orderMarketPreview(market: OrderMarket): string {
-  return `Market $${market.bid.toFixed(2)}-$${market.ask.toFixed(2)} · $${market.tickSize.toFixed(2)} tick`
-}
