@@ -4,6 +4,7 @@ import { Gauge, Newspaper, Plug } from 'lucide-react'
 import { z } from 'zod'
 
 import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
+import { Button } from '#/components/ui/button'
 import { Empty, EmptyDescription, EmptyHeader } from '#/components/ui/empty'
 import { Skeleton } from '#/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
@@ -134,7 +135,18 @@ function SpiceWorkspace({
                 <Link to="/disclosures">Disclosures</Link>
               </nav>
             )}
-            {tab !== 'connect' && !snapshotReady && (
+            {/* A failed session check never names an audience, so nothing bootstraps and no sync
+                is ever attempted. Saying so — everywhere, not only on the connect tab — is what
+                keeps the reader off a spinner that cannot end. The audience is still not guessed:
+                restoring for the wrong one would discard the stored snapshot. */}
+            {tab !== 'connect' && authError && (
+              <Alert variant="destructive">
+                <AlertTitle>Session check failed</AlertTitle>
+                <AlertDescription>{authError}</AlertDescription>
+                <Button onClick={() => window.location.reload()} size="sm" type="button" variant="outline">Try again</Button>
+              </Alert>
+            )}
+            {tab !== 'connect' && !snapshotReady && !authError && (
               <MarketState loading={!market.bootstrapComplete} message={market.bootstrapComplete ? 'Market data is unavailable.' : 'Loading market data…'} />
             )}
             {snapshotReady && tab === 'market' && selected && activeWatchlist && (
