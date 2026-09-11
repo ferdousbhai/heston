@@ -17,8 +17,6 @@
     "build/**",
     "coverage/**",
     ".wrangler/**",
-    ".output/**",
-    ".vinxi/**",
     ".tanstack/**"
   ],
   "jsPlugins": [
