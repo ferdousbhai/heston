@@ -1,5 +1,5 @@
 import { defineRule } from "@oxlint/plugins";
-import type { ESTree, Variable } from "@oxlint/plugins";
+import type { ESTree, Scope, Variable } from "@oxlint/plugins";
 
 type BroadTypeKind = "top" | "object" | "record";
 
@@ -169,12 +169,7 @@ function functionBoundary(node: ESTree.Node): ESTree.Node | null {
 }
 
 function resolvedVariableForIdentifier(
-  scopes: readonly {
-    readonly references: readonly {
-      readonly identifier: ESTree.Node;
-      readonly resolved: Variable | null;
-    }[];
-  }[],
+  scopes: readonly Scope[],
   identifier: ESTree.IdentifierReference,
 ): Variable | null {
   for (const scope of scopes) {
@@ -199,7 +194,7 @@ function variableDeclarator(variable: Variable): ESTree.VariableDeclarator | nul
 
 function knownValueEvidence(
   expression: ESTree.Expression,
-  scopes: Parameters<typeof resolvedVariableForIdentifier>[0],
+  scopes: readonly Scope[],
   boundary: ESTree.Node | null,
   visitedVariables: ReadonlySet<Variable>,
 ): KnownValueEvidence | null {
@@ -262,7 +257,7 @@ function knownValueEvidence(
 
 function widenedBinding(
   variable: Variable,
-  scopes: Parameters<typeof resolvedVariableForIdentifier>[0],
+  scopes: readonly Scope[],
 ): {
   readonly broadKind: BroadTypeKind;
   readonly evidence: KnownValueEvidence;
@@ -324,7 +319,7 @@ export const noWidenThenAssertRule = defineRule({
     },
   },
   createOnce(context) {
-    let scopes: Parameters<typeof resolvedVariableForIdentifier>[0] = [];
+    let scopes: readonly Scope[] = [];
 
     const checkAssertion = (node: ESTree.TSAsExpression | ESTree.TSTypeAssertion) => {
       const expression = assertedExpression(node);

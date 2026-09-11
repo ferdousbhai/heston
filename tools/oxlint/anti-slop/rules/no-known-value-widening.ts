@@ -5,10 +5,12 @@ import {
 	createTypeEnvironment,
 	isKnownEvidenceExpression,
 	type TypeEnvironment,
-	type WideningTarget,
+	type WideningTargetKind,
 } from "../shared/dictionary-types.ts";
 
-import type { ESTree, Scope, SourceCode, Variable } from "@oxlint/plugins";
+import { resolveVariable } from "../shared/scope.ts";
+
+import type { ESTree, SourceCode, Variable } from "@oxlint/plugins";
 
 type FunctionExpression = ESTree.ArrowFunctionExpression | ESTree.Function;
 
@@ -24,19 +26,6 @@ function unwrapExpression(expression: ESTree.Expression): ESTree.Expression {
 		current = current.expression;
 	}
 	return current;
-}
-
-function resolveVariable(
-	sourceCode: SourceCode,
-	identifier: ESTree.IdentifierReference,
-): Variable | null {
-	let scope: Scope | null = sourceCode.getScope(identifier);
-	while (scope !== null) {
-		const variable = scope.set.get(identifier.name);
-		if (variable !== undefined) return variable;
-		scope = scope.upper;
-	}
-	return null;
 }
 
 function variableDeclarator(variable: Variable): ESTree.VariableDeclarator | null {
@@ -80,7 +69,7 @@ function hasKnownEvidence(
 function annotationTarget(
 	annotation: ESTree.TSTypeAnnotation | null | undefined,
 	environment: TypeEnvironment,
-): WideningTarget | null {
+): WideningTargetKind | null {
 	return annotation === null || annotation === undefined
 		? null
 		: classifyWideningTarget(annotation.typeAnnotation, environment);
@@ -122,8 +111,8 @@ function isEmptyObjectExpression(expression: ESTree.Expression): boolean {
 	return unwrapped.type === "ObjectExpression" && unwrapped.properties.length === 0;
 }
 
-function isDictionaryAccumulatorTarget(destination: WideningTarget): boolean {
-	return destination.kind === "open dictionary" || destination.kind === "generic container";
+function isDictionaryAccumulatorTarget(destination: WideningTargetKind): boolean {
+	return destination === "open dictionary" || destination === "generic container";
 }
 
 function hasParentAssertion(node: ESTree.Node): boolean {
@@ -147,7 +136,7 @@ export const noKnownValueWideningRule = defineRule({
 
 		const reportFlow = (
 			expression: ESTree.Expression,
-			destination: WideningTarget | null,
+			destination: WideningTargetKind | null,
 			subject: string,
 		) => {
 			if (destination === null) return;
@@ -161,7 +150,7 @@ export const noKnownValueWideningRule = defineRule({
 			context.report({
 				node: expression,
 				messageId: "widening",
-				data: { subject, target: destination.kind },
+				data: { subject, target: destination },
 			});
 		};
 

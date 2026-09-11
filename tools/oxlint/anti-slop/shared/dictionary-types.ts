@@ -19,21 +19,14 @@ type ResolvedType = {
 	readonly substitutions: TypeAliasEnvironment;
 };
 
-export type UnsafeDictionary = {
-	readonly kind: "unsafe-dictionary";
-	readonly unsafeValue: "any" | "empty-object" | "object" | "union" | "unknown";
-};
+export type UnsafeDictionaryValue = "any" | "empty-object" | "object" | "union" | "unknown";
 
-type WideningTargetKind =
+export type WideningTargetKind =
 	| "anonymous object"
 	| "generic container"
 	| "object"
 	| "open dictionary"
 	| "unknown";
-
-export type WideningTarget = {
-	readonly kind: WideningTargetKind;
-};
 
 export type TypeEnvironment = {
 	readonly aliases: ReadonlyMap<string, ESTree.TSTypeAliasDeclaration>;
@@ -192,7 +185,7 @@ function unsafeDirectValue(
 	environment: TypeEnvironment,
 	substitutions: TypeAliasEnvironment,
 	resolvingAliases: ReadonlySet<string>,
-): UnsafeDictionary["unsafeValue"] | null {
+): UnsafeDictionaryValue | null {
 	const unwrapped = unwrapTransparentType(type);
 	if (unwrapped.type === "TSUnknownKeyword") return "unknown";
 	if (unwrapped.type === "TSAnyKeyword") return "any";
@@ -307,15 +300,14 @@ function dictionaryValueTypes(
 export function classifyUnsafeDictionaryValue(
 	valueType: ESTree.TSType,
 	environment: TypeEnvironment,
-): UnsafeDictionary | null {
-	const unsafeValue = unsafeDirectValue(valueType, environment, new Map(), new Set());
-	return unsafeValue === null ? null : { kind: "unsafe-dictionary", unsafeValue };
+): UnsafeDictionaryValue | null {
+	return unsafeDirectValue(valueType, environment, new Map(), new Set());
 }
 
 export function classifyUnsafeDictionary(
 	type: ESTree.TSType,
 	environment: TypeEnvironment,
-): UnsafeDictionary | null {
+): UnsafeDictionaryValue | null {
 	for (const valueType of dictionaryValueTypes(type, environment, new Map(), new Set())) {
 		const unsafeValue = unsafeDirectValue(
 			valueType.type,
@@ -323,7 +315,7 @@ export function classifyUnsafeDictionary(
 			valueType.substitutions,
 			new Set(),
 		);
-		if (unsafeValue !== null) return { kind: "unsafe-dictionary", unsafeValue };
+		if (unsafeValue !== null) return unsafeValue;
 	}
 	return null;
 }
@@ -340,18 +332,18 @@ function resolvesToDictionary(
 export function classifyWideningTarget(
 	type: ESTree.TSType,
 	environment: TypeEnvironment,
-): WideningTarget | null {
+): WideningTargetKind | null {
 	const unwrapped = unwrapTransparentType(type);
-	if (unwrapped.type === "TSUnknownKeyword") return { kind: "unknown" };
-	if (unwrapped.type === "TSObjectKeyword") return { kind: "object" };
+	if (unwrapped.type === "TSUnknownKeyword") return "unknown";
+	if (unwrapped.type === "TSObjectKeyword") return "object";
 	if (unwrapped.type === "TSTypeLiteral") {
 		return unwrapped.members.some((member) => member.type === "TSIndexSignature")
-			? { kind: "open dictionary" }
+			? "open dictionary"
 			: unwrapped.members.length > 0
-				? { kind: "anonymous object" }
+				? "anonymous object"
 				: null;
 	}
-	if (unwrapped.type === "TSMappedType") return { kind: "open dictionary" };
+	if (unwrapped.type === "TSMappedType") return "open dictionary";
 	if (unwrapped.type !== "TSTypeReference") return null;
 	const name = typeReferenceName(unwrapped);
 	if (name === null) return null;
@@ -359,14 +351,14 @@ export function classifyWideningTarget(
 		const wrapped = unwrapped.typeArguments?.params[0];
 		return wrapped === undefined ? null : classifyWideningTarget(wrapped, environment);
 	}
-	if (name === "Record" && isBuiltIn(name, environment)) return { kind: "open dictionary" };
+	if (name === "Record" && isBuiltIn(name, environment)) return "open dictionary";
 	const alias = environment.aliases.get(name);
 	if (alias === undefined) return null;
 	if ((alias.typeParameters?.params.length ?? 0) > 0) {
 		const substitutions = aliasSubstitution(alias, unwrapped, new Map());
 		return substitutions !== null &&
 			resolvesToDictionary(alias.typeAnnotation, environment, substitutions, new Set([name]))
-			? { kind: "generic container" }
+			? "generic container"
 			: null;
 	}
 	const substitutions = aliasSubstitution(alias, unwrapped, new Map());
@@ -413,18 +405,18 @@ function classifyAliasBroadTarget(
 	environment: TypeEnvironment,
 	substitutions: TypeAliasEnvironment,
 	resolvingAliases: ReadonlySet<string>,
-): WideningTarget | null {
+): WideningTargetKind | null {
 	const unwrapped = unwrapTransparentType(type);
-	if (unwrapped.type === "TSUnknownKeyword") return { kind: "unknown" };
-	if (unwrapped.type === "TSObjectKeyword") return { kind: "object" };
+	if (unwrapped.type === "TSUnknownKeyword") return "unknown";
+	if (unwrapped.type === "TSObjectKeyword") return "object";
 	if (unwrapped.type === "TSTypeLiteral") {
 		return unwrapped.members.some((member) => member.type === "TSIndexSignature")
-			? { kind: "open dictionary" }
+			? "open dictionary"
 			: null;
 	}
 	if (unwrapped.type === "TSMappedType") {
 		return isBroadMappedKey(unwrapped.constraint, environment, substitutions)
-			? { kind: "open dictionary" }
+			? "open dictionary"
 			: null;
 	}
 	if (unwrapped.type !== "TSTypeReference") return null;
@@ -448,7 +440,7 @@ function classifyAliasBroadTarget(
 			: classifyAliasBroadTarget(wrapped, environment, substitutions, resolvingAliases);
 	}
 	if (name === "Record" && isBuiltIn(name, environment)) {
-		return { kind: "open dictionary" };
+		return "open dictionary";
 	}
 	const alias = environment.aliases.get(name);
 	if (alias === undefined || resolvingAliases.has(name)) return null;
