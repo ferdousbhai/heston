@@ -101,17 +101,18 @@ const WIDE_VIEWPORT = '(min-width: 1120px)'
 const NARROW_VIEWPORT = '(max-width: 959px)'
 
 function useMediaQuery(query: string): boolean {
-  return useSyncExternalStore(
-    (onChange) => {
-      // A renderer without matchMedia — jsdom, or a server pass — matches nothing, so it draws
-      // the table without asking for history behind a column it was never going to draw.
-      const list = window.matchMedia?.(query)
-      list?.addEventListener('change', onChange)
-      return () => list?.removeEventListener('change', onChange)
-    },
-    () => window.matchMedia?.(query).matches ?? false,
-    () => false,
-  )
+  // Both callbacks are stable per query: React keys the subscription on the subscribe
+  // identity, so a closure rebuilt on every render re-added the change listener on every
+  // commit, and this screen commits on every live quote. The query list itself is still
+  // resolved inside them, so a renderer without matchMedia — jsdom, or a server pass, which
+  // reads the server snapshot instead — never touches `window` at all.
+  const subscribe = useCallback((onChange: () => void) => {
+    const list = window.matchMedia?.(query)
+    list?.addEventListener('change', onChange)
+    return () => list?.removeEventListener('change', onChange)
+  }, [query])
+  const getSnapshot = useCallback(() => window.matchMedia?.(query).matches ?? false, [query])
+  return useSyncExternalStore(subscribe, getSnapshot, () => false)
 }
 
 /**
