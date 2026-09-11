@@ -3,7 +3,7 @@ import { Type } from 'typebox'
 
 import { type OrderPayload } from './order-payload'
 import { type AppEnv } from './env'
-import { type BrokerOrderRecord } from '../domain/broker'
+import { type BrokerOrderRecord, type BrokerOrderRecordLeg } from '../domain/broker'
 import { type JsonValue } from '../domain/json-payload'
 import { resolveStoredOrderFingerprint } from './order-intent'
 import { brokerAdapterFor } from './brokers'
@@ -101,12 +101,12 @@ const ReconcileParameters = Type.Object({}, { additionalProperties: false })
 // A recent absence is not proof that an ambiguous broker mutation failed; wait through the
 // provider's order-history propagation window before allowing a deterministic absence result.
 const FINAL_ABSENCE_DELAY_MS = 15 * 60_000
-function sameLeg(actual: NonNullable<BrokerOrderRecord['legs']>[number], intended: OrderPayload['legs'][number]): boolean {
-  return Boolean(actual)
-    && actual!.action === intended.action
-    && actual!.instrumentType === intended['instrument-type']
-    && actual!.quantity === intended.quantity
-    && actual!.symbol === intended.symbol
+function sameLeg(actual: BrokerOrderRecordLeg | undefined, intended: OrderPayload['legs'][number]): boolean {
+  if (!actual) return false
+  return actual.action === intended.action
+    && actual.instrumentType === intended['instrument-type']
+    && actual.quantity === intended.quantity
+    && actual.symbol === intended.symbol
 }
 
 /** Exact order fingerprint match; timestamps keep unrelated duplicate orders from clearing quarantine. */

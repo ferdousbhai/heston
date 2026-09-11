@@ -783,18 +783,23 @@ export class MarketFeedCore {
     await this.handleUpstreamClose(socket)
   }
 
-  private async handleUpstreamClose(socket: WebSocket): Promise<void> {
-    if (socket !== this.upstream) return
+  /** Everything tied to one upstream socket, cleared by both the close path and the stop path. */
+  private resetUpstreamState(): void {
+    if (this.keepalive) clearInterval(this.keepalive)
+    this.keepalive = undefined
     this.upstream = undefined
     this.openedChannels.clear()
     this.configuredChannels.clear()
     this.subscribedByType.clear()
+    this.clearSetupTimeout()
+  }
+
+  private async handleUpstreamClose(socket: WebSocket): Promise<void> {
+    if (socket !== this.upstream) return
+    this.resetUpstreamState()
     // A half-delivered snapshot cannot be resumed across a reconnect; the resubscribe replays
     // it from the beginning, so the partial run is dropped rather than spliced onto the new one.
     this.dailyRequests.reset()
-    this.clearSetupTimeout()
-    if (this.keepalive) clearInterval(this.keepalive)
-    this.keepalive = undefined
     if (this.hasDemand()) {
       this.broadcastStatus('reconnecting')
       await this.scheduleReconnect()
@@ -811,14 +816,8 @@ export class MarketFeedCore {
   }
 
   private async stopUpstream(code: number, reason: string): Promise<void> {
-    if (this.keepalive) clearInterval(this.keepalive)
-    this.keepalive = undefined
     const socket = this.upstream
-    this.upstream = undefined
-    this.openedChannels.clear()
-    this.configuredChannels.clear()
-    this.subscribedByType.clear()
-    this.clearSetupTimeout()
+    this.resetUpstreamState()
     try { socket?.close(code, reason) } catch { /* Already closed. */ }
     await this.ctx.storage.deleteAlarm()
   }
