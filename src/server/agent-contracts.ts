@@ -135,12 +135,3 @@ export const WatchlistActionParameters = zodTypeBoxSchema(WatchlistActionSchema)
 export type FreshOrderPlacement = z.infer<typeof FreshOrderPlacementSchema>
 export type OrderPlacement = z.infer<typeof OrderPlacementSchema>
 export type StoredOrderPlacement = z.infer<typeof StoredOrderPlacementSchema>
-
-export function previewAction(action: OrderPlacement): string {
-  if (action.kind === 'replace_order') return `Replace order #${action.orderId} @ $${action.limitPrice.toFixed(2)} limit`
-  if (action.kind === 'place_equity_order') return `${action.action} ${action.quantity} ${action.symbol} @ $${action.limitPrice.toFixed(2)} limit`
-  if (action.kind === 'place_vertical_spread_order') {
-    return `Buy ${action.quantity} ${action.underlying} ${action.expiry} ${action.longStrike}/${action.shortStrike}${action.optionType} vertical @ $${action.limitPrice.toFixed(2)} debit`
-  }
-  return `${action.action} ${action.quantity} ${action.underlying} ${action.expiry} ${action.strike}${action.optionType} @ $${action.limitPrice.toFixed(2)} ${action.priceEffect.toLowerCase()}`
-}

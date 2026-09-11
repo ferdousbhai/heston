@@ -149,8 +149,6 @@ export const YearCandlesSchema = z.object({
   })),
 })
 
-export type YearCandles = z.infer<typeof YearCandlesSchema>
-
 export const MarketStateSchema = z.enum(['open', 'closed', 'pre', 'after', 'unknown'])
 
 export type MarketState = z.infer<typeof MarketStateSchema>

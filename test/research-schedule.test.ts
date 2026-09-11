@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { nextDailyResearchRun, shouldStartDailyResearch } from '../src/domain/research-schedule'
+import { nextDailyResearchRun } from '../src/domain/research-schedule'
 
 describe('daily research schedule', () => {
   it('resolves the next weekday run in New York time', () => {
@@ -15,6 +15,5 @@ describe('daily research schedule', () => {
   it('follows daylight-saving changes without changing the New York wall time', () => {
     const winterRun = nextDailyResearchRun(new Date('2026-12-12T12:00:00.000Z'))
     expect(winterRun.toISOString()).toBe('2026-12-14T14:30:00.000Z')
-    expect(shouldStartDailyResearch(winterRun)).toBe(true)
   })
 })

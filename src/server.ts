@@ -55,8 +55,8 @@ export default {
       return
     }
     // The year chart is decoration over live prices, so a failed refresh leaves the last good
-    // series in place rather than failing the tick that also starts research. Record the
-    // degraded run without logging symbols or provider content.
+    // series in place rather than failing the tick. Record the degraded run without logging
+    // symbols or provider content.
     context.waitUntil(import('./server/scheduled-jobs').then(({ refreshYearCandles }) => refreshYearCandles(env, scheduledAt))
       .then((symbolCount) => console.info(JSON.stringify({
         event: 'YearCandlesRefreshed',

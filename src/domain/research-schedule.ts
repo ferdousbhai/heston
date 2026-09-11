@@ -79,14 +79,6 @@ function shiftedCalendarDate(parts: WallClockParts, days: number): Pick<WallCloc
   }
 }
 
-export function shouldStartDailyResearch(date: Date): boolean {
-  if (!Number.isFinite(date.getTime())) throw new Error('Daily research schedule requires a valid date.')
-  const parts = wallClockParts(date)
-  return RESEARCH_WEEKDAYS.has(parts.weekday)
-    && parts.hour === DAILY_RESEARCH_SCHEDULE.hour
-    && parts.minute === DAILY_RESEARCH_SCHEDULE.minute
-}
-
 export function nextDailyResearchRun(now = new Date()): Date {
   if (!Number.isFinite(now.getTime())) throw new Error('Daily research schedule requires a valid date.')
   const current = wallClockParts(now)

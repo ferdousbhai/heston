@@ -99,16 +99,6 @@ export type AccountHistoryReadInput = Static<typeof AccountHistoryReadParameters
 export type InstrumentQuoteReadInput = Static<typeof InstrumentQuoteReadParameters>
 export type OptionContractFindInput = Static<typeof OptionContractFindParameters>
 
-/**
- * The account-history shapes are the provider-neutral ones in `src/domain/broker.ts`;
- * these aliases keep the read-tool contract readable without minting a second vocabulary.
- */
-export type {
-  BrokerHistoryOrder as CompactOrder,
-  BrokerHistoryOrderLeg as CompactOrderLeg,
-  BrokerHistoryTransaction as CompactTransaction,
-} from '../domain/broker'
-
 export type AccountHistoryReadResult = {
   asOf: string
   items: BrokerHistoryOrder[] | BrokerHistoryTransaction[]

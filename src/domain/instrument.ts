@@ -83,7 +83,3 @@ export type InstrumentCatalogItem = z.infer<typeof InstrumentCatalogItemSchema>
 export function isTradeableInstrument(item: Pick<InstrumentCatalogItem, 'active' | 'resolutionStatus'>): boolean {
   return item.resolutionStatus === 'resolved' && item.active !== false
 }
-
-export function instrumentDisplayName(item: Pick<InstrumentCatalogItem, 'description' | 'shortDescription' | 'symbol'>): string {
-  return item.description ?? item.shortDescription ?? item.symbol
-}
