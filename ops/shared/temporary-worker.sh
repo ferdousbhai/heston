@@ -168,8 +168,8 @@ temporary_worker_stop() {
   return "$delete_status"
 }
 
-temporary_worker_exit_with_cleanup() {
-  local original_status="$1"
+temporary_worker_cleanup_on_exit() {
+  local original_status=$?
   local cleanup_status=0
   trap - EXIT
   temporary_worker_stop || cleanup_status=$?
@@ -177,9 +177,4 @@ temporary_worker_exit_with_cleanup() {
     exit "$original_status"
   fi
   exit "$cleanup_status"
-}
-
-temporary_worker_cleanup_on_exit() {
-  local original_status=$?
-  temporary_worker_exit_with_cleanup "$original_status"
 }

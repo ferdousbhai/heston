@@ -6,7 +6,6 @@ import {
 import { summarizeOwnerMarketSync } from '../ops/shared/market-sync'
 import { type OpsEnv, serveOpsRequest } from '../ops/shared/worker-auth'
 
-const WORKER_NAME = 'spice-internal-watchlist-seed'
 const SEED_PATHS = ['/preview', '/seed', '/sync']
 
 /**
@@ -19,13 +18,13 @@ export default {
   fetch(request: Request, env: OpsEnv): Promise<Response> {
     return serveOpsRequest(request, env, SEED_PATHS, 'InternalWatchlist:seed-failed', async (path) => {
       if (path === '/preview') {
-        return Response.json({ worker: WORKER_NAME, preview: await previewInternalWatchlistFromTastytrade(env) })
+        return Response.json({ preview: await previewInternalWatchlistFromTastytrade(env) })
       }
       if (path === '/sync') {
-        return Response.json({ worker: WORKER_NAME, sync: await summarizeOwnerMarketSync(env) })
+        return Response.json({ sync: await summarizeOwnerMarketSync(env) })
       }
       await seedInternalWatchlistFromTastytrade(env)
-      return Response.json({ worker: WORKER_NAME, audit: await readInternalWatchlistSeedAudit(env) })
+      return Response.json({ audit: await readInternalWatchlistSeedAudit(env) })
     })
   },
 }
