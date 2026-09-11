@@ -12,7 +12,10 @@ import { type DailyRecommendations } from '../domain/market'
 import { recommendedOrderLabel } from '../domain/recommended-order'
 import { DAILY_RESEARCH_SCHEDULE, nextDailyResearchRun } from '../domain/research-schedule'
 
-const issueDate = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+// The run publishes at a time of day, not on a day, so the issue line carries the time too.
+const issueDate = new Intl.DateTimeFormat('en-US', {
+  day: 'numeric', hour: 'numeric', minute: '2-digit', month: 'short', timeZone: 'America/New_York', timeZoneName: 'short', year: 'numeric',
+})
 const nextRunDate = new Intl.DateTimeFormat('en-US', {
   day: 'numeric',
   month: 'short',

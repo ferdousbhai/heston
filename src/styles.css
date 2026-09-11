@@ -387,6 +387,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .focus-sheet .instrument-focus { border-bottom: 0; padding-bottom: 8px; }
 .focus-sheet-close { position: absolute; top: 6px; right: 10px; z-index: 1; width: 34px; height: 34px; display: grid; place-items: center; border: 0; background: transparent; color: var(--ink-muted); cursor: pointer; }
 .focus-sheet-close svg { width: 16px; height: 16px; }
+.focus-sheet-pin[data-slot="button"] { position: absolute; top: 6px; right: 48px; z-index: 1; width: 34px; height: 34px; }
+.watch-row .year-sparkline { grid-column: 3; width: 56px; max-width: none; margin: 0; }
 
 .bottom-nav { position: fixed; z-index: 20; left: 50%; bottom: 0; transform: translateX(-50%); width: 100%; height: calc(71px + env(safe-area-inset-bottom)); padding: 6px 18px env(safe-area-inset-bottom); background: rgba(13, 14, 19, .84); backdrop-filter: blur(28px) saturate(150%); border-top: 1px solid var(--hairline); display: grid; grid-template-columns: repeat(3, 1fr); }
 

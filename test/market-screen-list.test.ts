@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { createElement } from 'react'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { MarketScreen } from '../src/components/market-screen'
@@ -108,5 +108,37 @@ describe('the phone list', () => {
     expect(selected).toEqual(['TSLA'])
     expect(document.querySelector('[data-slot="drawer-popup"] .instrument-focus')).not.toBeNull()
     expect(screen.getByRole('button', { name: 'Close detail' })).toBeTruthy()
+  })
+})
+
+describe('the phone row chart', () => {
+  it('draws the year when the feed carries no session candles', async () => {
+    stubPhoneViewport()
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).startsWith('/api/public-year-candles')) {
+        return Response.json({ asOf: '2026-08-31', series: [{ closes: [100, 104, 99, 110], symbol: 'NVDA' }] })
+      }
+      return Response.json({ catalysts: [], ran: false })
+    }))
+    const snapshot = marketSnapshotFixture()
+    for (const ticker of snapshot.tickers) ticker.sparkline = []
+
+    render(createElement(MarketScreen, {
+      activeWatchlist: { ...snapshot.watchlists[0]!, kind: 'public' as const },
+      catalysts: snapshot.catalysts,
+      owner: false,
+      onSelectTicker: () => undefined,
+      onTogglePinned: () => undefined,
+      pinnedSymbols: [],
+      dailyRecommendations: snapshot.recommendations,
+      selected: snapshot.tickers[0]!,
+      tickers: snapshot.tickers,
+    }))
+
+    await waitFor(() => {
+      expect(document.querySelector('.watch-row .year-sparkline')).not.toBeNull()
+    })
+    expect(document.querySelectorAll('.watch-row .year-sparkline')).toHaveLength(1)
+    expect(document.querySelector('.watch-row .session-sparkline')).toBeNull()
   })
 })

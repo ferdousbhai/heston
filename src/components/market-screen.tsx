@@ -543,6 +543,7 @@ const MarketListRow = memo(function MarketListRow({
   onSelectTicker,
   onTogglePinned,
   ticker,
+  yearCloses,
 }: {
   catalyst: Catalyst | undefined
   isPinned: boolean
@@ -553,6 +554,7 @@ const MarketListRow = memo(function MarketListRow({
   onSelectTicker: (symbol: string) => void
   onTogglePinned: (symbol: string) => void
   ticker: Ticker
+  yearCloses?: readonly number[]
 }) {
   const verdict = volatilityVerdict(ticker)
   const copy = verdictCopy[verdict]
@@ -590,8 +592,11 @@ const MarketListRow = memo(function MarketListRow({
         <small>{issuerName(ticker.name)}</small>
         {catalyst ? <small>{catalystLabel(catalyst, now)}</small> : null}
       </Button>
-      {/* Snapshot quotes carry two synthetic endpoints; only render a chart for a richer live candle series. */}
-      {ticker.sparkline.length > 2 ? <Sparkline points={ticker.sparkline} /> : null}
+      {/* The session chart when the feed carries one; otherwise the year, which every reader
+          has. A row with neither draws nothing rather than a synthetic two-point line. */}
+      {ticker.sparkline.length > 2
+        ? <Sparkline points={ticker.sparkline} />
+        : yearCloses && yearCloses.length > 1 ? <YearSparkline closes={yearCloses} /> : null}
       <div className="watch-row-quote">
         <strong>{formatMarketPrice(ticker.price)}</strong>
         <button
@@ -701,9 +706,9 @@ export function MarketScreen({
   // Looking at a symbol with an empty month asks the server to go and find out. What comes
   // back joins the calendar on this visit rather than waiting for the next snapshot.
   const catalystSearch = useCatalystSearch(selected.symbol, catalysts, now)
-  // The year column only exists at the wide breakpoint, so its history is only fetched there.
-  // A phone never spends a request on a chart it has no room to draw.
-  const yearCloses = useYearCandles(useMediaQuery(WIDE_VIEWPORT))
+  // The year series is fetched only where something draws it: the table's year column at the
+  // wide breakpoint, and every phone row, which has the room the table's middle widths lack.
+  const yearCloses = useYearCandles(useMediaQuery(WIDE_VIEWPORT) || narrow)
   const cycleListMetric = useCallback(() => {
     setListMetric((current) => LIST_METRICS[(LIST_METRICS.indexOf(current) + 1) % LIST_METRICS.length]!)
   }, [])
@@ -835,6 +840,19 @@ export function MarketScreen({
           <Drawer onOpenChange={setDetailOpen} open={detailOpen} showSwipeHandle>
             <DrawerContent className="focus-sheet">
               <DrawerTitle className="sr-only">{selected.symbol} detail</DrawerTitle>
+              {/* The pin travels with the card, so a reader deciding on a name in the sheet
+                  need not go back to the row to keep it. */}
+              <Button
+                aria-label={`${pinned.has(selected.symbol) ? 'Unpin' : 'Pin'} ${selected.symbol}`}
+                aria-pressed={pinned.has(selected.symbol)}
+                className={cn('pin-button focus-sheet-pin', pinned.has(selected.symbol) && 'pinned')}
+                onClick={() => onTogglePinned(selected.symbol)}
+                size="icon-sm"
+                type="button"
+                variant="ghost"
+              >
+                <Star aria-hidden="true" fill={pinned.has(selected.symbol) ? 'currentColor' : 'none'} />
+              </Button>
               <DrawerClose aria-label="Close detail" className="focus-sheet-close">
                 <X aria-hidden="true" />
               </DrawerClose>
@@ -880,6 +898,7 @@ export function MarketScreen({
                 onSelectTicker={selectFromList}
                 onTogglePinned={onTogglePinned}
                 ticker={ticker}
+                yearCloses={yearCloses.get(ticker.symbol)}
               />
             ))}
             {!watchTickers.length && (
