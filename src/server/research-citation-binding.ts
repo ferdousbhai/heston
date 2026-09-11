@@ -1,4 +1,3 @@
-import { sift, type Verdict } from '../domain/sift'
 import { type DailyRecommendationsSubmission } from './research-submission'
 import { retentionKey, type RetainedPage } from './research-agent-tools'
 
@@ -43,16 +42,20 @@ export function bindRecommendationCitations(
     const key = cited === undefined ? undefined : retentionKey(cited)
     return key === undefined ? undefined : pages.get(key)
   }
-  const sifted = sift(recommendations, (recommendation): Verdict<DailyRecommendationsSubmission['recommendations'][number]> => {
+  const kept: CitationBinding['recommendations'] = []
+  const rejected: string[] = []
+  for (const recommendation of recommendations) {
     // `some`, not `find`: an index past the end of sources maps to undefined, and a `find`
     // that matches it returns undefined too — indistinguishable from nothing failing. Such an
     // recommendation used to pass here and then throw downstream, taking the daily output with it.
     if (recommendation.sourceIndices.some((index) => readPage(index) === undefined)) {
-      return { rejected: `${recommendation.symbol}: cites a page this run never read` }
+      rejected.push(`${recommendation.symbol}: cites a page this run never read`)
+      continue
     }
     // A quote only vouches for a source the recommendation actually leans on.
     if (recommendation.evidence.some((evidence) => !recommendation.sourceIndices.includes(evidence.sourceIndex))) {
-      return { rejected: `${recommendation.symbol}: quotes a source it does not cite` }
+      rejected.push(`${recommendation.symbol}: quotes a source it does not cite`)
+      continue
     }
     // Naming the failing quote costs nothing here and saved attempts elsewhere: a live run
     // burned its last correction guessing which of three quotes the server could not find.
@@ -60,9 +63,11 @@ export function bindRecommendationCitations(
       const page = readPage(evidence.sourceIndex)
       return page === undefined || !page.includes(normalized(evidence.quote))
     })
-    return unquoted
-      ? { rejected: `${recommendation.symbol}: quote absent from its source: "${unquoted.quote.slice(0, 80)}"` }
-      : { kept: recommendation }
-  })
-  return { recommendations: sifted.kept, rejected: sifted.rejected }
+    if (unquoted) {
+      rejected.push(`${recommendation.symbol}: quote absent from its source: "${unquoted.quote.slice(0, 80)}"`)
+      continue
+    }
+    kept.push(recommendation)
+  }
+  return { recommendations: kept, rejected }
 }
