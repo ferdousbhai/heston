@@ -13,7 +13,8 @@ where they belong. Read the relevant code before changing behavior.
 `src/domain/` pure schemas and logic · `src/server/` Cloudflare and provider code ·
 `src/routes/api.*` thin HTTP adapters · `src/data/` reactive browser persistence ·
 `src/components/` product surfaces · `migrations/` D1 schema · `ops/` the member's own
-machine (credential proxy) · `tools/` local jobs. The daily research run lives in the private
+machine (credential proxy) and the owner's temporary bootstrap Workers, which reach the
+production bindings · `tools/` local jobs. The daily research run lives in the private
 `spice-research` repository: the site is public, the recipe is not.
 
 ## Boundaries
