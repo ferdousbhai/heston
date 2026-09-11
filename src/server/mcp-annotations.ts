@@ -98,8 +98,8 @@ const ANNOTATIONS = {
     title: 'Record a catalyst',
   },
   publish_daily_recommendations: {
-    // Replaces the market date's brief and posts to a public channel. The post cannot be
-    // recalled, so this is destructive in the way that matters most.
+    // Replaces the market date's brief, which is what the public site then shows. The
+    // replaced brief is not kept, so this is destructive in the way that matters most.
     destructiveHint: true,
     idempotentHint: false,
     openWorldHint: true,

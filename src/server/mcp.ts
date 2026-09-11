@@ -184,7 +184,7 @@ export function createSpiceMcpServer(
     (uri) => ({ contents: [{ text: SPICE_GUIDE, uri: uri.href }] }),
   )
 
-  // Owner only: publishing replaces the public brief and posts it to the public channel.
+  // Owner only: publishing replaces the public brief, and does nothing else.
   if (caller.owner) {
     server.registerTool(
       'publish_daily_recommendations',
@@ -193,7 +193,7 @@ export function createSpiceMcpServer(
           + 'reads every cited page itself and refuses any quote or catalyst date it cannot '
           + 'find in that text; a rejected submission returns the exact reasons so citations '
           + 'can be fixed and the brief submitted again. Publishing replaces the current '
-          + 'market date\'s brief and posts it to the public channel.',
+          + 'market date\'s brief.',
         annotations: toolAnnotations('publish_daily_recommendations'),
         inputSchema: fromJsonSchema(asJsonSchema(DailyRecommendationsSubmissionSchema)),
       },
