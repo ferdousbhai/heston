@@ -37,39 +37,9 @@
   font-family: var(--mono);
   background: var(--bg);
   color: var(--text);
-  font-synrecommendation: none;
+  font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
   --radius: 0;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
 }
 
 * { box-sizing: border-box; }
@@ -494,7 +464,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   .app-shell { padding-bottom: 48px; }
   .top-bar { padding-inline: 24px; }
 
-  .bottom-nav { top: 11px; bottom: auto; width: auto; height: auto; padding: 0; border: 1px solid var(--hairline); border-top: 1px solid var(--hairline); background: var(--bg); display: flex; }
+  .bottom-nav { top: 11px; bottom: auto; width: auto; height: auto; padding: 0; border: 1px solid var(--hairline); background: var(--bg); display: flex; }
     .bottom-nav [data-slot="tabs-trigger"] { min-height: 34px; flex-direction: row; gap: 7px; padding: 0 18px; border-right: 1px solid var(--hairline); font-size: 11px; }
   .bottom-nav [data-slot="tabs-trigger"]:last-child { border-right: 0; }
   .bottom-nav [data-slot="tabs-trigger"][data-active] { background: var(--spice); color: #0d0e13; }
@@ -654,6 +624,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   --accent: #262a33;
   --accent-foreground: #e6e7ec;
   --destructive: #ff5f6b;
+  --destructive-foreground: #0d0e13;
   --border: rgba(255, 171, 74, .15);
   --input: rgba(255, 171, 74, .22);
   --ring: #ffab4a;
