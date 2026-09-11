@@ -1,8 +1,8 @@
 import { defineRule } from "@oxlint/plugins";
 
 import {
-  type Parameter,
   parameterAnnotation,
+  type Parameter,
   type ParameterOwner,
 } from "../shared/function-parameters.ts";
 

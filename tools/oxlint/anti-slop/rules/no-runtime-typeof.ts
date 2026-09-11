@@ -15,9 +15,8 @@ export const noRuntimeTypeofRule = defineRule({
 	createOnce(context) {
 		return {
 			UnaryExpression(node) {
-				if (node.operator === "typeof") {
-					context.report({ node, messageId: "runtimeTypeof" });
-				}
+				if (node.operator !== "typeof") return;
+				context.report({ node, messageId: "runtimeTypeof" });
 			},
 		};
 	},

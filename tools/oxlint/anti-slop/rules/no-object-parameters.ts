@@ -3,11 +3,11 @@ import { defineRule } from "@oxlint/plugins";
 import type { ESTree, SourceCode } from "@oxlint/plugins";
 
 import {
-	type Parameter,
 	parameterAnnotation,
+	type Parameter,
 	type ParameterOwner,
 } from "../shared/function-parameters.ts";
-import { lexicalTypeParameterNames } from "../shared/lexical-type-parameters.ts";
+import { shadowedTypeNames } from "../shared/shadowed-type-names.ts";
 
 function parameterName(parameter: Parameter, sourceCode: SourceCode): string {
 	return parameter.type === "Identifier"
@@ -62,7 +62,7 @@ export const noObjectParametersRule = defineRule({
 		};
 
 		const checkParameters = (node: ParameterOwner) => {
-			const shadowedAliases = lexicalTypeParameterNames(
+			const shadowedAliases = shadowedTypeNames(
 				node,
 				context.sourceCode.visitorKeys,
 			);

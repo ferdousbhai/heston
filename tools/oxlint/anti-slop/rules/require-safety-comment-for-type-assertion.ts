@@ -1,10 +1,10 @@
 import { defineRule } from "@oxlint/plugins";
 
+import { isConstAssertion, type TypeAssertion } from "../shared/type-nodes.ts";
+
 import type { ESTree, SourceCode } from "@oxlint/plugins";
 
-type TypeAssertion = ESTree.TSAsExpression | ESTree.TSTypeAssertion;
-
-const SAFETY_PATTERN = /\bSAFETY\s*:/u;
+const SAFETY_COMMENT = /\bSAFETY\s*:/u;
 
 // The walk must stop at the statement list holding the assertion's own statement:
 // climbing further would let one comment above a function justify every assertion
@@ -18,28 +18,15 @@ const statementListContainers = new Set([
   "TSModuleBlock",
 ]);
 
-function isConstAssertion(node: TypeAssertion): boolean {
-  return (
-    node.typeAnnotation.type === "TSTypeReference" &&
-    node.typeAnnotation.typeName.type === "Identifier" &&
-    node.typeAnnotation.typeName.name === "const"
-  );
-}
-
-function hasSafetyCommentBefore(
-  sourceCode: SourceCode,
-  target: ESTree.Node,
-  node: TypeAssertion,
-): boolean {
-  return sourceCode
-    .getCommentsBefore(target)
-    .some((comment) => comment.end <= node.start && SAFETY_PATTERN.test(comment.value));
-}
-
 function hasSafetyComment(sourceCode: SourceCode, node: TypeAssertion): boolean {
+  const hasSafetyCommentBefore = (target: ESTree.Node) =>
+    sourceCode
+      .getCommentsBefore(target)
+      .some((comment) => comment.end <= node.start && SAFETY_COMMENT.test(comment.value));
+
   let current: ESTree.Node = node;
   while (true) {
-    if (hasSafetyCommentBefore(sourceCode, current, node)) return true;
+    if (hasSafetyCommentBefore(current)) return true;
     const parent: ESTree.Node | null = current.parent;
     if (parent === null || statementListContainers.has(parent.type)) return false;
     current = parent;

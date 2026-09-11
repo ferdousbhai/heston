@@ -42,8 +42,8 @@ function moduleMockCall(sourceCode: SourceCode, callee: ESTree.Expression): bool
   if (!isTestFrameworkObject(sourceCode, callee.object)) return false;
   const property = callee.property;
   const method = callee.computed
-    ? property.type === "Literal"
-      ? String(property.value)
+    ? property.type === "Literal" && typeof property.value === "string"
+      ? property.value
       : null
     : property.type === "Identifier"
       ? property.name

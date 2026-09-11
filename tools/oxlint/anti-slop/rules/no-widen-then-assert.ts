@@ -1,5 +1,7 @@
 import { defineRule } from "@oxlint/plugins";
-import type { ESTree, Scope, Variable } from "@oxlint/plugins";
+import type { ESTree, Variable } from "@oxlint/plugins";
+
+import { typeReferenceName, unwrapParentheses } from "../shared/type-nodes.ts";
 
 type BroadTypeKind = "top" | "object" | "record";
 
@@ -15,20 +17,10 @@ const functionBoundaryTypes = new Set([
   "TSEmptyBodyFunctionExpression",
 ]);
 
-function unwrapExpressionParentheses(expression: ESTree.Expression): ESTree.Expression {
-  let current = expression;
-  while (current.type === "ParenthesizedExpression") current = current.expression;
-  return current;
-}
-
 function unwrapTypeParentheses(type: ESTree.TSType): ESTree.TSType {
   let current = type;
   while (current.type === "TSParenthesizedType") current = current.typeAnnotation;
   return current;
-}
-
-function typeReferenceName(type: ESTree.TSTypeReference): string | null {
-  return type.typeName.type === "Identifier" ? type.typeName.name : null;
 }
 
 function isUnknownOrAnyType(type: ESTree.TSType): boolean {
@@ -91,13 +83,13 @@ function broadTypeKind(type: ESTree.TSType): BroadTypeKind | null {
 function assertedExpression(
   node: ESTree.TSAsExpression | ESTree.TSTypeAssertion,
 ): ESTree.Expression {
-  return unwrapExpressionParentheses(node.expression);
+  return unwrapParentheses(node.expression);
 }
 
 function assertionFromExpression(
   expression: ESTree.Expression,
 ): ESTree.TSAsExpression | ESTree.TSTypeAssertion | null {
-  const unwrapped = unwrapExpressionParentheses(expression);
+  const unwrapped = unwrapParentheses(expression);
   return unwrapped.type === "TSAsExpression" || unwrapped.type === "TSTypeAssertion"
     ? unwrapped
     : null;
@@ -169,7 +161,12 @@ function functionBoundary(node: ESTree.Node): ESTree.Node | null {
 }
 
 function resolvedVariableForIdentifier(
-  scopes: readonly Scope[],
+  scopes: readonly {
+    readonly references: readonly {
+      readonly identifier: ESTree.Node;
+      readonly resolved: Variable | null;
+    }[];
+  }[],
   identifier: ESTree.IdentifierReference,
 ): Variable | null {
   for (const scope of scopes) {
@@ -194,11 +191,11 @@ function variableDeclarator(variable: Variable): ESTree.VariableDeclarator | nul
 
 function knownValueEvidence(
   expression: ESTree.Expression,
-  scopes: readonly Scope[],
+  scopes: Parameters<typeof resolvedVariableForIdentifier>[0],
   boundary: ESTree.Node | null,
   visitedVariables: ReadonlySet<Variable>,
 ): KnownValueEvidence | null {
-  const unwrapped = unwrapExpressionParentheses(expression);
+  const unwrapped = unwrapParentheses(expression);
 
   if (unwrapped.type === "TSAsExpression" || unwrapped.type === "TSTypeAssertion") {
     if (broadTypeKind(unwrapped.typeAnnotation) !== null) return null;
@@ -257,7 +254,7 @@ function knownValueEvidence(
 
 function widenedBinding(
   variable: Variable,
-  scopes: readonly Scope[],
+  scopes: Parameters<typeof resolvedVariableForIdentifier>[0],
 ): {
   readonly broadKind: BroadTypeKind;
   readonly evidence: KnownValueEvidence;
@@ -319,7 +316,7 @@ export const noWidenThenAssertRule = defineRule({
     },
   },
   createOnce(context) {
-    let scopes: readonly Scope[] = [];
+    let scopes: Parameters<typeof resolvedVariableForIdentifier>[0] = [];
 
     const checkAssertion = (node: ESTree.TSAsExpression | ESTree.TSTypeAssertion) => {
       const expression = assertedExpression(node);

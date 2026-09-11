@@ -9,6 +9,7 @@ import {
 } from "../shared/dictionary-types.ts";
 
 import { resolveVariable } from "../shared/scope.ts";
+import { shadowedTypeNames } from "../shared/shadowed-type-names.ts";
 
 import type { ESTree, SourceCode, Variable } from "@oxlint/plugins";
 
@@ -69,10 +70,11 @@ function hasKnownEvidence(
 function annotationTarget(
 	annotation: ESTree.TSTypeAnnotation | null | undefined,
 	environment: TypeEnvironment,
+	shadowedNames: ReadonlySet<string>,
 ): WideningTargetKind | null {
 	return annotation === null || annotation === undefined
 		? null
-		: classifyWideningTarget(annotation.typeAnnotation, environment);
+		: classifyWideningTarget(annotation.typeAnnotation, environment, shadowedNames);
 }
 
 function enclosingFunction(node: ESTree.Node): FunctionExpression | null {
@@ -154,8 +156,36 @@ export const noKnownValueWideningRule = defineRule({
 			});
 		};
 
+		const checkProperty = (node: ESTree.PropertyDefinition | ESTree.AccessorProperty) => {
+			if (node.value === null) return;
+			reportFlow(
+				node.value,
+				targetFromAnnotation(node.typeAnnotation),
+				`property \`${sourceKeyName(context.sourceCode, node.key)}\``,
+			);
+		};
+
+		const checkAssertion = (node: ESTree.TSAsExpression | ESTree.TSTypeAssertion) => {
+			if (environment === null || hasParentAssertion(node)) return;
+			reportFlow(
+				node.expression,
+				classifyWideningTarget(
+					node.typeAnnotation,
+					environment,
+					shadowedTypeNames(node, context.sourceCode.visitorKeys),
+				),
+				"assertion",
+			);
+		};
+
 		const targetFromAnnotation = (annotation: ESTree.TSTypeAnnotation | null | undefined) =>
-			environment === null ? null : annotationTarget(annotation, environment);
+			environment === null || annotation === null || annotation === undefined
+				? null
+				: annotationTarget(
+						annotation,
+						environment,
+						shadowedTypeNames(annotation, context.sourceCode.visitorKeys),
+					);
 
 		return {
 			Program(node) {
@@ -169,22 +199,8 @@ export const noKnownValueWideningRule = defineRule({
 					`binding \`${node.id.name}\``,
 				);
 			},
-			PropertyDefinition(node) {
-				if (node.value === null) return;
-				reportFlow(
-					node.value,
-					targetFromAnnotation(node.typeAnnotation),
-					`property \`${sourceKeyName(context.sourceCode, node.key)}\``,
-				);
-			},
-			AccessorProperty(node) {
-				if (node.value === null) return;
-				reportFlow(
-					node.value,
-					targetFromAnnotation(node.typeAnnotation),
-					`property \`${sourceKeyName(context.sourceCode, node.key)}\``,
-				);
-			},
+			PropertyDefinition: checkProperty,
+			AccessorProperty: checkProperty,
 			AssignmentExpression(node) {
 				if (node.operator !== "=" || node.left.type !== "Identifier") return;
 				const variable = resolveVariable(context.sourceCode, node.left);
@@ -214,22 +230,8 @@ export const noKnownValueWideningRule = defineRule({
 					`return value of \`${functionName(context.sourceCode, node)}\``,
 				);
 			},
-			TSAsExpression(node) {
-				if (environment === null || hasParentAssertion(node)) return;
-				reportFlow(
-					node.expression,
-					classifyWideningTarget(node.typeAnnotation, environment),
-					"assertion",
-				);
-			},
-			TSTypeAssertion(node) {
-				if (environment === null || hasParentAssertion(node)) return;
-				reportFlow(
-					node.expression,
-					classifyWideningTarget(node.typeAnnotation, environment),
-					"assertion",
-				);
-			},
+			TSAsExpression: checkAssertion,
+			TSTypeAssertion: checkAssertion,
 		};
 	},
 });
