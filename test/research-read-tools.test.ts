@@ -10,7 +10,7 @@ import { unsupportedDatabase, unsupportedStatement } from './fake-d1'
 const dailyRecommendations = {
   id: 'daily-1', publishedAt: '2026-08-13T13:30:00.000Z', title: 'Wait for the pitch',
   summary: 'Liquidity is thin.', regime: 'Cautious', regimeDetail: 'Keep dry powder.',
-  recommendations: [], links: [], sources: [],
+  recommendations: [], links: [],
 }
 
 function d1WithResults(results: unknown[]) {

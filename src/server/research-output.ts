@@ -2,6 +2,7 @@ import {
   RecommendationSchema,
   RecommendationLinkSchema,
   type DailyRecommendations,
+  type ResearchSourceLink,
 } from '../domain/market'
 import { type DailyRecommendationsSubmission } from './research-submission'
 
@@ -11,7 +12,7 @@ type RecommendationLinkCandidate = DailyRecommendationsSubmission['links'][numbe
 /** Resolve the model's source references and preserve its validated, non-executable order. */
 export function recommendationsFromCandidates(
   recommendations: readonly RecommendationCandidate[],
-  sources: readonly DailyRecommendations['sources'][number][],
+  sources: readonly ResearchSourceLink[],
 ): DailyRecommendations['recommendations'] {
   return recommendations.map((recommendation, recommendationIndex) => {
     const selected = recommendation.sourceIndices.map((index) => {
@@ -47,7 +48,7 @@ export function recommendationsFromCandidates(
 /** Bind the editor's ranked reader links to application-owned evidence URLs. */
 export function linksFromCandidates(
   value: readonly RecommendationLinkCandidate[],
-  sources: readonly DailyRecommendations['sources'][number][],
+  sources: readonly ResearchSourceLink[],
   recommendationCount: number,
 ): DailyRecommendations['links'] {
   if (value.length !== recommendationCount) {

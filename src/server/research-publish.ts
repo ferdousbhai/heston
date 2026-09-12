@@ -1,7 +1,11 @@
 import { Compile } from 'typebox/compile'
 
 import { marketDate, type Catalyst } from '../domain/catalyst'
-import { DailyRecommendationsSchema, type DailyRecommendations } from '../domain/market'
+import {
+  DailyRecommendationsSchema,
+  type DailyRecommendations,
+  type ResearchSourceLink,
+} from '../domain/market'
 import { RESEARCH_REFRESH_INTERVAL_MINUTES, researchRefreshOpensAt } from '../domain/research-refresh'
 import { type AppEnv } from './env'
 import { type JsonValue } from '../domain/json-payload'
@@ -44,20 +48,9 @@ import { linksFromCandidates, recommendationsFromCandidates } from './research-o
 
 const SubmissionValidator = Compile(DailyRecommendationsSubmissionSchema)
 
-/** Publish only sources the editor selected for a recommendation or the reader links. */
-function recommendationSourceLinks(
-  recommendations: DailyRecommendations['recommendations'],
-  links: DailyRecommendations['links'],
-): DailyRecommendations['sources'] {
-  return [
-    ...recommendations.flatMap((recommendation) => recommendation.sources),
-    ...links.map((item) => ({ label: item.title, url: item.url })),
-  ]
-}
-
 function bindSubmissionSources(
   sources: readonly DailyRecommendationsSubmission['sources'][number][],
-): DailyRecommendations['sources'] {
+): ResearchSourceLink[] {
   return sources.map((candidate, index) => {
     const url = recommendationLinkKey(candidate.sourceUrl)
     if (!url) throw new Error(`DailyResearchOutput:invalid-source-url:${index}`)
@@ -177,7 +170,6 @@ export async function publishSubmittedDailyRecommendations(
     recommendations,
     regime: submission.regime,
     regimeDetail: submission.regimeDetail,
-    sources: recommendationSourceLinks(recommendations, links),
     summary: submission.summary,
     title: submission.title,
   })

@@ -192,7 +192,9 @@ export const DailyRecommendationsSchema = z.object({
   regimeDetail: z.string(),
   recommendations: z.array(RecommendationSchema),
   links: z.array(RecommendationLinkSchema),
-  sources: z.array(ResearchSourceLinkSchema),
+  // No brief-level source list: it was every recommendation's sources and every link's title
+  // concatenated, so a fifth of the brief restated addresses that sit on the thing they belong
+  // to. Nothing read it. A stored brief that still carries one parses and drops it here.
 })
 
 /** D1 stores the current public recommendation contract; incompatible rows fail visibly. */
@@ -263,6 +265,8 @@ export type Watchlist = z.infer<typeof WatchlistSchema>
 export type Ticker = z.infer<typeof TickerSchema>
 export type IvTermStructure = z.infer<typeof IvTermStructureSchema>
 export type DailyRecommendations = z.infer<typeof DailyRecommendationsSchema>
+/** A cited page as a brief publishes it: the label a reader sees and the address it opens. */
+export type ResearchSourceLink = z.infer<typeof ResearchSourceLinkSchema>
 export type RecommendationVerification = z.infer<typeof RecommendationVerificationSchema>
 export type MarketSnapshot = z.infer<typeof MarketSnapshotSchema>
 export type PublicMarketSnapshot = z.infer<typeof PublicMarketSnapshotSchema>

@@ -52,7 +52,6 @@ const dailyRecommendations: DailyRecommendations = {
     { symbol: 'NVDA', direction: 'bullish', headline: 'Demand checks keep the AI capex case alive', description: 'Channel discussion points to durable accelerator demand. Expensive premium argues for patience and strict sizing.', recommendedOrder: { kind: 'equity-option', legs: [{ action: 'Buy to Open', contract: { expiry: '2026-10-16', optionType: 'C', strike: 205, underlying: 'NVDA' }, instrumentType: 'Equity Option' }] }, risk: 'A guide-down or capex pause would break the demand case.', sources: [] },
   ],
   links: [],
-  sources: [{ label: 'tastytrade market metrics', url: 'https://developer.tastytrade.com/open-api-spec/market-metrics/' }],
 }
 
 export function marketSnapshotFixture(): MarketSnapshot {

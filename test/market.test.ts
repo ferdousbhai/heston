@@ -138,9 +138,15 @@ describe('snapshot contract', () => {
   })
 
   it('rejects non-HTTPS links in historical recommendations before they reach anchor elements', () => {
+    // On the recommendation, which is where a stored source becomes an anchor a reader clicks:
+    // the brief no longer carries a list of its own, so this is the field that must refuse one.
+    const stored = marketSnapshotFixture().recommendations!
     const legacy = {
-      ...marketSnapshotFixture().recommendations,
-      sources: [{ label: 'Untrusted legacy source', url: 'javascript:alert(1)' }],
+      ...stored,
+      recommendations: stored.recommendations.map((recommendation) => ({
+        ...recommendation,
+        sources: [{ label: 'Untrusted legacy source', url: 'javascript:alert(1)' }],
+      })),
     }
 
     expect(() => parseStoredDailyRecommendations(legacy)).toThrow(/HTTPS source URL/)
