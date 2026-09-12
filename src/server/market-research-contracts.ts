@@ -101,9 +101,9 @@ export type PriceHistoryRow = {
 }
 
 /**
- * One study series, positioned against the returned `prices` rows instead of re-dating every
- * point: `values[i]` is the value for `prices[firstPriceIndex + i]`, and `firstDate` restates
- * that row's date so a reader can check the alignment rather than trust it. The rows before
+ * One study series, positioned against the returned bars instead of re-dating every point:
+ * `values[i]` is the value for bar `firstPriceIndex + i`, and `firstDate` restates that bar's
+ * date so a reader can check the alignment rather than trust it. The rows before
  * `firstPriceIndex` are the study's warm-up, which is stated here rather than transmitted --
  * padding it with one dated null per row was a quarter of the whole result.
  *
@@ -118,7 +118,7 @@ export type PriceStudySeries = {
 
 /** Restated in every result: a model that reads one without the tool description still aligns it. */
 export const STUDY_ALIGNMENT_NOTE
-  = 'Each series values[i] is the study value for prices[firstPriceIndex + i]; earlier rows are warm-up and have no value.'
+  = 'Each series values[i] is the study value for the bar at prices.date[firstPriceIndex + i]; earlier bars are warm-up and have no value.'
 
 export type PriceStudyResult =
   | { kind: 'SMA' | 'EMA' | 'RSI'; period: number; series: PriceStudySeries }
@@ -140,6 +140,29 @@ export type PriceStudyResult =
     slowPeriod: number
   }
 
+/**
+ * The returned bars, as columns rather than a row per bar.
+ *
+ * Every array is the same length and `date[i]` dates the i-th bar in all of them, which is the
+ * position a study series already aligns to. A row per bar repeated all seven field names for
+ * every one of them: at the tool's own 250-row ceiling that was 16,750 characters of key names
+ * against 32,123 of result -- half the payload spent restating the shape of a table. The site's
+ * own stored year series has always been spaced by index for the same reason.
+ */
+export type PriceHistoryColumns = {
+  adjustedClose: number[]
+  close: number[]
+  date: string[]
+  high: number[]
+  low: number[]
+  open: number[]
+  volume: number[]
+}
+
+/** Restated in every result, beside the columns it governs, for a reader without the tool list. */
+export const PRICE_COLUMN_NOTE
+  = 'prices holds one array per field; date[i] dates the i-th bar and every array has that length.'
+
 export type PriceHistoryReadResult = {
   adjustment: 'adjusted-close'
   adjustmentMethodology: string
@@ -150,7 +173,8 @@ export type PriceHistoryReadResult = {
   fetchedAt: string
   interval: '1d' | '1mo' | '1wk'
   name?: string
-  prices: PriceHistoryRow[]
+  priceColumns: typeof PRICE_COLUMN_NOTE
+  prices: PriceHistoryColumns
   requestedRange: { endDate: string; startDate: string }
   skippedRowCount: number
   provider: string

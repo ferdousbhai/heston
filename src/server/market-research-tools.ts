@@ -14,6 +14,8 @@ import {
   type PriceHistoryReadResult,
   type PriceHistoryRow,
   roundPrice,
+  PRICE_COLUMN_NOTE,
+  type PriceHistoryColumns,
   STUDY_ALIGNMENT_NOTE,
 } from './market-research-contracts'
 import { ResearchProviderError } from './research-provider'
@@ -161,6 +163,19 @@ export function createYahooPriceHistoryProvider(
 }
 
 /** `PRICE_DECIMAL_PLACES` carries why; volume is a count and keeps every digit it arrived with. */
+/** One array per field, in the order a reader of the note above expects to find them. */
+function priceColumns(rows: readonly PriceHistoryRow[]): PriceHistoryColumns {
+  return {
+    adjustedClose: rows.map((row) => row.adjustedClose),
+    close: rows.map((row) => row.close),
+    date: rows.map((row) => row.date),
+    high: rows.map((row) => row.high),
+    low: rows.map((row) => row.low),
+    open: rows.map((row) => row.open),
+    volume: rows.map((row) => row.volume),
+  }
+}
+
 function roundedRow(row: PriceHistoryRow): PriceHistoryRow {
   return {
     adjustedClose: roundPrice(row.adjustedClose),
@@ -240,18 +255,20 @@ export async function readPriceHistory(
   const returnedStart = Math.max(0, normalized.length - limit)
   // Rounded here and nowhere earlier: the studies below read the full-precision rows, and only
   // what leaves the Worker sheds the provider's float32-rendering digits.
-  const prices = normalized.slice(returnedStart).map(roundedRow)
+  const returnedRows = normalized.slice(returnedStart).map(roundedRow)
+  const prices = priceColumns(returnedRows)
   const studies = calculateStudies(normalized, studyInputs, returnedStart)
   const result: PriceHistoryReadResult = {
     adjustment: 'adjusted-close',
     adjustmentMethodology: providerResult.adjustmentMethodology,
     currency: providerResult.currency,
-    dataAsOf: prices.at(-1)!.date,
+    dataAsOf: returnedRows.at(-1)!.date,
     delay: providerResult.delay,
     exchange: providerResult.exchange,
     fetchedAt: now.toISOString(),
     interval,
     name: providerResult.name,
+    priceColumns: PRICE_COLUMN_NOTE,
     prices,
     provider: providerResult.provider,
     requestedRange,
@@ -261,7 +278,7 @@ export async function readPriceHistory(
     studyPriceField: 'adjustedClose',
     symbol,
     totalValidRowCount: normalized.length,
-    truncated: normalized.length > prices.length,
+    truncated: normalized.length > returnedRows.length,
   }
   // A history with no studies has nothing to align, and the note is not free: it rides along in
   // every result that carries it.

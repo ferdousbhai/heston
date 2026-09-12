@@ -6,6 +6,7 @@ import { type JsonObject } from '../src/domain/json-payload'
 import {
   MAX_PRICE_HISTORY_RETURNED_ROWS,
   PriceHistoryReadParameters,
+  type PriceHistoryReadResult,
 } from '../src/server/market-research-contracts'
 import {
   createYahooPriceHistoryProvider,
@@ -66,6 +67,19 @@ function chartClient(quotes: ChartResultArray['quotes'], meta: JsonObject = {}) 
   }
 }
 
+/** One bar back out of the columns, so a row-shaped expectation still reads as one. */
+function bar(prices: PriceHistoryReadResult['prices'], index: number) {
+  return {
+    adjustedClose: prices.adjustedClose[index],
+    close: prices.close[index],
+    date: prices.date[index],
+    high: prices.high[index],
+    low: prices.low[index],
+    open: prices.open[index],
+    volume: prices.volume[index],
+  }
+}
+
 describe('market research tools', () => {
   it('returns adjusted history and aligns optional studies with the bounded row window', async () => {
     const provider = priceProvider(historyRows(30))
@@ -97,10 +111,10 @@ describe('market research tools', () => {
       totalValidRowCount: 30,
       truncated: true,
     })
-    expect(result.prices[0]).toMatchObject({ adjustedClose: 26, close: 260, date: '2026-07-26' })
+    expect(bar(result.prices, 0)).toMatchObject({ adjustedClose: 26, close: 260, date: '2026-07-26' })
     expect(result.studies).toHaveLength(5)
     // A study is positioned against the returned rows rather than re-dated point by point:
-    // `firstDate` must be the date of `prices[firstPriceIndex]` or the alignment is a lie.
+    // `firstDate` must be the date of the bar at `firstPriceIndex` or the alignment is a lie.
     expect(result.studies[0]).toEqual({
       kind: 'SMA',
       period: 3,
@@ -108,7 +122,7 @@ describe('market research tools', () => {
     })
     expect(result.studies[2]).toMatchObject({
       kind: 'RSI',
-      series: { firstDate: result.prices[0]!.date, firstPriceIndex: 0, values: [100, 100, 100, 100, 100] },
+      series: { firstDate: result.prices.date[0]!, firstPriceIndex: 0, values: [100, 100, 100, 100, 100] },
     })
     const macd = result.studies[4]!
     expect(macd).toMatchObject({ fastPeriod: 3, kind: 'MACD', signalPeriod: 2, slowPeriod: 5 })
@@ -117,7 +131,7 @@ describe('market research tools', () => {
       expect(series.firstPriceIndex).toBe(0)
       expect(series.values).toHaveLength(5)
     }
-    expect(result.studyAlignment).toContain('prices[firstPriceIndex + i]')
+    expect(result.studyAlignment).toContain('prices.date[firstPriceIndex + i]')
   })
 
   it('states a study that has no value in the returned window instead of padding it', async () => {
@@ -127,7 +141,19 @@ describe('market research tools', () => {
     }, priceProvider(historyRows(5)), now)
 
     expect(result.studies[0]).toEqual({ kind: 'SMA', period: 20, series: { values: [] } })
-    expect(result.prices).toHaveLength(5)
+    expect(result.prices.date).toHaveLength(5)
+  })
+
+  it('returns the bars as equal-length columns, and says so in the result', async () => {
+    // Half the payload at the row ceiling was the seven field names, restated per bar. What
+    // makes that safe to drop is that every array is the same length and dated by `date[i]`,
+    // so the result carries that sentence beside the columns it governs.
+    const result = await readPriceHistory({ symbol: 'AAPL' }, priceProvider(historyRows(5)), now)
+    const columns = Object.values(result.prices)
+
+    expect(columns).toHaveLength(7)
+    for (const column of columns) expect(column).toHaveLength(result.prices.date.length)
+    expect(result.priceColumns).toContain('date[i] dates the i-th bar')
   })
 
   it('rounds returned prices and study values to the finest increment a US equity trades in', async () => {
@@ -144,7 +170,7 @@ describe('market research tools', () => {
       symbol: 'AAPL',
     }, priceProvider(noisy), now)
 
-    expect(result.prices[0]).toMatchObject({ close: 218.12, high: 219.45, volume: 1_234_567 })
+    expect(bar(result.prices, 0)).toMatchObject({ close: 218.12, high: 219.45, volume: 1_234_567 })
     expect(result.studies[0]).toMatchObject({ series: { values: [218.12, 218.12] } })
   })
 
@@ -177,7 +203,7 @@ describe('market research tools', () => {
       endDate: '2026-07-30',
       startDate: '2000-01-01',
       symbol: 'AAPL',
-    }, provider, now)).resolves.toMatchObject({ prices: [expect.any(Object)] })
+    }, provider, now)).resolves.toMatchObject({ prices: { date: [expect.any(String)] } })
     expect(provider.readDaily).toHaveBeenCalledWith('AAPL', {
       endDate: '2026-07-30',
       startDate: '2000-01-01',
@@ -251,8 +277,8 @@ describe('market research tools', () => {
       now,
     )
 
-    expect(weekly.prices).toHaveLength(2)
-    expect(weekly.prices[0]).toMatchObject({
+    expect(weekly.prices.date).toHaveLength(2)
+    expect(bar(weekly.prices, 0)).toMatchObject({
       adjustedClose: 7,
       close: 70,
       date: '2026-08-02',
@@ -260,9 +286,9 @@ describe('market research tools', () => {
       low: 9,
       open: 10,
     })
-    expect(monthly.prices).toHaveLength(2)
-    expect(monthly.prices[0]).toMatchObject({ adjustedClose: 5, date: '2026-07-31' })
-    expect(monthly.prices[1]).toMatchObject({ adjustedClose: 10, date: '2026-08-05' })
+    expect(monthly.prices.date).toHaveLength(2)
+    expect(bar(monthly.prices, 0)).toMatchObject({ adjustedClose: 5, date: '2026-07-31' })
+    expect(bar(monthly.prices, 1)).toMatchObject({ adjustedClose: 10, date: '2026-08-05' })
   })
 
   it('normalizes Yahoo chart bars to ascending adjusted rows and skips incomplete ones', async () => {
