@@ -444,7 +444,23 @@ function RecommendationArchive({
           {/* The handle the publishing member chose for this brief, and nothing account-derived:
               a brief published without one says nothing about who published it. */}
           {current.byline && <> &middot; published by <strong>{current.byline}</strong></>}
-          {onLatest && refreshOpen && <> &middot; <a href="#research-run">Generate a fresh brief</a></>}
+          {onLatest && refreshOpen && (
+            <>
+              {' '}&middot;{' '}
+              {/* The page scrolls inside the tab, not the window, and the router owns the hash,
+                  so a bare fragment link changed the address and moved nothing. The href stays
+                  for anyone reading the link; the scroll is done by hand. */}
+              <a
+                href="#research-run"
+                onClick={(event) => {
+                  event.preventDefault()
+                  document.getElementById('research-run')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }}
+              >
+                Generate a fresh brief
+              </a>
+            </>
+          )}
         </p>
         <h1>{current.regime}</h1>
         <p>{current.regimeDetail}</p>
