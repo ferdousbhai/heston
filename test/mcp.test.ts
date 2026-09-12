@@ -104,6 +104,7 @@ describe('MCP bearer authentication', () => {
         'find_option_contracts', 'read_option_greeks', 'remember_symbols',
         'read_account_history', 'publish_daily_recommendations',
         'place_brokerage_order', 'cancel_brokerage_order',
+        'record_catalysts', 'record_evidence',
       ]) {
         expect(names).not.toContain(withheld)
       }
@@ -166,6 +167,8 @@ describe('MCP tool surface', () => {
         'cancel_brokerage_order',
         'reconcile_brokerage_action',
         'publish_daily_recommendations',
+        'record_catalysts',
+        'record_evidence',
       ]) {
         expect(names).toContain(expected)
       }
@@ -212,6 +215,10 @@ describe('MCP tool tiers', () => {
       // The public brief is produced by members' own agents; the site waits on no schedule. The
       // boundary, not the caller's tier, is what keeps it honest.
       'publish_daily_recommendations',
+      // Recording research is the same bargain at a smaller scale: bound against pages this
+      // Worker re-reads, and withheld from the anonymous tier only so a row has a name behind it.
+      'record_catalysts',
+      'record_evidence',
     ]) {
       expect(names).toContain(expected)
     }
@@ -331,6 +338,12 @@ describe('MCP tool annotations', () => {
       })
       // Additive, and that distinction is the reason it is a member tool at all.
       expect(byName.get('remember_symbols')).toMatchObject({ destructiveHint: false, readOnlyHint: false })
+      // The recordings are additive too, and repeating one refreshes what it wrote.
+      for (const additive of ['record_catalysts', 'record_evidence']) {
+        expect(byName.get(additive)).toMatchObject({
+          destructiveHint: false, idempotentHint: true, readOnlyHint: false,
+        })
+      }
       // Reads must never be advertised as writes.
       for (const readOnly of ['read_market_metrics', 'find_option_contracts', 'read_watchlist']) {
         expect(byName.get(readOnly)).toMatchObject({ readOnlyHint: true })
@@ -453,7 +466,9 @@ describe('MCP surface budget', () => {
    * move a number here, with a reason. They are budgets, not measurements — the headroom is
    * deliberate, and the owner surface is the superset a member never sees all of.
    */
-  const TOOLS_LIST_CHAR_BUDGET = 20_000
+  // Raised by 4,000 for `record_catalysts` and `record_evidence`: both advertise the citation
+  // contract they are held to, which is what lets an agent fix a rejection without a round trip.
+  const TOOLS_LIST_CHAR_BUDGET = 24_000
   const INSTRUCTIONS_CHAR_BUDGET = 1_500
 
   it('keeps the advertised surface inside its budget', async () => {

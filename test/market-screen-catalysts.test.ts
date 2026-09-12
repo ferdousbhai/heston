@@ -64,13 +64,18 @@ describe('reviewing a symbol with an empty calendar', () => {
   })
 
   it('leaves a symbol alone when something is already scheduled this month', async () => {
-    const fetchMock = vi.fn(async () => Response.json({ catalysts: [], ran: false }))
-    vi.stubGlobal('fetch', fetchMock)
+    const requested: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      requested.push(String(input))
+      return Response.json({ catalysts: [], ran: false })
+    }))
 
     renderMarket('TSLA', [catalyst('TSLA', 5)])
 
     await waitFor(() => expect(screen.getByText('TSLA analyst day')).toBeTruthy())
-    expect(fetchMock).not.toHaveBeenCalled()
+    // The focus card also asks for the symbol's evidence cards; what must not have been spent
+    // here is a catalyst search, which a scheduled date this month makes unnecessary.
+    expect(requested.filter((url) => url.startsWith('/api/public-catalyst-refresh'))).toEqual([])
   })
 
   it('keeps the empty calendar honest when the search finds nothing', async () => {

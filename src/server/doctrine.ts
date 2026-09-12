@@ -134,6 +134,10 @@ What is not obvious from the tool list:
   Signing in adds live broker quotes, chains, Greeks, and writing to the shared watchlist.
 - Account tools need a broker credential on the request, held on the user's own machine and never
   here. Placement runs its guards server-side and its refusal is authoritative.
+- \`record_catalysts\` and \`record_evidence\` write research back: a dated event for every
+  reader's calendar, or one passage quoted from a page and kept under a symbol. The server
+  re-reads each cited page and refuses anything absent from that text; a repeat refreshes what
+  is stored rather than duplicating it.
 - The public brief is produced by members' own agents, not by a schedule. Any signed-in caller may
   run \`daily_research\` and publish; the server re-reads every cited page before anything shows,
   and a brief stands for a fixed interval before the next may replace it.

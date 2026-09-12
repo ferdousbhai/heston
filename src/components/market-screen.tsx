@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState, useSyncExternalStore } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { ArrowDown, ArrowUp, ArrowUpRight, ChevronRight, Search, Star, X } from 'lucide-react'
 import { matchSorter } from 'match-sorter'
 
@@ -45,7 +45,9 @@ import {
   type VolatilityVerdict,
   type Watchlist,
 } from '../domain/market'
+import { evidenceSourceHost, type SymbolEvidence } from '../domain/symbol-evidence'
 import { useCatalystSearch } from '../data/catalyst-refresh'
+import { loadSymbolEvidence } from '../data/symbol-evidence'
 import { useYearCandles } from '../data/year-candles'
 import { useSymbolSearch, type SymbolSearchState } from '../data/symbol-search'
 import { CatalystStories } from './catalyst-stories'
@@ -421,6 +423,55 @@ function CatalystRunway({
           Search again
         </Button>
       )}
+    </section>
+  )
+}
+
+/**
+ * What members' agents have quoted under this name since the last brief.
+ *
+ * Every card is a passage the server re-read on the page it cites, so the quote is the source's
+ * own words; the note beside it is the recorder's reading and is labelled as theirs. Nothing
+ * renders when nothing has been recorded: an empty state here would explain a surface a reader
+ * has no way to fill, and the runway above it already says what is known about the name.
+ */
+function EvidenceCards({ symbol }: { symbol: string }) {
+  // The answer carries the symbol it answers, so the cards of the name a reader just left can
+  // never stand under the one they moved to while its own request is still in flight.
+  const [answer, setAnswer] = useState<{ cards: readonly SymbolEvidence[]; symbol: string }>()
+
+  useEffect(() => {
+    const controller = new AbortController()
+    loadSymbolEvidence(symbol, controller.signal)
+      .then((cards) => { if (!controller.signal.aborted) setAnswer({ cards, symbol }) })
+      // A list that cannot be fetched reads as a name nothing has been recorded under. The
+      // reader is looking at a symbol, not at the state of our store, which keeps its own record.
+      .catch(() => { if (!controller.signal.aborted) setAnswer({ cards: [], symbol }) })
+    return () => controller.abort()
+  }, [symbol])
+
+  const cards = answer?.symbol === symbol ? answer.cards : []
+  if (!cards.length) return null
+  return (
+    <section className="focus-evidence" aria-labelledby="focus-evidence-title">
+      <header className="focus-eyebrow">
+        <h3 id="focus-evidence-title">Evidence</h3>
+      </header>
+      <ol className="evidence-cards">
+        {cards.map((card) => (
+          <li className="evidence-card" key={card.id}>
+            <blockquote>{card.quote}</blockquote>
+            {card.note && <p className="evidence-note">{card.note}</p>}
+            <p className="evidence-meta">
+              {card.byline && <span>{card.byline}</span>}
+              <a href={card.sourceUrl} rel="noreferrer" target="_blank">
+                {evidenceSourceHost(card)}<ArrowUpRight aria-hidden="true" />
+              </a>
+              <time dateTime={card.recordedAt}>{catalystDateFormatter.format(new Date(card.recordedAt))}</time>
+            </p>
+          </li>
+        ))}
+      </ol>
     </section>
   )
 }
@@ -816,6 +867,7 @@ export function MarketScreen({
             searching={catalystSearch.searching}
             symbol={selected.symbol}
           />
+          <EvidenceCards symbol={selected.symbol} />
         </CardContent>
         <CardFooter>
           <dl className="focus-tape" aria-label={`${selected.symbol} metrics`}>

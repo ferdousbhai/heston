@@ -515,4 +515,84 @@ describe('brokerage action migrations', () => {
     ).run()).toThrow()
     db.close()
   })
+
+  it('admits member-research catalysts by rebuilding the table, keeping every row and the view', async () => {
+    const db = new DatabaseSync(':memory:')
+    db.exec('PRAGMA foreign_keys = ON')
+    for (const name of [
+      '0001_spice.sql', '0003_public_market_universe.sql', '0004_catalyst_description.sql',
+      '0008_instrument_catalog.sql', '0009_instrument_catalog_resolution.sql',
+      '0010_source_specific_market_data.sql', '0012_codex_catalyst_confidence.sql',
+      '0019_retire_social_catalyst_tables.sql', '0020_unify_catalyst_store.sql',
+      '0021_retire_codex_web_catalysts.sql', '0024_exa_catalyst_runs.sql',
+    ]) db.exec(await read(name))
+    const insert = db.prepare(
+      `INSERT INTO catalysts
+        (id, source_provider, symbol, kind, title, description, event_date, timing,
+         confidence, source_label, source_url, updated_at, last_seen_at)
+       VALUES (?, ?, ?, 'conference', 'An event', 'Its detail', '2026-11-04', 'unknown',
+               'estimated', 'A label', 'https://example.com/event', 'now', 'now')`,
+    )
+    insert.run('tastytrade:NVDA:earnings', 'tastytrade', 'NVDA')
+    insert.run('daily-research:NVDA:conference:2026-11-04', 'daily-research', 'NVDA')
+
+    db.exec(await read('0038_member_research_catalysts.sql'))
+
+    // Every producer's rows survive the rebuild, and the view reads exactly as it did.
+    expect(db.prepare('SELECT id, source_provider FROM upcoming_catalysts ORDER BY id').all()).toEqual([
+      { id: 'daily-research:NVDA:conference:2026-11-04', source_provider: 'daily-research' },
+      { id: 'tastytrade:NVDA:earnings', source_provider: 'tastytrade' },
+    ])
+    expect(db.prepare('PRAGMA table_info(upcoming_catalysts)').all().map((column) => column.name))
+      .toEqual([
+        'id', 'symbol', 'kind', 'title', 'description', 'event_date', 'timing', 'confidence',
+        'source_label', 'source_url', 'updated_at', 'last_seen_at', 'source_provider',
+      ])
+    // The read every symbol lookup makes keeps its index.
+    expect(db.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'catalysts' AND name NOT LIKE 'sqlite_%'",
+    ).all()).toEqual([{ name: 'catalysts_symbol_event_date' }])
+
+    // The new producer is admitted, and still only under an id that names it.
+    expect(() => insert.run('member-research:NVDA:conference:2026-11-04', 'member-research', 'NVDA')).not.toThrow()
+    expect(() => insert.run('daily-research:TSLA:conference:2026-11-05', 'member-research', 'TSLA')).toThrow()
+    // And nothing else: a producer costs a migration, which is what keeps a row retractable.
+    expect(() => insert.run('some-agent:TSLA:conference:2026-11-06', 'some-agent', 'TSLA')).toThrow()
+    db.close()
+  })
+
+  it('keeps an evidence card inside its rendering bounds and private to its recorder', async () => {
+    const db = new DatabaseSync(':memory:')
+    db.exec('PRAGMA foreign_keys = ON')
+    db.exec(await read('0001_spice.sql'))
+    db.exec(await read('0039_symbol_evidence.sql'))
+    db.prepare(
+      `INSERT INTO "user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
+       VALUES ('member-1', 'Member', 'member@example.com', 1, 'now', 'now')`,
+    ).run()
+    const insert = db.prepare(
+      `INSERT INTO symbol_evidence
+        (id, symbol, quote, note, source_url, source_title, byline, recorded_at, recorded_by_user_id)
+       VALUES (?, ?, ?, ?, ?, 'A title', ?, 'now', 'member-1')`,
+    )
+
+    expect(() => insert.run('member-evidence:one', 'NVDA', 'A quote', null, 'https://example.com/a', null))
+      .not.toThrow()
+    expect(db.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'symbol_evidence' AND name NOT LIKE 'sqlite_%'",
+    ).all()).toEqual([{ name: 'symbol_evidence_symbol_recorded_at' }])
+
+    // A card the reader could not read is not a card: every bound is the store's last word.
+    expect(() => insert.run('member-evidence:lowercase', 'nvda', 'A quote', null, 'https://example.com/b', null)).toThrow()
+    expect(() => insert.run('member-evidence:http', 'NVDA', 'A quote', null, 'http://example.com/b', null)).toThrow()
+    expect(() => insert.run('member-evidence:long-quote', 'NVDA', 'q'.repeat(301), null, 'https://example.com/c', null)).toThrow()
+    expect(() => insert.run('member-evidence:long-note', 'NVDA', 'A quote', 'n'.repeat(241), 'https://example.com/d', null)).toThrow()
+    expect(() => insert.run('member-evidence:long-byline', 'NVDA', 'A quote', null, 'https://example.com/e', 'b'.repeat(41))).toThrow()
+    expect(() => insert.run('member-evidence:empty-note', 'NVDA', 'A quote', '', 'https://example.com/f', null)).toThrow()
+
+    // The recorder is account-derived, so the card goes when the account does.
+    db.prepare(`DELETE FROM "user" WHERE "id" = 'member-1'`).run()
+    expect(db.prepare('SELECT count(*) AS count FROM symbol_evidence').get()).toEqual({ count: 0 })
+    db.close()
+  })
 })

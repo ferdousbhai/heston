@@ -13,8 +13,11 @@ const MAX_EVIDENCE_PER_RECOMMENDATION = 4
 
 const SourceIndices = Type.Array(Type.Integer({ minimum: 0 }), { minItems: 1 })
 export const RecommendedOrderSubmissionSchema = zodTypeBoxSchema(ActionableRecommendedOrderSchema)
-const CatalystSubmissionSchema = zodTypeBoxSchema(ResearchCatalystCandidateSchema)
-const NativeSearchSource = Type.Object({
+// Exported because the catalyst recording tool takes the same two shapes: a candidate dated
+// event and the sources it indexes into. One definition, so an agent that can write a brief's
+// catalysts already knows how to record one, and neither shape can drift from the other.
+export const CatalystSubmissionSchema = zodTypeBoxSchema(ResearchCatalystCandidateSchema)
+export const NativeSearchSource = Type.Object({
   context: Type.String({ minLength: 1, maxLength: 900 }),
   sourceUrl: Type.String({ minLength: 1, maxLength: 2_000 }),
   title: Type.String({ minLength: 1, maxLength: 180 }),
