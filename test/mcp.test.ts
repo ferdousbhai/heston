@@ -311,6 +311,13 @@ describe('MCP tool annotations', () => {
       })
       // Additive, and that distinction is the reason it is a member tool at all.
       expect(byName.get('remember_symbols')).toMatchObject({ destructiveHint: false, readOnlyHint: false })
+      // The other direction, which is what let annotations for deleted tools sit here unnoticed:
+      // the owner tier is the whole surface, so a name in the table that is listed nowhere is an
+      // orphan and the tool it described is gone.
+      const listedNames = new Set(tools.map((tool) => tool.name))
+      for (const annotated of ANNOTATED_TOOL_NAMES) {
+        expect(listedNames, `${annotated} is annotated but registered nowhere`).toContain(annotated)
+      }
       // Reads must never be advertised as writes.
       for (const readOnly of ['read_market_metrics', 'find_option_contracts', 'read_watchlist']) {
         expect(byName.get(readOnly)).toMatchObject({ readOnlyHint: true })

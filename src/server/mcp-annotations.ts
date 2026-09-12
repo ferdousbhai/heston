@@ -40,7 +40,6 @@ const ANNOTATIONS = {
   read_price_history: read('Read price history', true),
   search_symbols: read('Search symbols', true),
   // Reads answered entirely from Spice's own stores.
-  check_recommendation_links: read('Check recommendation links', false),
   read_catalysts: read('Read catalysts', false),
   read_daily_recommendations: read('Read the daily brief', false),
   read_watchlist: read('Read the watchlist', false),
@@ -89,13 +88,6 @@ const ANNOTATIONS = {
     openWorldHint: false,
     readOnlyHint: false,
     title: 'Manage the watchlist',
-  },
-  record_catalyst: {
-    destructiveHint: false,
-    idempotentHint: true,
-    openWorldHint: false,
-    readOnlyHint: false,
-    title: 'Record a catalyst',
   },
   publish_daily_recommendations: {
     // Replaces the market date's brief, which is what the public site then shows. The

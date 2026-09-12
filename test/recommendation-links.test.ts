@@ -2,10 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { DailyRecommendationsSchema, type DailyRecommendations } from '../src/domain/market'
 import { dailyRecommendationsUpsertStatement } from '../src/server/daily-recommendations-store'
-import {
-  createRecommendationLinkHistoryTool,
-  recommendationLinkUpsertStatements,
-} from '../src/server/recommendation-links'
+import { recommendationLinkUpsertStatements } from '../src/server/recommendation-links'
 import { migrationStore } from './sqlite-d1'
 
 function dailyRecommendations(id: string, publishedAt: string): DailyRecommendations {
@@ -28,7 +25,7 @@ function dailyRecommendations(id: string, publishedAt: string): DailyRecommendat
 }
 
 describe('recommendation link history', () => {
-  it('canonicalizes, checks, and refuses republication on a later market date', async () => {
+  it('canonicalizes and refuses republication on a later market date', async () => {
     const store = await migrationStore()
     const first = dailyRecommendations(
       'recommendations-2026-08-31',
@@ -53,18 +50,6 @@ describe('recommendation link history', () => {
         title: 'Primary announcement',
         url: 'https://example.com/announcement',
       })
-
-      const checked = await createRecommendationLinkHistoryTool(
-        { DB: store.database },
-        later.id,
-      ).execute('check-1', { urls: ['https://example.com/announcement#other'] })
-      expect(checked.details).toEqual(expect.objectContaining({
-        checkedUrls: ['https://example.com/announcement'],
-        previouslyPublished: [expect.objectContaining({
-          dailyRecommendationsId: first.id,
-          url: 'https://example.com/announcement',
-        })],
-      }))
 
       await expect(store.database.batch([
         dailyRecommendationsUpsertStatement(store.database, later),
