@@ -4,6 +4,8 @@ import {
   MAX_PRICE_STUDY_PERIOD,
   type PriceHistoryRow,
   type PriceStudyResult,
+  type PriceStudySeries,
+  roundPrice,
   type StudyInput,
 } from './market-research-contracts'
 
@@ -26,8 +28,29 @@ export function boundedInteger(
   return result
 }
 
-function scalarPoints(dates: string[], values: Array<number | null>) {
-  return dates.map((date, index) => ({ date, value: values[index] ?? null }))
+/**
+ * Position one computed series against the rows the caller will actually receive. Every study
+ * here warms up once and then runs to the end of the series, so a series is fully described by
+ * where its first value lands and the values from there on; an interior gap would break that
+ * promise silently, so it throws instead of being padded back into the result.
+ */
+function alignSeries(
+  values: Array<number | null>,
+  returnedStart: number,
+  dates: string[],
+): PriceStudySeries {
+  const returned = values.slice(returnedStart)
+  const firstPriceIndex = returned.findIndex((value) => value !== null)
+  if (firstPriceIndex < 0) return { values: [] }
+  const aligned = returned.slice(firstPriceIndex)
+  if (aligned.some((value) => value === null)) {
+    throw new Error('Price study produced a discontinuous series.')
+  }
+  return {
+    firstDate: dates[returnedStart + firstPriceIndex]!,
+    firstPriceIndex,
+    values: aligned.map((value) => roundPrice(value!)),
+  }
 }
 
 function simpleMovingAverage(values: number[], period: number): Array<number | null> {
@@ -167,6 +190,7 @@ export function calculateStudies(
 ): PriceStudyResult[] {
   const dates = rows.map((row) => row.date)
   const prices = rows.map((row) => row.adjustedClose)
+  const align = (values: Array<number | null>) => alignSeries(values, returnedStart, dates)
   return inputs.map((input): PriceStudyResult => {
     if (input.kind === 'SMA' || input.kind === 'EMA' || input.kind === 'RSI') {
       const values = input.kind === 'SMA'
@@ -174,15 +198,17 @@ export function calculateStudies(
         : input.kind === 'EMA'
           ? exponentialMovingAverage(prices, input.period)
           : relativeStrengthIndex(prices, input.period)
-      return { kind: input.kind, period: input.period, points: scalarPoints(dates, values).slice(returnedStart) }
+      return { kind: input.kind, period: input.period, series: align(values) }
     }
     if (input.kind === 'BBANDS') {
       const values = bollingerBands(prices, input.period, input.standardDeviations)
       return {
         kind: input.kind,
+        lower: align(values.map((band) => band.lower)),
+        middle: align(values.map((band) => band.middle)),
         period: input.period,
-        points: dates.map((date, index) => ({ date, ...values[index]! })).slice(returnedStart),
         standardDeviations: input.standardDeviations,
+        upper: align(values.map((band) => band.upper)),
       }
     }
     if (input.kind !== 'MACD') throw new Error('Price studies are invalid.')
@@ -192,10 +218,14 @@ export function calculateStudies(
       input.slowPeriod,
       input.signalPeriod,
     )
+    // Three series, each with its own warm-up: the signal line starts later than the MACD line
+    // and the histogram exists only where both do, so each carries its own first row.
     return {
       fastPeriod: input.fastPeriod,
+      histogram: align(values.map((point) => point.histogram)),
       kind: input.kind,
-      points: dates.map((date, index) => ({ date, ...values[index]! })).slice(returnedStart),
+      macd: align(values.map((point) => point.macd)),
+      signal: align(values.map((point) => point.signal)),
       signalPeriod: input.signalPeriod,
       slowPeriod: input.slowPeriod,
     }

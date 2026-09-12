@@ -8,6 +8,7 @@ import {
   type BrokerId,
 } from '../domain/broker'
 import { IsoDateType } from '../domain/iso-date'
+import { StringEnum } from '../domain/string-enum'
 
 // These are model-context budgets, not brokerage or trading policy. Read tools expose
 // pagination/truncation so the agent can make another narrow call instead of receiving
@@ -44,11 +45,11 @@ export const AccountHistoryReadParameters = Type.Object({
     description: 'Zero-based broker page offset. Defaults to 0.',
     minimum: 0,
   })),
-  transactionType: Type.Optional(Type.Union([
-    Type.Literal('Trade'),
-    Type.Literal('Money Movement'),
-  ], { description: 'Transactions only: optionally restrict to trades or cash movements.' })),
-  type: Type.Union([Type.Literal('transactions'), Type.Literal('orders')]),
+  transactionType: Type.Optional(StringEnum(
+    ['Trade', 'Money Movement'],
+    { description: 'Transactions only: optionally restrict to trades or cash movements.' },
+  )),
+  type: StringEnum(['transactions', 'orders']),
   underlyingSymbol: Type.Optional(Type.String({
     maxLength: 32,
     pattern: '^\\/?[A-Z0-9.]{1,31}$',
@@ -79,7 +80,7 @@ export const OptionContractFindParameters = Type.Object({
     description: 'Target strike; returns the nearest listed contracts.',
     exclusiveMinimum: 0,
   })),
-  optionType: Type.Optional(Type.Union([Type.Literal('C'), Type.Literal('P')])),
+  optionType: Type.Optional(StringEnum(['C', 'P'])),
   strike: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
   underlying: ModelTextEquitySymbolType,
 }, { additionalProperties: false })

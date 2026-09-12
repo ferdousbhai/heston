@@ -9,6 +9,7 @@ import {
   MAX_RESEARCH_MODEL_NAME_LENGTH,
 } from '../domain/market'
 import { ActionableRecommendedOrderSchema } from '../domain/recommended-order'
+import { StringEnum } from '../domain/string-enum'
 import { ResearchCatalystCandidateSchema } from './research-catalyst-output'
 import { zodTypeBoxSchema } from './zod-typebox'
 
@@ -64,7 +65,7 @@ export const DailyRecommendationsSubmissionSchema = Type.Object({
       quote: Type.String({ minLength: 1, maxLength: MAX_RESEARCH_EVIDENCE_QUOTE_LENGTH }),
       sourceIndex: Type.Integer({ minimum: 0 }),
     }, { additionalProperties: false }), { minItems: 1, maxItems: MAX_EVIDENCE_PER_RECOMMENDATION }),
-    direction: Type.Union([Type.Literal('bullish'), Type.Literal('bearish')]),
+    direction: StringEnum(['bullish', 'bearish']),
     headline: Type.String({ minLength: 1, maxLength: 100 }),
     recommendedOrder: RecommendedOrderSubmissionSchema,
     risk: Type.String({ minLength: 1, maxLength: 240 }),

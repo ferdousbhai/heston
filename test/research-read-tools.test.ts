@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { readUpcomingCatalysts } from '../src/server/catalysts'
 import {
   readCatalysts,
   readLatestDailyRecommendationsState,
@@ -32,9 +33,17 @@ describe('Dan research read tools', () => {
     const db = d1WithResults([catalyst])
     const result = await readCatalysts(db.env, ['NVDA', 'NVDA'], 30, new Date('2026-08-13T12:00:00.000Z'))
 
-    expect(result).toMatchObject({ catalysts: [catalyst], horizonDays: 30, symbols: ['NVDA'], truncated: false })
+    const { id: _id, ...withoutId } = catalyst
+    expect(result).toMatchObject({ catalysts: [withoutId], horizonDays: 30, symbols: ['NVDA'], truncated: false })
+    // The agent's rows are a projection: `id` restates symbol, kind and date, and no tool takes
+    // one back. The website's own reader is the reason the domain schema still carries it.
+    expect(result.catalysts[0]).not.toHaveProperty('id')
     expect(db.prepare).toHaveBeenCalledWith(expect.stringContaining('event_date BETWEEN ? AND ?'))
-    expect(db.bind).toHaveBeenCalledWith('NVDA', '2026-08-13', '2026-09-12', 101)
+    expect(db.bind).toHaveBeenCalledWith('NVDA', '2026-08-13', '2026-09-12', 61)
+
+    const site = d1WithResults([catalyst])
+    await expect(readUpcomingCatalysts(site.env, new Date('2026-08-13T12:00:00.000Z')))
+      .resolves.toEqual([catalyst])
   })
 
   it('rejects unbounded or malformed catalyst requests before D1', async () => {

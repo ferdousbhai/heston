@@ -13,6 +13,8 @@ import {
   type PriceHistoryReadInput,
   type PriceHistoryReadResult,
   type PriceHistoryRow,
+  roundPrice,
+  STUDY_ALIGNMENT_NOTE,
 } from './market-research-contracts'
 import { ResearchProviderError } from './research-provider'
 import { textResult } from './agent-tool-result'
@@ -158,6 +160,19 @@ export function createYahooPriceHistoryProvider(
   }
 }
 
+/** `PRICE_DECIMAL_PLACES` carries why; volume is a count and keeps every digit it arrived with. */
+function roundedRow(row: PriceHistoryRow): PriceHistoryRow {
+  return {
+    adjustedClose: roundPrice(row.adjustedClose),
+    close: roundPrice(row.close),
+    date: row.date,
+    high: roundPrice(row.high),
+    low: roundPrice(row.low),
+    open: roundPrice(row.open),
+    volume: row.volume,
+  }
+}
+
 function requestedHistoryRange(input: PriceHistoryReadInput, now: Date) {
   const endDate = input.endDate ?? marketDate(now)
   if (!isValidIsoDate(endDate)) throw new Error('Price history end date is invalid.')
@@ -223,8 +238,11 @@ export async function readPriceHistory(
   }
   const normalized = aggregateHistory(daily, interval)
   const returnedStart = Math.max(0, normalized.length - limit)
-  const prices = normalized.slice(returnedStart)
-  return {
+  // Rounded here and nowhere earlier: the studies below read the full-precision rows, and only
+  // what leaves the Worker sheds the provider's float32-rendering digits.
+  const prices = normalized.slice(returnedStart).map(roundedRow)
+  const studies = calculateStudies(normalized, studyInputs, returnedStart)
+  const result: PriceHistoryReadResult = {
     adjustment: 'adjusted-close',
     adjustmentMethodology: providerResult.adjustmentMethodology,
     currency: providerResult.currency,
@@ -239,12 +257,16 @@ export async function readPriceHistory(
     requestedRange,
     skippedRowCount: providerResult.skippedRowCount,
     sourceUrl: providerResult.sourceUrl,
-    studies: calculateStudies(normalized, studyInputs, returnedStart),
+    studies,
     studyPriceField: 'adjustedClose',
     symbol,
     totalValidRowCount: normalized.length,
     truncated: normalized.length > prices.length,
   }
+  // A history with no studies has nothing to align, and the note is not free: it rides along in
+  // every result that carries it.
+  if (studies.length) result.studyAlignment = STUDY_ALIGNMENT_NOTE
+  return result
 }
 
 function createPriceHistoryReadTool(
@@ -254,7 +276,9 @@ function createPriceHistoryReadTool(
   PriceHistoryReadResult
 > {
   return {
-    description: 'Dividend-adjusted Yahoo history with optional local SMA, EMA, RSI, MACD, or Bollinger studies; not a current quote.',
+    // The alignment sentence is the one thing a model cannot infer from the payload and must not
+    // guess at: a study read one row out is worse than no study at all.
+    description: 'Dividend-adjusted Yahoo history with optional local SMA, EMA, RSI, MACD, or Bollinger studies; not a current quote. A study series carries only the values it has: values[i] is for prices[firstPriceIndex + i].',
     execute: async (_toolCallId, params) => textResult(await readPriceHistory(params, provider)),
     label: 'Reading price history',
     name: 'read_price_history',
