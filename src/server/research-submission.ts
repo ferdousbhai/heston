@@ -13,7 +13,7 @@ import { zodTypeBoxSchema } from './zod-typebox'
 // The daily surface is intentionally selective, not a screener dump.
 export const MAX_DAILY_RECOMMENDATIONS = 3
 // One quote per source a recommendation leans on is enough to bind it; more is padding.
-const MAX_EVIDENCE_PER_RECOMMENDATION = 4
+export const MAX_EVIDENCE_PER_RECOMMENDATION = 4
 
 const SourceIndices = Type.Array(Type.Integer({ minimum: 0 }), { minItems: 1 })
 export const RecommendedOrderSubmissionSchema = zodTypeBoxSchema(ActionableRecommendedOrderSchema)

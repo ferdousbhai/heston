@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { PORTFOLIO_POLICY } from '../src/domain/portfolio-risk'
 import { RESEARCH_REFRESH_INTERVAL_MS } from '../src/domain/research-refresh'
-import { DAILY_RESEARCH_PROMPT, SPICE_MCP_INSTRUCTIONS } from '../src/server/doctrine'
+import { dailyResearchPrompt, SPICE_MCP_INSTRUCTIONS } from '../src/server/doctrine'
 import { MAX_DAILY_RECOMMENDATIONS } from '../src/server/research-submission'
 import {
   createInstrumentQuoteReadTool,
@@ -64,15 +64,24 @@ describe('rules that ride on the tool they govern', () => {
 
 describe('the daily research prompt', () => {
   it('promises only what the publish boundary enforces', () => {
-    // The two numbers a run can be refused on, from the constants the boundary reads.
-    expect(DAILY_RESEARCH_PROMPT).toContain(`at most ${MAX_DAILY_RECOMMENDATIONS} ideas`)
-    expect(DAILY_RESEARCH_PROMPT).toContain(`${RESEARCH_REFRESH_INTERVAL_MS / 60_000} minutes`)
-    expect(DAILY_RESEARCH_PROMPT).toContain('publish_daily_recommendations')
+    const prompt = dailyResearchPrompt(false)
+    // The numbers a run can be refused on, from the constants the boundary reads.
+    expect(prompt).toContain(`at most ${MAX_DAILY_RECOMMENDATIONS} ideas`)
+    expect(prompt).toContain(`${RESEARCH_REFRESH_INTERVAL_MS / 60_000} minutes`)
+    expect(prompt).toContain('publish_daily_recommendations')
     // The model is what the site shows readers; the prompt is where the agent is told to say it.
-    expect(DAILY_RESEARCH_PROMPT).toContain('`model`')
+    expect(prompt).toContain('`model`')
     // A research run is not a trading session, whoever's agent is running it.
-    expect(DAILY_RESEARCH_PROMPT).toContain('Place no order')
-    expect(DAILY_RESEARCH_PROMPT).not.toMatch(/undefined|\[object|NaN/)
+    expect(prompt).toContain('Place no order')
+    expect(prompt).not.toMatch(/undefined|\[object|NaN/)
+  })
+
+  it('names the private discovery tools only to the caller who has them', () => {
+    // A member's agent walked to `ingest_wsb` would meet a tool that is not on its list.
+    expect(dailyResearchPrompt(false)).not.toMatch(/ingest_wsb|get_recent_coverage/)
+    expect(dailyResearchPrompt(true)).toContain('ingest_wsb')
+    expect(dailyResearchPrompt(true)).toContain('get_recent_coverage')
+    expect(dailyResearchPrompt(true)).not.toMatch(/undefined|\[object|NaN/)
   })
 })
 

@@ -32,7 +32,7 @@ import { DailyRecommendationsSubmissionSchema } from './research-submission'
 import { publishSubmittedDailyRecommendations } from './research-publish'
 import { createResearchReadTools } from './research-read-tools'
 import {
-  DAILY_RESEARCH_PROMPT,
+  dailyResearchPrompt,
   PORTFOLIO_REVIEW_PROMPT,
   SPICE_GUIDE,
   SPICE_MCP_INSTRUCTIONS,
@@ -240,7 +240,7 @@ export function createSpiceMcpServer(
         description: 'Research today\'s market, write the brief, and publish it to the site.',
         title: 'Daily research',
       },
-      () => ({ messages: [{ content: { text: DAILY_RESEARCH_PROMPT, type: 'text' as const }, role: 'user' as const }] }),
+      () => ({ messages: [{ content: { text: dailyResearchPrompt(caller.owner), type: 'text' as const }, role: 'user' as const }] }),
     )
   }
 

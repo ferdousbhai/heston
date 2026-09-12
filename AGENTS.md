@@ -15,8 +15,8 @@ where they belong. Read the relevant code before changing behavior.
 `src/components/` product surfaces · `migrations/` D1 schema · `ops/` the member's own
 machine (credential proxy) and the owner's temporary bootstrap Workers, which reach the
 production bindings · `tools/` local jobs. The brief is produced by members' own agents through
-the `daily_research` prompt this Worker serves; the owner's deeper procedure lives in the
-private `spice-research` repository and runs the same public contract.
+the `daily_research` prompt this Worker serves, which is the whole recipe; no process on any
+machine produces one.
 
 ## Boundaries
 
