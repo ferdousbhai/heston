@@ -85,8 +85,26 @@ function optionalBoolean(value: JsonValue, field: string): boolean | undefined {
  * already percentage points. Multiplying those by 100 rejected or distorted real
  * observations, so the `*Points` helpers below keep them as reported.
  */
+/**
+ * Decimal places kept on a number this module computed rather than read.
+ *
+ * A provider decimal becomes a float64 the moment it is multiplied or subtracted, and the
+ * artifact is published verbatim: a 0.155 move serializes as `0.15500000000000114`, a 26.1%
+ * implied volatility as `26.100000000000001`. Across one snapshot that is around 12,000
+ * characters of digits no observation contains, paid for by every reader and every agent on
+ * the public tier. Four places outlive any precision tastytrade reports -- it quotes ratios to
+ * six significant digits and prices to the cent -- so this rounds off only what our own
+ * arithmetic invented. Values read from the provider untouched are never rounded here.
+ */
+const PROJECTED_DECIMAL_PLACES = 4
+
+function projected(value: number): number {
+  const scale = 10 ** PROJECTED_DECIMAL_PLACES
+  return Math.round(value * scale) / scale
+}
+
 function percentagePoints(value: JsonValue, field: string): number {
-  return numeric(value, field) * 100
+  return projected(numeric(value, field) * 100)
 }
 
 function optionalPercentagePoints(value: JsonValue, field: string): number | undefined {
@@ -199,8 +217,8 @@ export function normalizeTastytradeMarketTicker(
   )
   // tastytrade reports mark and previous close, not day-change fields. Day move
   // is therefore a read-model projection, never a synthesized source record.
-  const change = price - previousClose
-  const changePercent = (change / previousClose) * 100
+  const change = projected(price - previousClose)
+  const changePercent = projected((change / previousClose) * 100)
   const ivIndex = optionalPercentagePoints(
     metrics['implied-volatility-index'],
     `implied-volatility-index:${symbol}`,
@@ -331,7 +349,7 @@ export function tickerFromStoredRecords(
   yearAgoClose?: number,
   now = new Date(),
 ): Ticker {
-  const change = quote.price - quote.previousClose
+  const change = projected(quote.price - quote.previousClose)
   return {
     symbol,
     name: optionalText(
@@ -343,7 +361,7 @@ export function tickerFromStoredRecords(
     marketCap: metric?.marketCap,
     price: quote.price,
     change,
-    changePercent: quote.previousClose > 0 ? (change / quote.previousClose) * 100 : 0,
+    changePercent: quote.previousClose > 0 ? projected((change / quote.previousClose) * 100) : 0,
     // Candle history is live-only state; a stored snapshot carries no intraday chart.
     sparkline: [],
     yearAgoClose,

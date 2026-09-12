@@ -69,7 +69,9 @@ describe('stored market read model', () => {
     )
     expect(ticker).toMatchObject({
       assetType: 'stock',
-      change: 236.41 - 238.25,
+      // Not `236.41 - 238.25`, which is -1.8400000000000034: the day move is ours to compute,
+      // so it carries the provider's cent precision rather than float64's account of it.
+      change: -1.84,
       earningsDate: '2026-10-29',
       lendability: 'Easy To Borrow',
       marketCap: 3_500_000_000_000,
@@ -82,7 +84,9 @@ describe('stored market read model', () => {
     })
     // Candle history is live-only state and is never reconstructed from the store.
     expect(ticker.sparkline).toEqual([])
-    expect(ticker.changePercent).toBeCloseTo(((236.41 - 238.25) / 238.25) * 100, 10)
+    // Four decimal places, for the same reason: the percentage is a projection of ours, and
+    // -0.7722980062959091 claims sixteen digits of a move the provider reported to the cent.
+    expect(ticker.changePercent).toBe(-0.7723)
   })
 
   it('drops an earnings date the store has outlived, as the live path does', async () => {
