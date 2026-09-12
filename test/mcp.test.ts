@@ -102,7 +102,7 @@ describe('MCP bearer authentication', () => {
       // absent, so placement is withheld rather than advertised and rejected.
       for (const withheld of [
         'find_option_contracts', 'read_option_greeks', 'remember_symbols',
-        'read_account_history', 'publish_daily_recommendations',
+        'read_account_history', 'publish_daily_recommendations', 'challenge_recommendation',
         'place_brokerage_order', 'cancel_brokerage_order',
       ]) {
         expect(names).not.toContain(withheld)
@@ -166,6 +166,7 @@ describe('MCP tool surface', () => {
         'cancel_brokerage_order',
         'reconcile_brokerage_action',
         'publish_daily_recommendations',
+        'challenge_recommendation',
       ]) {
         expect(names).toContain(expected)
       }
@@ -212,6 +213,9 @@ describe('MCP tool tiers', () => {
       // The public brief is produced by members' own agents; the site waits on no schedule. The
       // boundary, not the caller's tier, is what keeps it honest.
       'publish_daily_recommendations',
+      // Challenging the standing brief spends the server's page reads, so it wants a name
+      // behind it even though it can only ever trigger a re-read of what the server published.
+      'challenge_recommendation',
     ]) {
       expect(names).toContain(expected)
     }
@@ -453,7 +457,9 @@ describe('MCP surface budget', () => {
    * move a number here, with a reason. They are budgets, not measurements — the headroom is
    * deliberate, and the owner surface is the superset a member never sees all of.
    */
-  const TOOLS_LIST_CHAR_BUDGET = 20_000
+  // Raised once for `challenge_recommendation`: a published brief that nobody can put back
+  // against its own sources ages silently, and that is worth one more tool on every turn.
+  const TOOLS_LIST_CHAR_BUDGET = 21_000
   const INSTRUCTIONS_CHAR_BUDGET = 1_500
 
   it('keeps the advertised surface inside its budget', async () => {

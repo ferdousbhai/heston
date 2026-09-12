@@ -91,3 +91,15 @@ export function loadMigrations(): Promise<string[]> {
 export async function migrationStore() {
   return sqliteD1(await loadMigrations())
 }
+
+/**
+ * The member row the foreign keys point at. Publishing a brief records the account behind it,
+ * so a store that publishes needs that account to exist here exactly as it does in production.
+ */
+export function seedMember(store: SqliteD1Store, userId: string): string {
+  store.sqlite.prepare(
+    `INSERT INTO "user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
+     VALUES (?, 'Member', ? || '@example.com', 1, 'now', 'now')`,
+  ).run(userId, userId)
+  return userId
+}

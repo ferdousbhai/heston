@@ -86,6 +86,42 @@ describe('brokerage action migrations', () => {
     db.close()
   })
 
+  it('records a brief\'s publisher privately, keeps older briefs, and outlives the account', async () => {
+    const db = new DatabaseSync(':memory:')
+    db.exec('PRAGMA foreign_keys = ON')
+    for (const name of [
+      '0001_spice.sql', '0018_research_brief_telegram_publications.sql',
+      '0022_daily_recommendations_and_link_history.sql', '0035_drop_telegram_publications.sql',
+    ]) db.exec(await read(name))
+    const payload = JSON.stringify({ id: 'recommendations-2026-09-01' })
+    db.prepare('INSERT INTO daily_recommendations (id, published_at, payload_json) VALUES (?, ?, ?)')
+      .run('recommendations-2026-09-01', '2026-09-01T13:30:00.000Z', payload)
+
+    db.exec(await read('0037_daily_recommendations_publisher.sql'))
+
+    // A brief published before the column existed keeps standing, with no publisher to name.
+    expect(db.prepare('SELECT published_by_user_id FROM daily_recommendations').get())
+      .toEqual({ published_by_user_id: null })
+    db.prepare(
+      `INSERT INTO "user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
+       VALUES ('member-1', 'Member', 'member@example.com', 1, 'now', 'now')`,
+    ).run()
+    const publish = db.prepare(
+      `INSERT INTO daily_recommendations (id, published_at, payload_json, published_by_user_id)
+       VALUES (?, ?, ?, ?)`,
+    )
+    publish.run('recommendations-2026-09-02', '2026-09-02T13:30:00.000Z', payload, 'member-1')
+    // The column names an account this Worker knows, or nobody.
+    expect(() => publish.run('recommendations-2026-09-03', '2026-09-03T13:30:00.000Z', payload, 'ghost')).toThrow()
+
+    // Deleting the account takes the reference, not the public brief it published.
+    db.prepare('DELETE FROM "user" WHERE "id" = \'member-1\'').run()
+    expect(db.prepare(
+      'SELECT published_by_user_id FROM daily_recommendations WHERE id = ?',
+    ).get('recommendations-2026-09-02')).toEqual({ published_by_user_id: null })
+    db.close()
+  })
+
   it('stores only constrained, per-user favorite symbols and cascades account deletion', async () => {
     const initial = await read('0001_spice.sql')
     const favorites = await read('0013_user_favorite_symbols.sql')

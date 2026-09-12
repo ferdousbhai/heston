@@ -1,7 +1,11 @@
 import { type Static, Type } from 'typebox'
 
 import { EquitySymbolType } from '../domain/instrument'
-import { MAX_RESEARCH_MODEL_NAME_LENGTH } from '../domain/market'
+import {
+  MAX_RESEARCH_BYLINE_LENGTH,
+  MAX_RESEARCH_EVIDENCE_QUOTE_LENGTH,
+  MAX_RESEARCH_MODEL_NAME_LENGTH,
+} from '../domain/market'
 import { ActionableRecommendedOrderSchema } from '../domain/recommended-order'
 import { ResearchCatalystCandidateSchema } from './research-catalyst-output'
 import { zodTypeBoxSchema } from './zod-typebox'
@@ -28,6 +32,12 @@ const NativeSearchSource = Type.Object({
  * not evidence caps.
  */
 export const DailyRecommendationsSubmissionSchema = Type.Object({
+  byline: Type.Optional(Type.String({
+    description: 'How the person running you wants to be credited on the brief, if they said: '
+      + 'a handle they chose, never their legal name. Left out, the brief credits no publisher.',
+    maxLength: MAX_RESEARCH_BYLINE_LENGTH,
+    minLength: 1,
+  })),
   catalysts: Type.Array(CatalystSubmissionSchema),
   model: Type.String({
     description: 'The model you are running as, as your runtime names it (for example '
@@ -46,7 +56,7 @@ export const DailyRecommendationsSubmissionSchema = Type.Object({
     // matches every quote against the text it retained, so a recommendation cannot assert a
     // date or number its own source does not contain.
     evidence: Type.Array(Type.Object({
-      quote: Type.String({ minLength: 1, maxLength: 300 }),
+      quote: Type.String({ minLength: 1, maxLength: MAX_RESEARCH_EVIDENCE_QUOTE_LENGTH }),
       sourceIndex: Type.Integer({ minimum: 0 }),
     }, { additionalProperties: false }), { minItems: 1, maxItems: MAX_EVIDENCE_PER_RECOMMENDATION }),
     direction: Type.Union([Type.Literal('bullish'), Type.Literal('bearish')]),

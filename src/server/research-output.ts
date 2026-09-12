@@ -22,11 +22,23 @@ export function recommendationsFromCandidates(
       return source
     })
     const {
+      evidence,
       sourceIndices: _sourceIndices,
       ...publicRecommendation
     } = recommendation
+    // The quote the binder matched travels with the recommendation, addressed by the page's own
+    // https URL rather than by an index into a list a later reader does not have. That is what
+    // `challenge_recommendation` re-reads; an index would have made the check unresolvable.
+    const citedEvidence = evidence.map((quoted) => {
+      const source = sources[quoted.sourceIndex]
+      if (!source) {
+        throw new Error(`DailyResearchOutput:missing-evidence-source:${recommendationIndex}:${quoted.sourceIndex}`)
+      }
+      return { quote: quoted.quote, url: source.url }
+    })
     return RecommendationSchema.parse({
       ...publicRecommendation,
+      evidence: citedEvidence,
       sources: selected,
     })
   })

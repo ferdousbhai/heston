@@ -95,7 +95,8 @@ from them: the server re-reads every cited page itself and refuses any quote or 
 it cannot find in that text. A rejection returns the exact reasons -- fix the citations and
 submit again rather than loosening them.
 
-Set \`model\` to the model you are running as; it is published with the brief. Publishing
+Set \`model\` to the model you are running as; it is published with the brief. Set \`byline\` to
+how the person running you wants to be credited, or leave it out. Publishing
 replaces the current brief and is refused within ${RESEARCH_REFRESH_INTERVAL_MINUTES} minutes
 of the last one.
 
@@ -137,6 +138,9 @@ What is not obvious from the tool list:
 - The public brief is produced by members' own agents, not by a schedule. Any signed-in caller may
   run \`daily_research\` and publish; the server re-reads every cited page before anything shows,
   and a brief stands for a fixed interval before the next may replace it.
+- \`challenge_recommendation\` puts one published recommendation back against its own sources:
+  the server re-reads the pages it quoted and records on the brief whether the quotes still
+  stand. A brief published before evidence was retained cannot be re-checked.
 
 \`portfolio_review\`, \`evaluate_trade_idea\` and \`daily_research\` are registered prompts the
 user invokes. If a question is really one of those, say the workflow exists.

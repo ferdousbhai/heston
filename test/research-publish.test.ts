@@ -7,11 +7,19 @@ import { RESEARCH_REFRESH_INTERVAL_MS } from '../src/domain/research-refresh'
 import { publishSubmittedDailyRecommendations } from '../src/server/research-publish'
 import { type DailyRecommendationsSubmission } from '../src/server/research-submission'
 import { markdownBrowser } from './fake-browser'
-import { migrationStore } from './sqlite-d1'
+import { migrationStore, seedMember } from './sqlite-d1'
 
 const NOW = new Date('2026-09-02T13:45:00.000Z')
+const PUBLISHER = 'member-1'
 const EVIDENCE_URL = 'https://www.reuters.com/technology/nvidia-supply'
 const PAGE_MARKDOWN = '# NVIDIA\n\nThe company **signed a multi-year supply agreement** this week, with an investor day set for September 15, 2026.'
+
+/** A store whose member row exists, because a publication records the account behind it. */
+async function publishingStore() {
+  const store = await migrationStore()
+  seedMember(store, PUBLISHER)
+  return store
+}
 
 /** The stored brief, parsed through the same contract the site reads it with. */
 function storedBrief(store: Awaited<ReturnType<typeof migrationStore>>, id: string): DailyRecommendations {
@@ -69,13 +77,13 @@ function submission(): DailyRecommendationsSubmission {
 
 describe('publishing a submission produced off this Worker', () => {
   it('re-reads the cited page, binds everything, and persists', async () => {
-    const store = await migrationStore()
+    const store = await publishingStore()
     vi.spyOn(console, 'info').mockImplementation(() => undefined)
     try {
       const publication = await publishSubmittedDailyRecommendations({
         BROWSER: markdownBrowser(PAGE_MARKDOWN),
         DB: store.database,
-      }, submission(), { now: NOW })
+      }, submission(), { now: NOW, publishedByUserId: PUBLISHER })
 
       expect(publication).toEqual({
         catalystCount: 1,
@@ -94,13 +102,53 @@ describe('publishing a submission produced off this Worker', () => {
     }
   })
 
+  it('publishes the chosen byline and the quotes, and keeps the publisher private', async () => {
+    const store = await publishingStore()
+    vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    try {
+      await expect(publishSubmittedDailyRecommendations({
+        BROWSER: markdownBrowser(PAGE_MARKDOWN),
+        DB: store.database,
+      }, { ...submission(), byline: 'volhound' }, { now: NOW, publishedByUserId: PUBLISHER }))
+        .resolves.toMatchObject({ status: 'published' })
+
+      const brief = storedBrief(store, 'recommendations-2026-09-02')
+      // What a reader is shown is the handle the member chose, and nothing else about them.
+      expect(brief.byline).toBe('volhound')
+      expect(JSON.stringify(brief)).not.toContain(PUBLISHER)
+      // The quote the binder matched travels with the recommendation, addressed by its page.
+      expect(brief.recommendations[0]?.evidence)
+        .toEqual([{ quote: 'signed a multi-year supply agreement', url: EVIDENCE_URL }])
+      // The account behind the publication is recorded beside the row, never inside it.
+      expect(store.sqlite.prepare(
+        'SELECT published_by_user_id FROM daily_recommendations WHERE id = ?',
+      ).get('recommendations-2026-09-02')).toEqual({ published_by_user_id: PUBLISHER })
+    } finally {
+      store.sqlite.close()
+    }
+  })
+
+  it('publishes no byline when the member named none', async () => {
+    const store = await publishingStore()
+    vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    try {
+      await publishSubmittedDailyRecommendations({
+        BROWSER: markdownBrowser(PAGE_MARKDOWN),
+        DB: store.database,
+      }, submission(), { now: NOW, publishedByUserId: PUBLISHER })
+      expect(storedBrief(store, 'recommendations-2026-09-02').byline).toBeUndefined()
+    } finally {
+      store.sqlite.close()
+    }
+  })
+
   it('rejects with exact reasons when the page the Worker reads does not contain the quote', async () => {
-    const store = await migrationStore()
+    const store = await publishingStore()
     try {
       const publication = await publishSubmittedDailyRecommendations({
         BROWSER: markdownBrowser('# NVIDIA\n\nAn unrelated page that never mentions the agreement.'),
         DB: store.database,
-      }, submission(), { now: NOW })
+      }, submission(), { now: NOW, publishedByUserId: PUBLISHER })
 
       expect(publication.status).toBe('rejected')
       if (publication.status !== 'rejected') throw new Error('expected rejection')
@@ -114,13 +162,13 @@ describe('publishing a submission produced off this Worker', () => {
   })
 
   it('refuses an empty brief rather than publishing a day with nothing in it', async () => {
-    const store = await migrationStore()
+    const store = await publishingStore()
     try {
       const empty = { ...submission(), catalysts: [], links: [], recommendations: [] }
       const publication = await publishSubmittedDailyRecommendations({
         BROWSER: markdownBrowser(PAGE_MARKDOWN),
         DB: store.database,
-      }, empty, { now: NOW })
+      }, empty, { now: NOW, publishedByUserId: PUBLISHER })
       expect(publication).toEqual({
         rejected: ['no recommendations submitted; a day without a brief publishes nothing'],
         status: 'rejected',
@@ -131,11 +179,11 @@ describe('publishing a submission produced off this Worker', () => {
   })
 
   it('lets a brief stand for the refresh interval before another may replace it', async () => {
-    const store = await migrationStore()
+    const store = await publishingStore()
     vi.spyOn(console, 'info').mockImplementation(() => undefined)
     try {
       const env = { BROWSER: markdownBrowser(PAGE_MARKDOWN), DB: store.database }
-      await expect(publishSubmittedDailyRecommendations(env, submission(), { now: NOW }))
+      await expect(publishSubmittedDailyRecommendations(env, submission(), { now: NOW, publishedByUserId: PUBLISHER }))
         .resolves.toMatchObject({ status: 'published' })
 
       // One millisecond short, with a page the Worker never has to read: the gate runs first,
@@ -144,7 +192,7 @@ describe('publishing a submission produced off this Worker', () => {
       const refused = await publishSubmittedDailyRecommendations(
         { BROWSER: markdownBrowser('# Nothing here'), DB: store.database },
         submission(),
-        { now: tooSoon },
+        { now: tooSoon, publishedByUserId: PUBLISHER },
       )
       expect(refused.status).toBe('rejected')
       if (refused.status !== 'rejected') throw new Error('expected rejection')
@@ -153,7 +201,7 @@ describe('publishing a submission produced off this Worker', () => {
       expect(refused.rejected[0]).toContain(new Date(NOW.getTime() + RESEARCH_REFRESH_INTERVAL_MS).toISOString())
 
       const opens = new Date(NOW.getTime() + RESEARCH_REFRESH_INTERVAL_MS)
-      await expect(publishSubmittedDailyRecommendations(env, { ...submission(), model: 'gpt-5.4' }, { now: opens }))
+      await expect(publishSubmittedDailyRecommendations(env, { ...submission(), model: 'gpt-5.4' }, { now: opens, publishedByUserId: PUBLISHER }))
         .resolves.toMatchObject({ status: 'published' })
       expect(storedBrief(store, 'recommendations-2026-09-02'))
         .toMatchObject({ model: 'gpt-5.4', publishedAt: opens.toISOString() })
@@ -163,9 +211,9 @@ describe('publishing a submission produced off this Worker', () => {
   })
 
   it('fails closed without the browser binding instead of trusting the submission', async () => {
-    const store = await migrationStore()
+    const store = await publishingStore()
     try {
-      await expect(publishSubmittedDailyRecommendations({ DB: store.database }, submission(), { now: NOW }))
+      await expect(publishSubmittedDailyRecommendations({ DB: store.database }, submission(), { now: NOW, publishedByUserId: PUBLISHER }))
         .rejects.toThrow('DailyResearchPublish:page-reading-unavailable')
     } finally {
       store.sqlite.close()

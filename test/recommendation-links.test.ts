@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest'
 import { DailyRecommendationsSchema, type DailyRecommendations } from '../src/domain/market'
 import { dailyRecommendationsUpsertStatement } from '../src/server/daily-recommendations-store'
 import { recommendationLinkUpsertStatements } from '../src/server/recommendation-links'
-import { migrationStore } from './sqlite-d1'
+import { migrationStore, seedMember } from './sqlite-d1'
+
+const PUBLISHER = 'member-1'
 
 function dailyRecommendations(id: string, publishedAt: string): DailyRecommendations {
   return DailyRecommendationsSchema.parse({
@@ -27,6 +29,7 @@ function dailyRecommendations(id: string, publishedAt: string): DailyRecommendat
 describe('recommendation link history', () => {
   it('canonicalizes and refuses republication on a later market date', async () => {
     const store = await migrationStore()
+    seedMember(store, PUBLISHER)
     const first = dailyRecommendations(
       'recommendations-2026-08-31',
       '2026-08-31T13:30:00.000Z',
@@ -37,7 +40,7 @@ describe('recommendation link history', () => {
     )
     try {
       await store.database.batch([
-        dailyRecommendationsUpsertStatement(store.database, first),
+        dailyRecommendationsUpsertStatement(store.database, first, PUBLISHER),
         ...recommendationLinkUpsertStatements(store.database, first),
       ])
 
@@ -52,7 +55,7 @@ describe('recommendation link history', () => {
       })
 
       await expect(store.database.batch([
-        dailyRecommendationsUpsertStatement(store.database, later),
+        dailyRecommendationsUpsertStatement(store.database, later, PUBLISHER),
         ...recommendationLinkUpsertStatements(store.database, later),
       ])).rejects.toThrow('RecommendationLinkAlreadyPublished')
       expect(store.sqlite.prepare(

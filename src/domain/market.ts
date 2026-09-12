@@ -86,17 +86,52 @@ const RecommendationFields = {
   risk: z.string().min(1).max(240),
 }
 
+/** One rule for every page address a brief publishes, stated once. */
+const HttpsSourceUrlSchema = z.string().url()
+  .refine((url) => new URL(url).protocol === 'https:', 'Use an HTTPS source URL')
+
 const ResearchSourceLinkSchema = z.object({
   label: z.string(),
   // Stored recommendations predate the current evidence binder. Only web citations may
   // cross that persistence boundary into owner or public anchor elements.
-  url: z.string().url().refine((url) => new URL(url).protocol === 'https:', 'Use an HTTPS source URL'),
+  url: HttpsSourceUrlSchema,
+})
+
+/**
+ * A quote is one sentence of a page, not a page. The publish boundary holds a submission to
+ * this same bound, so the quote a brief stores is the quote the binder matched.
+ */
+export const MAX_RESEARCH_EVIDENCE_QUOTE_LENGTH = 300
+
+/**
+ * The verbatim quote a recommendation leans on and the page it was read from. Both were
+ * already public — the quote comes from a page the brief cites by URL — and keeping them with
+ * the recommendation is what lets the claim be put back against its source afterwards, by a
+ * reader or by `challenge_recommendation`. A brief published before this was retained has none.
+ */
+const RecommendationEvidenceSchema = z.object({
+  quote: z.string().min(1).max(MAX_RESEARCH_EVIDENCE_QUOTE_LENGTH),
+  url: HttpsSourceUrlSchema,
+})
+
+/**
+ * What a later re-read of a recommendation's own sources found. `holds` means every quote was
+ * still in the page the Worker fetched again; `stale` names in `reasons` what was not — a page
+ * that no longer opens, or a quote no longer in it. Absent until someone challenges it:
+ * unchecked is not the same claim as checked and holding.
+ */
+export const RecommendationVerificationSchema = z.object({
+  checkedAt: z.string(),
+  reasons: z.array(z.string()),
+  status: z.enum(['holds', 'stale']),
 })
 
 export const RecommendationSchema = z.object({
   ...RecommendationFields,
+  evidence: z.array(RecommendationEvidenceSchema).optional(),
   recommendedOrder: RecommendedOrderSchema,
   sources: z.array(ResearchSourceLinkSchema),
+  verification: RecommendationVerificationSchema.optional(),
 }).superRefine((recommendation, context) => {
   if (recommendation.recommendedOrder.kind === 'legacy-unstructured') return
   for (const message of recommendedOrderIssues(
@@ -114,7 +149,7 @@ export const RecommendationLinkSchema = z.object({
     .refine((url) => new URL(url).protocol === 'https:', 'Use an HTTPS preview image URL')
     .optional(),
   title: z.string().min(1).max(180),
-  url: z.string().url().refine((url) => new URL(url).protocol === 'https:', 'Use an HTTPS source URL'),
+  url: HttpsSourceUrlSchema,
 })
 
 /**
@@ -125,9 +160,20 @@ export const RecommendationLinkSchema = z.object({
  */
 export const MAX_RESEARCH_MODEL_NAME_LENGTH = 80
 
+/**
+ * How the publishing member wants to be credited, in their own words: a handle, not a name we
+ * hold. It shares one line on the brief cover with the model that produced the brief, which is
+ * what the bound is for — a handle that does not fit beside the model name on a phone is a
+ * sentence, and the cover is not where a sentence goes. Nothing account-derived ever fills it:
+ * the member types it into the submission or leaves it out, and a brief without one shows none.
+ */
+export const MAX_RESEARCH_BYLINE_LENGTH = 40
+
 export const DailyRecommendationsSchema = z.object({
   id: z.string(),
   publishedAt: z.string(),
+  /** Chosen by the publishing member for this brief. Never a Google name or a user id. */
+  byline: z.string().min(1).max(MAX_RESEARCH_BYLINE_LENGTH).optional(),
   /** Reported by the agent that submitted the brief, and shown as reported. */
   model: z.string().min(1).max(MAX_RESEARCH_MODEL_NAME_LENGTH).optional(),
   title: z.string(),
@@ -207,6 +253,7 @@ export type Watchlist = z.infer<typeof WatchlistSchema>
 export type Ticker = z.infer<typeof TickerSchema>
 export type IvTermStructure = z.infer<typeof IvTermStructureSchema>
 export type DailyRecommendations = z.infer<typeof DailyRecommendationsSchema>
+export type RecommendationVerification = z.infer<typeof RecommendationVerificationSchema>
 export type MarketSnapshot = z.infer<typeof MarketSnapshotSchema>
 export type PublicMarketSnapshot = z.infer<typeof PublicMarketSnapshotSchema>
 export type PublicTicker = z.infer<typeof PublicTickerSchema>

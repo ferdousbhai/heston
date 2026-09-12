@@ -24,6 +24,7 @@ import { createMarketResearchTools } from './market-research-tools'
 import { createPublicMarketReadTools } from './public-market-tools'
 import { noteSymbolAttention, readsSymbols, type SymbolNamingCall } from './symbol-attention'
 import { createExactOptionGreeksReadTool } from './option-greeks-tool'
+import { createRecommendationChallengeTool } from './recommendation-challenge'
 import { createRecentCoverageTool, createRedditIngestTool } from './research-agent-tools'
 import { DailyRecommendationsSubmissionSchema } from './research-submission'
 import { publishSubmittedDailyRecommendations } from './research-publish'
@@ -104,6 +105,11 @@ export function createSpiceMcpServer(
         // want an account behind them even though neither touches one directly.
         createRememberSymbolsTool(env),
         createBrokerageReconciliationTool(env, credential),
+        // Challenging the standing brief belongs with publishing it, and for the same reason:
+        // a challenge can only ever trigger the server's own re-read of pages the server itself
+        // published -- it injects nothing and names no address -- but it spends page reads, and
+        // a cost the site pays wants a name behind it.
+        createRecommendationChallengeTool(env),
       ]
       : createPublicMarketReadTools(env, waitUntil)),
     // Private Reddit discovery and removing a name from the shared watchlist are owner acts. A
@@ -211,7 +217,11 @@ export function createSpiceMcpServer(
       async (params) => {
         // SAFETY: `publishSubmittedDailyRecommendations` re-parses its input with the same
         // submission schema at the trust boundary regardless of what the transport checked.
-        const publication = await publishSubmittedDailyRecommendations(env, params as never)
+        // The publishing member is recorded privately with the brief; the byline the reader
+        // sees is whatever that member put in the submission, and is never derived from this.
+        const publication = await publishSubmittedDailyRecommendations(env, params as never, {
+          publishedByUserId: caller.userId,
+        })
         return { content: [{ text: JSON.stringify(publication), type: 'text' as const }] }
       },
     )

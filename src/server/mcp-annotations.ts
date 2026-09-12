@@ -89,6 +89,16 @@ const ANNOTATIONS = {
     readOnlyHint: false,
     title: 'Manage the watchlist',
   },
+  challenge_recommendation: {
+    // Writes, but only ever the server's own finding about a recommendation's sources: it
+    // replaces no brief and removes nothing, and re-running it after the window reaches the
+    // same answer from the same pages.
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+    readOnlyHint: false,
+    title: 'Challenge a published recommendation',
+  },
   publish_daily_recommendations: {
     // Replaces the market date's brief, which is what the public site then shows. The
     // replaced brief is not kept, so this is destructive in the way that matters most.

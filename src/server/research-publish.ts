@@ -69,13 +69,14 @@ async function persistDailyRecommendations(
   db: D1Database,
   dailyRecommendations: DailyRecommendations,
   catalysts: readonly Catalyst[],
+  publishedByUserId: string,
 ): Promise<void> {
   // The recommendations and every catalyst learned for them become visible together: both
   // writes are deterministic upserts in one batch, so a reader never sees catalysts from a
   // brief that failed its final boundary.
   await db.batch([
     ...catalystUpsertStatements(db, 'daily-research', catalysts, dailyRecommendations.publishedAt),
-    dailyRecommendationsUpsertStatement(db, dailyRecommendations),
+    dailyRecommendationsUpsertStatement(db, dailyRecommendations, publishedByUserId),
     ...recommendationLinkUpsertStatements(db, dailyRecommendations),
   ])
 }
@@ -92,6 +93,13 @@ export type DailyRecommendationsPublication =
 
 export interface PublishSubmissionOptions {
   now?: Date
+  /**
+   * The account publishing this brief. Required, and stored privately beside the row: any
+   * member's agent may replace the public brief, so every publication has a member behind it
+   * that the owner can reach. It never reaches a reader -- what readers see is the byline the
+   * member chose for the brief, if they chose one.
+   */
+  publishedByUserId: string
 }
 
 /** Indices the submission actually leans on; only those pages are worth the Worker's read. */
@@ -109,7 +117,7 @@ function citedSourceIndices(submission: DailyRecommendationsSubmission): Set<num
 export async function publishSubmittedDailyRecommendations(
   env: AppEnv,
   untrustedSubmission: JsonValue,
-  options: PublishSubmissionOptions = {},
+  options: PublishSubmissionOptions,
 ): Promise<DailyRecommendationsPublication> {
   const browser = env.BROWSER
   // Without page reading nothing can be verified, so nothing may publish. Fail closed.
@@ -176,6 +184,9 @@ export async function publishSubmittedDailyRecommendations(
   const recommendations = recommendationsFromCandidates(citationBinding.recommendations, sources)
   const links = linksFromCandidates(submission.links, sources, recommendations.length)
   const dailyRecommendations: DailyRecommendations = DailyRecommendationsSchema.parse({
+    // Absent when the member named none: the stored JSON carries no byline at all, and the
+    // cover shows nothing where it would go rather than guessing at a name from the account.
+    byline: submission.byline,
     id: dailyRecommendationsId(marketDate(now)),
     links,
     model: submission.model,
@@ -188,7 +199,7 @@ export async function publishSubmittedDailyRecommendations(
     title: submission.title,
   })
   // The site is the publication. The channel that once mirrored it is retired.
-  await persistDailyRecommendations(db, dailyRecommendations, catalysts)
+  await persistDailyRecommendations(db, dailyRecommendations, catalysts, options.publishedByUserId)
   return {
     catalystCount: catalysts.length,
     id: dailyRecommendations.id,

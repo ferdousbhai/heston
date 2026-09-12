@@ -22,8 +22,13 @@ export type CitationBinding = {
   rejected: string[]
 }
 
-/** Markdown renders the same sentence many ways; only its words decide a match. */
-function normalized(text: string): string {
+/**
+ * Markdown renders the same sentence many ways; only its words decide a match. Exported
+ * because a later re-read of a published recommendation has to ask the identical question:
+ * two normalisations would let a quote pass at publish time and fail a challenge on
+ * punctuation alone, which would read as the source having changed when nothing did.
+ */
+export function normalizedCitationText(text: string): string {
   return text
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/[*_`>#|]/g, ' ')
@@ -37,7 +42,7 @@ export function bindRecommendationCitations(
   sources: readonly { sourceUrl: string }[],
   retained: ReadonlyMap<string, RetainedPage>,
 ): CitationBinding {
-  const pages = new Map([...retained].map(([url, page]) => [recommendationLinkKey(url) ?? url, normalized(page.markdown)]))
+  const pages = new Map([...retained].map(([url, page]) => [recommendationLinkKey(url) ?? url, normalizedCitationText(page.markdown)]))
   const readPage = (index: number | undefined): string | undefined => {
     const cited = index === undefined ? undefined : sources[index]?.sourceUrl
     const key = cited === undefined ? undefined : recommendationLinkKey(cited)
@@ -62,7 +67,7 @@ export function bindRecommendationCitations(
     // burned its last correction guessing which of three quotes the server could not find.
     const unquoted = recommendation.evidence.find((evidence) => {
       const page = readPage(evidence.sourceIndex)
-      return page === undefined || !page.includes(normalized(evidence.quote))
+      return page === undefined || !page.includes(normalizedCitationText(evidence.quote))
     })
     if (unquoted) {
       rejected.push(`${recommendation.symbol}: quote absent from its source: "${unquoted.quote.slice(0, 80)}"`)
