@@ -102,7 +102,7 @@ function useAgentTokens() {
   return { busy, error, issue, issued, revoke, tokens }
 }
 
-function CopyBlock({ label, value }: { label: string; value: string }) {
+export function CopyBlock({ label, value }: { label: string; value: string }) {
   const [copyState, setCopyState] = useState<'copied' | 'failed' | 'idle'>('idle')
   return (
     <div className="connect-code">
@@ -163,8 +163,8 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         <p>
           Spice is a tool surface for an agent running on your own machine — Claude Code, Codex, or
           anything that speaks MCP. Any agent can read the public market surface without signing in
-          at all. Connecting yours adds live quotes, option chains and Greeks, and lets it add
-          symbols to the watchlist.
+          at all. Connecting yours adds live quotes, option chains and Greeks, lets it add symbols
+          to the watchlist, and lets it generate the daily brief everyone reads.
         </p>
       </header>
 
@@ -219,8 +219,8 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         <h2>3 · Headless access <span className="connect-optional">optional</span></h2>
         <p>
           A machine that runs unattended cannot complete a browser sign-in, so it uses a token
-          instead. This is what the daily research run uses. If you are sitting at a terminal, step
-          one is the one you want.
+          instead — a scheduled research run, say. If you are sitting at a terminal, step one is
+          the one you want.
         </p>
         <form
           className="connect-issue"
@@ -301,7 +301,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         </p>
         {owner && (
           <p className="connect-owner-note">
-            Your account also carries the publishing and research-discovery tools.
+            Your account also carries the research-discovery and watchlist-removal tools.
           </p>
         )}
       </section>

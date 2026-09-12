@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { z } from 'zod'
+
+import { DailyRecommendationsSchema, type DailyRecommendations } from '../src/domain/market'
+import { RESEARCH_REFRESH_INTERVAL_MS } from '../src/domain/research-refresh'
 import { publishSubmittedDailyRecommendations } from '../src/server/research-publish'
 import { type DailyRecommendationsSubmission } from '../src/server/research-submission'
 import { markdownBrowser } from './fake-browser'
@@ -8,6 +12,13 @@ import { migrationStore } from './sqlite-d1'
 const NOW = new Date('2026-09-02T13:45:00.000Z')
 const EVIDENCE_URL = 'https://www.reuters.com/technology/nvidia-supply'
 const PAGE_MARKDOWN = '# NVIDIA\n\nThe company **signed a multi-year supply agreement** this week, with an investor day set for September 15, 2026.'
+
+/** The stored brief, parsed through the same contract the site reads it with. */
+function storedBrief(store: Awaited<ReturnType<typeof migrationStore>>, id: string): DailyRecommendations {
+  const row = z.object({ payload_json: z.string() })
+    .parse(store.sqlite.prepare('SELECT payload_json FROM daily_recommendations WHERE id = ?').get(id))
+  return DailyRecommendationsSchema.parse(JSON.parse(row.payload_json))
+}
 
 function submission(): DailyRecommendationsSubmission {
   return {
@@ -20,6 +31,7 @@ function submission(): DailyRecommendationsSubmission {
       timing: 'unknown',
       title: 'NVIDIA investor day',
     }],
+    model: 'claude-opus-5',
     links: [{
       description: 'Contains the signed agreement terms.',
       recommendationIndex: 0,
@@ -72,8 +84,9 @@ describe('publishing a submission produced off this Worker', () => {
         recommendationCount: 1,
         status: 'published',
       })
-      expect(store.sqlite.prepare('SELECT id FROM daily_recommendations WHERE id = ?')
-        .get('recommendations-2026-09-02')).toEqual({ id: 'recommendations-2026-09-02' })
+      // The model travels with the brief, as the agent reported it, so the site can say so.
+      expect(storedBrief(store, 'recommendations-2026-09-02'))
+        .toMatchObject({ model: 'claude-opus-5', publishedAt: NOW.toISOString() })
       expect(store.sqlite.prepare('SELECT source_provider FROM catalysts WHERE symbol = ?')
         .get('NVDA')).toEqual({ source_provider: 'daily-research' })
     } finally {
@@ -112,6 +125,38 @@ describe('publishing a submission produced off this Worker', () => {
         rejected: ['no recommendations submitted; a day without a brief publishes nothing'],
         status: 'rejected',
       })
+    } finally {
+      store.sqlite.close()
+    }
+  })
+
+  it('lets a brief stand for the refresh interval before another may replace it', async () => {
+    const store = await migrationStore()
+    vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    try {
+      const env = { BROWSER: markdownBrowser(PAGE_MARKDOWN), DB: store.database }
+      await expect(publishSubmittedDailyRecommendations(env, submission(), { now: NOW }))
+        .resolves.toMatchObject({ status: 'published' })
+
+      // One millisecond short, with a page the Worker never has to read: the gate runs first,
+      // so a run that cannot publish yet spends no browser budget finding that out.
+      const tooSoon = new Date(NOW.getTime() + RESEARCH_REFRESH_INTERVAL_MS - 1)
+      const refused = await publishSubmittedDailyRecommendations(
+        { BROWSER: markdownBrowser('# Nothing here'), DB: store.database },
+        submission(),
+        { now: tooSoon },
+      )
+      expect(refused.status).toBe('rejected')
+      if (refused.status !== 'rejected') throw new Error('expected rejection')
+      expect(refused.rejected).toHaveLength(1)
+      expect(refused.rejected[0]).toContain('refresh interval')
+      expect(refused.rejected[0]).toContain(new Date(NOW.getTime() + RESEARCH_REFRESH_INTERVAL_MS).toISOString())
+
+      const opens = new Date(NOW.getTime() + RESEARCH_REFRESH_INTERVAL_MS)
+      await expect(publishSubmittedDailyRecommendations(env, { ...submission(), model: 'gpt-5.4' }, { now: opens }))
+        .resolves.toMatchObject({ status: 'published' })
+      expect(storedBrief(store, 'recommendations-2026-09-02'))
+        .toMatchObject({ model: 'gpt-5.4', publishedAt: opens.toISOString() })
     } finally {
       store.sqlite.close()
     }

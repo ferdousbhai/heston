@@ -117,9 +117,19 @@ export const RecommendationLinkSchema = z.object({
   url: z.string().url().refine((url) => new URL(url).protocol === 'https:', 'Use an HTTPS source URL'),
 })
 
+/**
+ * A model identifier as the agent's own runtime names it, one line of it. A rendering envelope
+ * for a self-reported value: the brief says which model produced it because a reader deciding
+ * how much to trust a brief deserves to know, and the submitting agent is the only party that
+ * can say. The submission requires it; a brief published before it was recorded carries none.
+ */
+export const MAX_RESEARCH_MODEL_NAME_LENGTH = 80
+
 export const DailyRecommendationsSchema = z.object({
   id: z.string(),
   publishedAt: z.string(),
+  /** Reported by the agent that submitted the brief, and shown as reported. */
+  model: z.string().min(1).max(MAX_RESEARCH_MODEL_NAME_LENGTH).optional(),
   title: z.string(),
   summary: z.string(),
   regime: z.string(),

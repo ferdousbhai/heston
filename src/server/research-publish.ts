@@ -2,6 +2,7 @@ import { Compile } from 'typebox/compile'
 
 import { marketDate, type Catalyst } from '../domain/catalyst'
 import { DailyRecommendationsSchema, type DailyRecommendations } from '../domain/market'
+import { RESEARCH_REFRESH_INTERVAL_MINUTES, researchRefreshOpensAt } from '../domain/research-refresh'
 import { type AppEnv } from './env'
 import { type JsonValue } from '../domain/json-payload'
 import {
@@ -12,24 +13,33 @@ import { readResearchPageMarkdown, type RetainedPage } from './research-agent-to
 import { bindCatalystCandidates } from './research-catalyst-output'
 import { bindRecommendationCitations } from './research-citation-binding'
 import { catalystUpsertStatements } from './catalysts'
-import { dailyRecommendationsUpsertStatement } from './daily-recommendations-store'
+import {
+  dailyRecommendationsUpsertStatement,
+  readLatestDailyRecommendationsPublishedAt,
+} from './daily-recommendations-store'
 import { recommendationLinkUpsertStatements } from './recommendation-links'
 import { recommendationLinkKey } from './research-url'
 import { dailyRecommendationsId, MAX_RESEARCH_PAGE_READS } from './research-contracts'
 import { linksFromCandidates, recommendationsFromCandidates } from './research-output'
 
 /*
- * The drop-box for research produced off this Worker. What arrives is untrusted model output
- * from a machine this Worker cannot vouch for, so nothing in it establishes a citation by
- * itself: the Worker re-reads every cited page through its own browser at publish time and
- * runs the same deterministic binders the scheduled pipeline uses. What the site shows is
+ * The drop-box for research produced off this Worker, by any member's own agent. What arrives
+ * is untrusted model output from a machine this Worker cannot vouch for, so nothing in it
+ * establishes a citation by itself: the Worker re-reads every cited page through its own
+ * browser at publish time and runs the deterministic binders here. What the site shows is
  * therefore still bound to text this Worker read in this run — the invariant moved to the
  * moment the output crosses the trust boundary, not relaxed for it.
  *
  * A rejection is a result, not an error: the exact reasons return to the submitting agent,
- * which corrects its citations and submits again, the same refusal loop the transcript
- * pipeline gives its model. Publication is all-or-nothing — partially publishing whatever
- * survived would silently drop the rest behind an apparent success.
+ * which corrects its citations and submits again. Publication is all-or-nothing — partially
+ * publishing whatever survived would silently drop the rest behind an apparent success.
+ *
+ * The refresh interval is enforced here, where it is authoritative, and only mirrored by the
+ * site. It is a read-then-write: two members who both pass the gate inside the same window
+ * both publish, and the later one stands. That is tolerated rather than locked against because
+ * each of those briefs was verified by the binders on its own, so the outcome is the same as
+ * two runs an interval apart — and a lease would have to be held across the page reads, which
+ * are the slow part.
  */
 
 const SubmissionValidator = Compile(DailyRecommendationsSubmissionSchema)
@@ -56,23 +66,17 @@ function bindSubmissionSources(
 }
 
 async function persistDailyRecommendations(
-  env: AppEnv,
+  db: D1Database,
   dailyRecommendations: DailyRecommendations,
   catalysts: readonly Catalyst[],
 ): Promise<void> {
-  if (!env.DB) throw new Error('DailyResearchPersistenceUnavailable')
   // The recommendations and every catalyst learned for them become visible together: both
   // writes are deterministic upserts in one batch, so a reader never sees catalysts from a
   // brief that failed its final boundary.
-  await env.DB.batch([
-    ...catalystUpsertStatements(
-      env.DB,
-      'daily-research',
-      catalysts,
-      dailyRecommendations.publishedAt,
-    ),
-    dailyRecommendationsUpsertStatement(env.DB, dailyRecommendations),
-    ...recommendationLinkUpsertStatements(env.DB, dailyRecommendations),
+  await db.batch([
+    ...catalystUpsertStatements(db, 'daily-research', catalysts, dailyRecommendations.publishedAt),
+    dailyRecommendationsUpsertStatement(db, dailyRecommendations),
+    ...recommendationLinkUpsertStatements(db, dailyRecommendations),
   ])
 }
 
@@ -117,6 +121,23 @@ export async function publishSubmittedDailyRecommendations(
   if (submission.recommendations.length === 0) {
     return { rejected: ['no recommendations submitted; a day without a brief publishes nothing'], status: 'rejected' }
   }
+  // Nothing verified here can be kept without the store, so fail closed before reading a page.
+  const db = env.DB
+  if (!db) throw new Error('DailyResearchPersistenceUnavailable')
+  // Also before any page is read: a run that cannot publish yet should learn so before it
+  // spends the Worker's browser budget on citations it will have to bring back later.
+  const latestPublishedAt = await readLatestDailyRecommendationsPublishedAt(db)
+  const opensAt = latestPublishedAt === undefined ? undefined : researchRefreshOpensAt(latestPublishedAt)
+  if (opensAt && now.getTime() < opensAt.getTime()) {
+    return {
+      rejected: [
+        `refresh interval: the current brief was published at ${latestPublishedAt}; `
+        + `a brief stands for ${RESEARCH_REFRESH_INTERVAL_MINUTES} minutes and a new one `
+        + `may be published from ${opensAt.toISOString()}`,
+      ],
+      status: 'rejected',
+    }
+  }
 
   const rejected: string[] = []
   const pageKeys = new Set<string>()
@@ -157,6 +178,7 @@ export async function publishSubmittedDailyRecommendations(
   const dailyRecommendations: DailyRecommendations = DailyRecommendationsSchema.parse({
     id: dailyRecommendationsId(marketDate(now)),
     links,
+    model: submission.model,
     publishedAt: now.toISOString(),
     recommendations,
     regime: submission.regime,
@@ -166,7 +188,7 @@ export async function publishSubmittedDailyRecommendations(
     title: submission.title,
   })
   // The site is the publication. The channel that once mirrored it is retired.
-  await persistDailyRecommendations(env, dailyRecommendations, catalysts)
+  await persistDailyRecommendations(db, dailyRecommendations, catalysts)
   return {
     catalystCount: catalysts.length,
     id: dailyRecommendations.id,

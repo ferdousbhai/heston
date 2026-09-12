@@ -18,6 +18,18 @@ export async function readLatestDailyRecommendations(db: D1Database): Promise<Da
   return parseStoredDailyRecommendations(JSON.parse(row.payload_json))
 }
 
+/**
+ * Only the instant, for the publish boundary's refresh gate: it needs no payload, and parsing
+ * one would let an old row that no longer fits the contract stand between a member and a
+ * fresh brief.
+ */
+export async function readLatestDailyRecommendationsPublishedAt(db: D1Database): Promise<string | undefined> {
+  const row = await db.prepare(
+    'SELECT published_at FROM daily_recommendations ORDER BY published_at DESC LIMIT 1',
+  ).first<{ published_at: string }>()
+  return row?.published_at
+}
+
 /** Read one archive neighbor so the public UI can traverse history without an unbounded payload. */
 export async function readDailyRecommendationsBefore(
   db: D1Database,

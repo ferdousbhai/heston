@@ -5,70 +5,189 @@ import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '#/components/ui/card'
-import { Empty, EmptyDescription, EmptyHeader } from '#/components/ui/empty'
 import { Spinner } from '#/components/ui/spinner'
+import { loadAgentConnection } from '../data/agent-connection'
 import { loadChannelArchivePage } from '../data/channel-archive'
 import { loadPreviousDailyRecommendations } from '../data/recommendation-archive'
+import { type AgentConnection } from '../domain/agent-connection'
 import { type ChannelPost } from '../domain/channel-post'
 import { type DailyRecommendations } from '../domain/market'
 import { recommendedOrderLabel } from '../domain/recommended-order'
-import { DAILY_RESEARCH_SCHEDULE, nextDailyResearchRun } from '../domain/research-schedule'
+import {
+  RESEARCH_REFRESH_INTERVAL_MINUTES,
+  researchRefreshOpen,
+  researchRefreshOpensAt,
+} from '../domain/research-refresh'
+import { CopyBlock } from './connect-screen'
 
 // The run publishes at a time of day, not on a day, so the issue line carries the time too.
 const issueDate = new Intl.DateTimeFormat('en-US', {
   day: 'numeric', hour: 'numeric', minute: '2-digit', month: 'short', timeZone: 'America/New_York', timeZoneName: 'short', year: 'numeric',
 })
-const nextRunDate = new Intl.DateTimeFormat('en-US', {
-  day: 'numeric',
-  month: 'short',
-  timeZone: DAILY_RESEARCH_SCHEDULE.timeZone,
-  weekday: 'long',
-})
-const nextRunTime = new Intl.DateTimeFormat('en-US', {
-  hour: 'numeric',
-  minute: '2-digit',
-  timeZone: DAILY_RESEARCH_SCHEDULE.timeZone,
-  timeZoneName: 'short',
-})
 const MINUTE_MS = 60_000
 const HOUR_MS = 60 * MINUTE_MS
 const DAY_MS = 24 * HOUR_MS
-const COUNTDOWN_REFRESH_MS = MINUTE_MS
+/**
+ * What a reader tells their agent, whatever agent that is. It names the tool rather than only
+ * the prompt: every MCP client supports tools, and the tool's own description carries the
+ * contract, while prompts are a client feature some agents do not surface. The names are the
+ * ones `mcp.ts` registers.
+ */
+const DAILY_RESEARCH_ASK = 'Research today\'s market and publish a fresh brief to Spice with its '
+  + 'publish_daily_recommendations tool. If your client lists Spice\'s prompts, run daily_research.'
 
-export function researchRunCountdown(now: Date, run: Date): string {
-  const remaining = run.getTime() - now.getTime()
-  if (remaining <= 0) return 'Starting shortly'
-  if (remaining < HOUR_MS) {
-    const minutes = Math.ceil(remaining / MINUTE_MS)
-    return `In about ${minutes} minute${minutes === 1 ? '' : 's'}`
-  }
-  if (remaining < DAY_MS) {
-    const hours = Math.ceil(remaining / HOUR_MS)
-    return `In about ${hours} hour${hours === 1 ? '' : 's'}`
-  }
-  const days = Math.round(remaining / DAY_MS)
-  return `In about ${days} day${days === 1 ? '' : 's'}`
+function plural(count: number, unit: string): string {
+  return `${count} ${unit}${count === 1 ? '' : 's'}`
 }
 
-function NextRecommendationRun({ fixedNow }: { fixedNow?: Date }) {
+/** How long ago a brief was published, to the precision a reader would say it in. */
+export function briefAge(now: Date, publishedAt: string): string {
+  const elapsed = now.getTime() - Date.parse(publishedAt)
+  if (!Number.isFinite(elapsed)) throw new Error('RecommendationScreen:invalid-published-at')
+  if (elapsed < MINUTE_MS) return 'just now'
+  if (elapsed < HOUR_MS) return `${plural(Math.floor(elapsed / MINUTE_MS), 'minute')} ago`
+  if (elapsed < DAY_MS) return `${plural(Math.floor(elapsed / HOUR_MS), 'hour')} ago`
+  return `${plural(Math.floor(elapsed / DAY_MS), 'day')} ago`
+}
+
+/** Until a fresh brief may be generated; the interval is minutes, so minutes is the unit. */
+export function refreshCountdown(now: Date, opensAt: Date): string {
+  const remaining = opensAt.getTime() - now.getTime()
+  if (remaining <= 0) return 'now'
+  return `in about ${plural(Math.ceil(remaining / MINUTE_MS), 'minute')}`
+}
+
+/**
+ * A clock that ticks on the minute unless a test pins it. The age and the countdown are both
+ * stated to the minute, so that is how often they can move.
+ */
+function useMinuteClock(fixedNow?: Date): Date {
   const [now, setNow] = useState(() => fixedNow ?? new Date())
   useEffect(() => {
     if (fixedNow) return
-    const timer = window.setInterval(() => setNow(new Date()), COUNTDOWN_REFRESH_MS)
+    const timer = window.setInterval(() => setNow(new Date()), MINUTE_MS)
     return () => window.clearInterval(timer)
   }, [fixedNow])
-  const run = nextDailyResearchRun(now)
+  return now
+}
+
+/**
+ * Whether this member's agent has reached Spice, read only when there is a run to offer. A
+ * visitor who is not signed in is told the first step rather than asked; a check that fails
+ * says so and still offers the Connect tab, because the tab is the answer either way.
+ */
+function AgentConnectionStep({ onConnect, signedIn }: { onConnect: () => void; signedIn: boolean }) {
+  const [connection, setConnection] = useState<AgentConnection | 'checking' | 'unavailable'>('checking')
+  useEffect(() => {
+    if (!signedIn) return
+    const controller = new AbortController()
+    loadAgentConnection(controller.signal)
+      .then((agent) => { if (!controller.signal.aborted) setConnection(agent) })
+      .catch(() => { if (!controller.signal.aborted) setConnection('unavailable') })
+    return () => controller.abort()
+  }, [signedIn])
+
+  const connectButton = (
+    <Button onClick={onConnect} size="sm" type="button" variant="outline">Connect an agent</Button>
+  )
+  if (!signedIn) {
+    return (
+      <>
+        <p>Sign in, then point your own agent at Spice from the Connect tab.</p>
+        {connectButton}
+      </>
+    )
+  }
+  if (connection === 'checking') return <p className="research-run-checking" role="status"><Spinner />Checking for your agent</p>
+  if (connection === 'unavailable') {
+    return (
+      <>
+        <p>Whether your agent is connected could not be checked. If it is not, the Connect tab is where to start.</p>
+        {connectButton}
+      </>
+    )
+  }
+  if (!connection.connected) {
+    return (
+      <>
+        <p>No agent has reached Spice from your account yet.</p>
+        {connectButton}
+      </>
+    )
+  }
   return (
-    <section aria-live="polite" className="recommendation-next-run">
-      <Empty>
-        <EmptyHeader>
-          <h1>Next research run</h1>
-          <EmptyDescription>
-            <time dateTime={run.toISOString()}>{`${nextRunDate.format(run)} at ${nextRunTime.format(run)}`}</time>
-            <span>{researchRunCountdown(now, run)}</span>
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
+    <p className="research-run-connected">
+      Your agent is connected
+      {connection.lastSeenAt && (
+        <>
+          {' '}&middot; last reached Spice{' '}
+          <time dateTime={connection.lastSeenAt}>{issueDate.format(new Date(connection.lastSeenAt))}</time>
+        </>
+      )}
+      .
+    </p>
+  )
+}
+
+/**
+ * The brief is produced by whoever asks their own agent for it; nothing on the site waits on a
+ * schedule or on anyone's laptop. This panel says what the current brief is -- which model, how
+ * long ago -- and, once the refresh interval has passed, how to replace it. The interval is the
+ * server's; the panel only mirrors it so a reader is not sent to a refusal.
+ */
+function ResearchRunPanel({
+  latest,
+  now,
+  onConnect,
+  signedIn,
+}: {
+  latest?: DailyRecommendations
+  now: Date
+  onConnect: () => void
+  signedIn: boolean
+}) {
+  // Set exactly while a standing brief still holds the window shut, which is also the branch.
+  const opensAt = latest && !researchRefreshOpen(latest.publishedAt, now)
+    ? researchRefreshOpensAt(latest.publishedAt)
+    : undefined
+  return (
+    <section aria-labelledby="research-run-title" aria-live="polite" className="research-run-panel" id="research-run">
+      <h2 id="research-run-title">{latest ? 'Generate a fresh brief' : 'No brief yet'}</h2>
+      <p className="research-run-standing">
+        {latest
+          ? (
+              <>
+                This brief was generated {briefAge(now, latest.publishedAt)}
+                {latest.model ? <> by <strong>{latest.model}</strong></> : '; the model was not recorded'}.
+                Any member&apos;s agent can produce the next one, and Spice verifies every citation before it replaces this.
+              </>
+            )
+          : 'Nothing has been published yet. The first brief is whoever asks their agent for it.'}
+      </p>
+      {opensAt
+        ? (
+            <p className="research-run-wait">
+              A brief stands for {RESEARCH_REFRESH_INTERVAL_MINUTES} minutes. A fresh one can be generated{' '}
+              <time dateTime={opensAt.toISOString()}>{refreshCountdown(now, opensAt)}</time>.
+            </p>
+          )
+        : (
+            <ol className="research-run-steps">
+              <li>
+                <strong>Connect your agent.</strong>
+                <AgentConnectionStep onConnect={onConnect} signedIn={signedIn} />
+              </li>
+              <li>
+                <strong>Ask it for a fresh brief.</strong>
+                <p>
+                  Any agent that speaks MCP can do this. Spice&apos;s <code>daily_research</code> prompt walks
+                  it through the research and the publish step, and the publish tool describes what it
+                  will and will not accept, so an agent that does not surface prompts still has what it needs.
+                </p>
+                <CopyBlock label="Ask your agent" value={DAILY_RESEARCH_ASK} />
+              </li>
+            </ol>
+          )}
     </section>
   )
 }
@@ -192,12 +311,16 @@ function RecommendationArchive({
   availableSymbols,
   latest,
   now,
+  onConnect,
   onSymbol,
+  signedIn,
 }: {
   availableSymbols: ReadonlySet<string>
   latest?: DailyRecommendations
   now?: Date
+  onConnect: () => void
   onSymbol: (symbol: string) => void
+  signedIn: boolean
 }) {
   const [history, setHistory] = useState<DailyRecommendations[]>(() => latest ? [latest] : [])
   const [index, setIndex] = useState(0)
@@ -205,7 +328,18 @@ function RecommendationArchive({
   const [archiveError, setArchiveError] = useState<string>()
   const [loading, setLoading] = useState(false)
   const current = history[index]
-  const showNextRun = !current || (current.recommendations.length === 0 && current.links.length === 0)
+  // One clock for the age, the countdown, and whether the cover may point at the offer.
+  const clock = useMinuteClock(now)
+  const refreshOpen = researchRefreshOpen(latest?.publishedAt, clock)
+  // The panel belongs to the latest brief only: an older one is history, and the offer to
+  // replace the current brief would be misplaced under it.
+  const onLatest = index === 0
+  const runPanel = onLatest
+    ? <ResearchRunPanel latest={latest} now={clock} onConnect={onConnect} signedIn={signedIn} />
+    : null
+  // A brief with nothing in it predates the publish boundary's refusal of one; the panel, or
+  // for an older one the bare fact, is all there is to show for it.
+  const showRunPanelOnly = !current || (current.recommendations.length === 0 && current.links.length === 0)
 
   const openOlder = async () => {
     const loaded = history[index + 1]
@@ -256,12 +390,12 @@ function RecommendationArchive({
       )
     : null
 
-  if (showNextRun) {
+  if (showRunPanelOnly) {
     return (
       <div className="recommendation-screen">
         {navigation}
         {archiveFailure}
-        <NextRecommendationRun fixedNow={now} />
+        {runPanel ?? <p className="recommendation-empty">This brief published nothing.</p>}
         <ChannelArchive />
       </div>
     )
@@ -272,6 +406,12 @@ function RecommendationArchive({
       {archiveFailure}
       <header className="recommendation-cover">
         <time dateTime={current.publishedAt}>{issueDate.format(new Date(current.publishedAt))}</time>
+        {/* The model is part of the brief's provenance, so it is stated on the brief itself and
+            not only in the panel below. Reported by the agent that submitted it. */}
+        <p className="recommendation-byline">
+          {current.model ? <>Generated by <strong>{current.model}</strong></> : 'Model not recorded'}
+          {onLatest && refreshOpen && <> &middot; <a href="#research-run">Generate a fresh brief</a></>}
+        </p>
         <h1>{current.regime}</h1>
         <p>{current.regimeDetail}</p>
         <p>{current.summary}</p>
@@ -348,6 +488,7 @@ function RecommendationArchive({
         </div>
         <p className="disclaimer">Not financial advice.</p>
       </div>
+      {runPanel}
       <ChannelArchive />
     </div>
   )
@@ -357,12 +498,16 @@ export function RecommendationScreen({
   availableSymbols,
   dailyRecommendations,
   now,
+  onConnect,
   onSymbol,
+  signedIn,
 }: {
   availableSymbols: ReadonlySet<string>
   dailyRecommendations?: DailyRecommendations
   now?: Date
+  onConnect: () => void
   onSymbol: (symbol: string) => void
+  signedIn: boolean
 }) {
   return (
     <RecommendationArchive
@@ -372,7 +517,9 @@ export function RecommendationScreen({
         : 'no-recommendations'}
       latest={dailyRecommendations}
       now={now}
+      onConnect={onConnect}
       onSymbol={onSymbol}
+      signedIn={signedIn}
     />
   )
 }

@@ -197,7 +197,7 @@ describe('MCP tool tiers', () => {
     }
   }
 
-  const OWNER_ONLY = ['publish_daily_recommendations', 'ingest_wsb', 'get_recent_coverage', 'manage_watchlist']
+  const OWNER_ONLY = ['ingest_wsb', 'get_recent_coverage', 'manage_watchlist']
 
   it('hides the owner surface from a member rather than refusing it on call', async () => {
     const { store, token } = await harness('member@example.com')
@@ -209,16 +209,19 @@ describe('MCP tool tiers', () => {
       'cancel_brokerage_order',
       // Additive only; removing a name is owner-only because it changes what every reader sees.
       'remember_symbols',
+      // The public brief is produced by members' own agents; the site waits on no schedule. The
+      // boundary, not the caller's tier, is what keeps it honest.
+      'publish_daily_recommendations',
     ]) {
       expect(names).toContain(expected)
     }
-    // Publishing the public brief and private Reddit discovery are owner acts, and a member is
-    // not shown a surface they cannot use.
+    // Private Reddit discovery and watchlist removal are owner acts, and a member is not shown a
+    // surface they cannot use.
     for (const ownerOnly of OWNER_ONLY) expect(names).not.toContain(ownerOnly)
     store.close()
   })
 
-  it('gives the owner the publishing and discovery surface', async () => {
+  it('gives the owner the discovery surface', async () => {
     const { OWNER_EMAIL } = await import('../src/server/auth')
     const { store, token } = await harness(OWNER_EMAIL)
     const names = await toolNames(token, store.database)
@@ -263,6 +266,16 @@ describe('MCP guidance surface', () => {
       const names = promptPayload.result.prompts.map((prompt: { name: string }) => prompt.name)
       expect(names).toContain('portfolio_review')
       expect(names).toContain('evaluate_trade_idea')
+      expect(names).toContain('daily_research')
+
+      // The run ends in a publish, which an anonymous caller does not have; a prompt that walks
+      // an agent to a tool it cannot call is withheld with the tool.
+      const anonymousPrompts = await handleMcpRequest(mcpRequest({
+        id: 7, jsonrpc: '2.0', method: 'prompts/list', params: {},
+      }), env, executionContext)
+      const anonymousNames = (await mcpPayload(anonymousPrompts)).result.prompts
+        .map((prompt: { name: string }) => prompt.name)
+      expect(anonymousNames).not.toContain('daily_research')
     } finally {
       resetBrokerApi()
       store.close()
@@ -298,6 +311,13 @@ describe('MCP tool annotations', () => {
         expect(tool.annotations, `${tool.name} has no annotations`).toBeDefined()
         expect(ANNOTATED_TOOL_NAMES).toContain(tool.name)
       }
+      // The other direction, which is what let annotations for deleted tools sit here unnoticed:
+      // the owner tier is the whole surface, so a name in the table that is listed nowhere is an
+      // orphan and the tool it described is gone.
+      const listedNames = new Set(tools.map((tool) => tool.name))
+      for (const annotated of ANNOTATED_TOOL_NAMES) {
+        expect(listedNames, `${annotated} is annotated but registered nowhere`).toContain(annotated)
+      }
 
       const byName = new Map(tools.map((tool) => [tool.name, tool.annotations]))
       // Placing twice places two orders. This is the annotation that matters most.
@@ -311,13 +331,6 @@ describe('MCP tool annotations', () => {
       })
       // Additive, and that distinction is the reason it is a member tool at all.
       expect(byName.get('remember_symbols')).toMatchObject({ destructiveHint: false, readOnlyHint: false })
-      // The other direction, which is what let annotations for deleted tools sit here unnoticed:
-      // the owner tier is the whole surface, so a name in the table that is listed nowhere is an
-      // orphan and the tool it described is gone.
-      const listedNames = new Set(tools.map((tool) => tool.name))
-      for (const annotated of ANNOTATED_TOOL_NAMES) {
-        expect(listedNames, `${annotated} is annotated but registered nowhere`).toContain(annotated)
-      }
       // Reads must never be advertised as writes.
       for (const readOnly of ['read_market_metrics', 'find_option_contracts', 'read_watchlist']) {
         expect(byName.get(readOnly)).toMatchObject({ readOnlyHint: true })
@@ -365,6 +378,7 @@ describe('the guide resource', () => {
         ...tools.result.tools.map((tool) => tool.name),
         'portfolio_review',
         'evaluate_trade_idea',
+        'daily_research',
       ])
       const named = [...guide.matchAll(/`([a-z_]+)`/g)].map((match) => match[1]!)
       expect(named.length).toBeGreaterThan(5)

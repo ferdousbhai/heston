@@ -169,7 +169,9 @@ function SpiceWorkspace({
               <RecommendationScreen
                 availableSymbols={loadedSymbols}
                 dailyRecommendations={dailyRecommendations}
+                onConnect={() => setTab('connect')}
                 onSymbol={chooseSymbol}
+                signedIn={Boolean(viewer)}
               />
             )}
           </main>

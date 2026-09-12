@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import { PORTFOLIO_POLICY } from '../src/domain/portfolio-risk'
-import { SPICE_MCP_INSTRUCTIONS } from '../src/server/doctrine'
+import { RESEARCH_REFRESH_INTERVAL_MS } from '../src/domain/research-refresh'
+import { DAILY_RESEARCH_PROMPT, SPICE_MCP_INSTRUCTIONS } from '../src/server/doctrine'
+import { MAX_DAILY_RECOMMENDATIONS } from '../src/server/research-submission'
 import {
   createInstrumentQuoteReadTool,
   createOptionContractFindTool,
@@ -57,6 +59,20 @@ describe('rules that ride on the tool they govern', () => {
   it('forbids automatically retrying an ambiguous broker mutation', () => {
     expect(createBrokerageReconciliationTool({}, undefined).description)
       .toContain('never automatically retry an ambiguous broker mutation')
+  })
+})
+
+describe('the daily research prompt', () => {
+  it('promises only what the publish boundary enforces', () => {
+    // The two numbers a run can be refused on, from the constants the boundary reads.
+    expect(DAILY_RESEARCH_PROMPT).toContain(`at most ${MAX_DAILY_RECOMMENDATIONS} ideas`)
+    expect(DAILY_RESEARCH_PROMPT).toContain(`${RESEARCH_REFRESH_INTERVAL_MS / 60_000} minutes`)
+    expect(DAILY_RESEARCH_PROMPT).toContain('publish_daily_recommendations')
+    // The model is what the site shows readers; the prompt is where the agent is told to say it.
+    expect(DAILY_RESEARCH_PROMPT).toContain('`model`')
+    // A research run is not a trading session, whoever's agent is running it.
+    expect(DAILY_RESEARCH_PROMPT).toContain('Place no order')
+    expect(DAILY_RESEARCH_PROMPT).not.toMatch(/undefined|\[object|NaN/)
   })
 })
 

@@ -14,8 +14,9 @@ where they belong. Read the relevant code before changing behavior.
 `src/routes/api.*` thin HTTP adapters · `src/data/` reactive browser persistence ·
 `src/components/` product surfaces · `migrations/` D1 schema · `ops/` the member's own
 machine (credential proxy) and the owner's temporary bootstrap Workers, which reach the
-production bindings · `tools/` local jobs. The daily research run lives in the private
-`spice-research` repository: the site is public, the recipe is not.
+production bindings · `tools/` local jobs. The brief is produced by members' own agents through
+the `daily_research` prompt this Worker serves; the owner's deeper procedure lives in the
+private `spice-research` repository and runs the same public contract.
 
 ## Boundaries
 
@@ -26,8 +27,8 @@ production bindings · `tools/` local jobs. The daily research run lives in the 
 - **Access is two independent gates.** Signing in earns the market and research surface plus
   that member's own favorites and agent tokens. A broker credential *presented on the request*
   — never a membership level — unlocks account reads and placement, and only for the account
-  that credential resolves to. Owner adds publishing and private discovery, and those tools are
-  absent from a member's `tools/list` rather than present and refused.
+  that credential resolves to. Owner adds private discovery and watchlist removal, and those
+  tools are absent from a member's `tools/list` rather than present and refused.
 - **No member's long-lived broker credential is ever stored here**, for any broker; an adapter
   that cannot work without one does not get added. It lives in the member's OS keyring, and a
   separate local process exchanges it for a short-lived token per request — separate because an
@@ -69,9 +70,12 @@ production bindings · `tools/` local jobs. The daily research run lives in the 
   doctrine the server publishes as MCP `instructions` and prompts is content it injects into
   someone else's agent, so it is assembled only from this repository's constants — never from
   D1 rows, provider payloads, model output, or a fetched page — and it advises rather than
-  commands. What the daily research run submits is untrusted model output: the Worker re-reads
-  every cited page itself and runs the binders at publish time. Nothing partial publishes, and
-  rejections return exact reasons to fix and resubmit.
+  commands. **The public brief is generated on demand, never on a schedule this Worker or any
+  laptop keeps**: any signed-in member's agent may publish one, and what it submits is untrusted
+  model output — the Worker re-reads every cited page itself and runs the binders at publish
+  time. A brief stands for the refresh interval before the next may replace it, carries the
+  model its agent reported, and nothing partial publishes; rejections return exact reasons to
+  fix and resubmit.
 - **Secrets and account numbers stay server-side**, missing bindings fail closed, and provider
   bodies or credentials must not enter logs. A log line carries an event name and an error
   name, never a token, digest, account number, or user id. A refusal names the check that
@@ -80,9 +84,9 @@ production bindings · `tools/` local jobs. The daily research run lives in the 
 ## Working rules
 
 - An interactive agent reaches Spice through the local proxy, which attaches the token from the
-  keyring, so no agent configuration holds a credential. The unattended research run instead
+  keyring, so no agent configuration holds a credential. An unattended research run instead
   connects directly with its own token and *no* broker header, so every account tool refuses
-  structurally rather than by allowlist. Keep that asymmetry — it is what makes the unattended
+  structurally rather than by allowlist. Keep that asymmetry — it is what makes an unattended
   run unable to trade.
 - Do not introduce magic numbers or duplicate limits. Every bound must come from an explicit
   product or risk policy, a documented platform or provider constraint, or a named resource

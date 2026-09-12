@@ -342,11 +342,18 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .recommendation-navigation { min-height: 42px; padding: 7px 14px; border-bottom: 1px solid var(--hairline); display: flex; align-items: center; justify-content: space-between; }
 .recommendation-navigation [data-slot="button"]:only-child { margin-right: auto; }
 .recommendation-archive-error { margin: 16px 20px 0; }
-.recommendation-next-run { min-height: calc(50vh - 42px); min-height: calc(50dvh - 42px); padding: 24px 20px; display: grid; place-items: center; }
-.recommendation-next-run h1 { margin: 0; font-size: 18px; }
-.recommendation-next-run [data-slot="empty-description"] { display: flex; flex-direction: column; gap: 4px; }
-.recommendation-next-run time { color: var(--text); font-size: 13px; }
-.recommendation-next-run [data-slot="empty-description"] span { color: var(--ink-faint); font-size: 11px; }
+.research-run-panel { padding: 26px 22px 30px; border-top: 1px solid var(--hairline); }
+.research-run-panel h2 { margin: 0; font-size: 15px; font-weight: 700; line-height: 1.1; text-transform: uppercase; }
+.research-run-panel p { max-width: 560px; margin: 8px 0 0; color: #a7a9b1; font-size: 13px; line-height: 1.6; }
+.research-run-panel strong, .research-run-panel time { color: var(--text); }
+.research-run-steps { max-width: 560px; margin: 14px 0 0; padding-left: 1.4em; display: grid; gap: 14px; font-size: 13px; line-height: 1.6; }
+.research-run-steps li > strong { display: block; color: var(--text); }
+.research-run-steps [data-slot="button"] { margin-top: 8px; }
+.research-run-checking { display: flex; align-items: center; gap: 9px; color: var(--ink-muted); font-size: 11px; }
+.recommendation-empty { padding: 26px 22px; color: var(--ink-faint); font-size: 13px; }
+.recommendation-byline { margin: 10px 0 0; color: var(--ink-faint); font-size: 11px; }
+.recommendation-byline strong { color: var(--text); font-weight: 600; }
+.recommendation-byline a { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
 .recommendation-cover { padding: 28px 22px 26px; border-bottom: 1px solid var(--hairline); }
 .recommendation-cover time { color: var(--ink-faint); font: 10px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
 .recommendation-cover h1 { max-width: 560px; margin: 22px 0 4px; font-size: clamp(26px, 6.4vw, 36px); font-weight: 700; line-height: 1.06; }

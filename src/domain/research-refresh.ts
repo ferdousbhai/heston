@@ -1,0 +1,28 @@
+/**
+ * How long a published brief stands before another run may replace it.
+ *
+ * The brief is generated on demand by whichever member points their own agent at it; no
+ * scheduled process on anyone's machine is involved, so the site never waits on a laptop being
+ * awake. The interval is a product policy, not a resource budget: long enough that two readers
+ * do not race to replace a brief neither has finished reading, and that the Worker's page
+ * re-reads at publish time are not spent on back-to-back runs over the same news; short enough
+ * that a fresh brief is never more than a quarter hour away when someone wants one. The publish
+ * boundary enforces it and the site derives its countdown from the same number.
+ */
+export const RESEARCH_REFRESH_INTERVAL_MS = 15 * 60_000
+
+/** The same interval in the unit the site, the prompt, and a refusal all state it in. */
+export const RESEARCH_REFRESH_INTERVAL_MINUTES = RESEARCH_REFRESH_INTERVAL_MS / 60_000
+
+/** When a brief published at `publishedAt` may be replaced. Throws on an instant that is not one. */
+export function researchRefreshOpensAt(publishedAt: string): Date {
+  const published = Date.parse(publishedAt)
+  if (!Number.isFinite(published)) throw new Error('ResearchRefresh:invalid-published-at')
+  return new Date(published + RESEARCH_REFRESH_INTERVAL_MS)
+}
+
+/** Whether a new brief may be published now. With no brief at all, the first one always may. */
+export function researchRefreshOpen(latestPublishedAt: string | undefined, now: Date): boolean {
+  if (latestPublishedAt === undefined) return true
+  return now.getTime() >= researchRefreshOpensAt(latestPublishedAt).getTime()
+}

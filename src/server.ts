@@ -43,17 +43,6 @@ export default {
   },
   scheduled(controller: ScheduledController, env: AppEnv, context: ExecutionContext) {
     const scheduledAt = new Date(controller.scheduledTime)
-    // Late-morning New York: the local research run should have published by now, and this
-    // Worker's only view of that machine is whether today's brief exists.
-    if (controller.cron === '30 15 * * 1-5') {
-      context.waitUntil(import('./server/research-watchdog').then(({ watchDailyBrief }) => watchDailyBrief(env, scheduledAt))
-        .then((result) => console.info(JSON.stringify({ event: 'DailyBriefWatchdog', result })))
-        .catch((cause: unknown) => console.error(
-          'DailyBriefWatchdogFailed',
-          cause instanceof Error ? cause.name : 'UnknownError',
-        )))
-      return
-    }
     // The year chart is decoration over live prices, so a failed refresh leaves the last good
     // series in place rather than failing the tick. Record the degraded run without logging
     // symbols or provider content.

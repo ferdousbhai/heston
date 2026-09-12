@@ -1,4 +1,6 @@
 import { PORTFOLIO_POLICY } from '../domain/portfolio-risk'
+import { RESEARCH_REFRESH_INTERVAL_MINUTES } from '../domain/research-refresh'
+import { MAX_DAILY_RECOMMENDATIONS } from './research-submission'
 
 /**
  * What this server tells a connected agent about how the account is managed.
@@ -64,6 +66,43 @@ account's remaining loss budget.
 }
 
 /**
+ * The run any member's agent performs to produce the public brief.
+ *
+ * This is the public half of the recipe: the contract the publish boundary will hold the
+ * submission to, and the posture that makes a brief worth reading. What it deliberately does
+ * not carry is any particular way of finding candidates — the agent reads the web with its own
+ * tools, and a deeper procedure can sit in front of this one without contradicting it. Every
+ * number here is the same constant the boundary enforces, so the prompt cannot promise what
+ * the server will refuse.
+ */
+export const DAILY_RESEARCH_PROMPT = `
+Produce a fresh Spice brief and publish it with \`publish_daily_recommendations\`.
+
+Start from what is already known: \`read_daily_recommendations\` for the standing brief,
+\`read_watchlist\` for the names readers follow, and \`read_catalysts\` for what is dated. Then
+read today's news yourself, with your own tools -- primary sources first (filings, company
+releases, exchange and regulator notices), reputable coverage second. Anything social is a lead,
+never evidence.
+
+Choose at most ${MAX_DAILY_RECOMMENDATIONS} ideas, and fewer when fewer clear the bar. Each must
+name a mechanism, who is forced to act, and the single observation that would falsify it. Most
+movement is noise; a day with nothing worth arguing is a brief you do not submit. For each idea
+give a direction, a concrete order the live chain supports (\`find_option_contracts\` -- never
+name a contract it did not return), and the risk that breaks the case.
+
+Cite only pages you actually opened, by their exact https address, and quote evidence verbatim
+from them: the server re-reads every cited page itself and refuses any quote or catalyst date
+it cannot find in that text. A rejection returns the exact reasons -- fix the citations and
+submit again rather than loosening them.
+
+Set \`model\` to the model you are running as; it is published with the brief. Publishing
+replaces the current brief and is refused within ${RESEARCH_REFRESH_INTERVAL_MINUTES} minutes
+of the last one.
+
+This workflow produces a brief, not a trade. Place no order in the course of it.
+`.trim()
+
+/**
  * The index a connected agent reads to find out what this server can answer.
  *
  * It exists because the two cheapest places to put this are both wrong. `instructions` sits in
@@ -95,7 +134,10 @@ What is not obvious from the tool list:
   Signing in adds live broker quotes, chains, Greeks, and writing to the shared watchlist.
 - Account tools need a broker credential on the request, held on the user's own machine and never
   here. Placement runs its guards server-side and its refusal is authoritative.
+- The public brief is produced by members' own agents, not by a schedule. Any signed-in caller may
+  run \`daily_research\` and publish; the server re-reads every cited page before anything shows,
+  and a brief stands for a fixed interval before the next may replace it.
 
-\`portfolio_review\` and \`evaluate_trade_idea\` are registered prompts the user invokes. If a
-question is really one of those, say the workflow exists.
+\`portfolio_review\`, \`evaluate_trade_idea\` and \`daily_research\` are registered prompts the
+user invokes. If a question is really one of those, say the workflow exists.
 `.trim()

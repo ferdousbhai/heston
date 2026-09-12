@@ -31,7 +31,9 @@ describe('the channel archive on the recommendations tab', () => {
     render(createElement(RecommendationScreen, {
       availableSymbols: new Set(snapshot.tickers.map((ticker) => ticker.symbol)),
       dailyRecommendations: snapshot.recommendations,
+      onConnect: () => undefined,
       onSymbol: () => undefined,
+      signedIn: false,
     }))
 
     await waitFor(() => expect(screen.getByText(/PCG still has a Wednesday liability event/)).toBeTruthy())

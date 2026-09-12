@@ -28,7 +28,13 @@ import { createRecentCoverageTool, createRedditIngestTool } from './research-age
 import { DailyRecommendationsSubmissionSchema } from './research-submission'
 import { publishSubmittedDailyRecommendations } from './research-publish'
 import { createResearchReadTools } from './research-read-tools'
-import { PORTFOLIO_REVIEW_PROMPT, SPICE_GUIDE, SPICE_MCP_INSTRUCTIONS, tradeIdeaPrompt } from './doctrine'
+import {
+  DAILY_RESEARCH_PROMPT,
+  PORTFOLIO_REVIEW_PROMPT,
+  SPICE_GUIDE,
+  SPICE_MCP_INSTRUCTIONS,
+  tradeIdeaPrompt,
+} from './doctrine'
 import { toolAnnotations } from './mcp-annotations'
 import { authenticateMcpToken } from './mcp-tokens'
 import { getAuthRuntime, isOwnerEmail } from './auth'
@@ -100,9 +106,9 @@ export function createSpiceMcpServer(
         createBrokerageReconciliationTool(env, credential),
       ]
       : createPublicMarketReadTools(env, waitUntil)),
-    // Publishing the public brief and private Reddit discovery are owner acts. A member is not
-    // shown a surface they cannot use, so these are absent from their tool list rather than
-    // present and refused.
+    // Private Reddit discovery and removing a name from the shared watchlist are owner acts. A
+    // member is not shown a surface they cannot use, so these are absent from their tool list
+    // rather than present and refused.
     ...(caller.owner
       ? [createRedditIngestTool(env), createRecentCoverageTool(env), createWatchlistManageTool(env)]
       : []),
@@ -184,16 +190,21 @@ export function createSpiceMcpServer(
     (uri) => ({ contents: [{ text: SPICE_GUIDE, uri: uri.href }] }),
   )
 
-  // Owner only: publishing replaces the public brief, and does nothing else.
-  if (caller.owner) {
+  // Any member's agent may produce the public brief; the site does not wait on a schedule or on
+  // the owner's machine. What keeps that safe is not who calls it but what the boundary does
+  // with the call: every cited page is re-read here, the binders run here, the refresh interval
+  // is enforced here, and nothing partial publishes. Withheld from the anonymous tier because
+  // a brief carries a name readers can hold to account, and a token is that name.
+  if (caller.signedIn) {
     server.registerTool(
       'publish_daily_recommendations',
       {
-        description: 'Submit the day\'s finished research brief for publication. The server '
-          + 'reads every cited page itself and refuses any quote or catalyst date it cannot '
-          + 'find in that text; a rejected submission returns the exact reasons so citations '
-          + 'can be fixed and the brief submitted again. Publishing replaces the current '
-          + 'market date\'s brief.',
+        description: 'Submit a finished research brief for publication on the public site. The '
+          + 'server reads every cited page itself and refuses any quote or catalyst date it '
+          + 'cannot find in that text; a rejected submission returns the exact reasons so '
+          + 'citations can be fixed and the brief submitted again. Publishing replaces the '
+          + 'current brief, and is refused while the last one is younger than the refresh '
+          + 'interval. `model` is published with the brief.',
         annotations: toolAnnotations('publish_daily_recommendations'),
         inputSchema: fromJsonSchema(asJsonSchema(DailyRecommendationsSubmissionSchema)),
       },
@@ -203,6 +214,16 @@ export function createSpiceMcpServer(
         const publication = await publishSubmittedDailyRecommendations(env, params as never)
         return { content: [{ text: JSON.stringify(publication), type: 'text' as const }] }
       },
+    )
+    // The run itself, offered exactly where publishing is: a prompt that ends in a tool the
+    // caller does not have would send an anonymous agent all the way to a refusal.
+    server.registerPrompt(
+      'daily_research',
+      {
+        description: 'Research today\'s market, write the brief, and publish it to the site.',
+        title: 'Daily research',
+      },
+      () => ({ messages: [{ content: { text: DAILY_RESEARCH_PROMPT, type: 'text' as const }, role: 'user' as const }] }),
     )
   }
 

@@ -1,6 +1,7 @@
 import { type Static, Type } from 'typebox'
 
 import { EquitySymbolType } from '../domain/instrument'
+import { MAX_RESEARCH_MODEL_NAME_LENGTH } from '../domain/market'
 import { ActionableRecommendedOrderSchema } from '../domain/recommended-order'
 import { ResearchCatalystCandidateSchema } from './research-catalyst-output'
 import { zodTypeBoxSchema } from './zod-typebox'
@@ -20,14 +21,20 @@ const NativeSearchSource = Type.Object({
 }, { additionalProperties: false })
 
 /**
- * The one model-authored contract in the daily pipeline, now submitted from the agent on the
- * owner's machine through the MCP publish drop-box. The Worker parses it with this same
+ * The one model-authored contract in the daily pipeline, submitted from an agent on a member's
+ * own machine through the MCP publish drop-box. The Worker parses it with this same
  * schema, so its static TypeScript type and runtime boundary cannot drift into parallel
  * schemas. Its copy-length budgets keep untrusted prose inside rendering envelopes; they are
  * not evidence caps.
  */
 export const DailyRecommendationsSubmissionSchema = Type.Object({
   catalysts: Type.Array(CatalystSubmissionSchema),
+  model: Type.String({
+    description: 'The model you are running as, as your runtime names it (for example '
+      + '"claude-opus-5"). Published with the brief so readers know what produced it.',
+    maxLength: MAX_RESEARCH_MODEL_NAME_LENGTH,
+    minLength: 1,
+  }),
   sources: Type.Array(NativeSearchSource),
   title: Type.String({ minLength: 1, maxLength: 100 }),
   summary: Type.String({ minLength: 1, maxLength: 360 }),
