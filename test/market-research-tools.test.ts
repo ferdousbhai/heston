@@ -4,6 +4,10 @@ import { type ChartResultArray } from 'yahoo-finance2/modules/chart'
 import { type JsonObject } from '../src/domain/json-payload'
 
 import {
+  MAX_PRICE_HISTORY_RETURNED_ROWS,
+  PriceHistoryReadParameters,
+} from '../src/server/market-research-contracts'
+import {
   createYahooPriceHistoryProvider,
   type PriceHistoryProvider,
   type PriceHistoryRow,
@@ -95,17 +99,60 @@ describe('market research tools', () => {
     })
     expect(result.prices[0]).toMatchObject({ adjustedClose: 26, close: 260, date: '2026-07-26' })
     expect(result.studies).toHaveLength(5)
-    expect(result.studies[0]).toMatchObject({ kind: 'SMA' })
-    expect(result.studies[0]!.points[0]).toMatchObject({ date: '2026-07-26', value: 25 })
-    expect(result.studies[2]).toMatchObject({ kind: 'RSI' })
-    expect(result.studies[2]!.points[0]).toMatchObject({ value: 100 })
-    expect(result.studies[4]).toMatchObject({ kind: 'MACD' })
-    expect(result.studies[4]!.points[0]).toMatchObject({
-      histogram: expect.any(Number),
-      macd: expect.any(Number),
-      signal: expect.any(Number),
+    // A study is positioned against the returned rows rather than re-dated point by point:
+    // `firstDate` must be the date of `prices[firstPriceIndex]` or the alignment is a lie.
+    expect(result.studies[0]).toEqual({
+      kind: 'SMA',
+      period: 3,
+      series: { firstDate: '2026-07-26', firstPriceIndex: 0, values: [25, 26, 27, 28, 29] },
     })
-    for (const study of result.studies) expect(study.points).toHaveLength(5)
+    expect(result.studies[2]).toMatchObject({
+      kind: 'RSI',
+      series: { firstDate: result.prices[0]!.date, firstPriceIndex: 0, values: [100, 100, 100, 100, 100] },
+    })
+    const macd = result.studies[4]!
+    expect(macd).toMatchObject({ fastPeriod: 3, kind: 'MACD', signalPeriod: 2, slowPeriod: 5 })
+    if (macd.kind !== 'MACD') throw new Error('expected the MACD study')
+    for (const series of [macd.histogram, macd.macd, macd.signal]) {
+      expect(series.firstPriceIndex).toBe(0)
+      expect(series.values).toHaveLength(5)
+    }
+    expect(result.studyAlignment).toContain('prices[firstPriceIndex + i]')
+  })
+
+  it('states a study that has no value in the returned window instead of padding it', async () => {
+    const result = await readPriceHistory({
+      studies: [{ kind: 'SMA', period: 20 }],
+      symbol: 'AAPL',
+    }, priceProvider(historyRows(5)), now)
+
+    expect(result.studies[0]).toEqual({ kind: 'SMA', period: 20, series: { values: [] } })
+    expect(result.prices).toHaveLength(5)
+  })
+
+  it('rounds returned prices and study values to the finest increment a US equity trades in', async () => {
+    const noisy = historyRows(3).map((row) => ({
+      ...row,
+      adjustedClose: 218.1199951171875,
+      close: 218.1199951171875,
+      high: 219.44999694824219,
+      volume: 1_234_567,
+    }))
+
+    const result = await readPriceHistory({
+      studies: [{ kind: 'SMA', period: 2 }],
+      symbol: 'AAPL',
+    }, priceProvider(noisy), now)
+
+    expect(result.prices[0]).toMatchObject({ close: 218.12, high: 219.45, volume: 1_234_567 })
+    expect(result.studies[0]).toMatchObject({ series: { values: [218.12, 218.12] } })
+  })
+
+  it('leaves a plain history free of the study alignment note', async () => {
+    const result = await readPriceHistory({ symbol: 'AAPL' }, priceProvider(historyRows(3)), now)
+
+    expect(result.studies).toEqual([])
+    expect(result.studyAlignment).toBeUndefined()
   })
 
   it('defaults the inclusive range to the New York market date', async () => {
@@ -159,15 +206,27 @@ describe('market research tools', () => {
     expect(provider.readDaily).not.toHaveBeenCalled()
   })
 
-  it('allows study parameters up to the accepted provider allocation boundary', async () => {
+  it('allows study parameters up to the returned-row budget and no further', async () => {
     await expect(readPriceHistory({
       studies: [{ kind: 'SMA', period: 201 }, { kind: 'BBANDS', standardDeviations: 5.1 }],
       symbol: 'AAPL',
     }, priceProvider(historyRows(1)), now)).resolves.toMatchObject({
       studies: [{ kind: 'SMA', period: 201 }, { kind: 'BBANDS', standardDeviations: 5.1 }],
     })
+    // The advertised `maximum` and the runtime bound are the same number, so a period the schema
+    // accepts can never be one the reader refuses -- and nothing wider is advertised.
+    const advertised = [...JSON.stringify(PriceHistoryReadParameters).matchAll(/"maximum":(\d+)/g)]
+      .map((match) => Number(match[1]))
+    expect(advertised.length).toBeGreaterThan(0)
+    expect(Math.max(...advertised)).toBe(MAX_PRICE_HISTORY_RETURNED_ROWS)
     await expect(readPriceHistory({
-      studies: [{ kind: 'SMA', period: 4_001 }],
+      studies: [{ kind: 'SMA', period: MAX_PRICE_HISTORY_RETURNED_ROWS }],
+      symbol: 'AAPL',
+    }, priceProvider(historyRows(1)), now)).resolves.toMatchObject({
+      studies: [{ kind: 'SMA', period: MAX_PRICE_HISTORY_RETURNED_ROWS }],
+    })
+    await expect(readPriceHistory({
+      studies: [{ kind: 'SMA', period: MAX_PRICE_HISTORY_RETURNED_ROWS + 1 }],
       symbol: 'AAPL',
     }, priceProvider(historyRows(1)), now)).rejects.toThrow('SMA period')
     await expect(readPriceHistory({

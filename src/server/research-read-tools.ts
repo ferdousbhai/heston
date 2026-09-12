@@ -13,7 +13,14 @@ import { readLatestDailyRecommendations } from './daily-recommendations-store'
 // budget and is observable through `truncated`; the one-year horizon keeps "upcoming" scheduled
 // events actionable. The agent can issue a narrower follow-up instead of receiving an archive.
 const MAX_CATALYST_SYMBOLS = MAX_MARKET_SYMBOLS
-const MAX_CATALYSTS = 100
+/**
+ * Measured, not guessed: a stored row with its title, description and source URL serializes to
+ * roughly 350 characters, so sixty rows is about 21,000 characters -- some 5,000 tokens of the
+ * caller's turn, which is what one read of a shared calendar is worth. A hundred rows was two
+ * and a half times that for the same twenty symbols, and the rows past the sixtieth are the
+ * furthest out and least actionable. `truncated` still says when the horizon held more.
+ */
+const MAX_CATALYSTS = 60
 const MAX_CATALYST_HORIZON_DAYS = 365
 
 const CatalystReadParameters = Type.Object({
@@ -30,8 +37,22 @@ const CatalystReadParameters = Type.Object({
 
 const DailyRecommendationsReadParameters = Type.Object({}, { additionalProperties: false })
 
+/**
+ * What the agent is handed is a projection of the stored row, not the row: a catalyst `id` is
+ * `<producer>:<symbol>:<kind>:<date>`, every part of which is already a field beside it, and no
+ * tool on this surface accepts one as input -- so it is roughly fifty characters per row that
+ * buys the reader nothing. The domain `CatalystSchema` keeps `id`, because the website orders,
+ * de-duplicates and links by it; only this projection drops it.
+ */
+export type AgentCatalyst = Omit<Catalyst, 'id'>
+
+function agentCatalyst(catalyst: Catalyst): AgentCatalyst {
+  const { id: _id, ...row } = catalyst
+  return row
+}
+
 export type CatalystReadResult = {
-  catalysts: Catalyst[]
+  catalysts: AgentCatalyst[]
   fetchedAt: string
   horizonDays: number
   source: 'spice-catalyst-store'
@@ -83,7 +104,7 @@ export async function readCatalysts(
   ).bind(...symbols, start, endDate(start, boundedHorizon), MAX_CATALYSTS + 1).all()
   if (!Array.isArray(result.results)) throw new Error('Catalyst data returned an invalid response.')
   const allCatalysts = CatalystSchema.array().parse(result.results)
-  const catalysts = allCatalysts.slice(0, MAX_CATALYSTS)
+  const catalysts = allCatalysts.slice(0, MAX_CATALYSTS).map(agentCatalyst)
   return {
     catalysts,
     fetchedAt: now.toISOString(),

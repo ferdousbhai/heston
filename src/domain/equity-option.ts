@@ -2,11 +2,12 @@ import { type Static, Type } from 'typebox'
 
 import { EquitySymbolType } from './instrument'
 import { IsoDateType } from './iso-date'
+import { StringEnum } from './string-enum'
 
 /** The exact human option tuple accepted by read tools before broker-side resolution. */
 export const EquityOptionTupleSchema = Type.Object({
   expiry: IsoDateType,
-  optionType: Type.Union([Type.Literal('C'), Type.Literal('P')]),
+  optionType: StringEnum(['C', 'P']),
   strike: Type.Number({ exclusiveMinimum: 0 }),
   underlying: EquitySymbolType,
 }, { additionalProperties: false })

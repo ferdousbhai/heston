@@ -2,31 +2,55 @@ import { type Static, Type } from 'typebox'
 
 import { EquitySymbolType } from '../domain/instrument'
 import { ISO_DATE_PATTERN } from '../domain/iso-date'
+import { StringEnum } from '../domain/string-enum'
 
 /**
  * Provider rows are the allocation boundary; returned rows and study count are
- * smaller model-context budgets. Study periods share the provider-row ceiling so
- * they cannot create sparse arrays larger than any accepted input series.
+ * smaller model-context budgets.
  */
 export const MAX_PRICE_HISTORY_PROVIDER_ROWS = 4_000
 export const MAX_PRICE_HISTORY_RETURNED_ROWS = 250
 export const MAX_PRICE_STUDIES = 5
-export const MAX_PRICE_STUDY_PERIOD = MAX_PRICE_HISTORY_PROVIDER_ROWS
+/**
+ * A study period wider than the rows the tool will ever return describes a window no part of
+ * which is in the answer: the caller sees at most `MAX_PRICE_HISTORY_RETURNED_ROWS` rows, and
+ * the warm-up behind a longer period is neither returned nor checkable against anything that
+ * is. So the returned-row budget, not the provider allocation ceiling, is the widest period
+ * this contract can account for, and it is what both the schema and `normalizeStudies` state.
+ */
+export const MAX_PRICE_STUDY_PERIOD = MAX_PRICE_HISTORY_RETURNED_ROWS
+
+/**
+ * Provider closes arrive as float64 renderings of float32 storage -- `218.1199951171875` for a
+ * price the provider observed as 218.12 -- and serializing every digit spent a third of the
+ * price rows on noise. Four decimals is the finest increment a US equity trades in (SEC Rule
+ * 612 sets the minimum price variation at $0.0001 below $1.00 and $0.01 at or above it), so
+ * rounding there drops the rendering artifact and no observed price. Study values share it:
+ * they are averages of these same closes, and a fifth decimal would claim precision the inputs
+ * never had. Volume is a count, not a price, and is never rounded.
+ */
+export const PRICE_DECIMAL_PLACES = 4
+const PRICE_ROUNDING_FACTOR = 10 ** PRICE_DECIMAL_PLACES
+
+/** Applied at the serialization boundary only; studies are computed from full-precision rows. */
+export function roundPrice(value: number): number {
+  return Math.round(value * PRICE_ROUNDING_FACTOR) / PRICE_ROUNDING_FACTOR
+}
 
 const ScalarStudyParameters = Type.Object({
-  kind: Type.Union([Type.Literal('SMA'), Type.Literal('EMA'), Type.Literal('RSI')]),
+  kind: StringEnum(['SMA', 'EMA', 'RSI']),
   period: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 2 })),
 }, { additionalProperties: false })
 
 const BollingerStudyParameters = Type.Object({
-  kind: Type.Literal('BBANDS'),
+  kind: StringEnum(['BBANDS']),
   period: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 2 })),
   standardDeviations: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
 }, { additionalProperties: false })
 
 const MacdStudyParameters = Type.Object({
   fastPeriod: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 2 })),
-  kind: Type.Literal('MACD'),
+  kind: StringEnum(['MACD']),
   signalPeriod: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 2 })),
   slowPeriod: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 3 })),
 }, { additionalProperties: false })
@@ -42,9 +66,7 @@ export const PriceHistoryReadParameters = Type.Object({
     description: 'Inclusive end date in YYYY-MM-DD form. Defaults to today.',
     pattern: ISO_DATE_PATTERN,
   })),
-  interval: Type.Optional(Type.Union([
-    Type.Literal('1d'), Type.Literal('1wk'), Type.Literal('1mo'),
-  ], { description: 'Daily by default.' })),
+  interval: Type.Optional(StringEnum(['1d', '1wk', '1mo'], { description: 'Daily by default.' })),
   limit: Type.Optional(Type.Integer({
     description: 'Most recent rows to return. Defaults to 120.',
     maximum: MAX_PRICE_HISTORY_RETURNED_ROWS,
@@ -78,27 +100,42 @@ export type PriceHistoryRow = {
   volume: number
 }
 
-type ScalarStudyPoint = { date: string; value: number | null }
-type MacdStudyPoint = {
-  date: string
-  histogram: number | null
-  macd: number | null
-  signal: number | null
-}
-type BollingerStudyPoint = {
-  date: string
-  lower: number | null
-  middle: number | null
-  upper: number | null
+/**
+ * One study series, positioned against the returned `prices` rows instead of re-dating every
+ * point: `values[i]` is the value for `prices[firstPriceIndex + i]`, and `firstDate` restates
+ * that row's date so a reader can check the alignment rather than trust it. The rows before
+ * `firstPriceIndex` are the study's warm-up, which is stated here rather than transmitted --
+ * padding it with one dated null per row was a quarter of the whole result.
+ *
+ * Both positions are absent exactly when `values` is empty: a study whose warm-up outruns the
+ * returned window has no row to align to, and says so by carrying nothing.
+ */
+export type PriceStudySeries = {
+  firstDate?: string
+  firstPriceIndex?: number
+  values: number[]
 }
 
+/** Restated in every result: a model that reads one without the tool description still aligns it. */
+export const STUDY_ALIGNMENT_NOTE
+  = 'Each series values[i] is the study value for prices[firstPriceIndex + i]; earlier rows are warm-up and have no value.'
+
 export type PriceStudyResult =
-  | { kind: 'SMA' | 'EMA' | 'RSI'; period: number; points: ScalarStudyPoint[] }
-  | { kind: 'BBANDS'; period: number; points: BollingerStudyPoint[]; standardDeviations: number }
+  | { kind: 'SMA' | 'EMA' | 'RSI'; period: number; series: PriceStudySeries }
+  | {
+    kind: 'BBANDS'
+    lower: PriceStudySeries
+    middle: PriceStudySeries
+    period: number
+    standardDeviations: number
+    upper: PriceStudySeries
+  }
   | {
     fastPeriod: number
+    histogram: PriceStudySeries
     kind: 'MACD'
-    points: MacdStudyPoint[]
+    macd: PriceStudySeries
+    signal: PriceStudySeries
     signalPeriod: number
     slowPeriod: number
   }
@@ -119,6 +156,8 @@ export type PriceHistoryReadResult = {
   provider: string
   sourceUrl: string
   studies: PriceStudyResult[]
+  // Present only when studies were asked for; a plain history has nothing to align.
+  studyAlignment?: typeof STUDY_ALIGNMENT_NOTE
   studyPriceField: 'adjustedClose'
   symbol: string
   totalValidRowCount: number

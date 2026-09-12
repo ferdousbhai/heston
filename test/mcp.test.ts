@@ -472,8 +472,11 @@ describe('MCP surface budget', () => {
    */
   // Raised for the three member research tools -- `challenge_recommendation`,
   // `record_catalysts` and `record_evidence` -- each of which advertises the citation contract
-  // it is held to, which is what lets an agent fix a rejection without a round trip.
-  const TOOLS_LIST_CHAR_BUDGET = 25_000
+  // it is held to, which is what lets an agent fix a rejection without a round trip. Then
+  // lowered again, to just above the measured surface, once the published schemas stopped
+  // carrying zod's safe-integer bounds and spelling closed string sets as `anyOf` of `const`:
+  // both were shape, not contract, and a ceiling left above them would quietly re-admit them.
+  const TOOLS_LIST_CHAR_BUDGET = 24_000
   const INSTRUCTIONS_CHAR_BUDGET = 1_500
 
   it('keeps the advertised surface inside its budget', async () => {
@@ -494,6 +497,38 @@ describe('MCP surface budget', () => {
       }, token), env, executionContext)
       const tools = (await mcpPayload(listed)).result.tools
       expect(JSON.stringify(tools).length).toBeLessThanOrEqual(TOOLS_LIST_CHAR_BUDGET)
+    } finally {
+      resetBrokerApi()
+      store.close()
+    }
+  })
+
+  it('publishes bounds the contract means and closed string sets as enums', async () => {
+    const { env, store, token } = await ownerHarness()
+    setBrokerApi(stubBroker())
+    try {
+      const listed = await handleMcpRequest(mcpRequest({
+        id: 10, jsonrpc: '2.0', method: 'tools/list', params: {},
+      }, token), env, executionContext)
+      const tools = z.object({
+        result: z.object({ tools: z.array(z.object({ inputSchema: z.unknown(), name: z.string() })) }),
+      }).parse(await mcpPayload(listed)).result.tools
+      const schemas = JSON.stringify(tools)
+
+      // A bound that equals JavaScript's own safe-integer range says nothing about the contract,
+      // and reads to a model as permission for a nine-quadrillion source index.
+      expect(schemas).not.toContain(String(Number.MAX_SAFE_INTEGER))
+
+      // A closed set of strings is an `enum`. The `anyOf` of `const` branches TypeBox emits for
+      // a literal union means the same thing at three times the characters, on every model call.
+      const history = tools.find((tool) => tool.name === 'read_account_history')
+      expect(JSON.stringify(history)).toContain('"enum":["transactions","orders"]')
+      // The `const`s that remain are discriminators of object unions -- an order kind, a
+      // watchlist action -- where the branches differ by more than one value.
+      const constTools = tools.filter((tool) => JSON.stringify(tool).includes('"const"')).map((tool) => tool.name)
+      expect([...constTools].sort()).toEqual([
+        'manage_watchlist', 'place_brokerage_order', 'publish_daily_recommendations',
+      ])
     } finally {
       resetBrokerApi()
       store.close()
