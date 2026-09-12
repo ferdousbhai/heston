@@ -2,6 +2,8 @@ import { type Static, Type } from 'typebox'
 
 import { EquitySymbolType } from '../domain/instrument'
 import {
+  MAX_CITED_SOURCE_TITLE_LENGTH,
+  MAX_CITED_SOURCE_URL_LENGTH,
   MAX_RESEARCH_BYLINE_LENGTH,
   MAX_RESEARCH_EVIDENCE_QUOTE_LENGTH,
   MAX_RESEARCH_MODEL_NAME_LENGTH,
@@ -23,8 +25,8 @@ export const RecommendedOrderSubmissionSchema = zodTypeBoxSchema(ActionableRecom
 export const CatalystSubmissionSchema = zodTypeBoxSchema(ResearchCatalystCandidateSchema)
 export const NativeSearchSource = Type.Object({
   context: Type.String({ minLength: 1, maxLength: 900 }),
-  sourceUrl: Type.String({ minLength: 1, maxLength: 2_000 }),
-  title: Type.String({ minLength: 1, maxLength: 180 }),
+  sourceUrl: Type.String({ minLength: 1, maxLength: MAX_CITED_SOURCE_URL_LENGTH }),
+  title: Type.String({ minLength: 1, maxLength: MAX_CITED_SOURCE_TITLE_LENGTH }),
 }, { additionalProperties: false })
 
 /**

@@ -3,6 +3,7 @@ import {
   McpTokenLabelSchema,
   type McpTokenMetadata,
 } from '../domain/mcp-tokens'
+import { base64Url, sha256Base64Url } from './digest'
 
 /**
  * `spice_<token_id>_<secret>`.
@@ -28,16 +29,6 @@ export class McpTokenLimitError extends Error {
     super(`A member may hold at most ${MAX_MCP_TOKENS_PER_USER} agent tokens. Revoke one before issuing another.`)
     this.name = 'McpTokenLimitError'
   }
-}
-
-function base64Url(bytes: Uint8Array): string {
-  let binary = ''
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '')
-}
-
-async function digest(value: string): Promise<string> {
-  return base64Url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))))
 }
 
 /**
@@ -118,7 +109,7 @@ export async function issueMcpToken(
   await database.prepare(
     `INSERT INTO user_mcp_tokens (token_id, user_id, token_digest, label, created_at)
      VALUES (?, ?, ?, ?, ?)`,
-  ).bind(tokenId, userId, await digest(token), parsedLabel, createdAt).run()
+  ).bind(tokenId, userId, await sha256Base64Url(token), parsedLabel, createdAt).run()
   return { token, tokenMetadata: { createdAt, label: parsedLabel, tokenId } }
 }
 
@@ -146,7 +137,7 @@ export async function authenticateMcpToken(
     'SELECT user_id, token_digest, last_used_at FROM user_mcp_tokens WHERE token_id = ?',
   ).bind(tokenId).first<{ last_used_at: string | null; token_digest: string; user_id: string }>()
   if (!row) return undefined
-  if (!await constantTimeDigestMatch(await digest(presented), row.token_digest)) return undefined
+  if (!await constantTimeDigestMatch(await sha256Base64Url(presented), row.token_digest)) return undefined
 
   const lastUsedAt = row.last_used_at ? Date.parse(row.last_used_at) : undefined
   if (lastUsedAt === undefined || !Number.isFinite(lastUsedAt) || now.getTime() - lastUsedAt >= LAST_USED_REFRESH_MS) {

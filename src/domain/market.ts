@@ -87,7 +87,7 @@ const RecommendationFields = {
 }
 
 /** One rule for every page address a brief publishes, stated once. */
-const HttpsSourceUrlSchema = z.string().url()
+export const HttpsSourceUrlSchema = z.string().url()
   .refine((url) => new URL(url).protocol === 'https:', 'Use an HTTPS source URL')
 
 const ResearchSourceLinkSchema = z.object({
@@ -159,6 +159,16 @@ export const RecommendationLinkSchema = z.object({
  * can say. The submission requires it; a brief published before it was recorded carries none.
  */
 export const MAX_RESEARCH_MODEL_NAME_LENGTH = 80
+
+/**
+ * The envelope a cited source arrives in, wherever it is cited: a page address and the page's
+ * own title. Every surface that admits a citation -- the brief, a recorded catalyst, an
+ * evidence card -- holds it to these, so a page a brief may cite is a page a card may cite.
+ * The address bound is a rendering and storage envelope, not a URL-spec limit; the title is
+ * held to one line at the card's measure.
+ */
+export const MAX_CITED_SOURCE_URL_LENGTH = 2_000
+export const MAX_CITED_SOURCE_TITLE_LENGTH = 180
 
 /**
  * How the publishing member wants to be credited, in their own words: a handle, not a name we

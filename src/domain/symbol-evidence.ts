@@ -1,7 +1,13 @@
 import { z } from 'zod'
 
 import { EquitySymbolSchema } from './instrument'
-import { MAX_RESEARCH_BYLINE_LENGTH, MAX_RESEARCH_EVIDENCE_QUOTE_LENGTH } from './market'
+import {
+  HttpsSourceUrlSchema,
+  MAX_CITED_SOURCE_TITLE_LENGTH,
+  MAX_CITED_SOURCE_URL_LENGTH,
+  MAX_RESEARCH_BYLINE_LENGTH,
+  MAX_RESEARCH_EVIDENCE_QUOTE_LENGTH,
+} from './market'
 
 /*
  * An evidence card is one quoted passage from a page, attached to a symbol by a member's own
@@ -29,10 +35,9 @@ export const MAX_EVIDENCE_NOTE_LENGTH = 240
  * for the same reason -- wide enough for a handle, too narrow for a sentence or an address.
  */
 export const MAX_EVIDENCE_BYLINE_LENGTH = MAX_RESEARCH_BYLINE_LENGTH
-/** The page's own title, in the same envelope every other cited source title is held to. */
-export const MAX_EVIDENCE_SOURCE_TITLE_LENGTH = 180
-/** The address envelope the citation boundary already accepts for a cited source. */
-export const MAX_EVIDENCE_SOURCE_URL_LENGTH = 2_000
+/** The same envelope every cited source is held to; see `market.ts`. */
+export const MAX_EVIDENCE_SOURCE_TITLE_LENGTH = MAX_CITED_SOURCE_TITLE_LENGTH
+export const MAX_EVIDENCE_SOURCE_URL_LENGTH = MAX_CITED_SOURCE_URL_LENGTH
 
 /**
  * How many cards a public read returns for one symbol. The section sits under the runway in the
@@ -53,7 +58,7 @@ export const SymbolEvidenceSchema = z.strictObject({
   quote: z.string().min(1).max(MAX_EVIDENCE_QUOTE_LENGTH),
   recordedAt: z.string(),
   sourceTitle: z.string().min(1).max(MAX_EVIDENCE_SOURCE_TITLE_LENGTH),
-  sourceUrl: z.string().url().refine((url) => new URL(url).protocol === 'https:', 'Use an HTTPS source URL'),
+  sourceUrl: HttpsSourceUrlSchema,
   symbol: EquitySymbolSchema,
 })
 

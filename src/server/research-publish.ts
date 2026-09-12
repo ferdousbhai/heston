@@ -9,7 +9,7 @@ import {
   DailyRecommendationsSubmissionSchema,
   type DailyRecommendationsSubmission,
 } from './research-submission'
-import { readResearchPageMarkdown, type RetainedPage } from './research-agent-tools'
+import { retainCitedPages } from './research-agent-tools'
 import { bindCatalystCandidates } from './research-catalyst-output'
 import { bindRecommendationCitations } from './research-citation-binding'
 import { catalystUpsertStatements } from './catalysts'
@@ -19,7 +19,7 @@ import {
 } from './daily-recommendations-store'
 import { recommendationLinkUpsertStatements } from './recommendation-links'
 import { recommendationLinkKey } from './research-url'
-import { dailyRecommendationsId, MAX_RESEARCH_PAGE_READS } from './research-contracts'
+import { dailyRecommendationsId } from './research-contracts'
 import { linksFromCandidates, recommendationsFromCandidates } from './research-output'
 
 /*
@@ -147,30 +147,13 @@ export async function publishSubmittedDailyRecommendations(
     }
   }
 
-  const rejected: string[] = []
-  const pageKeys = new Set<string>()
-  for (const index of citedSourceIndices(submission)) {
-    const sourceUrl = submission.sources[index]?.sourceUrl
-    // An index past the end of sources has no page to read; the binders reject the citation.
-    if (sourceUrl === undefined) continue
-    const key = recommendationLinkKey(sourceUrl)
-    if (key === undefined) rejected.push(`source ${index}: not a readable https page address`)
-    else pageKeys.add(key)
-  }
-  if (pageKeys.size > MAX_RESEARCH_PAGE_READS) {
-    return {
-      rejected: [`cites ${pageKeys.size} pages; at most ${MAX_RESEARCH_PAGE_READS} are read in one run`],
-      status: 'rejected',
-    }
-  }
-  if (rejected.length) return { rejected, status: 'rejected' }
-
-  const retained = new Map<string, RetainedPage>()
-  for (const key of pageKeys) {
-    const markdown = await readResearchPageMarkdown(browser, key)
-    if (markdown === undefined) rejected.push(`page did not open: ${key}`)
-    else retained.set(key, { markdown, readAt: now.toISOString() })
-  }
+  const { rejected, retained } = await retainCitedPages(
+    browser,
+    submission.sources,
+    citedSourceIndices(submission),
+    now.toISOString(),
+    'run',
+  )
   if (rejected.length) return { rejected, status: 'rejected' }
 
   const catalystBinding = bindCatalystCandidates(submission.catalysts, submission.sources, retained, now)

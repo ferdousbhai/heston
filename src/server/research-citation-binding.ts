@@ -37,6 +37,17 @@ export function normalizedCitationText(text: string): string {
     .toLowerCase()
 }
 
+/**
+ * Enough of a refused quote for its author to find it again, without reprinting a paragraph of
+ * untrusted text back to the agent that sent it. One definition, because every surface that
+ * binds a quote refuses it in exactly these words.
+ */
+const REJECTED_QUOTE_EXCERPT_CHARS = 80
+
+export function quoteAbsentFromSourceReason(quote: string): string {
+  return `quote absent from its source: "${quote.slice(0, REJECTED_QUOTE_EXCERPT_CHARS)}"`
+}
+
 export function bindRecommendationCitations(
   recommendations: DailyRecommendationsSubmission['recommendations'],
   sources: readonly { sourceUrl: string }[],
@@ -70,7 +81,7 @@ export function bindRecommendationCitations(
       return page === undefined || !page.includes(normalizedCitationText(evidence.quote))
     })
     if (unquoted) {
-      rejected.push(`${recommendation.symbol}: quote absent from its source: "${unquoted.quote.slice(0, 80)}"`)
+      rejected.push(`${recommendation.symbol}: ${quoteAbsentFromSourceReason(unquoted.quote)}`)
       continue
     }
     kept.push(recommendation)

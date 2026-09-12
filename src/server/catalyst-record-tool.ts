@@ -6,11 +6,9 @@ import { type JsonValue } from '../domain/json-payload'
 import { textResult } from './agent-tool-result'
 import { persistResearchCatalysts } from './catalysts'
 import { type AppEnv } from './env'
-import { readResearchPageMarkdown, type RetainedPage } from './research-agent-tools'
+import { retainCitedPages } from './research-agent-tools'
 import { bindCatalystCandidates } from './research-catalyst-output'
-import { MAX_RESEARCH_PAGE_READS } from './research-contracts'
 import { CatalystSubmissionSchema, NativeSearchSource } from './research-submission'
-import { recommendationLinkKey } from './research-url'
 
 /*
  * The gap this fills: catalyst coverage is bought by reader attention, one search per symbol per
@@ -73,30 +71,13 @@ export async function recordResearchCatalysts(
   // Re-parsed at the trust boundary whatever the transport already checked.
   const recording = RecordValidator.Parse(untrustedRecording)
 
-  const rejected: string[] = []
-  const pageKeys = new Set<string>()
-  for (const candidate of recording.catalysts) {
-    const sourceUrl = recording.sources[candidate.sourceIndex]?.sourceUrl
-    // An index past the end of sources has no page to read; the binder rejects the citation.
-    if (sourceUrl === undefined) continue
-    const key = recommendationLinkKey(sourceUrl)
-    if (key === undefined) rejected.push(`source ${candidate.sourceIndex}: not a readable https page address`)
-    else pageKeys.add(key)
-  }
-  if (pageKeys.size > MAX_RESEARCH_PAGE_READS) {
-    return {
-      rejected: [`cites ${pageKeys.size} pages; at most ${MAX_RESEARCH_PAGE_READS} are read in one call`],
-      status: 'rejected',
-    }
-  }
-  if (rejected.length) return { rejected, status: 'rejected' }
-
-  const retained = new Map<string, RetainedPage>()
-  for (const key of pageKeys) {
-    const markdown = await readResearchPageMarkdown(browser, key)
-    if (markdown === undefined) rejected.push(`page did not open: ${key}`)
-    else retained.set(key, { markdown, readAt: now.toISOString() })
-  }
+  const { rejected, retained } = await retainCitedPages(
+    browser,
+    recording.sources,
+    recording.catalysts.map((candidate) => candidate.sourceIndex),
+    now.toISOString(),
+    'call',
+  )
   if (rejected.length) return { rejected, status: 'rejected' }
 
   const binding = bindCatalystCandidates(

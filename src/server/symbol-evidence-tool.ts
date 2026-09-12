@@ -14,7 +14,7 @@ import {
 import { textResult } from './agent-tool-result'
 import { type AppEnv } from './env'
 import { readResearchPageMarkdown } from './research-agent-tools'
-import { normalizedCitationText } from './research-citation-binding'
+import { normalizedCitationText, quoteAbsentFromSourceReason } from './research-citation-binding'
 import { recommendationLinkKey } from './research-url'
 import { upsertSymbolEvidence } from './symbol-evidence'
 
@@ -96,10 +96,7 @@ export async function recordSymbolEvidence(
   // The same normalization the brief's citations are bound by: markdown renders one sentence
   // many ways, and only its words decide whether the page contains the quote.
   if (!normalizedCitationText(markdown).includes(normalizedCitationText(evidence.quote))) {
-    return {
-      rejected: [`quote absent from its source: "${evidence.quote.slice(0, 80)}"`],
-      status: 'rejected',
-    }
+    return { rejected: [quoteAbsentFromSourceReason(evidence.quote)], status: 'rejected' }
   }
 
   const id = await upsertSymbolEvidence(db, {

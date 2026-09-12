@@ -4,6 +4,7 @@ import {
   type SymbolEvidence,
 } from '../domain/symbol-evidence'
 import { EquitySymbolSchema } from '../domain/instrument'
+import { sha256Base64Url } from './digest'
 import { normalizedCitationText } from './research-citation-binding'
 
 /**
@@ -27,12 +28,6 @@ export type SymbolEvidenceRecord = {
   symbol: string
 }
 
-function base64Url(bytes: Uint8Array): string {
-  let binary = ''
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '')
-}
-
 /**
  * The card's id, derived rather than random so a repeat is an upsert. The producer prefix is
  * the same convention a catalyst row carries: a row says what wrote it, and can be retracted
@@ -40,8 +35,7 @@ function base64Url(bytes: Uint8Array): string {
  */
 export async function symbolEvidenceId(symbol: string, sourceUrl: string, quote: string): Promise<string> {
   const identity = [symbol, sourceUrl, normalizedCitationText(quote)].join('\n')
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(identity))
-  return `member-evidence:${base64Url(new Uint8Array(digest))}`
+  return `member-evidence:${await sha256Base64Url(identity)}`
 }
 
 export async function upsertSymbolEvidence(db: D1Database, record: SymbolEvidenceRecord): Promise<string> {
