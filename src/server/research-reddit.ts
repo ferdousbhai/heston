@@ -27,12 +27,22 @@ export type RedditDiscussion = {
 }
 
 const USER_AGENT = 'SpiceMustFlow/0.2 personal-options-research'
-// Reddit is untrusted and then embedded in one mandatory research packet. These caps bound
-// upstream requests, Worker memory, and model context; no post or comment is authoritative.
+/*
+ * Reddit is untrusted and then embedded in one research packet. These caps bound upstream
+ * requests, Worker memory, and model context; no post or comment is authoritative.
+ *
+ * What this tool is for decides the text caps, not what Reddit will hand over. It buys the
+ * names a crowd is arguing about, which the agent then researches against primary sources --
+ * the doctrine refuses a Reddit page as a citation at all. Breadth of posts is therefore worth
+ * paying for and depth of any one is not: the old caps admitted 20 posts of 4,000 characters
+ * with ten 1,600-character comments each, or 404,000 characters, more than a whole session's
+ * context spent on discovery that cannot be cited. A post's opening paragraph and its three
+ * best replies name the ticker and the claim, which is the entire job.
+ */
 const MAX_POSTS_REVIEWED = 20
-const MAX_COMMENTS_PER_POST = 10
-const MAX_POST_TEXT = 4_000
-const MAX_COMMENT_TEXT = 1_600
+const MAX_COMMENTS_PER_POST = 3
+const MAX_POST_TEXT = 600
+const MAX_COMMENT_TEXT = 300
 const POST_FETCH_CONCURRENCY = 5
 
 const RedditPostSchema = z.object({

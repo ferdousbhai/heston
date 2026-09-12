@@ -8,6 +8,19 @@ import { dailyRecommendationsId } from './research-contracts'
 // Prior daily recommendations are a deduplication aid, not an archive-search tool; one year bounds
 // the D1 scan and agent context while covering every seasonal comparison available to a daily run.
 export const MAX_RESEARCH_LOOKBACK_DAYS = 365
+/**
+ * How many prior recommendations one lookback may return, newest first.
+ *
+ * The question this answers is whether a name was argued recently and on what case, so the
+ * newest rows are the whole value and an exhaustive history is not. Until now there was no
+ * bound at all, which the storage happened to make safe: a market date held one brief, so a
+ * year of lookback was a year of rows. Nothing enforces that any more -- a brief is replaced
+ * whenever a reader asks their own agent for one, and the refresh interval is only the floor
+ * between two of them -- so how much prose this returns is now set by how busy the site was,
+ * which is exactly the kind of ceiling a query should not be left without. A caller that hits
+ * it narrows its tickers or its window, which `truncated` is what tells it to do.
+ */
+export const MAX_RECENT_COVERAGE_ROWS = 25
 
 const CoverageRowFields = {
   direction: z.enum(['bullish', 'bearish', 'neutral']),
@@ -21,6 +34,12 @@ const RecentCoverageRowSchema = z.object({
   description: z.string().min(1),
   headline: z.string().min(1),
 }).transform((row) => ({ ...row, publishedAt: row.published_at }))
+
+/** Newest first, and honest about the rest: a short list and a silently short list differ. */
+export interface RecentCoverageResult {
+  coverage: RecentTickerCoverage[]
+  truncated: boolean
+}
 
 export interface RecentTickerCoverage {
   description: string
@@ -48,8 +67,8 @@ export async function searchRecentTickerCoverage(
   symbols: readonly string[],
   daysAgo = 14,
   now = new Date(),
-): Promise<RecentTickerCoverage[]> {
-  if (symbols.length === 0) return []
+): Promise<RecentCoverageResult> {
+  if (symbols.length === 0) return { coverage: [], truncated: false }
   if (!env.DB) throw new Error('RecentCoverageUnavailable')
   if (!Number.isSafeInteger(daysAgo) || daysAgo < 1 || daysAgo > MAX_RESEARCH_LOOKBACK_DAYS) {
     throw new Error('Recent coverage lookback is invalid.')
@@ -69,15 +88,18 @@ export async function searchRecentTickerCoverage(
        AND daily.published_at < ?
        AND daily.id <> ?
        AND json_extract(recommendation.value, '$.symbol') IN (SELECT value FROM json_each(?))
-     ORDER BY daily.published_at DESC`,
+     ORDER BY daily.published_at DESC
+     LIMIT ?`,
   ).bind(
     coverageCutoff(now, daysAgo),
     now.toISOString(),
     dailyRecommendationsId(marketDate(now)),
     JSON.stringify([...requested]),
+    // One past the budget, so a full page is distinguishable from one that merely filled it.
+    MAX_RECENT_COVERAGE_ROWS + 1,
   ).all()
 
-  return rows.results.map((value) => {
+  const parsed = rows.results.map((value) => {
     const row = RecentCoverageRowSchema.parse(value)
     if (!requested.has(row.symbol)) throw new Error(`RecentCoverageUnexpectedSymbol:${row.symbol}`)
     return {
@@ -89,4 +111,8 @@ export async function searchRecentTickerCoverage(
       symbol: row.symbol,
     }
   })
+  return {
+    coverage: parsed.slice(0, MAX_RECENT_COVERAGE_ROWS),
+    truncated: parsed.length > MAX_RECENT_COVERAGE_ROWS,
+  }
 }

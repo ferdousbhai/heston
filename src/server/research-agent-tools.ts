@@ -9,9 +9,10 @@ import { readBoundedJson } from './bounded-response'
 import { type AppEnv } from './env'
 import { MAX_RESEARCH_PAGE_READS } from './research-contracts'
 import {
+  MAX_RECENT_COVERAGE_ROWS,
   MAX_RESEARCH_LOOKBACK_DAYS,
   searchRecentTickerCoverage,
-  type RecentTickerCoverage,
+  type RecentCoverageResult,
 } from './research-coverage'
 import { collectRedditSources, type RedditDiscussion } from './research-reddit'
 import { recommendationLinkKey } from './research-url'
@@ -165,9 +166,12 @@ export function createRedditIngestTool(
 export function createRecentCoverageTool(
   env: AppEnv,
   now = new Date(),
-): AgentTool<typeof RecentCoverageParameters, RecentTickerCoverage[] | { error: string }> {
+): AgentTool<typeof RecentCoverageParameters, RecentCoverageResult | { error: string }> {
   return {
-    description: 'Prior Spice recommendations for these tickers within daysAgo; today is excluded.',
+    description: `Prior Spice recommendations for these tickers within daysAgo, newest first; 
+      today is excluded. At most ${MAX_RECENT_COVERAGE_ROWS} rows, and \`truncated\` says when 
+      there were more -- narrow the tickers or the window rather than reading past it.`
+      .replace(/\s+/g, ' '),
     execute: async (_toolCallId, params) => {
       // X writes tickers as cashtags, and the discovery packet carries them that way, so a
       // leading $ is a convention to read rather than a defect to reject. Today's preview run

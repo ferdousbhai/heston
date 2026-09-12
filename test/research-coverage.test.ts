@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { searchRecentTickerCoverage } from '../src/server/research-coverage'
+import { MAX_RECENT_COVERAGE_ROWS, searchRecentTickerCoverage } from '../src/server/research-coverage'
 import { unsupportedDatabase, unsupportedStatement } from './fake-d1'
 import { sqliteD1 } from './sqlite-d1'
 
@@ -30,9 +30,32 @@ describe('recent ticker coverage search', () => {
       '2026-08-27T13:30:00.000Z',
       'recommendations-2026-08-27',
       '["NVDA","META"]',
+      MAX_RECENT_COVERAGE_ROWS + 1,
     )
-    expect(coverage.filter((item) => item.symbol === 'NVDA')).toHaveLength(4)
-    expect(coverage).toHaveLength(4)
+    expect(coverage.coverage.filter((item) => item.symbol === 'NVDA')).toHaveLength(4)
+    expect(coverage.coverage).toHaveLength(4)
+    expect(coverage.truncated).toBe(false)
+  })
+
+  it('caps the rows and says so, because a short list and a silently short list differ', async () => {
+    // The brief can be replaced every refresh interval now, so a busy ticker over a long
+    // lookback is unbounded prose unless the query itself refuses to hand it all over.
+    const results = Array.from({ length: MAX_RECENT_COVERAGE_ROWS + 1 }, (_, index) => ({
+      description: `Description ${index}`,
+      direction: 'bullish',
+      headline: `Headline ${index}`,
+      published_at: `2026-08-26T13:${String(index).padStart(2, '0')}:00.000Z`,
+      risk: `Risk ${index}`,
+      symbol: 'NVDA',
+    }))
+    const all = vi.fn().mockResolvedValue({ results })
+    const bind = vi.fn(() => ({ ...unsupportedStatement(), all }))
+    const DB: D1Database = { ...unsupportedDatabase(), prepare: () => ({ ...unsupportedStatement(), bind }) }
+
+    const coverage = await searchRecentTickerCoverage({ DB }, ['NVDA'], 14, new Date('2026-08-27T13:30:00.000Z'))
+
+    expect(coverage.coverage).toHaveLength(MAX_RECENT_COVERAGE_ROWS)
+    expect(coverage.truncated).toBe(true)
   })
 
   it('excludes the current market date so a rerun does not read its own recommendations as coverage', async () => {
@@ -49,6 +72,7 @@ describe('recent ticker coverage search', () => {
       '2026-08-28T01:00:00.000Z',
       'recommendations-2026-08-27',
       '["NVDA"]',
+      MAX_RECENT_COVERAGE_ROWS + 1,
     )
   })
 
@@ -76,7 +100,7 @@ describe('recent ticker coverage search', () => {
       insert.run('nvda', '2026-08-26T13:30:00.000Z', recommendation('NVDA'))
 
       await expect(searchRecentTickerCoverage({ DB: store.database }, ['NVDA'], 14, now))
-        .resolves.toEqual([expect.objectContaining({ symbol: 'NVDA' })])
+        .resolves.toEqual({ coverage: [expect.objectContaining({ symbol: 'NVDA' })], truncated: false })
     } finally {
       store.close()
     }
@@ -85,7 +109,7 @@ describe('recent ticker coverage search', () => {
   it('does not query D1 when there is no bounded ticker scope', async () => {
     const prepare = vi.fn()
     const DB: D1Database = { ...unsupportedDatabase(), prepare }
-    await expect(searchRecentTickerCoverage({ DB }, [])).resolves.toEqual([])
+    await expect(searchRecentTickerCoverage({ DB }, [])).resolves.toEqual({ coverage: [], truncated: false })
     expect(prepare).not.toHaveBeenCalled()
   })
 
