@@ -23,10 +23,10 @@ export type CitationBinding = {
 }
 
 /**
- * Markdown renders the same sentence many ways; only its words decide a match. Exported
- * because a later re-read of a published recommendation has to ask the identical question:
- * two normalisations would let a quote pass at publish time and fail a challenge on
- * punctuation alone, which would read as the source having changed when nothing did.
+ * Markdown renders the same sentence many ways; only its words decide a match. Exported because
+ * every surface that binds a quote to a page this Worker read must normalize it identically --
+ * a second copy of these replacements is a second, quietly different definition of "verbatim",
+ * and a challenge would then fail on punctuation alone and read as the source having changed.
  */
 export function normalizedCitationText(text: string): string {
   return text

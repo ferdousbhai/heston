@@ -13,6 +13,8 @@ import { z } from 'zod'
 import { CancelOrderParameters, CancelOrderSchema, OrderPlacementParameters } from './agent-contracts'
 import { cancelBrokerageOrder, placeBrokerageOrder } from './order-placement'
 import { createBrokerageReconciliationTool } from './brokerage-reconciliation'
+import { createCatalystRecordTool } from './catalyst-record-tool'
+import { createSymbolEvidenceTool } from './symbol-evidence-tool'
 import {
   createBrokerageReadTools,
   createInstrumentQuoteReadTool,
@@ -110,6 +112,11 @@ export function createSpiceMcpServer(
         // published -- it injects nothing and names no address -- but it spends page reads, and
         // a cost the site pays wants a name behind it.
         createRecommendationChallengeTool(env),
+        // Writing research back to the site between briefs: dated events for every reader's
+        // calendar, and the passages a member's agent read them in. Both are bound against
+        // pages this Worker re-reads, so what the tier adds is a name behind the row.
+        createCatalystRecordTool(env),
+        createSymbolEvidenceTool(env, caller.userId),
       ]
       : createPublicMarketReadTools(env, waitUntil)),
     // Private Reddit discovery and removing a name from the shared watchlist are owner acts. A

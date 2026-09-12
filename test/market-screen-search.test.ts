@@ -37,6 +37,8 @@ describe('searching beyond the loaded watchlist', () => {
       if (url.startsWith('/api/public-catalyst-refresh')) {
         return Response.json({ catalysts: [], ran: false })
       }
+      // The focus card asks for the selected symbol's evidence cards for the same reason.
+      if (url.startsWith('/api/public-symbol-evidence')) return Response.json({ evidence: [] })
       lookupRequests.push(url)
       return Response.json({
         catalysts: [],

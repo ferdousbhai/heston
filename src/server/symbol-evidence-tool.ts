@@ -1,0 +1,138 @@
+import { type AgentTool } from '../domain/agent-tool'
+import { Type } from 'typebox'
+import { Compile } from 'typebox/compile'
+
+import { equitySymbolFromModelText, ModelTextEquitySymbolType } from '../domain/instrument'
+import { type JsonValue } from '../domain/json-payload'
+import {
+  MAX_EVIDENCE_BYLINE_LENGTH,
+  MAX_EVIDENCE_NOTE_LENGTH,
+  MAX_EVIDENCE_QUOTE_LENGTH,
+  MAX_EVIDENCE_SOURCE_TITLE_LENGTH,
+  MAX_EVIDENCE_SOURCE_URL_LENGTH,
+} from '../domain/symbol-evidence'
+import { textResult } from './agent-tool-result'
+import { type AppEnv } from './env'
+import { readResearchPageMarkdown } from './research-agent-tools'
+import { normalizedCitationText } from './research-citation-binding'
+import { recommendationLinkKey } from './research-url'
+import { upsertSymbolEvidence } from './symbol-evidence'
+
+/*
+ * One quoted passage, attached to a symbol, by a member's own agent.
+ *
+ * The daily brief argues a few names once an interval; between them a member researching some
+ * other name has read something worth keeping, and the site has had nowhere to keep it. This is
+ * that place, held to the same rule as every other citation here: the Worker re-reads the page
+ * itself and refuses a quote it cannot find in that text, so a card is always the page's own
+ * words rather than a model's recollection of them. Why the passage matters is the member's
+ * note, which is labelled as theirs and binds nothing.
+ *
+ * A refusal returns the exact reason, the way publishing does, because the fix is always the
+ * same shape: quote what the page says, or cite the page that says it.
+ */
+
+const EvidenceParameters = Type.Object({
+  byline: Type.Optional(Type.String({
+    description: 'A handle to sign the card with, shown publicly. Never a real name.',
+    maxLength: MAX_EVIDENCE_BYLINE_LENGTH,
+    minLength: 1,
+  })),
+  note: Type.Optional(Type.String({
+    description: 'One line on why the quote matters. Yours, not the page\'s.',
+    maxLength: MAX_EVIDENCE_NOTE_LENGTH,
+    minLength: 1,
+  })),
+  quote: Type.String({
+    description: 'The passage, word for word as the page has it.',
+    maxLength: MAX_EVIDENCE_QUOTE_LENGTH,
+    minLength: 1,
+  }),
+  sourceTitle: Type.String({ maxLength: MAX_EVIDENCE_SOURCE_TITLE_LENGTH, minLength: 1 }),
+  sourceUrl: Type.String({
+    description: 'The exact https address the quote was read from.',
+    maxLength: MAX_EVIDENCE_SOURCE_URL_LENGTH,
+    minLength: 1,
+  }),
+  symbol: ModelTextEquitySymbolType,
+}, { additionalProperties: false })
+
+const EvidenceValidator = Compile(EvidenceParameters)
+
+export type EvidenceRecording =
+  | { id: string; status: 'recorded'; symbol: string }
+  | { rejected: string[]; status: 'rejected' }
+
+export interface RecordEvidenceOptions {
+  now?: Date
+}
+
+export async function recordSymbolEvidence(
+  env: AppEnv,
+  recordedByUserId: string,
+  untrustedEvidence: JsonValue,
+  options: RecordEvidenceOptions = {},
+): Promise<EvidenceRecording> {
+  const browser = env.BROWSER
+  // Without page reading the quote cannot be bound, so nothing may be written. Fail closed.
+  if (!browser) throw new Error('SymbolEvidence:page-reading-unavailable')
+  const db = env.DB
+  if (!db) throw new Error('SymbolEvidenceStoreUnavailable')
+  // A card is a row that needs a name behind it, and the caller's is the one the token carries.
+  if (!recordedByUserId) throw new Error('SymbolEvidence:unidentified-caller')
+  const now = options.now ?? new Date()
+  // Re-parsed at the trust boundary whatever the transport already checked.
+  const evidence = EvidenceValidator.Parse(untrustedEvidence)
+
+  const symbol = equitySymbolFromModelText(evidence.symbol)
+  if (symbol === undefined) return { rejected: ['symbol: not a ticker symbol'], status: 'rejected' }
+  const sourceUrl = recommendationLinkKey(evidence.sourceUrl)
+  if (sourceUrl === undefined) {
+    return { rejected: ['sourceUrl: not a readable https page address'], status: 'rejected' }
+  }
+
+  const markdown = await readResearchPageMarkdown(browser, sourceUrl)
+  if (markdown === undefined) return { rejected: [`page did not open: ${sourceUrl}`], status: 'rejected' }
+  // The same normalization the brief's citations are bound by: markdown renders one sentence
+  // many ways, and only its words decide whether the page contains the quote.
+  if (!normalizedCitationText(markdown).includes(normalizedCitationText(evidence.quote))) {
+    return {
+      rejected: [`quote absent from its source: "${evidence.quote.slice(0, 80)}"`],
+      status: 'rejected',
+    }
+  }
+
+  const id = await upsertSymbolEvidence(db, {
+    byline: evidence.byline ?? null,
+    note: evidence.note ?? null,
+    quote: evidence.quote,
+    recordedAt: now.toISOString(),
+    recordedByUserId,
+    sourceTitle: evidence.sourceTitle,
+    sourceUrl,
+    symbol,
+  })
+  return { id, status: 'recorded', symbol }
+}
+
+export function createSymbolEvidenceTool(
+  env: AppEnv,
+  recordedByUserId: string,
+  now?: Date,
+): AgentTool<typeof EvidenceParameters, EvidenceRecording> {
+  return {
+    description: 'Attach a quoted passage from a page to a symbol, for every reader of this '
+      + 'site. The server reads the page itself and refuses a quote it cannot find word for '
+      + 'word in that text, returning the exact reason. Recording the same passage again '
+      + 'refreshes the card rather than adding a second one. `note` is your own reading of the '
+      + 'quote; `byline` is a handle you choose, and is public.',
+    // SAFETY: `recordSymbolEvidence` re-parses its input with this same schema at the trust
+    // boundary regardless of what the transport already checked.
+    execute: async (_toolCallId, params) => textResult(
+      await recordSymbolEvidence(env, recordedByUserId, params as never, { now }),
+    ),
+    label: 'Recording evidence',
+    name: 'record_evidence',
+    parameters: EvidenceParameters,
+  }
+}

@@ -11,6 +11,7 @@ import {
 } from '../domain/catalyst'
 import { EquitySymbolSchema } from '../domain/instrument'
 import { addDays, IsoDateSchema, textMentionsDateWithinHorizon } from '../domain/iso-date'
+import { type CatalystProvider } from './catalysts'
 import { type RetainedPage } from './research-agent-tools'
 import { recommendationLinkKey } from './research-url'
 
@@ -32,14 +33,32 @@ export interface CatalystCandidateBinding {
 }
 
 /**
+ * How a bound row names the producer that wrote it. The id prefix is the provider value itself,
+ * which is what the `catalysts` CHECK pairs a row's id against, so a row stays traceable to
+ * something that can refresh or retract it. The label is the other half of that, for a reader:
+ * it says which surface produced the date, beside the host it was read from.
+ */
+const BOUND_CATALYST_LABELS = {
+  'daily-research': 'Daily research',
+  'member-research': 'Member research',
+} satisfies Partial<Record<CatalystProvider, string>>
+
+export type BoundCatalystProvider = keyof typeof BOUND_CATALYST_LABELS
+
+/**
  * Turn model-authored catalyst candidates into application-owned rows. A candidate survives
  * only when this run retained its HTTPS page and the page contains the exact event date.
+ *
+ * The provider is a parameter rather than a constant because the same binding now serves two
+ * producers under the same rules; it defaults to the brief so the publish boundary, which is
+ * what this was written for, keeps stating exactly what it always did.
  */
 export function bindCatalystCandidates(
   candidates: readonly ResearchCatalystCandidate[],
   sources: readonly { sourceUrl: string }[],
   retained: ReadonlyMap<string, RetainedPage>,
   now: Date,
+  provider: BoundCatalystProvider = 'daily-research',
 ): CatalystCandidateBinding {
   const catalysts: Catalyst[] = []
   const rejected: string[] = []
@@ -72,7 +91,7 @@ export function bindCatalystCandidates(
       rejected.push(`catalyst ${index + 1}: ${candidate.date} does not appear on its source page`)
       continue
     }
-    const id = `daily-research:${candidate.symbol}:${candidate.kind}:${candidate.date}`
+    const id = `${provider}:${candidate.symbol}:${candidate.kind}:${candidate.date}`
     if (ids.has(id)) {
       rejected.push(`catalyst ${index + 1}: duplicates ${id}`)
       continue
@@ -83,7 +102,7 @@ export function bindCatalystCandidates(
       ...publicFields,
       confidence: 'estimated',
       id,
-      source: `Daily research · ${new URL(sourceUrl).hostname.replace(/^www\./, '')}`,
+      source: `${BOUND_CATALYST_LABELS[provider]} · ${new URL(sourceUrl).hostname.replace(/^www\./, '')}`,
       sourceUrl,
       updatedAt: now.toISOString(),
     }))

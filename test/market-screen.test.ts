@@ -88,6 +88,28 @@ describe('selected market context', () => {
     expect(html.indexOf('Sooner NVDA print')).toBeLessThan(html.indexOf('Later NVDA review'))
   })
 
+  it('cites a member-recorded date by its host and says it is estimated, like any research row', () => {
+    const snapshot = marketSnapshotFixture()
+    const recorded = {
+      ...snapshot.catalysts[0]!,
+      confidence: 'estimated' as const,
+      date: '2099-03-02',
+      id: 'member-research:NVDA:conference:2099-03-02',
+      source: 'Member research · reuters.com',
+      sourceUrl: 'https://www.reuters.com/technology/nvidia-analyst-day',
+      title: 'NVIDIA analyst day',
+    }
+
+    const html = renderMarket(snapshot, { catalysts: [recorded], symbol: 'NVDA' })
+
+    // The producer is ours to know; what a reader is shown is the page and how sure the date is.
+    expect(html).toContain('NVIDIA analyst day')
+    expect(html).toContain('https://www.reuters.com/technology/nvidia-analyst-day')
+    expect(html).toContain('reuters.com')
+    expect(html).toContain('estimated')
+    expect(html).not.toContain('member-research')
+  })
+
   it('states that nothing is scheduled instead of leaving a gap', () => {
     const snapshot = marketSnapshotFixture()
 

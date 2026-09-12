@@ -40,8 +40,17 @@ const ATTENTION_TOOLS = new Set([
   'read_market_metrics',
   'read_option_greeks',
   'read_price_history',
+  'record_evidence',
   'search_symbols',
 ])
+
+/*
+ * `record_catalysts` is absent on purpose. It names symbols too, but inside its `catalysts`
+ * array rather than in either field this module reads, and a call it cannot parse is silently
+ * no attention at all. Widening the shape here to reach into another tool's payload would put
+ * the definition of "names a symbol" in two places; the recording writes the calendar it would
+ * have bought anyway.
+ */
 
 export function readsSymbols(toolName: string): boolean {
   return ATTENTION_TOOLS.has(toolName)

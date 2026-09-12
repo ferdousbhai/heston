@@ -23,6 +23,7 @@ import { Route as ApiPublicCatalystRefreshRouteImport } from './routes/api.publi
 import { Route as ApiPublicChannelArchiveRouteImport } from './routes/api.public-channel-archive'
 import { Route as ApiPublicDailyRecommendationsRouteImport } from './routes/api.public-daily-recommendations'
 import { Route as ApiPublicSnapshotRouteImport } from './routes/api.public-snapshot'
+import { Route as ApiPublicSymbolEvidenceRouteImport } from './routes/api.public-symbol-evidence'
 import { Route as ApiPublicSymbolSearchRouteImport } from './routes/api.public-symbol-search'
 import { Route as ApiPublicYearCandlesRouteImport } from './routes/api.public-year-candles'
 import { Route as ApiSnapshotRouteImport } from './routes/api.snapshot'
@@ -104,6 +105,11 @@ const ApiPublicSnapshotRoute = ApiPublicSnapshotRouteImport.update({
   path: '/api/public-snapshot',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicSymbolEvidenceRoute = ApiPublicSymbolEvidenceRouteImport.update({
+  id: '/api/public-symbol-evidence',
+  path: '/api/public-symbol-evidence',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicSymbolSearchRoute = ApiPublicSymbolSearchRouteImport.update({
   id: '/api/public-symbol-search',
   path: '/api/public-symbol-search',
@@ -160,6 +166,7 @@ export interface FileRoutesByFullPath {
   '/api/public-channel-archive': typeof ApiPublicChannelArchiveRoute
   '/api/public-daily-recommendations': typeof ApiPublicDailyRecommendationsRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
+  '/api/public-symbol-evidence': typeof ApiPublicSymbolEvidenceRoute
   '/api/public-symbol-search': typeof ApiPublicSymbolSearchRoute
   '/api/public-year-candles': typeof ApiPublicYearCandlesRoute
   '/api/snapshot': typeof ApiSnapshotRoute
@@ -183,6 +190,7 @@ export interface FileRoutesByTo {
   '/api/public-channel-archive': typeof ApiPublicChannelArchiveRoute
   '/api/public-daily-recommendations': typeof ApiPublicDailyRecommendationsRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
+  '/api/public-symbol-evidence': typeof ApiPublicSymbolEvidenceRoute
   '/api/public-symbol-search': typeof ApiPublicSymbolSearchRoute
   '/api/public-year-candles': typeof ApiPublicYearCandlesRoute
   '/api/snapshot': typeof ApiSnapshotRoute
@@ -208,6 +216,7 @@ export interface FileRoutesById {
   '/api/public-channel-archive': typeof ApiPublicChannelArchiveRoute
   '/api/public-daily-recommendations': typeof ApiPublicDailyRecommendationsRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
+  '/api/public-symbol-evidence': typeof ApiPublicSymbolEvidenceRoute
   '/api/public-symbol-search': typeof ApiPublicSymbolSearchRoute
   '/api/public-year-candles': typeof ApiPublicYearCandlesRoute
   '/api/snapshot': typeof ApiSnapshotRoute
@@ -234,6 +243,7 @@ export interface FileRouteTypes {
     | '/api/public-channel-archive'
     | '/api/public-daily-recommendations'
     | '/api/public-snapshot'
+    | '/api/public-symbol-evidence'
     | '/api/public-symbol-search'
     | '/api/public-year-candles'
     | '/api/snapshot'
@@ -257,6 +267,7 @@ export interface FileRouteTypes {
     | '/api/public-channel-archive'
     | '/api/public-daily-recommendations'
     | '/api/public-snapshot'
+    | '/api/public-symbol-evidence'
     | '/api/public-symbol-search'
     | '/api/public-year-candles'
     | '/api/snapshot'
@@ -281,6 +292,7 @@ export interface FileRouteTypes {
     | '/api/public-channel-archive'
     | '/api/public-daily-recommendations'
     | '/api/public-snapshot'
+    | '/api/public-symbol-evidence'
     | '/api/public-symbol-search'
     | '/api/public-year-candles'
     | '/api/snapshot'
@@ -306,6 +318,7 @@ export interface RootRouteChildren {
   ApiPublicChannelArchiveRoute: typeof ApiPublicChannelArchiveRoute
   ApiPublicDailyRecommendationsRoute: typeof ApiPublicDailyRecommendationsRoute
   ApiPublicSnapshotRoute: typeof ApiPublicSnapshotRoute
+  ApiPublicSymbolEvidenceRoute: typeof ApiPublicSymbolEvidenceRoute
   ApiPublicSymbolSearchRoute: typeof ApiPublicSymbolSearchRoute
   ApiPublicYearCandlesRoute: typeof ApiPublicYearCandlesRoute
   ApiSnapshotRoute: typeof ApiSnapshotRoute
@@ -414,6 +427,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicSnapshotRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public-symbol-evidence': {
+      id: '/api/public-symbol-evidence'
+      path: '/api/public-symbol-evidence'
+      fullPath: '/api/public-symbol-evidence'
+      preLoaderRoute: typeof ApiPublicSymbolEvidenceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public-symbol-search': {
       id: '/api/public-symbol-search'
       path: '/api/public-symbol-search'
@@ -502,6 +522,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicChannelArchiveRoute: ApiPublicChannelArchiveRoute,
   ApiPublicDailyRecommendationsRoute: ApiPublicDailyRecommendationsRoute,
   ApiPublicSnapshotRoute: ApiPublicSnapshotRoute,
+  ApiPublicSymbolEvidenceRoute: ApiPublicSymbolEvidenceRoute,
   ApiPublicSymbolSearchRoute: ApiPublicSymbolSearchRoute,
   ApiPublicYearCandlesRoute: ApiPublicYearCandlesRoute,
   ApiSnapshotRoute: ApiSnapshotRoute,

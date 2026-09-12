@@ -80,6 +80,25 @@ const ANNOTATIONS = {
     readOnlyHint: false,
     title: 'Remember symbols',
   },
+  record_catalysts: {
+    // Additive: it admits dated events to the shared calendar under its own producer id and
+    // retires nothing another producer wrote. Recording the same event again refreshes that
+    // row rather than adding one, so a repeat leaves the calendar where it was.
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+    readOnlyHint: false,
+    title: 'Record catalysts',
+  },
+  record_evidence: {
+    // Additive, and keyed by the passage itself: recording the same quote for the same symbol
+    // and page refreshes that card instead of stacking another under the name.
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+    readOnlyHint: false,
+    title: 'Record evidence',
+  },
   manage_watchlist: {
     // Can remove a symbol, which takes it from every reader — hence owner-only, and hence
     // destructive where `remember_symbols` is not.

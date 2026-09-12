@@ -13,3 +13,11 @@ export function markdownBrowser(markdown: string): BrowserRun {
     quickAction: async () => Response.json({ result: markdown, success: true }),
   }
 }
+
+/** The same binding for the path where a cited page will not open at all. */
+export function unreadableBrowser(): BrowserRun {
+  return {
+    fetch: unsupported,
+    quickAction: async () => new Response('', { status: 502 }),
+  }
+}
