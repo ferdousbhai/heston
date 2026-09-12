@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
 import { PORTFOLIO_POLICY } from '../src/domain/portfolio-risk'
+
+/** The per-turn ceiling `test/mcp.test.ts` holds the whole advertised surface to. */
+const SPICE_MCP_INSTRUCTIONS_CHAR_BUDGET = 1_500
 import { RESEARCH_REFRESH_INTERVAL_MS } from '../src/domain/research-refresh'
-import { dailyResearchPrompt, SPICE_MCP_INSTRUCTIONS } from '../src/server/doctrine'
+import { dailyResearchPrompt, spiceMcpInstructions } from '../src/server/doctrine'
 import { MAX_DAILY_RECOMMENDATIONS } from '../src/server/research-submission'
 import {
   createInstrumentQuoteReadTool,
@@ -19,32 +22,52 @@ import { createBrokerageReconciliationTool } from '../src/server/brokerage-recon
  * whether to call it. Each half is pinned where it actually lives.
  */
 describe('server instructions', () => {
+  const signedIn = spiceMcpInstructions(true)
+  const anonymous = spiceMcpInstructions(false)
+
   it('carries the loss budget the guard enforces, so advice and admissibility agree', () => {
-    expect(SPICE_MCP_INSTRUCTIONS).toContain(`${PORTFOLIO_POLICY.maxDrawdownPercent}%`)
+    expect(signedIn).toContain(`${PORTFOLIO_POLICY.maxDrawdownPercent}%`)
   })
 
   it('says the one thing about sizing that applies to every turn', () => {
     // The rest of the sizing posture moved into the trade-idea prompt, which costs nothing
     // until someone invokes it. What stays here is the part that governs any answer at all.
-    expect(SPICE_MCP_INSTRUCTIONS).toContain('recommend nothing')
+    for (const instructions of [signedIn, anonymous]) expect(instructions).toContain('recommend nothing')
   })
 
   it('states each rule once', () => {
     // "Never state ... from memory" used to appear here and again on three tool descriptions.
     // Both places are in every model call, so the duplicate bought attention, not coverage.
-    expect(SPICE_MCP_INSTRUCTIONS.match(/from memory/g)).toHaveLength(1)
+    for (const instructions of [signedIn, anonymous]) {
+      expect(instructions.match(/from memory/g)).toHaveLength(1)
+    }
     expect(createInstrumentQuoteReadTool({}).description).not.toContain('from memory')
     expect(createExactOptionGreeksReadTool({}).description).not.toContain('from memory')
   })
 
   it('states that the server, not the advice, decides admissibility', () => {
-    expect(SPICE_MCP_INSTRUCTIONS).toContain('guards decide what is admissible')
+    for (const instructions of [signedIn, anonymous]) {
+      expect(instructions).toContain('guards decide what is admissible')
+    }
+  })
+
+  it('tells each tier only what is true of the surface it was given', () => {
+    // An anonymous caller has no order tools, so the drawdown limit is a rule about a refusal
+    // it cannot reach; a signed-in one is not waiting to be told what signing in would add.
+    expect(anonymous).not.toContain(`${PORTFOLIO_POLICY.maxDrawdownPercent}%`)
+    expect(anonymous).not.toContain('broker credential')
+    expect(anonymous).toContain('public tier')
+    expect(signedIn).not.toContain('public tier')
+    expect(signedIn.length).toBeLessThan(SPICE_MCP_INSTRUCTIONS_CHAR_BUDGET)
+    expect(anonymous.length).toBeLessThan(signedIn.length)
   })
 
   it('is built only from this repository, so untrusted content cannot reach an agent through it', () => {
     // A literal template of our own constants. Anything provider-, model- or page-derived would
     // make this server an injection vector into someone else's agent.
-    expect(SPICE_MCP_INSTRUCTIONS).not.toMatch(/undefined|\[object|NaN/)
+    for (const instructions of [signedIn, anonymous]) {
+      expect(instructions).not.toMatch(/undefined|\[object|NaN/)
+    }
   })
 })
 

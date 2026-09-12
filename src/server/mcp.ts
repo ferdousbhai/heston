@@ -35,7 +35,7 @@ import {
   dailyResearchPrompt,
   PORTFOLIO_REVIEW_PROMPT,
   SPICE_GUIDE,
-  SPICE_MCP_INSTRUCTIONS,
+  spiceMcpInstructions,
   tradeIdeaPrompt,
 } from './doctrine'
 import { toolAnnotations } from './mcp-annotations'
@@ -72,10 +72,12 @@ export function createSpiceMcpServer(
   scheduleTask?: (task: Promise<unknown>) => void,
 ): McpServer {
   // `instructions` reaches the caller's agent as system context, so it is assembled only from
-  // this repository's own constants and never from anything a provider or model supplied.
+  // this repository's own constants and never from anything a provider or model supplied. It is
+  // built for this caller's tier: it is paid for on every turn, and a rule about a tool they
+  // were not given is a per-turn tax on a refusal they cannot reach.
   const server = new McpServer(
     { name: 'spice', version: '1.0.0' },
-    { instructions: SPICE_MCP_INSTRUCTIONS },
+    { instructions: spiceMcpInstructions(caller.signedIn) },
   )
   // Scheduling rather than awaiting: a search the caller did not ask for must not lengthen the
   // turn they did ask for. Absent in a test harness, where doing the work inline is correct.
