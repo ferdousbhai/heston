@@ -359,6 +359,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .research-run-panel p { max-width: 560px; margin: 8px 0 0; color: #a7a9b1; font-size: 13px; line-height: 1.6; }
 .research-run-panel strong, .research-run-panel time { color: var(--text); }
 .research-run-steps { max-width: 560px; margin: 14px 0 0; padding-left: 1.4em; display: grid; gap: 14px; font-size: 13px; line-height: 1.6; }
+/* A grid item's minimum width is its content, so the ask block's one long line widened the
+   column past the panel; the line is prose to read, not a command to keep intact, so it wraps. */
+.research-run-steps > li { min-width: 0; }
+.research-run-panel .connect-code code { white-space: pre-wrap; }
 .research-run-steps li > strong { display: block; color: var(--text); }
 .research-run-steps [data-slot="button"] { margin-top: 8px; }
 .research-run-checking { display: flex; align-items: center; gap: 9px; color: var(--ink-muted); font-size: 11px; }
@@ -460,6 +464,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   .top-bar { padding-inline: 24px; }
 
   .bottom-nav { top: 11px; bottom: auto; width: auto; height: auto; padding: 0; border: 1px solid var(--hairline); background: var(--bg); display: flex; }
+  /* The tab bar floats over the top of the page here, so a scroll to the run panel lands its
+     heading beneath it: its 11px offset, a 34px trigger inside 1px borders, and the same 11px
+     of air below. On a phone the bar sits at the bottom and the panel needs no margin. */
+  .research-run-panel { scroll-margin-top: calc(11px + 34px + 2px + 11px); }
     .bottom-nav [data-slot="tabs-trigger"] { min-height: 34px; flex-direction: row; gap: 7px; padding: 0 18px; border-right: 1px solid var(--hairline); font-size: 11px; }
   .bottom-nav [data-slot="tabs-trigger"]:last-child { border-right: 0; }
   .bottom-nav [data-slot="tabs-trigger"][data-active] { background: var(--spice); color: #0d0e13; }
