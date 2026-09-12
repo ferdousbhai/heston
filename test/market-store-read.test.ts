@@ -16,7 +16,8 @@ import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 const metric = {
   earningsDate: '2026-10-29',
   ivIndex: 27.4,
-  ivRank: 46,
+  // As a row written before the conversion rounded holds it: 0.183711532 * 100 in float64.
+  ivRank: 18.371153200000002,
   ivTermStructure: {
     backExpiration: '2026-09-11',
     backIv: 26.1,
@@ -87,6 +88,9 @@ describe('stored market read model', () => {
     // Four decimal places, for the same reason: the percentage is a projection of ours, and
     // -0.7722980062959091 claims sixteen digits of a move the provider reported to the cent.
     expect(ticker.changePercent).toBe(-0.7723)
+    // A row written before the conversion rounded keeps its digits until its symbol next
+    // reaches the provider, which outside market hours is a long time, so the read rounds too.
+    expect(ticker.ivRank).toBe(18.3712)
   })
 
   it('drops an earnings date the store has outlived, as the live path does', async () => {

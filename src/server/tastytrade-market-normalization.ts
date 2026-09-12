@@ -103,6 +103,19 @@ function projected(value: number): number {
   return Math.round(value * scale) / scale
 }
 
+/**
+ * The same rounding for a value on its way back out of the store.
+ *
+ * Every volatility figure below was produced by the conversion above before it was written, so
+ * storage only delays the publication of the same digits: a row written before that rounding
+ * existed keeps `18.371153200000002` until its symbol next reaches the provider, which outside
+ * market hours is deliberately a long time. Rounding again here is a no-op on a row written
+ * since, and cleans one written before.
+ */
+function projectedMetric(value: number | undefined): number | undefined {
+  return value === undefined ? undefined : projected(value)
+}
+
 function percentagePoints(value: JsonValue, field: string): number {
   return projected(numeric(value, field) * 100)
 }
@@ -365,14 +378,18 @@ export function tickerFromStoredRecords(
     // Candle history is live-only state; a stored snapshot carries no intraday chart.
     sparkline: [],
     yearAgoClose,
-    ivRank: metric?.ivRank,
-    ivPercentile: metric?.ivPercentile,
-    ivIndex: metric?.ivIndex,
-    ivIndex5DayChange: metric?.ivIndex5DayChange,
-    historicalVolatility30Day: metric?.historicalVolatility30Day,
-    ivHistoricalVolatility30DayDifference: metric?.ivHistoricalVolatility30DayDifference,
-    ivTermStructure: metric?.ivTermStructure,
-    liquidity: metric?.liquidity,
+    ivRank: projectedMetric(metric?.ivRank),
+    ivPercentile: projectedMetric(metric?.ivPercentile),
+    ivIndex: projectedMetric(metric?.ivIndex),
+    ivIndex5DayChange: projectedMetric(metric?.ivIndex5DayChange),
+    historicalVolatility30Day: projectedMetric(metric?.historicalVolatility30Day),
+    ivHistoricalVolatility30DayDifference: projectedMetric(metric?.ivHistoricalVolatility30DayDifference),
+    ivTermStructure: metric?.ivTermStructure && {
+      ...metric.ivTermStructure,
+      backIv: projected(metric.ivTermStructure.backIv),
+      frontIv: projected(metric.ivTermStructure.frontIv),
+    },
+    liquidity: projectedMetric(metric?.liquidity),
     volume: quote.volume,
     yearHigh: quote.yearHigh,
     yearLow: quote.yearLow,
