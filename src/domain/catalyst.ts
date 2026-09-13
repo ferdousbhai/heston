@@ -9,6 +9,17 @@ import { addDays, IsoDateSchema } from './iso-date'
  * for nothing beyond it; each boundary reads this rather than restating the number.
  */
 export const CATALYST_HORIZON_DAYS = 180
+/**
+ * How many upcoming events one symbol contributes to a snapshot, nearest first.
+ *
+ * The store holds every dated event any producer ever bound, and members' own agents can now
+ * add to it, so "every upcoming row" is a set that only grows and that every visitor loads.
+ * Ten is what a runway is for: a reader is deciding what is coming next for a name, and the
+ * eleventh-nearest event is months out and will be inside this bound long before it matters.
+ * The busiest symbol on the live surface carries six. What the cap drops is always the far end
+ * of the calendar, never something nearer that a reader is actually trading against.
+ */
+export const MAX_CATALYSTS_PER_SYMBOL = 10
 export const MAX_CATALYST_DESCRIPTION_LENGTH = 500
 export const MAX_CATALYST_TITLE_LENGTH = 120
 

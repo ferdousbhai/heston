@@ -4,20 +4,68 @@ import {
   catalystLabel,
   catalystSourceLink,
   hasNearTermCatalyst,
+  MAX_CATALYSTS_PER_SYMBOL,
   nextCatalystsBySymbol,
   type Catalyst,
 } from '../src/domain/catalyst'
 import {
   catalystsFromMarketMetrics,
+  catalystUpsertStatements,
   earningsDateFromMetric,
   persistAndLoadCatalysts,
   persistResearchCatalysts,
+  readUpcomingCatalysts,
 } from '../src/server/catalysts'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
+import { migrationStore } from './sqlite-d1'
 
 const NOW = new Date('2026-08-13T16:00:00.000Z')
 
 describe('tastytrade catalyst normalization', () => {
+
+  it('carries at most the nearest events per symbol, however many a producer bound', async () => {
+    // The store only grows, and members' agents write to it now, so "every upcoming row" is not
+    // a size the snapshot can be left to inherit. What a symbol spends its budget on is its
+    // nearest events; the far end of its calendar is what the cap drops.
+    const store = await migrationStore()
+    try {
+      const crowded = Array.from({ length: MAX_CATALYSTS_PER_SYMBOL + 4 }, (_, index) => ({
+        confidence: 'estimated' as const,
+        date: `2026-09-${String(14 + index).padStart(2, '0')}`,
+        id: `member-research:NVDA:investor-event:2026-09-${String(14 + index).padStart(2, '0')}`,
+        kind: 'investor-event' as const,
+        source: 'Member research · investors.example.com',
+        sourceUrl: 'https://investors.example.com/events',
+        symbol: 'NVDA',
+        timing: 'unknown' as const,
+        title: `NVDA event ${index}`,
+        updatedAt: NOW.toISOString(),
+      }))
+      const other = {
+        ...crowded[0]!,
+        id: 'member-research:META:investor-event:2026-12-01',
+        date: '2026-12-01',
+        symbol: 'META',
+        title: 'META event',
+      }
+      await store.database.batch(catalystUpsertStatements(
+        store.database, 'member-research', [...crowded, other], NOW.toISOString(),
+      ))
+
+      const upcoming = await readUpcomingCatalysts({ DB: store.database }, NOW)
+      const nvda = upcoming.filter((catalyst) => catalyst.symbol === 'NVDA')
+
+      expect(nvda).toHaveLength(MAX_CATALYSTS_PER_SYMBOL)
+      expect(nvda.map((catalyst) => catalyst.date)).toEqual(
+        crowded.slice(0, MAX_CATALYSTS_PER_SYMBOL).map((catalyst) => catalyst.date),
+      )
+      // One symbol's crowded calendar never costs another symbol its place.
+      expect(upcoming.filter((catalyst) => catalyst.symbol === 'META')).toHaveLength(1)
+    } finally {
+      store.close()
+    }
+  })
+
   it('stays within the D1 parameter limit when refreshing 100 symbols', async () => {
     const boundParameterCounts: number[] = []
     const batch = vi.fn(async () => [])
@@ -41,7 +89,9 @@ describe('tastytrade catalyst normalization', () => {
     await expect(persistAndLoadCatalysts({ DB: database }, [], symbols, NOW)).resolves.toEqual([])
 
     expect(batch).toHaveBeenCalledOnce()
-    expect(boundParameterCounts).toEqual([100, 1])
+    // The delete binds one symbol each; the read that follows binds the market date and the
+    // per-symbol cap.
+    expect(boundParameterCounts).toEqual([100, 2])
   })
 
   it('extracts upcoming earnings and ignores dividend fields', () => {

@@ -1,6 +1,11 @@
 import { z } from 'zod'
 
-import { CatalystSchema, marketDate, type Catalyst } from '../domain/catalyst'
+import {
+  CatalystSchema,
+  marketDate,
+  MAX_CATALYSTS_PER_SYMBOL,
+  type Catalyst,
+} from '../domain/catalyst'
 import { EquitySymbolSchema } from '../domain/instrument'
 import { isValidIsoDate } from '../domain/iso-date'
 import { type AppEnv } from './env'
@@ -125,17 +130,30 @@ export function earningsDateFromMetric(metric: JsonObject | undefined, now = new
   return upcomingEarningsDate(earnings, marketDate(now)) ?? null
 }
 
+/*
+ * Every producer's upcoming rows, nearest first, and at most `MAX_CATALYSTS_PER_SYMBOL` of them
+ * per symbol. The window ranks each symbol's own events by date before the cap applies, so a
+ * name with a crowded calendar spends its ten on its nearest ten rather than on whichever rows
+ * a global limit happened to reach first. Ties inside a date fall to the id, which is stable;
+ * display order beyond the date is the reader's own sort, not this query's.
+ */
 const UPCOMING_CATALYSTS_QUERY =
-  `SELECT id, symbol, kind, title, description, event_date AS date, timing, confidence,
-      source_label AS source, source_url AS "sourceUrl", updated_at AS "updatedAt"
-     FROM upcoming_catalysts
-     WHERE event_date >= ?
-     ORDER BY event_date ASC, symbol ASC`
+  `SELECT id, symbol, kind, title, description, date, timing, confidence, source, "sourceUrl", "updatedAt"
+     FROM (
+       SELECT id, symbol, kind, title, description, event_date AS date, timing, confidence,
+           source_label AS source, source_url AS "sourceUrl", updated_at AS "updatedAt",
+           ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY event_date ASC, id ASC) AS nearest
+         FROM upcoming_catalysts
+         WHERE event_date >= ?
+     )
+     WHERE nearest <= ?
+     ORDER BY date ASC, symbol ASC`
 
 /** The upcoming-catalyst read, for a caller that must not write. */
 export async function readUpcomingCatalysts(env: AppEnv, now = new Date()): Promise<Catalyst[]> {
   if (!env.DB) throw new Error('CatalystStoreUnavailable')
-  const result = await env.DB.prepare(UPCOMING_CATALYSTS_QUERY).bind(marketDate(now)).all()
+  const result = await env.DB.prepare(UPCOMING_CATALYSTS_QUERY)
+    .bind(marketDate(now), MAX_CATALYSTS_PER_SYMBOL).all()
   return CatalystSchema.array().parse(result.results ?? [])
 }
 
