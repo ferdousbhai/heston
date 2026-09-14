@@ -9,6 +9,7 @@
     "dev": "vite dev --port 3000",
     "lint": "eslint \"{src,test}/**/*.{ts,tsx}\" --max-warnings=0 && oxlint",
     "build": "vite build && tsc --noEmit && node tools/apply-migrations.mjs",
+    "workers-builds:build": "npm ci && npm run lint && npm test && npm run build",
     "preview": "vite preview",
     "deploy": "npm run build && wrangler d1 migrations apply DB --remote --config wrangler.jsonc && wrangler deploy --config dist/server/wrangler.json",
     "deploy:preview": "npm run build && wrangler versions upload --config dist/server/wrangler.json",
