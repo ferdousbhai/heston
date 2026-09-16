@@ -128,7 +128,7 @@ async function main() {
         const headers = new Headers({ Authorization: `Bearer ${spiceToken}` })
         // Node gives a repeated header as an array; MCP sends none of these more than once,
         // so the first value is the whole value.
-        for (const name of ['accept', 'content-type', 'mcp-session-id', 'mcp-protocol-version']) {
+        for (const name of ['accept', 'content-type', 'mcp-session-id', 'mcp-protocol-version', 'last-event-id']) {
           const raw = request.headers[name]
           const value = Array.isArray(raw) ? raw[0] : raw
           if (value) headers.set(name, value)
@@ -146,9 +146,12 @@ async function main() {
           method: request.method,
           signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
         })
-        response.writeHead(upstream.status, {
-          'content-type': upstream.headers.get('content-type') ?? 'application/json',
-        })
+        const responseHeaders = { 'content-type': upstream.headers.get('content-type') ?? 'application/json' }
+        for (const name of ['mcp-session-id', 'mcp-protocol-version']) {
+          const value = upstream.headers.get(name)
+          if (value) responseHeaders[name] = value
+        }
+        response.writeHead(upstream.status, responseHeaders)
         // Streamed rather than buffered: MCP replies over text/event-stream and a buffered
         // proxy would hold a long tool call's response until it finished.
         if (upstream.body) {

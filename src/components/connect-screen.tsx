@@ -14,6 +14,9 @@ import { toError } from '../domain/failure'
 
 const MCP_URL = 'https://tryspice.xyz/mcp'
 const PROXY_URL = 'http://127.0.0.1:8787/mcp'
+/** No Authorization header: the proxy attaches the keyring token so the agent holds none. */
+const PROXY_CLAUDE_COMMAND = `claude mcp add --transport http spice ${PROXY_URL}`
+const PROXY_GROK_COMMAND = `grok mcp add --transport http spice ${PROXY_URL}`
 
 /** The shape every failing handler in api.mcp-tokens returns. */
 const ErrorResponseSchema = z.object({ error: z.string() })
@@ -161,7 +164,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
       <header>
         <h1>Connect your agent</h1>
         <p>
-          Spice is a tool surface for an agent running on your own machine — Claude Code, Codex, or
+          Spice is a tool surface for an agent running on your own machine — Claude Code, Grok, Codex, or
           anything that speaks MCP. Any agent can read the public market surface without signing in
           at all. Connecting yours adds live quotes, option chains and Greeks, lets it add symbols
           to the watchlist, and lets it generate the daily brief everyone reads.
@@ -183,36 +186,37 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         </p>
         <CopyBlock label="Claude Code" value={claudeCommand} />
         <p className="connect-note">
-          Any MCP client that speaks OAuth works the same way: point it at <code>{MCP_URL}</code>{' '}
-          and it will discover the rest.
+          Any MCP client that speaks OAuth works the same way: point it at <code>{MCP_URL}</code>.
+          If you already run the local proxy below, skip this and point the agent there instead.
         </p>
       </section>
 
       <section className="connect-step">
-        <h2>2 · Connect a brokerage <span className="connect-optional">optional</span></h2>
+        <h2>2 · Local proxy <span className="connect-optional">optional</span></h2>
         <p>
-          Everything above works without one. Connecting a brokerage is what adds your balances,
-          positions and order history, and lets the agent place orders — against your own account
-          only. Spice never receives or stores your brokerage refresh token: it stays in your
-          keyring, and a small local proxy exchanges it for a short-lived access token per request.
-        </p>
-        <p>
-          Register a personal OAuth application with tastytrade, store its credentials, and run the
-          proxy from <code>ops/spice-agent</code>. Note that tastytrade requires two-factor
-          authentication on your account before it will grant the read and trade scopes.
+          A process on this machine attaches the Spice token from the keyring so the agent holds
+          none. That is how live quotes, chains, Greeks, and publishing the brief reach a client
+          that cannot complete a browser sign-in.
         </p>
         <CopyBlock
-          label="Store your credentials"
+          label="Store your Spice token"
+          value={'./ops/spice-agent/store-credentials.sh mcp-token'}
+        />
+        <p>Issue the token in step 3, paste it at the prompt. The script restarts the proxy.</p>
+        <CopyBlock label="Claude Code" value={PROXY_CLAUDE_COMMAND} />
+        <CopyBlock label="Grok" value={PROXY_GROK_COMMAND} />
+        <p className="connect-note">
+          No <code>Authorization</code> header. Pointing at <code>{MCP_URL}</code> instead is the
+          public snapshot: cached quotes, no chains, no publish.
+        </p>
+        <p>
+          A brokerage is a second store: balances, positions, order history, and orders against
+          your account only. tastytrade needs a personal OAuth app and two-factor authentication.
+        </p>
+        <CopyBlock
+          label="Store your brokerage credentials"
           value={'./ops/spice-agent/store-credentials.sh tastytrade'}
         />
-        <p>
-          It prompts for each value and stores it in the keyring, so nothing reaches your shell
-          history or any file, then restarts the proxy so it picks them up.
-        </p>
-        <p>
-          With the proxy running, point your agent at <code>{PROXY_URL}</code> instead. It attaches
-          both your Spice token and a freshly minted brokerage token to every request.
-        </p>
       </section>
 
       <section className="connect-step">

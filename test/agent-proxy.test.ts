@@ -162,4 +162,44 @@ describe('local agent proxy', () => {
     expect(captured[0]?.headers['x-spice-broker']).toBeUndefined()
     expect(captured[0]?.headers['x-spice-broker-token']).toBeUndefined()
   }, 30_000)
+
+  it('forwards MCP session headers in both directions', async () => {
+    const captured: Captured[] = []
+    const port = await listen((request, response) => {
+      request.resume()
+      request.on('end', () => {
+        captured.push({ body: '', headers: request.headers })
+        response.writeHead(200, {
+          'content-type': 'application/json',
+          'mcp-session-id': 'session-from-worker',
+          'mcp-protocol-version': '2025-03-26',
+        })
+        response.end(JSON.stringify({ ok: true }))
+      })
+    })
+    const keyring = await fakeKeyring({ 'spice/mcp-token': SPICE_TOKEN })
+    const proxyPort = 18_789
+    await startProxy({
+      PATH: `${keyring}:${process.env.PATH ?? ''}`,
+      SPICE_MCP_URL: `http://127.0.0.1:${port}/mcp`,
+      TASTYTRADE_API_BASE: `http://127.0.0.1:${port}`,
+    }, proxyPort)
+
+    const response = await fetch(`http://127.0.0.1:${proxyPort}/mcp`, {
+      body: JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'initialize' }),
+      headers: {
+        'content-type': 'application/json',
+        'mcp-protocol-version': '2025-03-26',
+        'mcp-session-id': 'session-from-client',
+        'last-event-id': '42',
+      },
+      method: 'POST',
+    })
+    expect(response.headers.get('mcp-session-id')).toBe('session-from-worker')
+    expect(response.headers.get('mcp-protocol-version')).toBe('2025-03-26')
+    expect(captured).toHaveLength(1)
+    expect(captured[0]?.headers['mcp-session-id']).toBe('session-from-client')
+    expect(captured[0]?.headers['mcp-protocol-version']).toBe('2025-03-26')
+    expect(captured[0]?.headers['last-event-id']).toBe('42')
+  }, 30_000)
 })
