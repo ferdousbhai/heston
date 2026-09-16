@@ -28,6 +28,29 @@ export const SNAPSHOT_GENERATED_AT_HEADER = 'X-Snapshot-Generated-At'
  */
 export const SNAPSHOT_CACHED_AT_HEADER = 'X-Snapshot-Cached-At'
 
+/** Query on `/api/public-snapshot`. The Cache API key discards the query, so this does not shard the retained copy. */
+export function publicSessionStatus(
+  snapshot: Pick<PublicMarketSnapshot, 'marketOpensAt' | 'marketState' | 'source' | 'syncedAt'>,
+) {
+  return {
+    marketState: snapshot.marketState,
+    source: snapshot.source,
+    syncedAt: snapshot.syncedAt,
+    ...(snapshot.marketOpensAt ? { marketOpensAt: snapshot.marketOpensAt } : {}),
+  }
+}
+
+async function projectVisitorResponse(request: Request, response: Response): Promise<Response> {
+  if (new URL(request.url).searchParams.get('fields') !== 'session' || !response.ok) return response
+  const snapshot = await response.json() as PublicMarketSnapshot
+  const headers = new Headers()
+  const cachedAt = response.headers.get(SNAPSHOT_CACHED_AT_HEADER)
+  const generatedAt = response.headers.get(SNAPSHOT_GENERATED_AT_HEADER) ?? snapshot.syncedAt
+  if (cachedAt) headers.set(SNAPSHOT_CACHED_AT_HEADER, cachedAt)
+  if (generatedAt) headers.set(SNAPSHOT_GENERATED_AT_HEADER, generatedAt)
+  return jsonPublic(publicSessionStatus(snapshot), { headers })
+}
+
 /** The only two Cache API methods this module needs, so tests can pass an in-memory copy. */
 export type PublicSnapshotCache = Pick<Cache, 'match' | 'put'>
 
@@ -215,7 +238,7 @@ export async function servePublicSnapshot(
       const task = refreshRetainedCopy(env, edgeCache, cacheKey, now)
       if (task) schedule(task)
     }
-    return responseForVisitor(retained)
+    return projectVisitorResponse(request, responseForVisitor(retained))
   }
 
   try {
@@ -225,9 +248,12 @@ export async function servePublicSnapshot(
         const task = refreshRetainedCopy(env, edgeCache, cacheKey, now)
         if (task) schedule(task)
       }
-      return await retain(edgeCache, cacheKey, stored, now)
+      return projectVisitorResponse(request, await retain(edgeCache, cacheKey, stored, now))
     }
-    return await retain(edgeCache, cacheKey, await buildFromColdStore(env), now)
+    return projectVisitorResponse(
+      request,
+      await retain(edgeCache, cacheKey, await buildFromColdStore(env), now),
+    )
   } catch (error) {
     console.error('PublicMarketSnapshotUnavailable', error instanceof Error ? error.message : 'UnknownError')
     return jsonNoStore({ error: 'Public market sync is temporarily unavailable' }, { status: 502 })

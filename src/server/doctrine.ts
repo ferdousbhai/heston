@@ -197,7 +197,7 @@ What is not obvious from the tool list:
   reader's calendar, or one passage quoted from a page and kept under a symbol. The server
   re-reads each cited page and refuses anything absent from that text; a repeat refreshes what
   is stored rather than duplicating it.
-- The public brief is produced by members' own agents, not by a schedule. Any signed-in caller may
+- The public brief is produced by members' own agents, not by a schedule this server keeps. Any signed-in caller may
   run \`daily_research\` -- the whole recipe, served from here -- and publish; the server re-reads
   every cited page before anything shows, and a brief stands for a fixed interval before the
   next may replace it.

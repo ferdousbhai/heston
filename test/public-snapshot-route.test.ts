@@ -9,6 +9,7 @@ import { PUBLIC_RESPONSE_CACHE_CONTROL } from '../src/server/http'
 import {
   type PublicSnapshotCache,
   providerRefreshDue,
+  publicSessionStatus,
   servePublicSnapshot,
   SNAPSHOT_CACHED_AT_HEADER,
   SNAPSHOT_GENERATED_AT_HEADER,
@@ -109,6 +110,29 @@ describe('public snapshot route cache', () => {
     expect(cache.matchedUrls).toEqual([
       'https://tryspice.xyz/api/public-snapshot?schema=4&deployment=test&copy=fresh',
     ])
+  })
+
+  it('answers fields=session from the same retained copy without tickers', async () => {
+    const snapshot = storedPublicSnapshot(30_000, {
+      marketOpensAt: '2026-08-28T13:30:00.000Z',
+      marketState: 'open',
+    })
+    const cache = new MemoryPublicSnapshotCache(Response.json(snapshot, {
+      headers: {
+        'Cache-Control': 'public, max-age=900',
+        [SNAPSHOT_CACHED_AT_HEADER]: new Date(NOW).toISOString(),
+        [SNAPSHOT_GENERATED_AT_HEADER]: snapshot.syncedAt,
+      },
+    }))
+    const response = await servePublicSnapshot(
+      new Request(`${SNAPSHOT_URL}?fields=session`),
+      {},
+      cache,
+      new Background().schedule,
+      NOW,
+    )
+    await expect(response.json()).resolves.toEqual(publicSessionStatus(snapshot))
+    expect(cache.putCalls).toBe(0)
   })
 
   it('serves a stale retained copy at once and rebuilds it behind the response', async () => {

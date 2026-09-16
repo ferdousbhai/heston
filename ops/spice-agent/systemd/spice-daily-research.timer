@@ -1,0 +1,14 @@
+# 09:35 ET so the cash open exists. Weekdays only; holidays still match Mon-Fri,
+# and the script skips when Spice's equity session is closed. Persistent=true:
+# if the laptop slept through 09:35, run on wake (including after hours, if
+# today's bell has already rung and no brief exists).
+[Unit]
+Description=Spice daily research at US market open
+
+[Timer]
+OnCalendar=Mon-Fri 09:35 America/New_York
+Persistent=true
+Unit=spice-daily-research.service
+
+[Install]
+WantedBy=timers.target
