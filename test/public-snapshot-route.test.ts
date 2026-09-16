@@ -108,7 +108,7 @@ describe('public snapshot route cache', () => {
     expect(broker.loadStoredPublicMarketSnapshot).not.toHaveBeenCalled()
     expect(cache.putCalls).toBe(0)
     expect(cache.matchedUrls).toEqual([
-      'https://tryspice.xyz/api/public-snapshot?schema=4&deployment=test&copy=fresh',
+      'https://tryspice.xyz/api/public-snapshot?schema=5&deployment=test&copy=fresh',
     ])
   })
 

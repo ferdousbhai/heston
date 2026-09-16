@@ -39,12 +39,27 @@ export const CatalystSchema = z.object({
   date: IsoDateSchema,
   timing: CatalystTimingSchema,
   confidence: CatalystConfidenceSchema,
-  source: z.string(),
-  sourceUrl: z.string().url().refine((url) => new URL(url).protocol === 'https:', 'Use an HTTPS source URL'),
+  source: z.string().min(1).optional(),
+  sourceUrl: z.string().url().refine((url) => new URL(url).protocol === 'https:', 'Use an HTTPS source URL').optional(),
   updatedAt: z.string(),
 })
 
 export type Catalyst = z.infer<typeof CatalystSchema>
+
+/** Calendar fields every visitor needs for stories and the runway. Description and source
+ *  ride a per-symbol fetch, the same way year closes left the snapshot. */
+export function snapshotCatalyst(catalyst: Catalyst): Catalyst {
+  return {
+    confidence: catalyst.confidence,
+    date: catalyst.date,
+    id: catalyst.id,
+    kind: catalyst.kind,
+    symbol: catalyst.symbol,
+    timing: catalyst.timing,
+    title: catalyst.title,
+    updatedAt: catalyst.updatedAt,
+  }
+}
 
 /**
  * What a catalyst search hands back to the reader who provoked it. `ran` is false when the
@@ -171,7 +186,7 @@ const KIND_NAMES = {
  * something a reader is looking at when they check where a date came from.
  */
 export function catalystSourceLink(catalyst: Catalyst): { host: string; url: string } | undefined {
-  if (catalyst.id.startsWith('tastytrade:')) return undefined
+  if (!catalyst.sourceUrl || catalyst.id.startsWith('tastytrade:')) return undefined
   const url = new URL(catalyst.sourceUrl)
   return { host: url.hostname.replace(/^www\./, ''), url: catalyst.sourceUrl }
 }

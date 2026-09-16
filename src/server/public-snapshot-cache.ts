@@ -1,4 +1,4 @@
-import { type PublicMarketSnapshot } from '../domain/market'
+import { slimPublicSnapshot, type PublicMarketSnapshot } from '../domain/market'
 import { SPICE_DEPLOYMENT_ID } from '../deployment'
 import { SPICE_DEPLOYMENT_ID_HEADER } from '../domain/deployment'
 import { type AppEnv } from './env'
@@ -65,7 +65,7 @@ function cacheKeyFor(request: Request): Request {
   cacheUrl.search = ''
   // Scope the private Cache API copy to the code that serialized it. The request's
   // query remains untrusted and is discarded, so visitors cannot create cache shards.
-  cacheUrl.searchParams.set('schema', '4')
+  cacheUrl.searchParams.set('schema', '5')
   cacheUrl.searchParams.set('deployment', SPICE_DEPLOYMENT_ID)
   cacheUrl.searchParams.set('copy', 'fresh')
   return new Request(cacheUrl, { method: 'GET' })
@@ -160,7 +160,7 @@ async function retain(
   snapshot: PublicMarketSnapshot,
   now: number,
 ): Promise<Response> {
-  const response = jsonPublic(snapshot, {
+  const response = jsonPublic(slimPublicSnapshot(snapshot), {
     headers: {
       [SNAPSHOT_CACHED_AT_HEADER]: new Date(now).toISOString(),
       [SNAPSHOT_GENERATED_AT_HEADER]: snapshot.syncedAt,

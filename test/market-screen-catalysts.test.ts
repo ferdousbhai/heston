@@ -49,8 +49,13 @@ describe('reviewing a symbol with an empty calendar', () => {
   it('searches, says so, and shows what the search found', async () => {
     const requested: string[] = []
     const found = catalyst('AAPL', 45)
-    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
-      requested.push(String(JSON.parse(String(init.body)).symbol))
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.startsWith('/api/public-catalysts') || url.startsWith('/api/public-year-candles')
+        || url.startsWith('/api/public-symbol-evidence')) {
+        return Response.json({ catalysts: [], evidence: [], series: [] })
+      }
+      requested.push(String(JSON.parse(String(init?.body)).symbol))
       return Response.json({ catalysts: [found], ran: true })
     }))
 

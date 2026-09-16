@@ -20,6 +20,7 @@ import { Route as ApiFavoritesRouteImport } from './routes/api.favorites'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
 import { Route as ApiMcpTokensRouteImport } from './routes/api.mcp-tokens'
 import { Route as ApiPublicCatalystRefreshRouteImport } from './routes/api.public-catalyst-refresh'
+import { Route as ApiPublicCatalystsRouteImport } from './routes/api.public-catalysts'
 import { Route as ApiPublicChannelArchiveRouteImport } from './routes/api.public-channel-archive'
 import { Route as ApiPublicDailyRecommendationsRouteImport } from './routes/api.public-daily-recommendations'
 import { Route as ApiPublicSnapshotRouteImport } from './routes/api.public-snapshot'
@@ -89,6 +90,11 @@ const ApiPublicCatalystRefreshRoute =
     path: '/api/public-catalyst-refresh',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicCatalystsRoute = ApiPublicCatalystsRouteImport.update({
+  id: '/api/public-catalysts',
+  path: '/api/public-catalysts',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicChannelArchiveRoute = ApiPublicChannelArchiveRouteImport.update({
   id: '/api/public-channel-archive',
   path: '/api/public-channel-archive',
@@ -163,6 +169,7 @@ export interface FileRoutesByFullPath {
   '/api/health': typeof ApiHealthRoute
   '/api/mcp-tokens': typeof ApiMcpTokensRoute
   '/api/public-catalyst-refresh': typeof ApiPublicCatalystRefreshRoute
+  '/api/public-catalysts': typeof ApiPublicCatalystsRoute
   '/api/public-channel-archive': typeof ApiPublicChannelArchiveRoute
   '/api/public-daily-recommendations': typeof ApiPublicDailyRecommendationsRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
@@ -187,6 +194,7 @@ export interface FileRoutesByTo {
   '/api/health': typeof ApiHealthRoute
   '/api/mcp-tokens': typeof ApiMcpTokensRoute
   '/api/public-catalyst-refresh': typeof ApiPublicCatalystRefreshRoute
+  '/api/public-catalysts': typeof ApiPublicCatalystsRoute
   '/api/public-channel-archive': typeof ApiPublicChannelArchiveRoute
   '/api/public-daily-recommendations': typeof ApiPublicDailyRecommendationsRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
@@ -213,6 +221,7 @@ export interface FileRoutesById {
   '/api/health': typeof ApiHealthRoute
   '/api/mcp-tokens': typeof ApiMcpTokensRoute
   '/api/public-catalyst-refresh': typeof ApiPublicCatalystRefreshRoute
+  '/api/public-catalysts': typeof ApiPublicCatalystsRoute
   '/api/public-channel-archive': typeof ApiPublicChannelArchiveRoute
   '/api/public-daily-recommendations': typeof ApiPublicDailyRecommendationsRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
@@ -240,6 +249,7 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/api/mcp-tokens'
     | '/api/public-catalyst-refresh'
+    | '/api/public-catalysts'
     | '/api/public-channel-archive'
     | '/api/public-daily-recommendations'
     | '/api/public-snapshot'
@@ -264,6 +274,7 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/api/mcp-tokens'
     | '/api/public-catalyst-refresh'
+    | '/api/public-catalysts'
     | '/api/public-channel-archive'
     | '/api/public-daily-recommendations'
     | '/api/public-snapshot'
@@ -289,6 +300,7 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/api/mcp-tokens'
     | '/api/public-catalyst-refresh'
+    | '/api/public-catalysts'
     | '/api/public-channel-archive'
     | '/api/public-daily-recommendations'
     | '/api/public-snapshot'
@@ -315,6 +327,7 @@ export interface RootRouteChildren {
   ApiHealthRoute: typeof ApiHealthRoute
   ApiMcpTokensRoute: typeof ApiMcpTokensRoute
   ApiPublicCatalystRefreshRoute: typeof ApiPublicCatalystRefreshRoute
+  ApiPublicCatalystsRoute: typeof ApiPublicCatalystsRoute
   ApiPublicChannelArchiveRoute: typeof ApiPublicChannelArchiveRoute
   ApiPublicDailyRecommendationsRoute: typeof ApiPublicDailyRecommendationsRoute
   ApiPublicSnapshotRoute: typeof ApiPublicSnapshotRoute
@@ -404,6 +417,13 @@ declare module '@tanstack/react-router' {
       path: '/api/public-catalyst-refresh'
       fullPath: '/api/public-catalyst-refresh'
       preLoaderRoute: typeof ApiPublicCatalystRefreshRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public-catalysts': {
+      id: '/api/public-catalysts'
+      path: '/api/public-catalysts'
+      fullPath: '/api/public-catalysts'
+      preLoaderRoute: typeof ApiPublicCatalystsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public-channel-archive': {
@@ -519,6 +539,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiHealthRoute: ApiHealthRoute,
   ApiMcpTokensRoute: ApiMcpTokensRoute,
   ApiPublicCatalystRefreshRoute: ApiPublicCatalystRefreshRoute,
+  ApiPublicCatalystsRoute: ApiPublicCatalystsRoute,
   ApiPublicChannelArchiveRoute: ApiPublicChannelArchiveRoute,
   ApiPublicDailyRecommendationsRoute: ApiPublicDailyRecommendationsRoute,
   ApiPublicSnapshotRoute: ApiPublicSnapshotRoute,

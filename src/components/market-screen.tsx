@@ -37,6 +37,7 @@ import {
   formatMarketMetric,
   formatMarketPrice,
   issuerName,
+  tickerFromPublic,
   termStructureSpread,
   volatilityVerdict,
   type IvTermStructure,
@@ -47,6 +48,7 @@ import {
 } from '../domain/market'
 import { evidenceSourceHost, type SymbolEvidence } from '../domain/symbol-evidence'
 import { useCatalystSearch } from '../data/catalyst-refresh'
+import { usePublicCatalysts } from '../data/public-catalysts'
 import { loadSymbolEvidence } from '../data/symbol-evidence'
 import { useYearCandles } from '../data/year-candles'
 import { useSymbolSearch, type SymbolSearchState } from '../data/symbol-search'
@@ -782,7 +784,7 @@ export function MarketScreen({
   const unlisted = Boolean(trimmedQuery) && !matched.length
   const search = useSymbolSearch(trimmedQuery, unlisted)
   const universe = unlisted && search.status === 'found'
-    ? [search.lookup.ticker]
+    ? [tickerFromPublic(search.lookup.ticker)]
     : matched
   const watchTickers = [...universe].sort((left, right) =>
     Number(pinned.has(right.symbol)) - Number(pinned.has(left.symbol))
@@ -791,6 +793,7 @@ export function MarketScreen({
   // Looking at a symbol with an empty month asks the server to go and find out. What comes
   // back joins the calendar on this visit rather than waiting for the next snapshot.
   const catalystSearch = useCatalystSearch(selected.symbol, catalysts, now)
+  const focusedCatalysts = usePublicCatalysts(selected.symbol)
   // The year series is fetched only where something draws it: the table's year column at the
   // wide breakpoint, and every phone row, which has the room the table's middle widths lack.
   const yearCloses = useYearCandles(useMediaQuery(WIDE_VIEWPORT) || narrow)
@@ -808,10 +811,12 @@ export function MarketScreen({
   const looked = search.status === 'found' ? search.lookup.catalysts : undefined
   const visibleCatalysts = useMemo(() => {
     // Later rows win by id, so a row a search just bound replaces the snapshot's copy of it.
-    const merged = new Map([...catalysts, ...(looked ?? []), ...catalystSearch.catalysts]
-      .map((catalyst) => [catalyst.id, catalyst]))
+    const merged = new Map(
+      [...catalysts, ...(looked ?? []), ...catalystSearch.catalysts, ...focusedCatalysts]
+        .map((catalyst) => [catalyst.id, catalyst]),
+    )
     return [...merged.values()]
-  }, [catalysts, catalystSearch.catalysts, looked])
+  }, [catalysts, catalystSearch.catalysts, focusedCatalysts, looked])
   const nextCatalysts = nextCatalystsBySymbol(visibleCatalysts, now)
   const toggleSort = (column: typeof SORT_COLUMNS[number]) => {
     setSort((current) => current.key === column.key

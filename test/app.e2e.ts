@@ -244,6 +244,14 @@ test('mobile market, recommendations, search, sorting, and connect flows remain 
       }),
     })
   })
+  await page.route('**/api/public-catalysts*', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: '{"catalysts":[]}',
+  }))
+  await page.route('**/api/public-year-candles', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: '{"series":[]}',
+  }))
   const catalystRefreshes: string[] = []
   await page.route('**/api/public-catalyst-refresh', async (route) => {
     catalystRefreshes.push(String(route.request().postDataJSON().symbol))

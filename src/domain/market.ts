@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { CatalystSchema } from './catalyst'
+import { CatalystSchema, snapshotCatalyst } from './catalyst'
 import { CandlePointSchema, MAX_YEAR_CANDLES } from './candle'
 import { EquitySymbolSchema } from './instrument'
 import { IsoDateSchema } from './iso-date'
@@ -76,7 +76,10 @@ export const TickerSchema = z.object({
  * Held context reaches a reader through their own agent instead. The audiences still differ on
  * the watchlist, whose `kind` reveals provenance, so the two snapshot contracts stay distinct.
  */
-export const PublicTickerSchema = TickerSchema.strict()
+export const PublicTickerSchema = TickerSchema.omit({ earningsDate: true, sparkline: true }).extend({
+  earningsDate: z.string().nullable().optional(),
+  sparkline: z.array(CandlePointSchema).optional(),
+}).strict()
 
 const RecommendationFields = {
   symbol: EquitySymbolSchema,
@@ -276,9 +279,39 @@ export function publicTickerFromTicker(ticker: Ticker): PublicTicker {
   return PublicTickerSchema.parse(ticker)
 }
 
+/** REST never fills sparklines (those arrive on the live feed) and most names have no
+ *  earnings date. Omitting the empty fields is what a visitor actually downloads. */
+export function slimPublicTicker(ticker: PublicTicker) {
+  const { earningsDate, sparkline = [], ...rest } = ticker
+  return {
+    ...rest,
+    ...(sparkline.length ? { sparkline } : {}),
+    ...(earningsDate ? { earningsDate } : {}),
+  }
+}
+
+export function slimPublicSnapshot(snapshot: PublicMarketSnapshot): JsonValue {
+  return {
+    ...snapshot,
+    catalysts: snapshot.catalysts.map(snapshotCatalyst),
+    tickers: snapshot.tickers.map(slimPublicTicker),
+  }
+}
+
 /** Convert a validated account-free response into the browser's internal model. */
+export function tickerFromPublic(ticker: PublicTicker): Ticker {
+  return {
+    ...ticker,
+    earningsDate: ticker.earningsDate ?? null,
+    sparkline: ticker.sparkline ?? [],
+  }
+}
+
 export function marketSnapshotFromPublic(snapshot: PublicMarketSnapshot): MarketSnapshot {
-  return MarketSnapshotSchema.parse(snapshot)
+  return MarketSnapshotSchema.parse({
+    ...snapshot,
+    tickers: snapshot.tickers.map(tickerFromPublic),
+  })
 }
 
 /** Highest reported share volume first; missing volume sorts last, then ticker. */

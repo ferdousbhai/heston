@@ -157,6 +157,26 @@ export async function readUpcomingCatalysts(env: AppEnv, now = new Date()): Prom
   return CatalystSchema.array().parse(result.results ?? [])
 }
 
+const SYMBOL_CATALYSTS_QUERY =
+  `SELECT id, symbol, kind, title, description, event_date AS date, timing, confidence,
+      source_label AS source, source_url AS "sourceUrl", updated_at AS "updatedAt"
+     FROM upcoming_catalysts
+     WHERE event_date >= ? AND symbol = ?
+     ORDER BY event_date ASC, id ASC
+     LIMIT ?`
+
+/** Full rows for one symbol, including description and source, for the focused runway. */
+export async function readUpcomingCatalystsForSymbol(
+  env: AppEnv,
+  symbol: string,
+  now = new Date(),
+): Promise<Catalyst[]> {
+  if (!env.DB) throw new Error('CatalystStoreUnavailable')
+  const result = await env.DB.prepare(SYMBOL_CATALYSTS_QUERY)
+    .bind(marketDate(now), EquitySymbolSchema.parse(symbol), MAX_CATALYSTS_PER_SYMBOL).all()
+  return CatalystSchema.array().parse(result.results ?? [])
+}
+
 export async function persistAndLoadCatalysts(
   env: AppEnv,
   observed: readonly Catalyst[],
