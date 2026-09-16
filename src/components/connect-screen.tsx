@@ -207,7 +207,9 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         <CopyBlock label="Grok" value={PROXY_GROK_COMMAND} />
         <p className="connect-note">
           No <code>Authorization</code> header. Pointing at <code>{MCP_URL}</code> instead is the
-          public snapshot: cached quotes, no chains, no publish.
+          public snapshot: cached quotes, no chains, no publish. Grok lists tools, not prompts;
+          the publish tool is the contract, and an unattended run fetches <code>daily_research</code>{' '}
+          itself.
         </p>
         <p>
           A brokerage is a second store: balances, positions, order history, and orders against

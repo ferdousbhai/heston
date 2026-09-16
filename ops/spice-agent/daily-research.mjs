@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 /**
- * Owner-machine market-open brief: run `daily_research` through the local proxy when today's
- * US session has no brief. The Worker never produces one. If this laptop is asleep, the site
- * keeps the last brief.
+ * Owner-machine market-open brief: run `daily_research` when today's US session has no brief.
+ * Connects to Spice with the keyring token and no broker header, so account tools refuse.
+ * The Worker never produces a brief. If this laptop is asleep, the site keeps the last one.
  */
-import { spawn } from 'node:child_process'
-import { access, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { execFile, spawn } from 'node:child_process'
+import { access, copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 
-const PROXY = process.env.SPICE_AGENT_MCP_URL ?? 'http://127.0.0.1:8787/mcp'
+const execFileAsync = promisify(execFile)
+const MCP = process.env.SPICE_MCP_URL ?? 'https://tryspice.xyz/mcp'
 const SNAPSHOT = process.env.SPICE_PUBLIC_SNAPSHOT_URL
   ?? 'https://tryspice.xyz/api/public-snapshot?fields=session'
 const GROK = process.env.GROK_BIN ?? 'grok'
@@ -57,6 +59,21 @@ async function requireGrokAuth() {
   } catch {
     throw new Error('SpiceDailyResearch:grok-auth-missing')
   }
+  return join(home, 'auth.json')
+}
+
+async function spiceToken() {
+  try {
+    const { stdout } = await execFileAsync('secret-tool', ['lookup', 'service', 'spice', 'key', 'mcp-token'], {
+      timeout: 5_000,
+    })
+    const token = stdout.trim()
+    if (!token) throw new Error('SpiceDailyResearch:mcp-token-missing')
+    return token
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('SpiceDailyResearch:')) throw error
+    throw new Error('SpiceDailyResearch:mcp-token-missing')
+  }
 }
 
 function parseSseOrJson(raw) {
@@ -73,26 +90,28 @@ function parseSseOrJson(raw) {
   return last
 }
 
-async function rpc(method, params, session, notif = false, timeoutMs = 60_000) {
+async function rpc(method, params, session, token, notif = false, timeoutMs = 60_000) {
   const body = { jsonrpc: '2.0', method }
   if (!notif) body.id = 1
   if (params !== undefined) body.params = params
   const headers = {
     Accept: 'application/json, text/event-stream',
+    Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
+    'User-Agent': 'spice-daily-research/1',
     'mcp-protocol-version': '2025-03-26',
   }
   if (session) headers['mcp-session-id'] = session
   let response
   try {
-    response = await fetch(PROXY, {
+    response = await fetch(MCP, {
       body: JSON.stringify(body),
       headers,
       method: 'POST',
       signal: AbortSignal.timeout(timeoutMs),
     })
   } catch (error) {
-    throw new Error(`SpiceDailyResearch:proxy-unreachable:${error instanceof Error ? error.name : 'unknown'}`)
+    throw new Error(`SpiceDailyResearch:mcp-unreachable:${error instanceof Error ? error.name : 'unknown'}`)
   }
   const raw = await response.text()
   if (!response.ok) throw new Error(`SpiceDailyResearch:mcp-${response.status}`)
@@ -122,9 +141,16 @@ async function readMarketState() {
   return { opensAt: body?.marketOpensAt, state }
 }
 
-async function grokRun(prompt) {
+async function grokRun(prompt, token) {
   const directory = await mkdtemp(join(tmpdir(), 'spice-daily-research-'))
   const promptPath = join(directory, 'prompt.txt')
+  const grokHome = join(directory, 'grok-home')
+  await mkdir(grokHome)
+  await copyFile(await requireGrokAuth(), join(grokHome, 'auth.json'))
+  await writeFile(
+    join(grokHome, 'config.toml'),
+    `[mcp_servers.spice]\nurl = "${MCP}"\ntype = "http"\nbearer_token_env_var = "SPICE_MCP_TOKEN"\n`,
+  )
   await writeFile(promptPath, prompt)
   try {
     const child = spawn(GROK, [
@@ -134,6 +160,7 @@ async function grokRun(prompt) {
       '--output-format', 'plain',
       '--disallowed-tools', 'Agent',
     ], {
+      env: { ...process.env, GROK_HOME: grokHome, SPICE_MCP_TOKEN: token },
       stdio: ['ignore', 'inherit', 'inherit'],
     })
     const code = await new Promise((resolve, reject) => {
@@ -161,18 +188,19 @@ async function main() {
     return
   }
 
+  const token = await spiceToken()
   const { session, parsed: init } = await rpc('initialize', {
     capabilities: {},
     clientInfo: { name: 'spice-daily-research', version: '0.1' },
     protocolVersion: '2025-03-26',
-  }, undefined, false, 5_000)
+  }, undefined, token, false, 5_000)
   if (init.error) throw new Error(`SpiceDailyResearch:initialize:${JSON.stringify(init.error)}`)
-  await rpc('notifications/initialized', {}, session, true)
+  await rpc('notifications/initialized', {}, session, token, true)
 
   const brief = toolText((await rpc('tools/call', {
     arguments: {},
     name: 'read_daily_recommendations',
-  }, session)).parsed)
+  }, session, token)).parsed)
   const briefId = brief?.dailyRecommendations?.id
   if (alreadyPublishedToday(briefId, today)) {
     process.stdout.write(`SpiceDailyResearch: already have ${briefId}\n`)
@@ -184,8 +212,7 @@ async function main() {
     return
   }
 
-  await requireGrokAuth()
-  const promptResult = await rpc('prompts/get', { name: 'daily_research' }, session)
+  const promptResult = await rpc('prompts/get', { name: 'daily_research' }, session, token)
   const messages = promptResult.parsed.result?.messages ?? []
   const recipe = messages.map((message) => message.content?.text ?? '').filter(Boolean).join('\n\n')
   if (!recipe) throw new Error('SpiceDailyResearch:missing-daily-research-prompt')
@@ -193,7 +220,7 @@ async function main() {
 
 ${unattendedPromptSuffix({ briefId, market, today })}`
   process.stdout.write(`SpiceDailyResearch: running for ${today} (standing ${briefId ?? 'none'})\n`)
-  await grokRun(prompt)
+  await grokRun(prompt, token)
 }
 
 if (resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {

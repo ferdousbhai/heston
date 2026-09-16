@@ -6,8 +6,8 @@
 #   systemctl --user enable --now spice-daily-research.timer
 [Unit]
 Description=Spice daily research (if today's brief is missing)
-After=network-online.target spice-agent-proxy.service
-Wants=network-online.target spice-agent-proxy.service
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=oneshot

@@ -9,6 +9,7 @@ describe('Connect screen copy', () => {
     const html = renderToStaticMarkup(createElement(ConnectScreen, { owner: false }))
     expect(html).toContain('claude mcp add --transport http spice http://127.0.0.1:8787/mcp')
     expect(html).toContain('grok mcp add --transport http spice http://127.0.0.1:8787/mcp')
+    expect(html).toContain('Grok lists tools, not prompts')
     expect(html).toContain('./ops/spice-agent/store-credentials.sh mcp-token')
     expect(html).toContain('./ops/spice-agent/store-credentials.sh tastytrade')
     // OAuth to the public URL remains for clients that can complete a browser sign-in.
