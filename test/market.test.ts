@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   fiftyTwoWeekPosition,
   formatMarketMetric,
+  isRegularSessionOpen,
   issuerName,
   MarketSnapshotSchema,
   marketSnapshotFromPublic,
@@ -297,5 +298,18 @@ describe('tastytrade normalization', () => {
       yearHigh: 710,
       yearLow: 480,
     })
+  })
+})
+
+describe('regular session open', () => {
+  it('is 09:30 America/New_York on a weekday, in either DST offset', () => {
+    expect(isRegularSessionOpen(new Date('2026-09-16T13:30:00.000Z'))).toBe(true)
+    expect(isRegularSessionOpen(new Date('2026-09-16T14:30:00.000Z'))).toBe(false)
+    expect(isRegularSessionOpen(new Date('2026-01-14T14:30:00.000Z'))).toBe(true)
+    expect(isRegularSessionOpen(new Date('2026-01-14T13:30:00.000Z'))).toBe(false)
+  })
+
+  it('does not treat a weekend 09:30 as the cash open', () => {
+    expect(isRegularSessionOpen(new Date('2026-09-19T13:30:00.000Z'))).toBe(false)
   })
 })

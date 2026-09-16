@@ -1,4 +1,5 @@
 import { marketDate } from '../domain/catalyst'
+import { isRegularSessionOpen } from '../domain/market'
 import { MAX_LIVE_STREAM_SYMBOLS } from '../domain/watchlist'
 import { type AppEnv } from './env'
 import { readInternalWatchlistFocus } from './internal-watchlist'
@@ -10,6 +11,9 @@ import { upsertYearCandles } from './year-candle-store'
  * Returning the count keeps the caller's log honest about a partial refresh.
  */
 export async function refreshYearCandles(env: AppEnv, asOf = new Date()): Promise<number> {
+  // The trigger fires at 13:30 and 14:30 UTC so one of them is 09:30 Eastern in either DST
+  // offset. The off-season fire is a no-op rather than a second DXLink subscription.
+  if (!isRegularSessionOpen(asOf)) return 0
   if (!env.DB || !env.MARKET_FEED) return 0
   // The focus defaults to the watchlist's own 500-symbol bound, but this read is served by a
   // DXLink subscription, which admits `MAX_LIVE_STREAM_SYMBOLS`. Asking for the list's bound

@@ -2,8 +2,8 @@ import { type TSchema, Type } from 'typebox'
 
 import { z } from 'zod'
 
-import { PublicMarketSnapshotSchema, PublicTickerSchema, type PublicMarketSnapshot } from '../domain/market'
-import { EquitySymbolType, equitySymbolFromModelText } from '../domain/instrument'
+import { PublicTickerSchema } from '../domain/market'
+import { EquitySymbolSchema, EquitySymbolType, equitySymbolFromModelText } from '../domain/instrument'
 import { type AgentTool } from '../domain/agent-tool'
 import { textResult } from './agent-tool-result'
 import { type AppEnv } from './env'
@@ -38,7 +38,27 @@ const PublicSearchParameters = Type.Object({
   query: Type.String({ description: 'Ticker or company name.', maxLength: MAX_SEARCH_QUERY_LENGTH, minLength: 1 }),
 }, { additionalProperties: false })
 
-type PublicRow = PublicMarketSnapshot['tickers'][number]
+/** Quote and metric fields the anonymous tools actually return. The website book also carries
+ *  recommendations, catalysts and unused ticker columns; those stay unread here. */
+const PublicQuoteTickerSchema = z.object({
+  change: z.number(),
+  changePercent: z.number(),
+  ivIndex: z.number().optional(),
+  ivPercentile: z.number().optional(),
+  ivRank: z.number().optional(),
+  marketCap: z.number().nonnegative().optional(),
+  price: z.number(),
+  symbol: EquitySymbolSchema,
+})
+
+type PublicQuoteTicker = z.infer<typeof PublicQuoteTickerSchema>
+
+const PublicQuoteBookSchema = z.object({
+  syncedAt: z.string(),
+  tickers: z.array(z.unknown()),
+})
+
+type PublicQuoteBook = z.infer<typeof PublicQuoteBookSchema>
 
 /** Whatever the public route answers, read at this boundary rather than passed through blind. */
 const SearchResultSchema = z.union([
@@ -46,13 +66,34 @@ const SearchResultSchema = z.union([
   z.object({ ticker: PublicTickerSchema, watchlisted: z.boolean().optional() }).passthrough(),
 ])
 
-async function readCachedSnapshot(env: AppEnv, schedule: BackgroundScheduler): Promise<PublicMarketSnapshot> {
+/**
+ * Pull the requested rows out of the website snapshot without parsing the rest of the book.
+ * A malformed requested row still fails closed; a malformed unrequested row is ignored.
+ */
+export function selectPublicQuoteRows(book: PublicQuoteBook, requested: readonly string[]) {
+  const wanted = new Set(requested.map((symbol) => equitySymbolFromModelText(symbol) ?? symbol))
+  const rows: PublicQuoteTicker[] = []
+  const found = new Set<string>()
+  for (const row of book.tickers) {
+    const peeked = z.object({ symbol: z.string() }).safeParse(row)
+    if (!peeked.success || !wanted.has(peeked.data.symbol)) continue
+    rows.push(PublicQuoteTickerSchema.parse(row))
+    found.add(peeked.data.symbol)
+  }
+  return {
+    missing: [...wanted].filter((symbol) => !found.has(symbol)),
+    rows,
+    syncedAt: book.syncedAt,
+  }
+}
+
+async function readCachedSnapshot(env: AppEnv, schedule: BackgroundScheduler): Promise<PublicQuoteBook> {
   const origin = requiredOrigin(env)
   // The same URL the website requests, so this shares its cache entry rather than opening a
   // second one that would double the refresh cost it was meant to avoid.
   const response = await servePublicSnapshot(new Request(`${origin}/api/public-snapshot`), env, edgeCache(), schedule)
   if (!response.ok) throw new Error('PublicSnapshotUnavailable')
-  return PublicMarketSnapshotSchema.parse(await response.json())
+  return PublicQuoteBookSchema.parse(await response.json())
 }
 
 function edgeCache(): Cache {
@@ -65,14 +106,6 @@ function requiredOrigin(env: AppEnv): string {
   const origin = env.AUTH_BASE_URL
   if (!origin) throw new Error('PublicSnapshotOriginMissing')
   return origin
-}
-
-/** Resolve requested symbols against the snapshot, naming the ones it does not carry. */
-function selectRows(snapshot: PublicMarketSnapshot, requested: readonly string[]) {
-  const wanted = new Set(requested.map((symbol) => equitySymbolFromModelText(symbol) ?? symbol))
-  const rows = snapshot.tickers.filter((ticker) => wanted.has(ticker.symbol))
-  const found = new Set(rows.map((ticker) => ticker.symbol))
-  return { missing: [...wanted].filter((symbol) => !found.has(symbol)), rows }
 }
 
 /**
@@ -95,12 +128,11 @@ export function createPublicMarketReadTools(env: AppEnv, schedule: BackgroundSch
         // SAFETY: the MCP server validates every call against this tool's own JSON Schema before
         // dispatch, and `PublicQuoteParameters` requires `symbols` as a non-empty string array.
         const { symbols } = params as { symbols: string[] }
-        const snapshot = await readCachedSnapshot(env, schedule)
-        const { missing, rows } = selectRows(snapshot, symbols)
+        const { missing, rows, syncedAt } = selectPublicQuoteRows(await readCachedSnapshot(env, schedule), symbols)
         return textResult({
-          asOf: snapshot.syncedAt,
+          asOf: syncedAt,
           note: unavailableNote(missing),
-          quotes: rows.map((row: PublicRow) => ({
+          quotes: rows.map((row) => ({
             change: row.change,
             changePercent: row.changePercent,
             price: row.price,
@@ -120,11 +152,10 @@ export function createPublicMarketReadTools(env: AppEnv, schedule: BackgroundSch
         // SAFETY: the MCP server validates every call against this tool's own JSON Schema before
         // dispatch, and `PublicQuoteParameters` requires `symbols` as a non-empty string array.
         const { symbols } = params as { symbols: string[] }
-        const snapshot = await readCachedSnapshot(env, schedule)
-        const { missing, rows } = selectRows(snapshot, symbols)
+        const { missing, rows, syncedAt } = selectPublicQuoteRows(await readCachedSnapshot(env, schedule), symbols)
         return textResult({
-          asOf: snapshot.syncedAt,
-          metrics: rows.map((row: PublicRow) => ({
+          asOf: syncedAt,
+          metrics: rows.map((row) => ({
             ivIndex: row.ivIndex,
             ivPercentile: row.ivPercentile,
             ivRank: row.ivRank,

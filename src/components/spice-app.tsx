@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { lazy, Suspense, useCallback, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { Gauge, Newspaper, Plug } from 'lucide-react'
 import { z } from 'zod'
@@ -13,11 +13,18 @@ import { mostActiveSymbol } from '../domain/market'
 import { useLiveMarket } from '../data/live-market'
 import { useAudienceMarket } from '../data/use-audience-market'
 import { useWorkspaceFavorites } from '../data/use-workspace-favorites'
-import { ConnectScreen } from './connect-screen'
 import { OwnerAccessScreen, type Viewer, useViewer } from './auth-gate'
-import { RecommendationScreen } from './recommendation-screen'
 import { MarketScreen } from './market-screen'
 import { TopBar } from './top-bar'
+
+const ConnectScreen = lazy(async () => {
+  const { ConnectScreen: Screen } = await import('./connect-screen')
+  return { default: Screen }
+})
+const RecommendationScreen = lazy(async () => {
+  const { RecommendationScreen: Screen } = await import('./recommendation-screen')
+  return { default: Screen }
+})
 
 const TabSchema = z.enum(['market', 'recommendations', 'connect'])
 
@@ -124,7 +131,11 @@ function SpiceWorkspace({
               </Alert>
             )}
             {tab === 'connect' && !viewer && <OwnerAccessScreen authError={authError} signedIn={false} />}
-            {tab === 'connect' && viewer && <ConnectScreen owner={owner} />}
+            {tab === 'connect' && viewer && (
+              <Suspense fallback={<MarketState loading message="Loading…" />}>
+                <ConnectScreen owner={owner} />
+              </Suspense>
+            )}
             {/* The top bar has no room for these on a phone, so the tab about the reader's own
                 account carries them for every width. */}
             {tab === 'connect' && (
@@ -166,13 +177,15 @@ function SpiceWorkspace({
               <MarketState message="No market symbols are available." />
             )}
             {snapshotReady && tab === 'recommendations' && (
-              <RecommendationScreen
-                availableSymbols={loadedSymbols}
-                dailyRecommendations={dailyRecommendations}
-                onConnect={() => setTab('connect')}
-                onSymbol={chooseSymbol}
-                signedIn={Boolean(viewer)}
-              />
+              <Suspense fallback={<MarketState loading message="Loading…" />}>
+                <RecommendationScreen
+                  availableSymbols={loadedSymbols}
+                  dailyRecommendations={dailyRecommendations}
+                  onConnect={() => setTab('connect')}
+                  onSymbol={chooseSymbol}
+                  signedIn={Boolean(viewer)}
+                />
+              </Suspense>
             )}
           </main>
         </TabsContent>

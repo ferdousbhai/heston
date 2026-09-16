@@ -18,7 +18,7 @@ import {
   researchRefreshOpen,
   researchRefreshOpensAt,
 } from '../domain/research-refresh'
-import { CopyBlock } from './connect-screen'
+import { CopyBlock } from './copy-block'
 
 // The run publishes at a time of day, not on a day, so the issue line carries the time too.
 const issueDate = new Intl.DateTimeFormat('en-US', {

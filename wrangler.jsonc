@@ -69,6 +69,8 @@
     }
   ],
   "triggers": {
+    // 13:30 UTC is 09:30 EDT; 14:30 UTC is 09:30 EST. The year-candle job runs only at the
+    // Eastern cash open, so the off-season fire is a no-op. Lease sweep still runs both times.
     "crons": ["30 13,14 * * 1-5"]
   },
   "vars": {

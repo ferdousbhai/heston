@@ -222,6 +222,26 @@ export const MarketStateSchema = z.enum(['open', 'closed', 'pre', 'after', 'unkn
 
 export type MarketState = z.infer<typeof MarketStateSchema>
 
+const REGULAR_SESSION_OPEN_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  hour: '2-digit',
+  hourCycle: 'h23',
+  minute: '2-digit',
+  timeZone: 'America/New_York',
+  weekday: 'short',
+})
+
+/**
+ * Cloudflare cron is UTC and cannot name "09:30 America/New_York", so the Worker fires both
+ * DST offsets and this keeps the year-candle read on the fire that is actually the cash open.
+ */
+export function isRegularSessionOpen(at: Date): boolean {
+  const parts = Object.fromEntries(
+    REGULAR_SESSION_OPEN_FORMATTER.formatToParts(at).map((part) => [part.type, part.value]),
+  )
+  if (parts.weekday === 'Sat' || parts.weekday === 'Sun') return false
+  return parts.hour === '09' && parts.minute === '30'
+}
+
 export const MarketSnapshotSchema = z.object({
   source: z.literal('tastytrade'),
   syncedAt: z.string(),
@@ -281,13 +301,17 @@ export function publicTickerFromTicker(ticker: Ticker): PublicTicker {
 
 /** REST never fills sparklines (those arrive on the live feed) and most names have no
  *  earnings date. Omitting the empty fields is what a visitor actually downloads. */
-export function slimPublicTicker(ticker: PublicTicker) {
+export type SlimPublicTicker = Omit<PublicTicker, 'earningsDate' | 'sparkline'> & {
+  earningsDate?: string
+  sparkline?: PublicTicker['sparkline']
+}
+
+export function slimPublicTicker(ticker: PublicTicker): SlimPublicTicker {
   const { earningsDate, sparkline = [], ...rest } = ticker
-  return {
-    ...rest,
-    ...(sparkline.length ? { sparkline } : {}),
-    ...(earningsDate ? { earningsDate } : {}),
-  }
+  if (sparkline.length && earningsDate) return { ...rest, earningsDate, sparkline }
+  if (sparkline.length) return { ...rest, sparkline }
+  if (earningsDate) return { ...rest, earningsDate }
+  return rest
 }
 
 export function slimPublicSnapshot(snapshot: PublicMarketSnapshot): JsonValue {

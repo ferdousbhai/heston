@@ -59,4 +59,19 @@ describe('year candle refresh', () => {
     expect(stored.asOf).toBe('2026-09-07')
     expect(stored.series.get(requested[0]!)).toEqual([100])
   })
+
+  it('skips the off-season UTC fire rather than subscribing twice', async () => {
+    const readDailyCandles = vi.fn()
+    const env: AppEnv = {
+      DB: store.database,
+      MARKET_FEED: {
+        get: vi.fn(),
+        getByName: vi.fn(() => ({ fetch: vi.fn(), readDailyCandles, readOptionGreeks: vi.fn() })),
+        idFromName: vi.fn(),
+      },
+    }
+
+    expect(await refreshYearCandles(env, new Date('2026-09-16T14:30:00.000Z'))).toBe(0)
+    expect(readDailyCandles).not.toHaveBeenCalled()
+  })
 })
