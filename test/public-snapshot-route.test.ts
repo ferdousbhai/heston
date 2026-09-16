@@ -8,11 +8,16 @@ import { SPICE_DEPLOYMENT_ID_HEADER } from '../src/domain/deployment'
 import { PUBLIC_RESPONSE_CACHE_CONTROL } from '../src/server/http'
 import {
   type PublicSnapshotCache,
+  PRE_SESSION_REFRESH_MS,
   providerRefreshDue,
   publicSessionStatus,
   servePublicSnapshot,
+  sessionRefreshDue,
   SNAPSHOT_CACHED_AT_HEADER,
   SNAPSHOT_GENERATED_AT_HEADER,
+  SNAPSHOT_MARKET_OPENS_AT_HEADER,
+  SNAPSHOT_MARKET_STATE_HEADER,
+  snapshotEtag,
 } from '../src/server/public-snapshot-cache'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
@@ -108,20 +113,22 @@ describe('public snapshot route cache', () => {
     expect(broker.loadStoredPublicMarketSnapshot).not.toHaveBeenCalled()
     expect(cache.putCalls).toBe(0)
     expect(cache.matchedUrls).toEqual([
-      'https://tryspice.xyz/api/public-snapshot?schema=5&deployment=test&copy=fresh',
+      'https://tryspice.xyz/api/public-snapshot?schema=6&deployment=test&copy=fresh',
     ])
   })
 
-  it('answers fields=session from the same retained copy without tickers', async () => {
+  it('answers fields=session from retained headers without reading the body', async () => {
     const snapshot = storedPublicSnapshot(30_000, {
       marketOpensAt: '2026-08-28T13:30:00.000Z',
       marketState: 'open',
     })
-    const cache = new MemoryPublicSnapshotCache(Response.json(snapshot, {
+    const cache = new MemoryPublicSnapshotCache(new Response('not-json', {
       headers: {
         'Cache-Control': 'public, max-age=900',
         [SNAPSHOT_CACHED_AT_HEADER]: new Date(NOW).toISOString(),
         [SNAPSHOT_GENERATED_AT_HEADER]: snapshot.syncedAt,
+        [SNAPSHOT_MARKET_STATE_HEADER]: 'open',
+        [SNAPSHOT_MARKET_OPENS_AT_HEADER]: '2026-08-28T13:30:00.000Z',
       },
     }))
     const response = await servePublicSnapshot(
@@ -132,6 +139,30 @@ describe('public snapshot route cache', () => {
       NOW,
     )
     await expect(response.json()).resolves.toEqual(publicSessionStatus(snapshot))
+    expect(cache.putCalls).toBe(0)
+  })
+
+  it('answers 304 when the observation has not changed', async () => {
+    const snapshot = storedPublicSnapshot(30_000, { marketState: 'open' })
+    const etag = snapshotEtag(snapshot.syncedAt)
+    const cache = new MemoryPublicSnapshotCache(Response.json(snapshot, {
+      headers: {
+        ETag: etag,
+        'Cache-Control': 'public, max-age=900',
+        [SNAPSHOT_CACHED_AT_HEADER]: new Date(NOW).toISOString(),
+        [SNAPSHOT_GENERATED_AT_HEADER]: snapshot.syncedAt,
+        [SNAPSHOT_MARKET_STATE_HEADER]: 'open',
+      },
+    }))
+    const response = await servePublicSnapshot(
+      new Request(SNAPSHOT_URL, { headers: { 'If-None-Match': etag } }),
+      {},
+      cache,
+      new Background().schedule,
+      NOW,
+    )
+    expect(response.status).toBe(304)
+    expect(await response.text()).toBe('')
     expect(cache.putCalls).toBe(0)
   })
 
@@ -318,5 +349,44 @@ describe('provider refresh policy', () => {
   it('errs toward refreshing when the session is unlabelled or names no open', () => {
     expect(providerRefreshDue(storedPublicSnapshot(minute, { marketState: 'unknown' }), NOW)).toBe(true)
     expect(providerRefreshDue(storedPublicSnapshot(minute, { marketOpensAt: undefined, marketState: 'closed' }), NOW)).toBe(true)
+  })
+})
+
+describe('pre-market session refresh', () => {
+  const minute = 60_000
+  const hour = 60 * minute
+
+  it('asks for session state overnight-after, inside six hours of the bell, without a quote rebuild', () => {
+    const after = {
+      marketOpensAt: new Date(NOW + hour).toISOString(),
+      marketState: 'after' as const,
+    }
+    expect(sessionRefreshDue(storedPublicSnapshot(12 * hour, after), NOW)).toBe(true)
+    expect(sessionRefreshDue(storedPublicSnapshot(minute - 1, after), NOW)).toBe(false)
+    expect(sessionRefreshDue(storedPublicSnapshot(12 * hour, {
+      ...after,
+      marketOpensAt: new Date(NOW + PRE_SESSION_REFRESH_MS + minute).toISOString(),
+    }), NOW)).toBe(false)
+    expect(sessionRefreshDue(storedPublicSnapshot(12 * hour, { ...after, marketState: 'closed' }), NOW)).toBe(false)
+    expect(sessionRefreshDue(storedPublicSnapshot(12 * hour, { ...after, marketState: 'pre' }), NOW)).toBe(false)
+  })
+
+  it('schedules a session-only refresh rather than a full provider rebuild', async () => {
+    const stored = storedPublicSnapshot(12 * hour, {
+      marketOpensAt: new Date(NOW + hour).toISOString(),
+      marketState: 'after',
+    })
+    broker.loadStoredPublicMarketSnapshot.mockResolvedValue(stored)
+    broker.refreshPublicMarketSession.mockResolvedValue({ ...stored, marketState: 'pre' })
+    const cache = new MemoryPublicSnapshotCache()
+    const background = new Background()
+
+    const response = await serve(cache, background)
+    await expect(response.json()).resolves.toMatchObject({ marketState: 'after' })
+    await background.settle()
+
+    expect(broker.loadPublicMarketSnapshot).not.toHaveBeenCalled()
+    expect(broker.refreshPublicMarketSession).toHaveBeenCalledTimes(1)
+    await expect(cache.current()?.json()).resolves.toMatchObject({ marketState: 'pre' })
   })
 })

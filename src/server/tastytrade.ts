@@ -654,6 +654,18 @@ export async function loadPublicMarketSnapshot(
  * Caching the session is best-effort: it is a read optimization for later visitors, never a
  * reason to fail the live build that already has the answer in hand.
  */
+/** Session only: overnight `after` becomes `pre` without rebuilding quotes. */
+async function refreshPublicMarketSession(
+  env: AppEnv,
+  snapshot: PublicMarketSnapshot,
+): Promise<PublicMarketSnapshot> {
+  const payload = await tastyRequest(env, '/market-time/equities/sessions/current')
+  const marketState = marketStateFromTastytradeSession(payload)
+  const marketOpensAt = marketOpensAtFromTastytradeSession(payload)
+  await cacheMarketSession(env, marketState, marketOpensAt)
+  return { ...snapshot, marketOpensAt, marketState }
+}
+
 async function cacheMarketSession(
   env: AppEnv,
   marketState: MarketSnapshot['marketState'],
@@ -761,6 +773,7 @@ const brokerApiSeam = defineSeam(() => ({
   lookupPublicMarketSymbol,
   lookupStoredMarketSymbol,
   loadQuoteToken,
+  refreshPublicMarketSession,
   resolveResearchInstrumentCatalogFromTastytrade,
   resolveAccountNumber,
   tastyRequest,

@@ -86,6 +86,7 @@ export function stubBroker() {
     lookupStoredMarketSymbol: vi.fn(async (): Promise<PublicSymbolLookup | undefined> => undefined),
     loadStoredMarketSnapshot: vi.fn(async (): Promise<MarketSnapshot | undefined> => undefined),
     loadStoredPublicMarketSnapshot: vi.fn(async (): Promise<PublicMarketSnapshot | undefined> => undefined),
+    refreshPublicMarketSession: vi.fn(async (_env: AppEnv, snapshot: PublicMarketSnapshot) => snapshot),
     withBrokerMutationLease: vi.fn(async (_env, _accountNumber, operation) => operation({ renew: renewBrokerMutationLease })),
   } satisfies BrokerApi & { renewBrokerMutationLease: typeof renewBrokerMutationLease }
 }

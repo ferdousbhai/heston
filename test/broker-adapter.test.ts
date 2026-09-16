@@ -33,6 +33,7 @@ const forbiddenBrokerApi = {
   loadQuoteToken: forbidden,
   loadStoredMarketSnapshot: forbidden,
   loadStoredPublicMarketSnapshot: forbidden,
+  refreshPublicMarketSession: forbidden,
   lookupPublicMarketSymbol: forbidden,
   lookupStoredMarketSymbol: forbidden,
   resolveAccountNumber: forbidden,

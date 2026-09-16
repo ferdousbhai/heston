@@ -307,19 +307,32 @@ export function restoreOfflineSnapshot(audience: SnapshotAudience = 'owner'): Pr
   return queueSnapshotOperation(() => restoreOfflineSnapshotImmediately(audience))
 }
 
+let publicSnapshotEtag: string | undefined
+
 export async function syncFromCloud(
   signal?: AbortSignal,
   isCurrent: () => boolean = () => true,
   audience: SnapshotAudience = 'owner',
 ): Promise<MarketSnapshot> {
   // The root document preloads the public snapshot as a fetch. Any extra request header
-  // here would miss that preload and refetch it, so the public read sends none.
+  // here would miss that preload and refetch it, so the first public read sends none.
+  // Later syncs send If-None-Match so an unchanged observation is a 304, not another body.
+  const headers = new Headers()
+  if (audience === 'owner') headers.set('Accept', 'application/json')
+  if (audience === 'public' && publicSnapshotEtag) headers.set('If-None-Match', publicSnapshotEtag)
   const response = audience === 'owner'
-    ? await fetch(OWNER_SNAPSHOT_URL, { headers: { Accept: 'application/json' }, signal })
-    : await fetch(PUBLIC_SNAPSHOT_URL, { signal })
+    ? await fetch(OWNER_SNAPSHOT_URL, { headers, signal })
+    : await fetch(PUBLIC_SNAPSHOT_URL, { headers, signal })
+  if (response.status === 304) {
+    const record = offlineSnapshotCollection.get('snapshot')
+    if (record?.audience === audience) return record.snapshot
+    throw new Error('Snapshot sync failed (304)')
+  }
   // A failed request is a failed request; reading a deployment header off one only disguised
   // the status that actually explains it.
   if (!response.ok) throw new Error(`Snapshot sync failed (${response.status})`)
+  const etag = response.headers.get('ETag')
+  if (audience === 'public' && etag) publicSnapshotEtag = etag
   const payload: unknown = await response.json()
   const newerDeployment = newerResponseDeployment(response)
   let snapshot: MarketSnapshot

@@ -1,4 +1,4 @@
-import { slimPublicSnapshot, type PublicMarketSnapshot } from '../domain/market'
+import { MarketStateSchema, slimPublicSnapshot, type PublicMarketSnapshot } from '../domain/market'
 import { SPICE_DEPLOYMENT_ID } from '../deployment'
 import { SPICE_DEPLOYMENT_ID_HEADER } from '../domain/deployment'
 import { type AppEnv } from './env'
@@ -27,6 +27,11 @@ export const SNAPSHOT_GENERATED_AT_HEADER = 'X-Snapshot-Generated-At'
  * says whether the store has been re-read for it lately.
  */
 export const SNAPSHOT_CACHED_AT_HEADER = 'X-Snapshot-Cached-At'
+export const SNAPSHOT_MARKET_STATE_HEADER = 'X-Market-State'
+export const SNAPSHOT_MARKET_OPENS_AT_HEADER = 'X-Market-Opens-At'
+
+/** How far before the named open we will ask the provider for session state only. */
+export const PRE_SESSION_REFRESH_MS = 6 * 60 * 60 * 1_000
 
 /** Query on `/api/public-snapshot`. The Cache API key discards the query, so this does not shard the retained copy. */
 export function publicSessionStatus(
@@ -40,15 +45,60 @@ export function publicSessionStatus(
   }
 }
 
+export function snapshotEtag(syncedAt: string): string {
+  return `W/"${syncedAt}"`
+}
+
+function sessionFromHeaders(response: Response) {
+  const state = MarketStateSchema.safeParse(response.headers.get(SNAPSHOT_MARKET_STATE_HEADER))
+  const syncedAt = response.headers.get(SNAPSHOT_GENERATED_AT_HEADER)
+  if (!state.success || !syncedAt) return undefined
+  const marketOpensAt = response.headers.get(SNAPSHOT_MARKET_OPENS_AT_HEADER)
+  return publicSessionStatus({
+    marketOpensAt: marketOpensAt || undefined,
+    marketState: state.data,
+    source: 'tastytrade',
+    syncedAt,
+  })
+}
+
 async function projectVisitorResponse(request: Request, response: Response): Promise<Response> {
   if (new URL(request.url).searchParams.get('fields') !== 'session' || !response.ok) return response
-  const snapshot = await response.json() as PublicMarketSnapshot
+  const fromHeaders = sessionFromHeaders(response)
+  const snapshot = fromHeaders ?? publicSessionStatus(await response.json() as PublicMarketSnapshot)
   const headers = new Headers()
   const cachedAt = response.headers.get(SNAPSHOT_CACHED_AT_HEADER)
   const generatedAt = response.headers.get(SNAPSHOT_GENERATED_AT_HEADER) ?? snapshot.syncedAt
+  const etag = response.headers.get('ETag')
   if (cachedAt) headers.set(SNAPSHOT_CACHED_AT_HEADER, cachedAt)
   if (generatedAt) headers.set(SNAPSHOT_GENERATED_AT_HEADER, generatedAt)
-  return jsonPublic(publicSessionStatus(snapshot), { headers })
+  if (etag) headers.set('ETag', etag)
+  if (response.headers.get(SNAPSHOT_MARKET_STATE_HEADER)) {
+    headers.set(SNAPSHOT_MARKET_STATE_HEADER, response.headers.get(SNAPSHOT_MARKET_STATE_HEADER)!)
+  }
+  return jsonPublic(snapshot, { headers })
+}
+
+function notModified(request: Request, stored: Response): Response | undefined {
+  const etag = stored.headers.get('ETag')
+  const inm = request.headers.get('If-None-Match')
+  if (!etag || !inm) return undefined
+  const tags = inm.split(',').map((part) => part.trim())
+  if (!tags.includes(etag) && !tags.includes('*')) return undefined
+  const headers = new Headers()
+  headers.set('Cache-Control', PUBLIC_RESPONSE_CACHE_CONTROL)
+  headers.set('ETag', etag)
+  headers.set(SPICE_DEPLOYMENT_ID_HEADER, SPICE_DEPLOYMENT_ID)
+  for (const name of [
+    SNAPSHOT_CACHED_AT_HEADER,
+    SNAPSHOT_GENERATED_AT_HEADER,
+    SNAPSHOT_MARKET_STATE_HEADER,
+    SNAPSHOT_MARKET_OPENS_AT_HEADER,
+  ]) {
+    const value = stored.headers.get(name)
+    if (value) headers.set(name, value)
+  }
+  return new Response(null, { headers, status: 304 })
 }
 
 /** The only two Cache API methods this module needs, so tests can pass an in-memory copy. */
@@ -65,7 +115,7 @@ function cacheKeyFor(request: Request): Request {
   cacheUrl.search = ''
   // Scope the private Cache API copy to the code that serialized it. The request's
   // query remains untrusted and is discarded, so visitors cannot create cache shards.
-  cacheUrl.searchParams.set('schema', '5')
+  cacheUrl.searchParams.set('schema', '6')
   cacheUrl.searchParams.set('deployment', SPICE_DEPLOYMENT_ID)
   cacheUrl.searchParams.set('copy', 'fresh')
   return new Request(cacheUrl, { method: 'GET' })
@@ -103,6 +153,18 @@ export function providerRefreshDue(
   const opens = snapshot.marketOpensAt ? Date.parse(snapshot.marketOpensAt) : Number.NaN
   if (!Number.isFinite(opens)) return true
   return now >= opens
+}
+
+/** Overnight `after` becomes `pre` without a quote rebuild, starting six hours before the bell. */
+export function sessionRefreshDue(
+  snapshot: Pick<PublicMarketSnapshot, 'marketOpensAt' | 'marketState' | 'syncedAt'>,
+  now: number,
+): boolean {
+  if (snapshot.marketState !== 'after') return false
+  if (now - Date.parse(snapshot.syncedAt) < SNAPSHOT_FRESH_MS) return false
+  const opens = snapshot.marketOpensAt ? Date.parse(snapshot.marketOpensAt) : Number.NaN
+  if (!Number.isFinite(opens) || now >= opens) return false
+  return opens - now <= PRE_SESSION_REFRESH_MS
 }
 
 function responseForVisitor(stored: Response): Response {
@@ -162,8 +224,13 @@ async function retain(
 ): Promise<Response> {
   const response = jsonPublic(slimPublicSnapshot(snapshot), {
     headers: {
+      ETag: snapshotEtag(snapshot.syncedAt),
       [SNAPSHOT_CACHED_AT_HEADER]: new Date(now).toISOString(),
       [SNAPSHOT_GENERATED_AT_HEADER]: snapshot.syncedAt,
+      [SNAPSHOT_MARKET_STATE_HEADER]: snapshot.marketState,
+      ...(snapshot.marketOpensAt
+        ? { [SNAPSHOT_MARKET_OPENS_AT_HEADER]: snapshot.marketOpensAt }
+        : {}),
     },
   })
   const stored = response.clone()
@@ -201,7 +268,16 @@ function refreshRetainedCopy(
       const stored = await brokerApi().loadStoredPublicMarketSnapshot(env)
       // A cold store is filled in a reader's own path, where the wait is at least visible.
       if (!stored) return
-      const snapshot = providerRefreshDue(stored, now) ? (await refreshFromProvider(env)) ?? stored : stored
+      let snapshot = stored
+      if (providerRefreshDue(stored, now)) {
+        snapshot = (await refreshFromProvider(env)) ?? stored
+      } else if (sessionRefreshDue(stored, now)) {
+        try {
+          snapshot = await brokerApi().refreshPublicMarketSession(env, stored)
+        } catch (error) {
+          console.error('PublicMarketSessionRefreshFailed', error instanceof Error ? error.message : 'UnknownError')
+        }
+      }
       await retain(edgeCache, cacheKey, snapshot, now)
     } catch (error) {
       console.error('PublicMarketSnapshotRefreshFailed', error instanceof Error ? error.message : 'UnknownError')
@@ -238,17 +314,19 @@ export async function servePublicSnapshot(
       const task = refreshRetainedCopy(env, edgeCache, cacheKey, now)
       if (task) schedule(task)
     }
-    return projectVisitorResponse(request, responseForVisitor(retained))
+    const visitor = responseForVisitor(retained)
+    return notModified(request, visitor) ?? projectVisitorResponse(request, visitor)
   }
 
   try {
     const stored = await brokerApi().loadStoredPublicMarketSnapshot(env)
     if (stored) {
-      if (providerRefreshDue(stored, now)) {
+      if (providerRefreshDue(stored, now) || sessionRefreshDue(stored, now)) {
         const task = refreshRetainedCopy(env, edgeCache, cacheKey, now)
         if (task) schedule(task)
       }
-      return projectVisitorResponse(request, await retain(edgeCache, cacheKey, stored, now))
+      const visitor = await retain(edgeCache, cacheKey, stored, now)
+      return notModified(request, visitor) ?? projectVisitorResponse(request, visitor)
     }
     return projectVisitorResponse(
       request,
