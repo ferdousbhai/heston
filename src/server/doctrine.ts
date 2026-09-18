@@ -1,4 +1,3 @@
-import { PORTFOLIO_POLICY } from '../domain/portfolio-risk'
 import { RESEARCH_REFRESH_INTERVAL_MINUTES } from '../domain/research-refresh'
 import { CATALYST_HORIZON_DAYS } from '../domain/catalyst'
 import { MAX_DAILY_RECOMMENDATIONS, MAX_EVIDENCE_PER_RECOMMENDATION } from './research-submission'
@@ -18,7 +17,7 @@ import { MAX_DAILY_RECOMMENDATIONS, MAX_EVIDENCE_PER_RECOMMENDATION } from './re
 /**
  * Assembled for the tier that asked, because this is the one piece of doctrine every caller
  * pays for on every turn and a rule about tools they cannot see is worse than absent: an
- * anonymous agent was being told the drawdown limit that refuses orders, and a signed-in one
+ * anonymous agent was being told placement rules it cannot reach, and a signed-in one
  * was being told what it would get by signing in. Each variant states only what is true of the
  * surface that caller was given.
  */
@@ -26,8 +25,11 @@ export function spiceMcpInstructions(signedIn: boolean): string {
   const tier = signedIn
     ? `- Account tools need a broker credential supplied per request from the user's own machine.
   Without it they say so: a setup step for the user, not an error to retry.
-- An order is refused whose supported worst case breaches ${PORTFOLIO_POLICY.maxDrawdownPercent}%
-  below the sampled high-water portfolio value. A limit, not a target.`
+- Place from a live quote at tick-aligned mid (sell at mid or higher, buy at mid or lower). If
+  still working after a short wait, replace one tick toward the market until it fills.
+- Parallel is fine when the tickets do not depend on each other — several sells at once is the
+  usual case. A name that already has a live order is replaced or waited on, not doubled.
+- Resize with the live quote and available buying power. Planned size is not a fill quantity.`
     : `- You are on the public tier: quotes are the website's cached snapshot, priced as of its last
   refresh. Signing in adds live broker quotes, chains and Greeks.`
   return `
@@ -43,10 +45,16 @@ ${tier}
 `.trim()
 }
 
+export const PLACE_BROKERAGE_ORDER_DESCRIPTION = 'PLACES a real equity, option, debit vertical, or price-replacement order '
+  + 'against the connected brokerage account. Supply every field explicitly: the server '
+  + 'never fills in, enlarges, or reinterprets one. A fully specified user-directed order '
+  + 'is placed without endorsement. The server resolves the exact contract from the live '
+  + 'chain, runs its portfolio and market guards, and requires a clean broker dry-run '
+  + 'before submitting; it refuses on its own authority and the refusal is final.'
+
 /** Invoked deliberately by the user; a client surfaces these as named prompts. */
 export const PORTFOLIO_REVIEW_PROMPT = `
-Review the account as it stands. Read balances, positions, and any working orders first -- state
-nothing from memory. For each position: what the original case must have been, whether it still
+Review the account as it stands. \`read_account_snapshot\` first -- state nothing from memory. For each position: what the original case must have been, whether it still
 holds, what would falsify it now, and what the position costs to keep. Name the largest
 correlated exposure and the largest single-name risk. End with the one action most worth taking,
 or say plainly that nothing is worth doing today.
@@ -184,8 +192,10 @@ What is not obvious from the tool list:
   being searched for, and is followed from then on.
 - An empty \`read_catalysts\` result distinguishes "not searched yet" from "searched, found
   nothing". Reader attention is what pays for a search, so an untouched name stays unsearched.
-- \`find_option_contracts\` lists expirations when given no expiry, contracts when given one. A
-  contract exists only if the chain lists it -- never name one the lookup did not return.
+- \`find_option_contracts\` lists expirations when given no expiry, contracts when given one.
+  Contract rows carry open interest and volume and are ranked by those unless a strike target
+  is given. A contract exists only if the chain lists it -- never name one the lookup did not
+  return.
 - \`read_daily_recommendations\` and \`get_recent_coverage\` are prior work argued here, not a
   current read of anything.
 - There are three tiers and they are cumulative. With no credential you get the website's cached
@@ -193,6 +203,9 @@ What is not obvious from the tool list:
   Signing in adds live broker quotes, chains, Greeks, and writing to the shared watchlist.
 - Account tools need a broker credential on the request, held on the user's own machine and never
   here. Placement runs its guards server-side and its refusal is authoritative.
+- \`read_account_snapshot\` is the current account: balances, positions, and working orders. Omit
+  include for all three; pass a subset when only one of those is needed. History is
+  \`read_account_history\`.
 - \`record_catalysts\` and \`record_evidence\` write research back: a dated event for every
   reader's calendar, or one passage quoted from a page and kept under a symbol. The server
   re-reads each cited page and refuses anything absent from that text; a repeat refreshes what

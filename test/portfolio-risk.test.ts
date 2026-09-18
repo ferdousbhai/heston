@@ -1,27 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { survivalBudget } from '../src/domain/portfolio-risk'
 import { OrderPlacementSchema, type OrderPlacement } from '../src/server/agent-contracts'
 import { assessPortfolioAction } from '../src/server/portfolio-risk'
 
 const longOnlyAccount = {
-  cash: 65_000,
-  liveOrderCount: 0,
-  netLiquidatingValue: 100_000,
   positions: [{ direction: 'Long' as const, instrumentType: 'Equity', quantity: 10, symbol: 'SPY' }],
 }
-
-describe('survival math', () => {
-  it('retains 60% of the recorded high-water value rather than resetting after a loss', () => {
-    expect(survivalBudget(100_000, 65_000, 5_000)).toMatchObject({
-      allowed: true,
-      floor: 60_000,
-      remainingLossBudget: 5_000,
-    })
-    expect(survivalBudget(100_000, 65_000, 5_001).allowed).toBe(false)
-    expect(survivalBudget(60_000, 36_000).floor).toBe(36_000)
-  })
-})
 
 describe('portfolio action boundary', () => {
   it('sizes a debit vertical by its net debit and verified multiplier', () => {
@@ -30,25 +14,25 @@ describe('portfolio action boundary', () => {
       expiry: '2026-09-18', longStrike: 700, shortStrike: 690,
       quantity: 2, limitPrice: 3, priceEffect: 'Debit',
     }
-    expect(assessPortfolioAction(spread, longOnlyAccount, 100_000, [
+    expect(assessPortfolioAction(spread, longOnlyAccount, [
       { symbol: 'long', sharesPerContract: 100 },
       { symbol: 'short', sharesPerContract: 100 },
     ])).toMatchObject({ allowed: true, maxLoss: 600 })
   })
-  it('allows a bounded debit only within the remaining hard-loss budget', () => {
+  it('allows a bounded debit: the limit is the loss, not a cash-vs-peak-NLV floor', () => {
     const action: Extract<OrderPlacement, { kind: 'place_option_order' }> = {
       kind: 'place_option_order', underlying: 'SPY', optionType: 'C', strike: 700,
       expiry: '2026-09-18', action: 'Buy to Open', quantity: 1, limitPrice: 10,
       priceEffect: 'Debit',
     }
-    expect(assessPortfolioAction(action, longOnlyAccount, 100_000, [{
+    expect(assessPortfolioAction(action, longOnlyAccount, [{
       symbol: 'SPY   260918C00700000', sharesPerContract: 100,
-    }])).toMatchObject({ allowed: true, maxLoss: 1_000, remainingLossBudget: 5_000 })
+    }])).toMatchObject({ allowed: true, maxLoss: 1_000 })
 
-    const tooLarge = { ...action, quantity: 6 }
-    expect(assessPortfolioAction(tooLarge, longOnlyAccount, 100_000, [{
+    const larger = { ...action, quantity: 6 }
+    expect(assessPortfolioAction(larger, longOnlyAccount, [{
       symbol: 'SPY   260918C00700000', sharesPerContract: 100,
-    }])).toMatchObject({ allowed: false, maxLoss: 6_000 })
+    }])).toMatchObject({ allowed: true, maxLoss: 6_000 })
   })
 
   it('rejects naked openings and portfolios whose downside is not contractually bounded', () => {
@@ -57,7 +41,7 @@ describe('portfolio action boundary', () => {
       expiry: '2026-09-18', action: 'Sell to Open', quantity: 1, limitPrice: 5,
       priceEffect: 'Credit',
     }
-    expect(assessPortfolioAction(naked, longOnlyAccount, 100_000, [{
+    expect(assessPortfolioAction(naked, longOnlyAccount, [{
       symbol: 'SPY   260918C00700000', sharesPerContract: 100,
     }]).allowed).toBe(false)
 
@@ -66,7 +50,7 @@ describe('portfolio action boundary', () => {
       ...longOnlyAccount,
       positions: [{ direction: 'Short' as const, instrumentType: 'Equity Option', quantity: 1, symbol: 'SPY short call' }],
     }
-    expect(assessPortfolioAction(longCall, shortAccount, 100_000, [{
+    expect(assessPortfolioAction(longCall, shortAccount, [{
       symbol: 'SPY   260918C00700000', sharesPerContract: 100,
     }]).allowed).toBe(false)
   })
@@ -76,8 +60,8 @@ describe('portfolio action boundary', () => {
       kind: 'place_equity_order', symbol: 'SPY', action: 'Sell to Close', quantity: 10,
       limitPrice: 700, priceEffect: 'Credit',
     }
-    expect(assessPortfolioAction(close, longOnlyAccount, 100_000).allowed).toBe(true)
-    expect(assessPortfolioAction({ ...close, quantity: 11 }, longOnlyAccount, 100_000).allowed).toBe(false)
+    expect(assessPortfolioAction(close, longOnlyAccount).allowed).toBe(true)
+    expect(assessPortfolioAction({ ...close, quantity: 11 }, longOnlyAccount).allowed).toBe(false)
   })
 
   it('does not remove long collateral or protection while short exposure remains', () => {
@@ -105,11 +89,11 @@ describe('portfolio action boundary', () => {
       strike: 700,
     }
 
-    expect(assessPortfolioAction(sellShares, accountWithShort, 100_000).allowed).toBe(false)
-    expect(assessPortfolioAction(sellLongOption, accountWithShort, 100_000, [{
+    expect(assessPortfolioAction(sellShares, accountWithShort).allowed).toBe(false)
+    expect(assessPortfolioAction(sellLongOption, accountWithShort, [{
       symbol: 'SPY long call', sharesPerContract: 100,
     }]).allowed).toBe(false)
-    expect(assessPortfolioAction(buyBackShort, accountWithShort, 100_000, [{
+    expect(assessPortfolioAction(buyBackShort, accountWithShort, [{
       symbol: 'SPY short call', sharesPerContract: 100,
     }]).allowed).toBe(true)
   })

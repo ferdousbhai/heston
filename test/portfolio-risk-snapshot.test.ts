@@ -107,7 +107,7 @@ describe('drawdown guard over the merged account snapshot', () => {
   it('refuses a non-positive net liquidation value and a negative cash reserve', async () => {
     respondWith({ balances: { data: { ...balances, 'net-liquidating-value': '0' } } })
     await expect(guard()).rejects.toThrow(
-      'The portfolio guard could not verify net liquidation value and unencumbered cash.',
+      'The portfolio guard could not verify net liquidation value.',
     )
 
     respondWith({ balances: { data: { ...balances, 'cash-balance': '-1' } } })
@@ -115,42 +115,28 @@ describe('drawdown guard over the merged account snapshot', () => {
   })
 })
 
-describe('live order counting', () => {
+describe('live orders do not veto a new ticket', () => {
   const liveOrder = {
     id: '101', status: 'Live', 'order-type': 'Limit', price: '1.20',
     'price-effect': 'Debit', 'time-in-force': 'Day',
     legs: [{ action: 'Buy to Open', quantity: '1', symbol: 'SPY', 'instrument-type': 'Equity' }],
   }
 
-  it('blocks on a live order and exempts only the order a replacement replaces', async () => {
+  it('allows a new order while another is live', async () => {
     respondWith({ orders: { data: { items: [liveOrder] } } })
-    await expect(guard()).rejects.toThrow('Cancel or wait for every live order before placing another trade.')
-    await expect(guard(undefined, { ignoredOrderId: '101' })).resolves.toMatchObject({ allowed: true })
+    await expect(guard()).resolves.toMatchObject({ allowed: true })
   })
 
-  // The guard counts the rows the broker listed, not the expanded working orders: expansion
-  // drops a complex order whose children have all gone terminal, and that order still occupies
-  // the account. The account context, which reports individual working orders, sees none.
-  it('still blocks on a complex live order whose children are all terminal', async () => {
+  it('still reports a complex live order whose children have all gone terminal', async () => {
     const complex = { data: { items: [{
       id: 'c1', status: 'Received',
       orders: [{ id: 'c1a', status: 'Filled', 'terminal-at': '2026-09-03T12:00:00Z' }],
     }] } }
     respondWith({ complex })
 
-    await expect(guard()).rejects.toThrow('Cancel or wait for every live order before placing another trade.')
+    await expect(guard()).resolves.toMatchObject({ allowed: true })
     const context = await loadBrokerageContext({}, brokerCredential)
     expect(context.orders).toEqual([])
     expect(context.liveOrders).toEqual([{ id: 'c1', source: 'complex' }])
-  })
-
-  // Only the ordinary row a replacement replaces is exempt. A complex order sharing that id
-  // is a different order and must keep blocking.
-  it('never exempts a complex order row from the count', async () => {
-    respondWith({ complex: { data: { items: [{
-      id: '101', status: 'Received', orders: [{ ...liveOrder, id: '101a' }],
-    }] } } })
-    await expect(guard(undefined, { ignoredOrderId: '101' }))
-      .rejects.toThrow('Cancel or wait for every live order before placing another trade.')
   })
 })

@@ -30,10 +30,11 @@ export async function rememberTradeIntentSymbol(env: AppEnv, action: FreshOrderP
  * come back clean before anything is submitted.
  *
  * There is deliberately no placement rate limit, and one should not be added. Cadence is not
- * what bounds the damage here: the mutation lease serializes placement, the guard refuses while
- * any order is working, and the drawdown budget bounds the loss however fast the caller asks.
- * A rate limit would add a bound with no policy behind it and would refuse a legitimate
- * correction — including a cancel-and-replace — at exactly the moment it is most needed.
+ * what bounds the damage here: the mutation lease serializes the submit, the limit is the
+ * debit, and the broker dry-run is the buying-power check. How many tickets to work at once is
+ * agent advice, not a server veto. A rate limit would add a bound with no policy behind it
+ * and would refuse a legitimate correction — including a cancel-and-replace — at exactly the
+ * moment it is most needed.
  */
 export async function placeBrokerageOrder(
   env: AppEnv,
@@ -97,8 +98,6 @@ export async function placeBrokerageOrder(
 /**
  * Cancel one working order.
  *
- * The placement guard refuses a new order while any live order exists, so without this an
- * order that does not fill blocks the account with no route out but the broker's own app.
  * There is deliberately no guard to run here: cancelling only ever reduces exposure, and the
  * thing that must not happen — an automatic retry after an ambiguous DELETE — is the adapter's
  * responsibility and it raises rather than retries.

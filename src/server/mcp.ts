@@ -15,12 +15,7 @@ import { cancelBrokerageOrder, placeBrokerageOrder } from './order-placement'
 import { createBrokerageReconciliationTool } from './brokerage-reconciliation'
 import { createCatalystRecordTool } from './catalyst-record-tool'
 import { createSymbolEvidenceTool } from './symbol-evidence-tool'
-import {
-  createBrokerageReadTools,
-  createInstrumentQuoteReadTool,
-  createMarketMetricsReadTool,
-  createOptionContractFindTool,
-} from './brokerage-read-tools'
+import { createBrokerageReadTools } from './brokerage-read-tools'
 import { type AppEnv } from './env'
 import { createMarketResearchTools } from './market-research-tools'
 import { createPublicMarketReadTools } from './public-market-tools'
@@ -33,6 +28,7 @@ import { publishSubmittedDailyRecommendations } from './research-publish'
 import { createResearchReadTools } from './research-read-tools'
 import {
   dailyResearchPrompt,
+  PLACE_BROKERAGE_ORDER_DESCRIPTION,
   PORTFOLIO_REVIEW_PROMPT,
   SPICE_GUIDE,
   spiceMcpInstructions,
@@ -98,12 +94,7 @@ export function createSpiceMcpServer(
     // a name, so the tier chooses which is registered rather than both colliding.
     ...(caller.signedIn
       ? [
-        // The bundle carries only the account-flavored pair; the market reads are standalone
-        // factories, and leaving them to the bundle silently served a two-tool market surface.
         ...createBrokerageReadTools(env, credential),
-        createMarketMetricsReadTool(env),
-        createOptionContractFindTool(env),
-        createInstrumentQuoteReadTool(env),
         createExactOptionGreeksReadTool(env),
         // Writing to the shared watchlist, and clearing a quarantined submission, are acts that
         // want an account behind them even though neither touches one directly.
@@ -259,12 +250,7 @@ function registerOrderTools(
   server.registerTool(
     'place_brokerage_order',
     {
-      description: 'PLACES a real equity, option, debit vertical, or price-replacement order '
-        + 'against the connected brokerage account. Supply every field explicitly: the server '
-        + 'never fills in, enlarges, or reinterprets one. A fully specified user-directed order '
-        + 'is placed without endorsement. The server resolves the exact contract from the live '
-        + 'chain, runs its portfolio and market guards, and requires a clean broker dry-run '
-        + 'before submitting; it refuses on its own authority and the refusal is final.',
+      description: PLACE_BROKERAGE_ORDER_DESCRIPTION,
       inputSchema: fromJsonSchema(asJsonSchema(OrderPlacementParameters)),
       // Annotated destructive and non-idempotent so a client can see that calling this twice
       // places two orders. Annotations are hints a client may ignore, and the spec says to
@@ -290,10 +276,9 @@ function registerOrderTools(
   server.registerTool(
     'cancel_brokerage_order',
     {
-      description: 'Cancel one working order on the connected brokerage account. The placement '
-        + 'guard refuses a new order while any order is working, so this is how a stuck order is '
-        + 'cleared. An ambiguous result is reported as ambiguous and is never retried: read the '
-        + 'account history to find out what happened before doing anything else.',
+      description: 'Cancel one working order on the connected brokerage account. An ambiguous '
+        + 'result is reported as ambiguous and is never retried: read the account history to '
+        + 'find out what happened before doing anything else.',
       inputSchema: fromJsonSchema(asJsonSchema(CancelOrderParameters)),
       // Destructive but idempotent: cancelling an order already cancelled changes nothing
       // further, which is the useful thing for a client to know after an ambiguous result.

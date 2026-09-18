@@ -5,6 +5,7 @@ import { brokerCredential, stubBroker } from './broker-stub'
 import {
   findOptionContracts,
   readAccountHistory,
+  readAccountSnapshot,
   readMarketMetrics,
   readMarketStatus,
   readInstrumentQuotes,
@@ -22,6 +23,133 @@ describe('brokerage read tools', () => {
   beforeEach(() => {
     tastytrade.resolveAccountNumber.mockReset().mockResolvedValue('PRIVATE123')
     tastytrade.tastyRequest.mockReset()
+  })
+
+  it('returns the full account snapshot without account identity', async () => {
+    tastytrade.tastyRequest.mockImplementation((_env, path: string) => {
+      if (path.includes('/positions')) {
+        return Promise.resolve({ data: { items: [{
+          symbol: 'SPY option',
+          'underlying-symbol': 'SPY',
+          quantity: '2',
+          'quantity-direction': 'Long',
+          'instrument-type': 'Equity Option',
+          'average-open-price': '1.1',
+          'mark-price': '1.25',
+          'expires-at': '2026-09-18T20:00:00Z',
+        }] } })
+      }
+      if (path.endsWith('/balances')) {
+        return Promise.resolve({ data: {
+          'account-number': 'PRIVATE123',
+          'available-trading-funds': '61000',
+          'cash-available-to-withdraw': '65000',
+          'cash-balance': '70000',
+          'day-trading-buying-power': '320000',
+          'derivative-buying-power': '80000',
+          'equity-buying-power': '160000',
+          'net-liquidating-value': '100000',
+        } })
+      }
+      if (path.includes('/complex-orders/live')) return Promise.resolve({ data: { items: [] } })
+      if (path.includes('/orders/live')) {
+        return Promise.resolve({ data: { items: [{
+          id: '101', status: 'Live', 'order-type': 'Limit', price: '1.20',
+          'price-effect': 'Debit', 'time-in-force': 'Day',
+          legs: [
+            { action: 'Buy to Open', quantity: '1', symbol: 'SPY call', 'instrument-type': 'Equity Option' },
+          ],
+        }] } })
+      }
+      throw new Error(`Unexpected path: ${path}`)
+    })
+
+    const result = await readAccountSnapshot({}, {}, brokerCredential)
+
+    expect(result.source).toBe('tastytrade')
+    expect(result.balances).toMatchObject({ cashBalance: 70_000, netLiquidatingValue: 100_000 })
+    expect(result.positions).toEqual([{
+      averageOpenPrice: 1.1,
+      direction: 'Long',
+      expiresAt: '2026-09-18T20:00:00Z',
+      instrumentType: 'Equity Option',
+      quantity: 2,
+      symbol: 'SPY option',
+      underlying: 'SPY',
+    }])
+    expect(result.positions?.[0]).not.toHaveProperty('markPrice')
+    expect(result.orders).toMatchObject([{ id: '101', legs: [{ symbol: 'SPY call' }] }])
+    expect(Object.keys(result).sort()).toEqual(['asOf', 'balances', 'orders', 'positions', 'source'])
+    expect(JSON.stringify(result)).not.toContain('PRIVATE123')
+    expect(tastytrade.tastyRequest).toHaveBeenCalledTimes(4)
+  })
+
+  it('returns only the requested snapshot parts and still loads the complete account', async () => {
+    tastytrade.tastyRequest.mockImplementation((_env, path: string) => {
+      if (path.includes('/positions')) {
+        return Promise.resolve({ data: { items: [{
+          symbol: 'SPY',
+          'underlying-symbol': 'SPY',
+          quantity: '10',
+          'quantity-direction': 'Long',
+          'instrument-type': 'Equity',
+        }] } })
+      }
+      if (path.endsWith('/balances')) {
+        return Promise.resolve({ data: {
+          'available-trading-funds': '61000',
+          'cash-available-to-withdraw': '65000',
+          'cash-balance': '70000',
+          'day-trading-buying-power': '320000',
+          'derivative-buying-power': '80000',
+          'equity-buying-power': '160000',
+          'net-liquidating-value': '100000',
+        } })
+      }
+      if (path.includes('/orders/live') || path.includes('/complex-orders/live')) {
+        return Promise.resolve({ data: { items: [] } })
+      }
+      throw new Error(`Unexpected path: ${path}`)
+    })
+
+    const result = await readAccountSnapshot({}, { include: ['positions'] }, brokerCredential)
+
+    expect(Object.keys(result).sort()).toEqual(['asOf', 'positions', 'source'])
+    expect(result.positions).toEqual([{
+      direction: 'Long', instrumentType: 'Equity', quantity: 10, symbol: 'SPY', underlying: 'SPY',
+    }])
+    expect(result.balances).toBeUndefined()
+    expect(result.orders).toBeUndefined()
+    expect(tastytrade.tastyRequest).toHaveBeenCalledTimes(4)
+  })
+
+  it('rejects an empty or duplicate include list rather than returning an empty snapshot', async () => {
+    await expect(readAccountSnapshot({}, { include: [] }, brokerCredential))
+      .rejects.toThrow('Account snapshot include is invalid.')
+    await expect(readAccountSnapshot({}, { include: ['positions', 'positions'] }, brokerCredential))
+      .rejects.toThrow('Account snapshot include is invalid.')
+    expect(tastytrade.resolveAccountNumber).not.toHaveBeenCalled()
+  })
+
+  it('names a snapshot that cannot be verified rather than returning a partial account', async () => {
+    tastytrade.tastyRequest.mockImplementation((_env, path: string) => {
+      if (path.includes('/positions')) return Promise.resolve({ data: { unexpected: [] } })
+      if (path.endsWith('/balances')) {
+        return Promise.resolve({ data: {
+          'available-trading-funds': '61000',
+          'cash-available-to-withdraw': '65000',
+          'cash-balance': '70000',
+          'day-trading-buying-power': '320000',
+          'derivative-buying-power': '80000',
+          'equity-buying-power': '160000',
+          'net-liquidating-value': '100000',
+        } })
+      }
+      return Promise.resolve({ data: { items: [] } })
+    })
+
+    await expect(readAccountSnapshot({}, {}, brokerCredential))
+      .rejects.toThrow('could not verify every open position')
   })
 
   it('normalizes transaction history, strips account number, and reports pagination', async () => {
@@ -231,46 +359,58 @@ describe('brokerage read tools', () => {
   })
 
   it('finds only exact active Standard option contracts, and returns nothing a caller cannot act on', async () => {
-    tastytrade.tastyRequest.mockResolvedValue({ data: { items: [
-      {
-        active: true,
-        'expiration-date': '2026-09-18',
-        'instrument-type': 'Equity Option',
-        'is-closing-only': false,
-        'option-chain-type': 'Standard',
-        'option-type': 'C',
-        'root-symbol': 'AAPL',
-        'shares-per-contract': 100,
-        'streamer-symbol': '.AAPL260918C200',
-        'strike-price': '200',
-        symbol: 'AAPL  260918C00200000',
-        'underlying-symbol': 'AAPL',
-      },
-      {
-        active: false,
-        'expiration-date': '2026-09-18',
-        'instrument-type': 'Equity Option',
-        'option-chain-type': 'Standard',
-        'option-type': 'C',
-        'root-symbol': 'AAPL',
-        'shares-per-contract': 100,
-        'strike-price': '200',
-        symbol: 'INACTIVE',
-        'underlying-symbol': 'AAPL',
-      },
-      {
-        active: true,
-        'expiration-date': '2026-09-18',
-        'instrument-type': 'Equity Option',
-        'option-chain-type': 'Non-standard',
-        'option-type': 'C',
-        'root-symbol': 'AAPL',
-        'shares-per-contract': 150,
-        'strike-price': '200',
-        symbol: 'ADJUSTED',
-        'underlying-symbol': 'AAPL',
-      },
-    ] } })
+    tastytrade.tastyRequest.mockImplementation((_env, path: string) => {
+      if (path === '/option-chains/AAPL') {
+        return Promise.resolve({ data: { items: [
+          {
+            active: true,
+            'expiration-date': '2026-09-18',
+            'instrument-type': 'Equity Option',
+            'is-closing-only': false,
+            'option-chain-type': 'Standard',
+            'option-type': 'C',
+            'root-symbol': 'AAPL',
+            'shares-per-contract': 100,
+            'streamer-symbol': '.AAPL260918C200',
+            'strike-price': '200',
+            symbol: 'AAPL  260918C00200000',
+            'underlying-symbol': 'AAPL',
+          },
+          {
+            active: false,
+            'expiration-date': '2026-09-18',
+            'instrument-type': 'Equity Option',
+            'option-chain-type': 'Standard',
+            'option-type': 'C',
+            'root-symbol': 'AAPL',
+            'shares-per-contract': 100,
+            'strike-price': '200',
+            symbol: 'INACTIVE',
+            'underlying-symbol': 'AAPL',
+          },
+          {
+            active: true,
+            'expiration-date': '2026-09-18',
+            'instrument-type': 'Equity Option',
+            'option-chain-type': 'Non-standard',
+            'option-type': 'C',
+            'root-symbol': 'AAPL',
+            'shares-per-contract': 150,
+            'strike-price': '200',
+            symbol: 'ADJUSTED',
+            'underlying-symbol': 'AAPL',
+          },
+        ] } })
+      }
+      if (path === '/market-data/by-type?equity-option=AAPL%20%20260918C00200000') {
+        return Promise.resolve({ data: { items: [{
+          symbol: 'AAPL  260918C00200000',
+          'open-interest': 4_200,
+          volume: 88,
+        }] } })
+      }
+      throw new Error(`Unexpected path ${path}`)
+    })
 
     const result = await findOptionContracts({}, {
       expiry: '2026-09-18', optionType: 'C', strike: 200, underlying: 'AAPL',
@@ -288,25 +428,39 @@ describe('brokerage read tools', () => {
     expect(result.contracts).toEqual([{
       expirationDate: '2026-09-18',
       isClosingOnly: false,
+      openInterest: 4_200,
       optionType: 'C',
       sharesPerContract: 100,
       strikePrice: 200,
+      volume: 88,
     }])
   })
 
   it('returns listed contracts nearest a target strike', async () => {
-    tastytrade.tastyRequest.mockResolvedValue({ data: { items: [180, 200, 220].map((strike) => ({
-      active: true,
-      'expiration-date': '2026-09-18',
-      'instrument-type': 'Equity Option',
-      'is-closing-only': false,
-      'option-chain-type': 'Standard',
-      'option-type': 'C',
-      'shares-per-contract': 100,
-      'strike-price': String(strike),
-      symbol: `AAPL ${strike}`,
-      'underlying-symbol': 'AAPL',
-    })) } })
+    tastytrade.tastyRequest.mockImplementation((_env, path: string) => {
+      if (path === '/option-chains/AAPL') {
+        return Promise.resolve({ data: { items: [180, 200, 220].map((strike) => ({
+          active: true,
+          'expiration-date': '2026-09-18',
+          'instrument-type': 'Equity Option',
+          'is-closing-only': false,
+          'option-chain-type': 'Standard',
+          'option-type': 'C',
+          'shares-per-contract': 100,
+          'strike-price': String(strike),
+          symbol: `AAPL ${strike}`,
+          'underlying-symbol': 'AAPL',
+        })) } })
+      }
+      if (path.startsWith('/market-data/by-type?')) {
+        return Promise.resolve({ data: { items: [
+          { symbol: 'AAPL 180', 'open-interest': 9_000, volume: 1 },
+          { symbol: 'AAPL 200', 'open-interest': 50, volume: 400 },
+          { symbol: 'AAPL 220', 'open-interest': 800, volume: 20 },
+        ] } })
+      }
+      throw new Error(`Unexpected path ${path}`)
+    })
 
     const result = await findOptionContracts({}, {
       expiry: '2026-09-18', nearStrike: 205, optionType: 'C', underlying: 'AAPL',
@@ -314,6 +468,83 @@ describe('brokerage read tools', () => {
 
     if (result.mode !== 'contracts') throw new Error('Expected contract mode')
     expect(result.contracts.map((contract) => contract.strikePrice)).toEqual([200, 220, 180])
+    expect(result.contracts.map((contract) => contract.openInterest)).toEqual([50, 800, 9_000])
+  })
+
+  it('ranks an expiry by open interest then volume when no strike target is given', async () => {
+    tastytrade.tastyRequest.mockImplementation((_env, path: string) => {
+      if (path === '/option-chains/AAPL') {
+        return Promise.resolve({ data: { items: [
+          { strike: 180, symbol: 'AAPL 180' },
+          { strike: 200, symbol: 'AAPL 200' },
+          { strike: 220, symbol: 'AAPL 220' },
+          { strike: 240, symbol: 'AAPL 240' },
+        ].map(({ strike, symbol }) => ({
+          active: true,
+          'expiration-date': '2026-09-18',
+          'instrument-type': 'Equity Option',
+          'is-closing-only': false,
+          'option-chain-type': 'Standard',
+          'option-type': 'C',
+          'shares-per-contract': 100,
+          'strike-price': String(strike),
+          symbol,
+          'underlying-symbol': 'AAPL',
+        })) } })
+      }
+      if (path.startsWith('/market-data/by-type?')) {
+        return Promise.resolve({ data: { items: [
+          { symbol: 'AAPL 180', 'open-interest': 100, volume: 5 },
+          { symbol: 'AAPL 200', 'open-interest': 500, volume: 1 },
+          { symbol: 'AAPL 220', 'open-interest': 500, volume: 40 },
+          { symbol: 'AAPL 240', volume: 9_000 },
+        ] } })
+      }
+      throw new Error(`Unexpected path ${path}`)
+    })
+
+    const result = await findOptionContracts({}, {
+      expiry: '2026-09-18', optionType: 'C', underlying: 'AAPL',
+    }, now)
+
+    if (result.mode !== 'contracts') throw new Error('Expected contract mode')
+    expect(result.contracts.map((contract) => contract.strikePrice)).toEqual([220, 200, 180, 240])
+    expect(result.contracts.map((contract) => ({
+      openInterest: contract.openInterest,
+      volume: contract.volume,
+    }))).toEqual([
+      { openInterest: 500, volume: 40 },
+      { openInterest: 500, volume: 1 },
+      { openInterest: 100, volume: 5 },
+      { volume: 9_000 },
+    ])
+  })
+
+  it('lists expirations without a market-data round trip', async () => {
+    tastytrade.tastyRequest.mockResolvedValue({ data: { items: [{
+      active: true,
+      'expiration-date': '2026-09-18',
+      'instrument-type': 'Equity Option',
+      'is-closing-only': false,
+      'option-chain-type': 'Standard',
+      'option-type': 'C',
+      'shares-per-contract': 100,
+      'strike-price': '200',
+      symbol: 'AAPL  260918C00200000',
+      'underlying-symbol': 'AAPL',
+    }] } })
+
+    const result = await findOptionContracts({}, { underlying: 'AAPL' }, now)
+
+    expect(result).toEqual({
+      asOf: now.toISOString(),
+      expirationDates: ['2026-09-18'],
+      mode: 'expirations',
+      source: 'tastytrade',
+      truncated: false,
+    })
+    expect(tastytrade.tastyRequest).toHaveBeenCalledTimes(1)
+    expect(tastytrade.tastyRequest).toHaveBeenCalledWith({}, '/option-chains/AAPL')
   })
 
   it('rejects malformed option rows instead of silently returning an empty chain', async () => {

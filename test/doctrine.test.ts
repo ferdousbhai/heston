@@ -1,11 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import { PORTFOLIO_POLICY } from '../src/domain/portfolio-risk'
-
 /** The per-turn ceiling `test/mcp.test.ts` holds the whole advertised surface to. */
 const SPICE_MCP_INSTRUCTIONS_CHAR_BUDGET = 1_500
 import { RESEARCH_REFRESH_INTERVAL_MS } from '../src/domain/research-refresh'
-import { dailyResearchPrompt, spiceMcpInstructions } from '../src/server/doctrine'
+import { dailyResearchPrompt, PLACE_BROKERAGE_ORDER_DESCRIPTION, spiceMcpInstructions } from '../src/server/doctrine'
 import { MAX_DAILY_RECOMMENDATIONS } from '../src/server/research-submission'
 import {
   createInstrumentQuoteReadTool,
@@ -24,10 +22,6 @@ import { createBrokerageReconciliationTool } from '../src/server/brokerage-recon
 describe('server instructions', () => {
   const signedIn = spiceMcpInstructions(true)
   const anonymous = spiceMcpInstructions(false)
-
-  it('carries the loss budget the guard enforces, so advice and admissibility agree', () => {
-    expect(signedIn).toContain(`${PORTFOLIO_POLICY.maxDrawdownPercent}%`)
-  })
 
   it('says the one thing about sizing that applies to every turn', () => {
     // The rest of the sizing posture moved into the trade-idea prompt, which costs nothing
@@ -52,14 +46,18 @@ describe('server instructions', () => {
   })
 
   it('tells each tier only what is true of the surface it was given', () => {
-    // An anonymous caller has no order tools, so the drawdown limit is a rule about a refusal
-    // it cannot reach; a signed-in one is not waiting to be told what signing in would add.
-    expect(anonymous).not.toContain(`${PORTFOLIO_POLICY.maxDrawdownPercent}%`)
+    // An anonymous caller has no order tools, so placement working rules are a rule about a
+    // refusal it cannot reach; a signed-in one is not waiting to be told what signing in would add.
+    expect(anonymous).not.toContain('tick-aligned mid')
     expect(anonymous).not.toContain('broker credential')
     expect(anonymous).toContain('public tier')
     expect(signedIn).not.toContain('public tier')
     expect(signedIn.length).toBeLessThan(SPICE_MCP_INSTRUCTIONS_CHAR_BUDGET)
     expect(anonymous.length).toBeLessThan(signedIn.length)
+    expect(signedIn).toContain('tick-aligned mid')
+    expect(signedIn).toContain('several sells at once')
+    expect(signedIn).toContain('Planned size is not a fill quantity')
+    expect(PLACE_BROKERAGE_ORDER_DESCRIPTION).not.toContain('tick-aligned mid')
   })
 
   it('is built only from this repository, so untrusted content cannot reach an agent through it', () => {
@@ -69,6 +67,7 @@ describe('server instructions', () => {
       expect(instructions).not.toMatch(/undefined|\[object|NaN/)
     }
   })
+
 })
 
 describe('rules that ride on the tool they govern', () => {

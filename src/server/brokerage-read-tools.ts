@@ -1,14 +1,17 @@
 import { type AgentTool } from '../domain/agent-tool'
 
-import { equitySymbolFromModelText } from '../domain/instrument'
+import { equitySymbolFromModelText, equitySymbolsFromModelText } from '../domain/instrument'
 import { type AppEnv } from './env'
 import {
+  ACCOUNT_SNAPSHOT_PARTS,
   AccountHistoryReadParameters,
+  AccountSnapshotReadParameters,
   EQUITY_SYMBOL,
   InstrumentQuoteReadParameters,
   MAX_CHAIN_ROWS,
   MAX_HISTORY_ITEMS,
   MAX_MARKET_SYMBOLS,
+  MAX_OPTION_ACTIVITY_CHUNK,
   MAX_OPTION_CONTRACTS,
   MAX_OPTION_EXPIRATIONS,
   MAX_QUOTE_INSTRUMENTS,
@@ -20,6 +23,9 @@ import {
   UNDERLYING_SYMBOL,
   type AccountHistoryReadResult,
   type AccountHistoryReadInput,
+  type AccountSnapshotPart,
+  type AccountSnapshotReadInput,
+  type AccountSnapshotReadResult,
   type CompactMarketMetric,
   type CompactOptionContract,
   type InstrumentQuoteReadResult,
@@ -50,8 +56,9 @@ import {
 import { resolveEquityOptionTuples } from './option-contract'
 import { textResult } from './agent-tool-result'
 import { brokerApi } from './tastytrade'
-import { brokerAdapterFor, type BrokerHistoryQuery } from './brokers'
-import { type BrokerCredential } from './broker-credential'
+import { brokerAdapterFor, BrokerSnapshotError, UnknownBrokerError, type BrokerHistoryQuery } from './brokers'
+import { loadBrokerageContext } from './brokerage-context'
+import { BrokerCredentialMissingError, type BrokerCredential } from './broker-credential'
 
 function dateDaysAgo(now: Date, days: number): string {
   const result = new Date(now)
@@ -65,6 +72,58 @@ function assertInteger(value: number, minimum: number, maximum: number | undefin
     throw new Error(`${label} is invalid.`)
   }
   return value
+}
+
+function snapshotReadError(error: BrokerSnapshotError): Error {
+  if (error.part === 'positions') {
+    return new Error(error.stage === 'record'
+      ? 'The account snapshot found an unsupported position record.'
+      : `The account snapshot could not verify every open position: ${error.message}.`)
+  }
+  if (error.part === 'balances') {
+    return new Error(`The account snapshot could not verify balances: ${error.message}.`)
+  }
+  const label = error.part === 'orders' ? 'every ordinary live order' : 'every complex live order'
+  return new Error(`The account snapshot could not verify ${label}: ${error.message}.`)
+}
+
+function requestedSnapshotParts(include: AccountSnapshotReadInput['include']): readonly AccountSnapshotPart[] {
+  if (include === undefined) return ACCOUNT_SNAPSHOT_PARTS
+  const unique = new Set(include)
+  if (unique.size !== include.length
+    || include.length < 1
+    || include.length > ACCOUNT_SNAPSHOT_PARTS.length
+    || include.some((part) => !ACCOUNT_SNAPSHOT_PARTS.includes(part))) {
+    throw new Error('Account snapshot include is invalid.')
+  }
+  return include
+}
+
+/**
+ * The current account as the agent used to receive it automatically: balances, positions, and
+ * working orders, with no account identity. The broker read is always the complete snapshot —
+ * a subset in `include` only changes what is returned, because a partial broker page is not
+ * the same fact as a completeness-checked account.
+ */
+export async function readAccountSnapshot(
+  env: AppEnv,
+  input: AccountSnapshotReadInput = {},
+  credential: BrokerCredential | undefined,
+): Promise<AccountSnapshotReadResult> {
+  const parts = requestedSnapshotParts(input.include)
+  let context
+  try {
+    context = await loadBrokerageContext(env, credential)
+  } catch (error) {
+    if (error instanceof BrokerCredentialMissingError || error instanceof UnknownBrokerError) throw error
+    if (error instanceof BrokerSnapshotError) throw snapshotReadError(error)
+    throw new Error('The account snapshot could not be loaded.')
+  }
+  const result: AccountSnapshotReadResult = { asOf: context.asOf, source: context.source }
+  if (parts.includes('balances')) result.balances = context.balances
+  if (parts.includes('positions')) result.positions = context.positions
+  if (parts.includes('orders')) result.orders = context.orders
+  return result
 }
 
 /** Read one bounded broker page and strip account identifiers before returning it to the model. */
@@ -320,7 +379,19 @@ export async function searchSymbols(
   }
 }
 
-type ParsedOption = CompactOptionContract & { expirationDate: string }
+type ParsedOption = {
+  brokerSymbol: string
+  expirationDate: string
+  isClosingOnly?: boolean
+  optionType: 'C' | 'P'
+  sharesPerContract: number
+  strikePrice: number
+}
+
+type OptionActivity = {
+  openInterest?: number
+  volume?: number
+}
 
 function parseActiveStandardOption(row: JsonObject, underlying: string): ParsedOption | undefined {
   const label = 'Tastytrade option chain'
@@ -345,12 +416,75 @@ function parseActiveStandardOption(row: JsonObject, underlying: string): ParsedO
     return invalidResponse(label)
   }
   return {
+    brokerSymbol: requiredText(row, ['symbol'], label, 128),
     expirationDate,
     isClosingOnly: optionalBoolean(row, ['is-closing-only'], label),
     optionType,
     sharesPerContract,
     strikePrice,
   }
+}
+
+function optionalCount(row: JsonObject, keys: readonly string[], label: string): number | undefined {
+  const value = optionalNumber(row, keys, label)
+  if (value === undefined) return undefined
+  if (!Number.isSafeInteger(value) || value < 0) return invalidResponse(label)
+  return value
+}
+
+/** Higher counts first; a missing reading sorts after a present one, including zero. */
+function compareCountDesc(left?: number, right?: number): number {
+  if (left === undefined && right === undefined) return 0
+  if (left === undefined) return 1
+  if (right === undefined) return -1
+  return right - left
+}
+
+function publishedContract(contract: ParsedOption, activity: OptionActivity | undefined): CompactOptionContract {
+  const published: CompactOptionContract = {
+    expirationDate: contract.expirationDate,
+    optionType: contract.optionType,
+    sharesPerContract: contract.sharesPerContract,
+    strikePrice: contract.strikePrice,
+  }
+  if (contract.isClosingOnly !== undefined) published.isClosingOnly = contract.isClosingOnly
+  if (activity?.openInterest !== undefined) published.openInterest = activity.openInterest
+  if (activity?.volume !== undefined) published.volume = activity.volume
+  return published
+}
+
+async function readOptionActivity(
+  env: AppEnv,
+  symbols: readonly string[],
+): Promise<Map<string, OptionActivity>> {
+  const activity = new Map<string, OptionActivity>()
+  if (!symbols.length) return activity
+  const label = 'Tastytrade option activity'
+  for (let start = 0; start < symbols.length; start += MAX_OPTION_ACTIVITY_CHUNK) {
+    const chunk = symbols.slice(start, start + MAX_OPTION_ACTIVITY_CHUNK)
+    const query = chunk.map((symbol) => `equity-option=${encodeURIComponent(symbol)}`).join('&')
+    const envelope = itemEnvelope(
+      await brokerApi().tastyRequest(env, `/market-data/by-type?${query}`),
+      label,
+      chunk.length,
+    )
+    const requested = new Set(chunk)
+    const seen = new Set<string>()
+    for (const row of envelope.rows) {
+      const symbol = requiredText(row, ['symbol'], label, 128)
+      if (!requested.has(symbol)) continue
+      if (seen.has(symbol) || activity.has(symbol)) return invalidResponse(label)
+      seen.add(symbol)
+      const openInterest = optionalCount(row, ['open-interest', 'openInterest'], label)
+      const volume = optionalCount(row, ['volume', 'day-volume'], label)
+      if (openInterest === undefined && volume === undefined) continue
+      const stats: OptionActivity = {}
+      if (openInterest !== undefined) stats.openInterest = openInterest
+      if (volume !== undefined) stats.volume = volume
+      activity.set(symbol, stats)
+    }
+  }
+  return activity
 }
 
 export async function findOptionContracts(
@@ -383,14 +517,9 @@ export async function findOptionContracts(
     && (input.strike === undefined || contract.strikePrice === input.strike)
   ))
   const allExpirationDates = [...new Set(discoverable.map((contract) => contract.expirationDate))].sort()
-  const matching = discoverable
-    .filter((contract) => input.expiry === undefined || contract.expirationDate === input.expiry)
-    .sort((left, right) => left.expirationDate.localeCompare(right.expirationDate)
-      || (input.nearStrike === undefined
-        ? 0
-        : Math.abs(left.strikePrice - input.nearStrike) - Math.abs(right.strikePrice - input.nearStrike))
-      || left.strikePrice - right.strikePrice
-      || left.optionType.localeCompare(right.optionType))
+  const matching = discoverable.filter((contract) => (
+    input.expiry === undefined || contract.expirationDate === input.expiry
+  ))
   const expirationDates = allExpirationDates.slice(0, MAX_OPTION_EXPIRATIONS)
   const mode = input.expiry === undefined && input.nearStrike === undefined && input.strike === undefined
     ? 'expirations'
@@ -404,8 +533,44 @@ export async function findOptionContracts(
       truncated: expirationDates.length < allExpirationDates.length,
     }
   }
-  const contracts = matching.slice(0, MAX_OPTION_CONTRACTS)
+  const rankedByStrike = [...matching].sort((left, right) => left.expirationDate.localeCompare(right.expirationDate)
+    || (input.nearStrike === undefined
+      ? 0
+      : Math.abs(left.strikePrice - input.nearStrike) - Math.abs(right.strikePrice - input.nearStrike))
+    || left.strikePrice - right.strikePrice
+    || left.optionType.localeCompare(right.optionType))
+  // nearStrike already picked the window; activity is attached to those rows, not used to
+  // replace the window with far-away open-interest magnets. An untargeted expiry ranks the
+  // whole listed set, then truncates.
+  const candidates = input.nearStrike === undefined
+    ? rankedByStrike
+    : rankedByStrike.slice(0, MAX_OPTION_CONTRACTS)
+  const activity = await readOptionActivity(env, candidates.map((contract) => contract.brokerSymbol))
+  const contracts = candidates
+    .map((contract) => publishedContract(contract, activity.get(contract.brokerSymbol)))
+    .sort((left, right) => left.expirationDate.localeCompare(right.expirationDate)
+      || (input.nearStrike === undefined
+        ? 0
+        : Math.abs(left.strikePrice - input.nearStrike) - Math.abs(right.strikePrice - input.nearStrike))
+      || compareCountDesc(left.openInterest, right.openInterest)
+      || compareCountDesc(left.volume, right.volume)
+      || left.strikePrice - right.strikePrice
+      || left.optionType.localeCompare(right.optionType))
+    .slice(0, MAX_OPTION_CONTRACTS)
   return { ...base, contracts, mode, truncated: contracts.length < matching.length }
+}
+
+function createAccountSnapshotReadTool(
+  env: AppEnv,
+  credential: BrokerCredential | undefined,
+): AgentTool<typeof AccountSnapshotReadParameters, AccountSnapshotReadResult> {
+  return {
+    description: 'Current balances, positions, and working orders. Omit include for all three.',
+    execute: async (_toolCallId, params) => textResult(await readAccountSnapshot(env, params, credential)),
+    label: 'Reading account snapshot',
+    name: 'read_account_snapshot',
+    parameters: AccountSnapshotReadParameters,
+  }
 }
 
 function createAccountHistoryReadTool(
@@ -427,10 +592,9 @@ export function createMarketMetricsReadTool(
   return {
     description: 'IV, liquidity, beta, valuation, and earnings metrics; IV is percentage points.',
     execute: async (_toolCallId, params) => {
-      const symbols = params.symbols.map((symbol) => equitySymbolFromModelText(symbol))
-      const unreadable = params.symbols.find((_symbol, index) => symbols[index] === undefined)
-      if (unreadable !== undefined) return textResult({ error: `not a ticker symbol: ${unreadable.slice(0, 12)}` })
-      return textResult(await readMarketMetrics(env, symbols.filter((symbol) => symbol !== undefined)))
+      const parsed = equitySymbolsFromModelText(params.symbols)
+      if ('unreadable' in parsed) return textResult({ error: `not a ticker symbol: ${parsed.unreadable.slice(0, 12)}` })
+      return textResult(await readMarketMetrics(env, parsed.symbols))
     },
     label: 'Reading market metrics',
     name: 'read_market_metrics',
@@ -455,8 +619,9 @@ export function createOptionContractFindTool(
 ): AgentTool<typeof OptionContractFindParameters, OptionContractFindResult | { error: string }> {
   return {
     description: 'Without expiry, lists expirations; with expiry, returns active standard contracts '
-      + 'nearest nearStrike or matching strike. Only contracts this tool returns exist; never name '
-      + 'one it did not list.',
+      + 'with open interest and volume. Default order is open interest then volume; nearStrike is '
+      + 'nearest listed, strike is exact. Only contracts this tool returns exist; never name one '
+      + 'it did not list.',
     execute: async (_toolCallId, params) => {
       const underlying = equitySymbolFromModelText(params.underlying)
       if (underlying === undefined) {
@@ -476,15 +641,12 @@ export function createInstrumentQuoteReadTool(
   return {
     description: 'Current broker bid/ask/mid for equities or option tuples.',
     execute: async (_toolCallId, params) => {
-      const symbols = params.symbols?.map((symbol) => equitySymbolFromModelText(symbol))
-      const unreadable = params.symbols?.find((_symbol, index) => symbols?.[index] === undefined)
-      if (unreadable !== undefined) {
-        return textResult({ error: `not a ticker symbol: ${unreadable.slice(0, 12)}` })
+      if (params.symbols === undefined) return textResult(await readInstrumentQuotes(env, params))
+      const parsed = equitySymbolsFromModelText(params.symbols)
+      if ('unreadable' in parsed) {
+        return textResult({ error: `not a ticker symbol: ${parsed.unreadable.slice(0, 12)}` })
       }
-      return textResult(await readInstrumentQuotes(env, {
-        ...params,
-        symbols: symbols?.filter((symbol) => symbol !== undefined),
-      }))
+      return textResult(await readInstrumentQuotes(env, { ...params, symbols: parsed.symbols }))
     },
     label: 'Reading instrument quotes',
     name: 'read_instrument_quotes',
@@ -494,7 +656,11 @@ export function createInstrumentQuoteReadTool(
 
 export function createBrokerageReadTools(env: AppEnv, credential?: BrokerCredential) {
   return [
+    createAccountSnapshotReadTool(env, credential),
     createAccountHistoryReadTool(env, credential),
     createSymbolSearchTool(env),
+    createMarketMetricsReadTool(env),
+    createOptionContractFindTool(env),
+    createInstrumentQuoteReadTool(env),
   ]
 }

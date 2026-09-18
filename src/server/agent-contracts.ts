@@ -15,7 +15,7 @@ const ExpiryDateSchema = z.string().regex(ISO_DATE_REGEX)
 /** Limit prices are whole cents; the broker rejects finer increments. */
 const LimitPriceSchema = z.number().positive().multipleOf(0.01)
 // Quantity has no independent product ceiling. Fresh account state, contract
-// multipliers, closing inventory, and the portfolio-loss budget decide what is safe.
+// multipliers, and closing inventory decide what is safe.
 const QuantitySchema = z.number().int().positive()
 
 const OptionActionSchema = z.object({

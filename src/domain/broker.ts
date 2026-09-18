@@ -75,13 +75,12 @@ export interface BrokerLiveOrderRow {
 }
 
 /**
- * The snapshot carries orders twice on purpose, and the drawdown guard must count `liveOrders`.
+ * The snapshot carries orders twice on purpose.
  *
  * `orders` expands complex orders into their legs and dedupes them, which is what a reader
- * wants. But expansion can erase a complex order whose children have all gone terminal while
- * the order itself still occupies the account — so a guard that refuses "while any order is
- * working" would see none and admit a new one. `liveOrders` is the rows as the broker listed
- * them, which is the only faithful answer to "is anything still working".
+ * wants. Expansion can erase a complex order whose children have all gone terminal while the
+ * order itself still occupies the account. `liveOrders` is the rows as the broker listed them,
+ * which is the only faithful answer to "is anything still working".
  */
 export interface BrokerAccountSnapshot {
   asOf: string

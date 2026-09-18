@@ -3,9 +3,12 @@ import { type Static, Type } from 'typebox'
 import { EquityOptionTupleSchema } from '../domain/equity-option'
 import { EQUITY_SYMBOL_REGEX, ModelTextEquitySymbolType } from '../domain/instrument'
 import {
+  type BrokerBalances,
   type BrokerHistoryOrder,
   type BrokerHistoryTransaction,
   type BrokerId,
+  type BrokerPosition,
+  type BrokerWorkingOrder,
 } from '../domain/broker'
 import { IsoDateType } from '../domain/iso-date'
 import { StringEnum } from '../domain/string-enum'
@@ -19,6 +22,8 @@ export const MAX_SEARCH_RESULTS = 20
 export const MAX_OPTION_EXPIRATIONS = 12
 export const MAX_OPTION_CONTRACTS = 60
 export const MAX_QUOTE_INSTRUMENTS = 10
+/** Market-data query bound: tastytrade names every OCC symbol in the URL. Same size as the equity snapshot chunk. */
+export const MAX_OPTION_ACTIVITY_CHUNK = 100
 // Provider-envelope ceilings are substantially wider than returned context. They reject
 // anomalous upstream fan-out before normalization allocates or processes arbitrary rows.
 export const MAX_SEARCH_ROWS = 200
@@ -30,6 +35,29 @@ export const EQUITY_SYMBOL = EQUITY_SYMBOL_REGEX
  * `EQUITY_SYMBOL_PATTERN`.
  */
 export const UNDERLYING_SYMBOL = /^\/?[A-Z0-9.]{1,31}$/
+
+/** The three reader-facing parts of the brokerage snapshot. `liveOrders` stays with the guard. */
+export const ACCOUNT_SNAPSHOT_PARTS = ['balances', 'positions', 'orders'] as const
+export type AccountSnapshotPart = (typeof ACCOUNT_SNAPSHOT_PARTS)[number]
+
+export const AccountSnapshotReadParameters = Type.Object({
+  include: Type.Optional(Type.Array(StringEnum(ACCOUNT_SNAPSHOT_PARTS), {
+    description: 'Subset of the snapshot.',
+    maxItems: ACCOUNT_SNAPSHOT_PARTS.length,
+    minItems: 1,
+    uniqueItems: true,
+  })),
+}, { additionalProperties: false })
+
+export type AccountSnapshotReadInput = Static<typeof AccountSnapshotReadParameters>
+
+export type AccountSnapshotReadResult = {
+  asOf: string
+  balances?: BrokerBalances
+  orders?: BrokerWorkingOrder[]
+  positions?: BrokerPosition[]
+  source: BrokerId
+}
 
 export const AccountHistoryReadParameters = Type.Object({
   days: Type.Optional(Type.Integer({
@@ -172,13 +200,17 @@ export type SymbolSearchResult = {
  * streamer symbol are deliberately absent: every tool that takes a contract takes the tuple
  * (underlying, expiry, strike, type) and resolves those server-side, so returning them was
  * two long strings per row, sixty rows a call, that nothing could be done with.
+ * Open interest and volume are the ranking fields; they come from a second market-data
+ * read, not the compact chain.
  */
 export type CompactOptionContract = {
   expirationDate: string
   isClosingOnly?: boolean
+  openInterest?: number
   optionType: 'C' | 'P'
   sharesPerContract: number
   strikePrice: number
+  volume?: number
 }
 
 type OptionContractFindBase = {

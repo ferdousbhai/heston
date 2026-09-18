@@ -5,6 +5,7 @@ import {
   EQUITY_SYMBOL_PATTERN,
   EQUITY_SYMBOL_REGEX,
   equitySymbolFromModelText,
+  equitySymbolsFromModelText,
   EquitySymbolSchema,
   MAX_EQUITY_SYMBOL_LENGTH,
   MODEL_TEXT_EQUITY_SYMBOL_PATTERN,
@@ -135,5 +136,10 @@ describe('reading a symbol out of model text', () => {
     // Only the convention the owner named is read; any other venue's notation stays a
     // visible refusal rather than being guessed at.
     expect(equitySymbolFromModelText(written)).toBeUndefined()
+  })
+
+  it('reads a list, or names the first unreadable value', () => {
+    expect(equitySymbolsFromModelText(['$nvda', 'AAPL'])).toEqual({ symbols: ['NVDA', 'AAPL'] })
+    expect(equitySymbolsFromModelText(['NVDA', 'BRK.B'])).toEqual({ unreadable: 'BRK.B' })
   })
 })

@@ -2,7 +2,7 @@ import { type AgentTool } from '../domain/agent-tool'
 import { Type } from 'typebox'
 import { z } from 'zod'
 
-import { equitySymbolFromModelText, ModelTextEquitySymbolType } from '../domain/instrument'
+import { equitySymbolsFromModelText, ModelTextEquitySymbolType } from '../domain/instrument'
 import { textResult } from './agent-tool-result'
 import { MAX_MARKET_SYMBOLS } from './brokerage-read-contracts'
 import { readBoundedJson } from './bounded-response'
@@ -178,12 +178,11 @@ export function createRecentCoverageTool(
       // died on exactly that: $NXE reached this tool, the symbol rule threw, and the whole
       // daily output was lost to one argument. Anything still unreadable after that is reported to
       // the model, which can correct a symbol, instead of ending the run.
-      const tickers = params.tickers.map((ticker) => equitySymbolFromModelText(ticker))
-      const unreadable = params.tickers.find((_ticker, index) => tickers[index] === undefined)
-      if (unreadable !== undefined) {
-        return textResult({ error: `not a ticker symbol: ${unreadable.slice(0, 12)}` })
+      const parsed = equitySymbolsFromModelText(params.tickers)
+      if ('unreadable' in parsed) {
+        return textResult({ error: `not a ticker symbol: ${parsed.unreadable.slice(0, 12)}` })
       }
-      return textResult(await searchRecentTickerCoverage(env, tickers.filter((t) => t !== undefined), params.daysAgo, now))
+      return textResult(await searchRecentTickerCoverage(env, parsed.symbols, params.daysAgo, now))
     },
     label: 'Reading recent coverage',
     name: 'get_recent_coverage',

@@ -2,7 +2,7 @@ import { type AgentTool } from '../domain/agent-tool'
 import { Type } from 'typebox'
 
 import { CatalystSchema, marketDate, type Catalyst } from '../domain/catalyst'
-import { equitySymbolFromModelText, EquitySymbolSchema, ModelTextEquitySymbolType } from '../domain/instrument'
+import { equitySymbolsFromModelText, EquitySymbolSchema, ModelTextEquitySymbolType } from '../domain/instrument'
 import { type DailyRecommendations } from '../domain/market'
 import { type AppEnv } from './env'
 import { textResult } from './agent-tool-result'
@@ -136,15 +136,9 @@ export function createResearchReadTools(env: AppEnv, now = new Date()) {
   const catalysts: AgentTool<typeof CatalystReadParameters, CatalystReadResult | { error: string }> = {
     description: 'Stored upcoming catalysts; excludes dividends.',
     execute: async (_toolCallId, params) => {
-      const symbols = params.symbols.map((symbol) => equitySymbolFromModelText(symbol))
-      const unreadable = params.symbols.find((_symbol, index) => symbols[index] === undefined)
-      if (unreadable !== undefined) return textResult({ error: `not a ticker symbol: ${unreadable.slice(0, 12)}` })
-      return textResult(await readCatalysts(
-        env,
-        symbols.filter((symbol) => symbol !== undefined),
-        params.horizonDays,
-        now,
-      ))
+      const parsed = equitySymbolsFromModelText(params.symbols)
+      if ('unreadable' in parsed) return textResult({ error: `not a ticker symbol: ${parsed.unreadable.slice(0, 12)}` })
+      return textResult(await readCatalysts(env, parsed.symbols, params.horizonDays, now))
     },
     label: 'Reading catalysts',
     name: 'read_catalysts',

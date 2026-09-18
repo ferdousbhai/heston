@@ -102,7 +102,8 @@ describe('MCP bearer authentication', () => {
       // absent, so placement is withheld rather than advertised and rejected.
       for (const withheld of [
         'find_option_contracts', 'read_option_greeks', 'remember_symbols',
-        'read_account_history', 'publish_daily_recommendations', 'challenge_recommendation',
+        'read_account_history', 'read_account_snapshot', 'publish_daily_recommendations',
+        'challenge_recommendation',
         'place_brokerage_order', 'cancel_brokerage_order',
         'record_catalysts', 'record_evidence',
       ]) {
@@ -476,7 +477,9 @@ describe('MCP surface budget', () => {
   // lowered again, to just above the measured surface, once the published schemas stopped
   // carrying zod's safe-integer bounds and spelling closed string sets as `anyOf` of `const`:
   // both were shape, not contract, and a ceiling left above them would quietly re-admit them.
-  const TOOLS_LIST_CHAR_BUDGET = 24_000
+  // Raised again for `read_account_snapshot`, the current-account read that used to be injected
+  // as agent context and is now a tool.
+  const TOOLS_LIST_CHAR_BUDGET = 25_000
   const INSTRUCTIONS_CHAR_BUDGET = 1_500
 
   it('keeps the advertised surface inside its budget', async () => {
@@ -523,6 +526,8 @@ describe('MCP surface budget', () => {
       // a literal union means the same thing at three times the characters, on every model call.
       const history = tools.find((tool) => tool.name === 'read_account_history')
       expect(JSON.stringify(history)).toContain('"enum":["transactions","orders"]')
+      const snapshot = tools.find((tool) => tool.name === 'read_account_snapshot')
+      expect(JSON.stringify(snapshot)).toContain('"enum":["balances","positions","orders"]')
       // The `const`s that remain are discriminators of object unions -- an order kind, a
       // watchlist action -- where the branches differ by more than one value.
       const constTools = tools.filter((tool) => JSON.stringify(tool).includes('"const"')).map((tool) => tool.name)

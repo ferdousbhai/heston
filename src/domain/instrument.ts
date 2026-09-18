@@ -50,6 +50,18 @@ export function equitySymbolFromModelText(value: string): string | undefined {
   return EquitySymbolSchema.safeParse(value.trim().replace(/^\$/, '').toUpperCase()).data
 }
 
+/** Reads every value as a ticker, or names the first one that is not. */
+export function equitySymbolsFromModelText(values: readonly string[]):
+  { symbols: string[] } | { unreadable: string } {
+  const symbols: string[] = []
+  for (const value of values) {
+    const symbol = equitySymbolFromModelText(value)
+    if (symbol === undefined) return { unreadable: value }
+    symbols.push(symbol)
+  }
+  return { symbols }
+}
+
 const OptionalBoolean = z.boolean().nullable()
 
 // Provider description fields are untrusted storage input. These generous text widths bound

@@ -8,7 +8,7 @@ import {
 } from '../src/server/brokers'
 import { tastytradeAdapter } from '../src/server/brokers/tastytrade'
 import { loadBrokerageContext } from '../src/server/brokerage-context'
-import { readAccountHistory } from '../src/server/brokerage-read-tools'
+import { readAccountHistory, readAccountSnapshot } from '../src/server/brokerage-read-tools'
 import { assertPortfolioActionAllowed } from '../src/server/portfolio-risk'
 import { resetBrokerApi, setBrokerApi, type BrokerApi } from '../src/server/tastytrade'
 import {
@@ -75,6 +75,14 @@ describe('broker adapter seam', () => {
     expect(history).toMatchObject({ source: STUB_BROKER_ID, totalItemCount: 1, truncated: false })
     expect(history.items).toHaveLength(1)
 
+    const snapshot = await readAccountSnapshot({}, {}, stubBrokerCredential)
+    expect(snapshot).toMatchObject({
+      source: STUB_BROKER_ID,
+      balances: { netLiquidatingValue: 100_000 },
+      positions: [{ symbol: 'SPY' }],
+    })
+    expect(JSON.stringify(snapshot)).not.toContain('STUB-1')
+
     expect(adapter.calls).toEqual([
       'resolveAccountRef',
       'loadAccountSnapshot',
@@ -82,6 +90,8 @@ describe('broker adapter seam', () => {
       'loadAccountSnapshot',
       'resolveAccountRef',
       'readAccountHistory',
+      'resolveAccountRef',
+      'loadAccountSnapshot',
     ])
   })
 

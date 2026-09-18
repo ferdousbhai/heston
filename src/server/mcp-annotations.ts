@@ -34,6 +34,7 @@ const ANNOTATIONS = {
   get_recent_coverage: read('Read recent coverage', true),
   ingest_wsb: read('Read WallStreetBets candidates', true),
   read_account_history: read('Read account history', true),
+  read_account_snapshot: read('Read the account snapshot', true),
   read_instrument_quotes: read('Read quotes', true),
   read_market_metrics: read('Read market metrics', true),
   read_option_greeks: read('Read option Greeks', true),

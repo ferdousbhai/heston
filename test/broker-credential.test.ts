@@ -185,6 +185,7 @@ describe('request-scoped broker credential', () => {
     ))
     const names = listed.result.tools.map((tool: { name: string }) => tool.name)
     expect(names).toContain('read_account_history')
+    expect(names).toContain('read_account_snapshot')
     expect(names).toContain('place_brokerage_order')
 
     const called = await mcpPayload(await handleMcpRequest(
