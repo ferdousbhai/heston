@@ -3,6 +3,7 @@ import { Compile } from 'typebox/compile'
 import { marketDate, type Catalyst } from '../domain/catalyst'
 import {
   DailyRecommendationsSchema,
+  researchGeneratorLabel,
   type DailyRecommendations,
   type ResearchSourceLink,
 } from '../domain/market'
@@ -165,7 +166,7 @@ export async function publishSubmittedDailyRecommendations(
     byline: submission.byline,
     id: dailyRecommendationsId(marketDate(now)),
     links,
-    model: submission.model,
+    model: researchGeneratorLabel(submission.model),
     publishedAt: now.toISOString(),
     recommendations,
     regime: submission.regime,

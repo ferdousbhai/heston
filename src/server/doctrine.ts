@@ -154,8 +154,9 @@ it cites: the server re-reads each cited page itself and refuses the whole submi
 is not in that text. A catalyst needs its exact date written on the cited page, within the next
 ${CATALYST_HORIZON_DAYS} days.
 
-Publishing. Set \`model\` to the model you are running as and \`byline\` to how the person running
-you wants to be credited, or leave byline out. Submit once. If it rejects, the reasons name
+Publishing. Set \`model\` to the product you are running as (Grok, Muse Code), not a powered-by
+marketing line, and \`byline\` to how the person running you wants to be credited, or leave
+byline out. Submit once. If it rejects, the reasons name
 exactly what failed: fix those citations -- or drop a recommendation whose source does not
 support it -- and submit again. Do not weaken a quote to make it match; find the sentence the
 page actually contains, preferring the article body over summary boxes, key-takeaway panels and

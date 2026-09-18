@@ -9,6 +9,7 @@ import {
   marketSnapshotFromPublic,
   parseStoredDailyRecommendations,
   PublicMarketSnapshotSchema,
+  researchGeneratorLabel,
   volatilityVerdict,
 } from '../src/domain/market'
 import { MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
@@ -151,6 +152,17 @@ describe('snapshot contract', () => {
     }
 
     expect(() => parseStoredDailyRecommendations(legacy)).toThrow(/HTTPS source URL/)
+  })
+
+  it('keeps the product name and drops a powered-by marketing suffix', () => {
+    expect(researchGeneratorLabel('Muse Code powered by Meta Muse Spark')).toBe('Muse Code')
+    expect(researchGeneratorLabel('Claude Code running on Opus 4.6')).toBe('Claude Code')
+    expect(researchGeneratorLabel('claude-opus-5')).toBe('claude-opus-5')
+    const stored = marketSnapshotFixture().recommendations!
+    expect(parseStoredDailyRecommendations({
+      ...stored,
+      model: 'Muse Code powered by Meta Muse Spark',
+    }).model).toBe('Muse Code')
   })
 })
 

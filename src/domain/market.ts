@@ -163,6 +163,12 @@ export const RecommendationLinkSchema = z.object({
  */
 export const MAX_RESEARCH_MODEL_NAME_LENGTH = 80
 
+/** Agents often report a marketing line. The cover names the product that produced the brief. */
+export function researchGeneratorLabel(model: string): string {
+  const cut = model.search(/\s+(?:powered by|running on)\s+/i)
+  return (cut > 0 ? model.slice(0, cut) : model).trim()
+}
+
 /**
  * The envelope a cited source arrives in, wherever it is cited: a page address and the page's
  * own title. Every surface that admits a citation -- the brief, a recorded catalyst, an
@@ -202,7 +208,10 @@ export const DailyRecommendationsSchema = z.object({
 
 /** D1 stores the current public recommendation contract; incompatible rows fail visibly. */
 export function parseStoredDailyRecommendations(value: JsonValue): DailyRecommendations {
-  return DailyRecommendationsSchema.parse(value)
+  const parsed = DailyRecommendationsSchema.parse(value)
+  if (parsed.model === undefined) return parsed
+  const model = researchGeneratorLabel(parsed.model)
+  return model === parsed.model ? parsed : { ...parsed, model }
 }
 
 /**

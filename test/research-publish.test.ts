@@ -98,7 +98,7 @@ describe('publishing a submission produced off this Worker', () => {
       recommendationCount: 1,
       status: 'published',
     })
-    // The model travels with the brief, as the agent reported it, so the site can say so.
+    // The product travels with the brief; a powered-by marketing suffix is dropped at persist.
     expect(storedBrief('recommendations-2026-09-02'))
       .toMatchObject({ model: 'claude-opus-5', publishedAt: NOW.toISOString() })
     expect(store.sqlite.prepare('SELECT source_provider FROM catalysts WHERE symbol = ?')
@@ -181,10 +181,10 @@ describe('publishing a submission produced off this Worker', () => {
     expect(refused.rejected[0]).toContain(new Date(NOW.getTime() + RESEARCH_REFRESH_INTERVAL_MS).toISOString())
 
     const opens = new Date(NOW.getTime() + RESEARCH_REFRESH_INTERVAL_MS)
-    await expect(publishSubmittedDailyRecommendations(publishingEnv(), { ...submission(), model: 'gpt-5.4' }, { now: opens, publishedByUserId: PUBLISHER }))
+    await expect(publishSubmittedDailyRecommendations(publishingEnv(), { ...submission(), model: 'Muse Code powered by Meta Muse Spark' }, { now: opens, publishedByUserId: PUBLISHER }))
       .resolves.toMatchObject({ status: 'published' })
     expect(storedBrief('recommendations-2026-09-02'))
-      .toMatchObject({ model: 'gpt-5.4', publishedAt: opens.toISOString() })
+      .toMatchObject({ model: 'Muse Code', publishedAt: opens.toISOString() })
   })
 
   it('fails closed without the browser binding instead of trusting the submission', async () => {
