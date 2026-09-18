@@ -237,6 +237,7 @@ async function runIsolated(name, setup) {
   try {
     const launched = await setup(directory)
     const child = spawn(launched.bin, launched.args, {
+      cwd: launched.cwd ?? directory,
       env: launched.env,
       stdio: ['ignore', 'inherit', 'inherit'],
     })
@@ -276,29 +277,68 @@ function museConfigHome() {
   return process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config')
 }
 
-async function museRun(prompt, token) {
+export function museExecArgs({ promptPath, workspace, provider, maxTurns = MAX_TURNS }) {
+  const args = [
+    'exec', '--yolo',
+    '--prompt-file', promptPath,
+    '--max-model-steps', String(maxTurns),
+    '--workspace', workspace,
+  ]
+  if (provider) args.push('--provider', provider)
+  return args
+}
+
+/** Member provider/model only. MCP servers are replaced so this run cannot inherit a broker. */
+export async function isolatedMuseSettings(
+  token,
+  sourcePath = join(museConfigHome(), 'muse', 'settings.json'),
+) {
+  let model
+  let provider
+  try {
+    const parsed = z.object({
+      model: z.string().min(1).optional(),
+      provider: z.string().min(1).optional(),
+    }).passthrough().safeParse(JSON.parse(await readFile(sourcePath, 'utf8')))
+    if (parsed.success) {
+      model = parsed.data.model
+      provider = parsed.data.provider
+    }
+  } catch {
+    // Muse CLI defaults still launch without a member settings file.
+  }
+  const settings = {
+    schema_version: 1,
+    mcpServers: {
+      spice: { headers: { Authorization: `Bearer ${token}` }, url: MCP },
+    },
+  }
+  if (provider) settings.provider = provider
+  if (model) settings.model = model
+  return settings
+}
+
+export async function museRun(prompt, token) {
   await runIsolated('muse', async (directory) => {
     const promptPath = join(directory, 'prompt.txt')
-    // An isolated config home, mirroring the Grok runner: the token reaches only this
-    // run's settings file, and nothing is written to the member's real Muse config.
     const configHome = join(directory, 'muse-home')
     await mkdir(join(configHome, 'muse'), { recursive: true })
     await requireReadable(join(museConfigHome(), 'muse', 'auth.json'), 'SpiceDailyResearch:muse-auth-missing')
     await copyFile(join(museConfigHome(), 'muse', 'auth.json'), join(configHome, 'muse', 'auth.json'))
-    // Direct URL plus the request token, and no broker header: same asymmetry as the
-    // Grok runner, so account tools refuse structurally on an unattended run.
     await writeFile(
       join(configHome, 'muse', 'settings.json'),
-      JSON.stringify({
-        mcpServers: { spice: { headers: { Authorization: `Bearer ${token}` }, url: MCP } },
-        schema_version: 1,
-      }),
+      JSON.stringify(await isolatedMuseSettings(token)),
       { mode: 0o600 },
     )
     await writeFile(promptPath, prompt)
     return {
-      args: ['exec', '--yolo', '--prompt-file', promptPath, '--max-model-steps', String(MAX_TURNS)],
+      args: museExecArgs({
+        promptPath,
+        workspace: directory,
+        provider: process.env.SPICE_DAILY_RESEARCH_MUSE_PROVIDER || undefined,
+      }),
       bin: MUSE,
+      cwd: directory,
       env: { ...process.env, XDG_CONFIG_HOME: configHome },
     }
   })

@@ -1,12 +1,15 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { access, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   alreadyPublishedToday,
   grokLimitRemaining,
+  isolatedMuseSettings,
   marketDate,
+  museExecArgs,
+  museRun,
   readGrokLimitRemaining,
   readMarketState,
   runResearchAgent,
@@ -123,6 +126,62 @@ describe('owner-machine daily research skip', () => {
     await expect(runResearchAgent('prompt', 'token', { grok, muse }, true)).resolves.toBe('muse')
     expect(grok).not.toHaveBeenCalled()
     expect(muse).toHaveBeenCalledTimes(1)
+  })
+
+  it('pins muse to an isolated workspace and keeps only the spice MCP server', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'spice-muse-settings-'))
+    try {
+      const source = join(directory, 'settings.json')
+      await writeFile(source, JSON.stringify({
+        model: 'muse-spark-1.3-contributor',
+        mcpServers: { cloudflare: { url: 'https://mcp.cloudflare.com/mcp' } },
+        provider: 'meta',
+        schema_version: 1,
+      }))
+      const settings = await isolatedMuseSettings('spice-token', source)
+      expect(settings).toEqual({
+        model: 'muse-spark-1.3-contributor',
+        mcpServers: {
+          spice: { headers: { Authorization: 'Bearer spice-token' }, url: 'https://tryspice.xyz/mcp' },
+        },
+        provider: 'meta',
+        schema_version: 1,
+      })
+      expect(museExecArgs({
+        promptPath: '/tmp/prompt.txt',
+        workspace: '/tmp/workspace',
+        provider: 'echo',
+      })).toEqual([
+        'exec', '--yolo',
+        '--prompt-file', '/tmp/prompt.txt',
+        '--max-model-steps', '80',
+        '--workspace', '/tmp/workspace',
+        '--provider', 'echo',
+      ])
+    } finally {
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it('launches muse exec on the echo provider', async () => {
+    const muse = process.env.MUSE_BIN ?? 'muse'
+    const previous = process.env.SPICE_DAILY_RESEARCH_MUSE_PROVIDER
+    try {
+      await access(join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'muse', 'auth.json'))
+    } catch {
+      return
+    }
+    try {
+      process.env.SPICE_DAILY_RESEARCH_MUSE_PROVIDER = 'echo'
+      process.env.MUSE_BIN = muse
+      await museRun('reply with the single word pong', 'test-token')
+    } catch (error) {
+      if (String(error).includes('ENOENT')) return
+      throw error
+    } finally {
+      if (previous === undefined) delete process.env.SPICE_DAILY_RESEARCH_MUSE_PROVIDER
+      else process.env.SPICE_DAILY_RESEARCH_MUSE_PROVIDER = previous
+    }
   })
 
   it('hands launcher facts to the agent without treating them as citations', () => {

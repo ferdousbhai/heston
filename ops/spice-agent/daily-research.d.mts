@@ -12,6 +12,22 @@ export function grokLimitRemaining(record: GrokUsageRecord | null | undefined, n
 export function grokUsageRecordPath(): string
 export function marketDate(now?: Date): string
 export function readGrokLimitRemaining(recordPath?: string, now?: Date): Promise<number | undefined>
+export function museExecArgs(input: {
+  promptPath: string
+  workspace: string
+  provider?: string
+  maxTurns?: number
+}): string[]
+export function isolatedMuseSettings(
+  token: string,
+  sourcePath?: string,
+): Promise<{
+  schema_version: 1
+  provider?: string
+  model?: string
+  mcpServers: { spice: { headers: { Authorization: string }; url: string } }
+}>
+export function museRun(prompt: string, token: string): Promise<void>
 export function runResearchAgent(
   prompt: string,
   token: string,
