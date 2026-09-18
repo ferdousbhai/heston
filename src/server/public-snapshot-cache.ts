@@ -58,8 +58,14 @@ export function publicSessionStatus(
   return status
 }
 
-export function snapshotEtag(syncedAt: string): string {
-  return `W/"${syncedAt}"`
+export function snapshotEtag(
+  syncedAt: string,
+  recommendations?: { publishedAt?: string },
+): string {
+  // Quotes and the brief are independent writes. Keying only the observation hid a newly
+  // published brief behind 304s for as long as the market store stayed stale.
+  const publishedAt = recommendations?.publishedAt
+  return publishedAt ? `W/"${syncedAt}:${publishedAt}"` : `W/"${syncedAt}"`
 }
 
 function sessionFromHeaders(response: Response) {
@@ -239,7 +245,7 @@ async function retain(
   now: number,
 ): Promise<Response> {
   const headers = new Headers({
-    ETag: snapshotEtag(snapshot.syncedAt),
+    ETag: snapshotEtag(snapshot.syncedAt, snapshot.recommendations),
     [SNAPSHOT_CACHED_AT_HEADER]: new Date(now).toISOString(),
     [SNAPSHOT_GENERATED_AT_HEADER]: snapshot.syncedAt,
     [SNAPSHOT_MARKET_STATE_HEADER]: snapshot.marketState,

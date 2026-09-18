@@ -186,6 +186,46 @@ describe('public snapshot route cache', () => {
     expect(cache.putCalls).toBe(0)
   })
 
+  it('does not 304 when the brief changed on the same market observation', async () => {
+    const snapshot = storedPublicSnapshot(30_000, {
+      marketState: 'closed',
+      recommendations: {
+        id: 'recommendations-2026-09-18',
+        links: [],
+        model: 'muse',
+        publishedAt: '2026-09-18T15:49:52.243Z',
+        recommendations: [],
+        regime: 'post-hike',
+        regimeDetail: 'tech leads',
+        summary: 'Nvidia and Applied Digital',
+        title: 'Post-hike tech chase',
+      },
+    })
+    const previous = snapshotEtag(snapshot.syncedAt)
+    const current = snapshotEtag(snapshot.syncedAt, snapshot.recommendations)
+    expect(current).not.toBe(previous)
+    const cache = new MemoryPublicSnapshotCache(Response.json(snapshot, {
+      headers: {
+        ETag: current,
+        'Cache-Control': 'public, max-age=900',
+        [SNAPSHOT_CACHED_AT_HEADER]: new Date(NOW).toISOString(),
+        [SNAPSHOT_GENERATED_AT_HEADER]: snapshot.syncedAt,
+        [SNAPSHOT_MARKET_STATE_HEADER]: 'closed',
+      },
+    }))
+    const response = await servePublicSnapshot(
+      new Request(SNAPSHOT_URL, { headers: { 'If-None-Match': previous } }),
+      {},
+      cache,
+      new Background().schedule,
+      NOW,
+    )
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      recommendations: { id: 'recommendations-2026-09-18' },
+    })
+  })
+
   it('serves a stale retained copy at once and rebuilds it behind the response', async () => {
     // The store answers only once released, which is what proves the reader never waited on it.
     let release!: (snapshot: PublicMarketSnapshot) => void
