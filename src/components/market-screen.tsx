@@ -16,6 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from '#/components/ui/table'
+import { equitySymbolFromModelText } from '../domain/instrument'
 import { cn } from '#/lib/utils'
 import { latestSessionCandles, REGULAR_SESSION_MS, type CandlePoint } from '../domain/candle'
 import { recommendedOrderLabel } from '../domain/recommended-order'
@@ -43,6 +44,7 @@ import {
   type IvTermStructure,
   type DailyRecommendations,
   type Ticker,
+  type PublicSymbolLookup,
   type VolatilityVerdict,
   type Watchlist,
 } from '../domain/market'
@@ -666,7 +668,6 @@ const MarketListRow = memo(function MarketListRow({
   const verdict = volatilityVerdict(ticker)
   const pill = listPill(ticker, metric)
   const nextMetric = LIST_METRICS[(LIST_METRICS.indexOf(metric) + 1) % LIST_METRICS.length]!
-  const rangePosition = fiftyTwoWeekPosition(ticker)
   const session = latestSessionCandles(ticker.sparkline)
 
   return (
@@ -695,10 +696,6 @@ const MarketListRow = memo(function MarketListRow({
         >
           {pill.value}
         </button>
-        {/* Where the price sits in its year, as the table's price cell shows it. */}
-        {rangePosition === undefined
-          ? null
-          : <Progress className="price-range" aria-label={`${Math.round(rangePosition)}% of 52-week range`} value={rangePosition} />}
       </div>
     </li>
   )
@@ -706,9 +703,11 @@ const MarketListRow = memo(function MarketListRow({
 
 /** The table's sortable headers, as one control a phone has room for. */
 function SortControl({
+  relevance,
   onChange,
   sort,
 }: {
+  relevance: boolean
   onChange: (sort: { direction: SortDirection; key: SortKey }) => void
   sort: { direction: SortDirection; key: SortKey }
 }) {
@@ -721,11 +720,13 @@ function SortControl({
           const column = SORT_COLUMNS.find((candidate) => candidate.key === event.target.value)
           if (column) onChange({ direction: column.defaultDirection, key: column.key })
         }}
-        value={sort.key}
+        value={relevance ? 'relevance' : sort.key}
       >
+        {relevance && <option value="relevance">Relevance</option>}
         {SORT_COLUMNS.map((column) => <option key={column.key} value={column.key}>{column.label}</option>)}
       </select>
       <button
+        disabled={relevance}
         aria-label={`Sort ${flipped === 'asc' ? 'ascending' : 'descending'}`}
         className="sort-button"
         onClick={() => onChange({ direction: flipped, key: sort.key })}
@@ -751,8 +752,8 @@ export function MarketScreen({
   activeWatchlist: Watchlist
   catalysts: Catalyst[]
   owner: boolean
-  onSelectTicker: (symbol: string) => void
-  onTogglePinned: (symbol: string) => void
+  onSelectTicker: (symbol: string, lookup?: PublicSymbolLookup) => void
+  onTogglePinned: (symbol: string, lookup?: PublicSymbolLookup) => void
   pinnedSymbols: readonly string[]
   dailyRecommendations?: DailyRecommendations
   selected: Ticker
@@ -766,30 +767,39 @@ export function MarketScreen({
   const now = useMemo(() => new Date(`${marketDay}T12:00:00Z`), [marketDay])
   const [sort, setSort] = useState<{ direction: SortDirection; key: SortKey }>({ direction: 'desc', key: 'volume' })
   const [query, setQuery] = useState('')
+  const [searchSort, setSearchSort] = useState(false)
   const [listMetric, setListMetric] = useState<ListMetric>('change')
   // On a phone the focus card lives in a sheet over the list, so the list is the screen.
   const [detailOpen, setDetailOpen] = useState(false)
   const narrow = useMediaQuery(NARROW_VIEWPORT)
   const pinned = new Set(pinnedSymbols)
-  const trimmedQuery = query.trim()
+  const trimmedQuery = equitySymbolFromModelText(query) ?? query.trim()
   const matched = trimmedQuery
     ? matchSorter(tickers, trimmedQuery, { keys: ['symbol', 'name'] })
     : activeWatchlist.symbols.flatMap((symbol) => {
         const ticker = tickers.find((candidate) => candidate.symbol === symbol)
         return ticker ? [ticker] : []
       })
-  // The loaded list is a slice of the market, so a search it cannot answer is put to the
-  // catalog instead of being reported as nothing. What comes back has joined the
-  // maintained list, so it is an ordinary row that later snapshots keep carrying.
-  const unlisted = Boolean(trimmedQuery) && !matched.length
+  // A fuzzy local match is not proof that the catalog lacks the exact requested symbol.
+  const unlisted = Boolean(trimmedQuery) && !tickers.some((ticker) =>
+    ticker.symbol === trimmedQuery.toUpperCase())
   const search = useSymbolSearch(trimmedQuery, unlisted)
-  const universe = unlisted && search.status === 'found'
-    ? [tickerFromPublic(search.lookup.ticker)]
+  const lookup = search.status === 'found' ? search.lookup : undefined
+  const found = search.status === 'found' ? tickerFromPublic(search.lookup.ticker) : undefined
+  const universe = found && !matched.some((ticker) => ticker.symbol === found.symbol)
+    ? [found, ...matched]
     : matched
+  const relevance = Boolean(trimmedQuery) && !searchSort
   const watchTickers = [...universe].sort((left, right) =>
     Number(pinned.has(right.symbol)) - Number(pinned.has(left.symbol))
-    || compareBySort(left, right, sort)
-    || left.symbol.localeCompare(right.symbol))
+    || (relevance ? 0 : compareBySort(left, right, sort)
+      || left.symbol.localeCompare(right.symbol)))
+  const selectResult = useCallback((symbol: string) => {
+    onSelectTicker(symbol, lookup?.ticker.symbol === symbol ? lookup : undefined)
+  }, [onSelectTicker, lookup])
+  const toggleResultPinned = useCallback((symbol: string) => {
+    onTogglePinned(symbol, lookup?.ticker.symbol === symbol ? lookup : undefined)
+  }, [onTogglePinned, lookup])
   // Looking at a symbol with an empty month asks the server to go and find out. What comes
   // back joins the calendar on this visit rather than waiting for the next snapshot.
   const catalystSearch = useCatalystSearch(selected.symbol, catalysts, now)
@@ -803,9 +813,9 @@ export function MarketScreen({
   // A tap on a phone both selects and opens the detail, as a stocks app does; a wide screen
   // keeps the card beside the list and only selects.
   const selectFromList = useCallback((symbol: string) => {
-    onSelectTicker(symbol)
+    selectResult(symbol)
     if (narrow) setDetailOpen(true)
-  }, [narrow, onSelectTicker])
+  }, [narrow, selectResult])
   // The search state is a new object on every render, so the merge watches the catalysts a
   // found symbol carried rather than the state that carried them, and holds between searches.
   const looked = search.status === 'found' ? search.lookup.catalysts : undefined
@@ -819,6 +829,7 @@ export function MarketScreen({
   }, [catalysts, catalystSearch.catalysts, focusedCatalysts, looked])
   const nextCatalysts = nextCatalystsBySymbol(visibleCatalysts, now)
   const toggleSort = (column: typeof SORT_COLUMNS[number]) => {
+    setSearchSort(true)
     setSort((current) => current.key === column.key
       ? { direction: current.direction === 'asc' ? 'desc' : 'asc', key: column.key }
       : { direction: column.defaultDirection, key: column.key })
@@ -954,22 +965,29 @@ export function MarketScreen({
         aria-labelledby={activeWatchlist.kind === 'private' ? 'watch-title' : undefined}
       >
         <header className="section-header">
-          {activeWatchlist.kind === 'private' && (
-            <h2 className="watchlist-title" id="watch-title">{activeWatchlist.name}</h2>
-          )}
+          <h2 className="watchlist-title" id="watch-title">{activeWatchlist.kind === 'public' ? 'Watchlist' : activeWatchlist.name}</h2>
           <div className="watch-search">
             <Search aria-hidden="true" />
             <input
               aria-label="Search all symbols"
               name="symbol-search"
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                setQuery(event.target.value)
+                setSearchSort(false)
+              }}
               placeholder="Search all symbols"
               type="search"
               value={query}
             />
           </div>
-          {narrow && <SortControl onChange={setSort} sort={sort} />}
+          {narrow && <SortControl onChange={(next) => {
+            setSort(next)
+            setSearchSort(true)
+          }} sort={sort} relevance={relevance} />}
         </header>
+        {trimmedQuery && watchTickers.length > 0 && search.status === 'failed' && (
+          <p role="status">Symbol search is unavailable. Showing the loaded list only.</p>
+        )}
         {narrow ? (
           <ol className="watch-list">
             {watchTickers.map((ticker) => (
@@ -982,7 +1000,7 @@ export function MarketScreen({
                 now={now}
                 onCycleMetric={cycleListMetric}
                 onSelectTicker={selectFromList}
-                onTogglePinned={onTogglePinned}
+                onTogglePinned={toggleResultPinned}
                 ticker={ticker}
                 yearCloses={yearCloses.get(ticker.symbol)}
               />
@@ -1006,13 +1024,13 @@ export function MarketScreen({
               <TableHead><span className="sr-only">Pinned</span></TableHead>
               {SORT_COLUMNS.map((column) => (
                 <TableHead
-                  aria-sort={sort.key === column.key ? (sort.direction === 'asc' ? 'ascending' : 'descending') : undefined}
+                  aria-sort={!relevance && sort.key === column.key ? (sort.direction === 'asc' ? 'ascending' : 'descending') : undefined}
                   className={column.key === 'year' ? 'year-cell' : undefined}
                   key={column.key}
                 >
                   <button className="sort-button" onClick={() => toggleSort(column)} type="button">
                     {column.label}
-                    {sort.key === column.key && (sort.direction === 'asc'
+                    {!relevance && sort.key === column.key && (sort.direction === 'asc'
                       ? <ArrowUp aria-hidden="true" />
                       : <ArrowDown aria-hidden="true" />)}
                   </button>
@@ -1028,8 +1046,8 @@ export function MarketScreen({
                 isSelected={ticker.symbol === selected.symbol}
                 key={ticker.symbol}
                 now={now}
-                onSelectTicker={onSelectTicker}
-                onTogglePinned={onTogglePinned}
+                onSelectTicker={selectResult}
+                onTogglePinned={toggleResultPinned}
                 ticker={ticker}
                 yearCloses={yearCloses.get(ticker.symbol)}
               />

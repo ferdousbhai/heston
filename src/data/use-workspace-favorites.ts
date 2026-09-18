@@ -2,7 +2,8 @@ import { useCallback, useMemo, useState } from 'react'
 import { useLiveQuery } from '@tanstack/react-db'
 
 import { toError } from '../domain/failure'
-import { type Preference } from './collections'
+import { retainSymbolLookup, type Preference } from './collections'
+import { type PublicSymbolLookup } from '../domain/market'
 import { requestCatalystRefresh } from './catalyst-refresh'
 import {
   createFavoriteSync,
@@ -32,9 +33,11 @@ export function useWorkspaceFavorites(viewerId: string | undefined, preference: 
     ? 'Favorite synchronization failed.'
     : mutationError
 
-  const togglePinned = useCallback((symbol: string) => {
+  const togglePinned = useCallback((symbol: string, lookup?: PublicSymbolLookup) => {
     setMutationError(undefined)
-    void toggleFavoriteSymbol(symbol, favoriteSync).then((favorited) => {
+    // Retain a catalog result before starring it, so clearing search does not hide it.
+    const retained = lookup ? retainSymbolLookup(lookup) : Promise.resolve()
+    void retained.then(() => toggleFavoriteSymbol(symbol, favoriteSync)).then((favorited) => {
       // Seeding catalyst coverage is a consequence of the favorite, never a condition of
       // it: a research request that fails leaves the favorite itself untouched and quiet.
       if (favorited) void requestCatalystRefresh(symbol).catch(() => undefined)

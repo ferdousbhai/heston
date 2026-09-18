@@ -45,6 +45,7 @@ import { tastytradeApiVersion } from './tastytrade-version'
 import { persistTastytradeMarketSnapshot } from './tastytrade-market-store'
 import {
   catalogTickerInstrument,
+  marketClosesAtFromTastytradeSession,
   marketOpensAtFromTastytradeSession,
   marketStateFromTastytradeSession,
   tickerFromStoredRecords,
@@ -526,16 +527,13 @@ async function loadMarketSnapshot(
   // immediately. A market-open research run retries the honest unresolved rows.
   await refreshMissingTastytradeInstruments(env, symbols)
   const { catalysts, tickers } = await loadMarketFacts(env, symbols)
-  const marketState = marketStateFromTastytradeSession(sessionPayload)
-  const marketOpensAt = marketOpensAtFromTastytradeSession(sessionPayload)
-  await cacheMarketSession(env, marketState, marketOpensAt)
+  const session = await cacheProviderSession(env, sessionPayload)
 
   const syncedAt = new Date().toISOString()
   const snapshot = MarketSnapshotSchema.parse({
     source: 'tastytrade',
     syncedAt,
-    marketState,
-    marketOpensAt,
+    ...session,
     watchlists,
     tickers,
     catalysts,
@@ -573,12 +571,23 @@ async function lookupPublicMarketSymbol(
  * through `loadMarketFacts`, so a symbol anyone has already searched can be served again
  * without a provider call.
  */
+async function catalogSymbolForQuery(
+  env: AppEnv,
+  query: string,
+): Promise<{ candidate: string | undefined; symbol: string | undefined }> {
+  const candidate = symbolCandidate(query)
+  const [match] = await searchInstrumentCatalog(env, candidate ?? query, 1)
+  // A stored fuzzy match cannot establish that an unchecked exact ticker is absent.
+  if (candidate && match?.symbol !== candidate) return { candidate, symbol: undefined }
+  return { candidate, symbol: match?.symbol }
+}
+
 async function lookupStoredMarketSymbol(
   env: AppEnv,
   query: string,
 ): Promise<PublicSymbolLookup | undefined> {
   if (!env.DB) return undefined
-  const symbol = await resolveSearchedSymbol(env, query)
+  const { symbol } = await catalogSymbolForQuery(env, query)
   if (!symbol) return undefined
   const [records, catalog, yearCandles, catalysts] = await Promise.all([
     readStoredMarketRecords(env, [symbol]),
@@ -605,14 +614,13 @@ async function lookupStoredMarketSymbol(
 }
 
 async function resolveSearchedSymbol(env: AppEnv, query: string): Promise<string | undefined> {
-  const [match] = await searchInstrumentCatalog(env, query, 1)
-  if (match) return match.symbol
-  const candidate = symbolCandidate(query)
-  if (!candidate) return undefined
-  // The catalog has never carried this ticker. One broker lookup decides whether it is a
-  // tradable equity at all; an unresolved answer is stored as such and answers nothing.
+  const { candidate, symbol } = await catalogSymbolForQuery(env, query)
+  if (symbol || !candidate) return symbol
+  // Prefixes and company names may match an unrelated ticker. Resolve the requested
+  // ticker before allowing that weaker match to stand in for it.
   await refreshMissingTastytradeInstruments(env, [candidate])
-  return (await searchInstrumentCatalog(env, candidate, 1))[0]?.symbol
+  const { symbol: resolved } = await catalogSymbolForQuery(env, candidate)
+  return resolved
 }
 
 /**
@@ -629,9 +637,7 @@ export async function loadPublicMarketSnapshot(
     loadMarketFacts(env, publicSymbols),
   ])
   const syncedAt = new Date().toISOString()
-  const marketState = marketStateFromTastytradeSession(sessionResult)
-  const marketOpensAt = marketOpensAtFromTastytradeSession(sessionResult)
-  await cacheMarketSession(env, marketState, marketOpensAt)
+  const session = await cacheProviderSession(env, sessionResult)
   const watchlists = [{
     id: 'public-options-watch',
     kind: 'public' as const,
@@ -641,8 +647,7 @@ export async function loadPublicMarketSnapshot(
   return PublicMarketSnapshotSchema.parse({
     source: 'tastytrade',
     syncedAt,
-    marketState,
-    marketOpensAt,
+    ...session,
     watchlists,
     tickers: marketFacts.tickers.map(publicTickerFromTicker),
     catalysts: marketFacts.catalysts,
@@ -650,32 +655,31 @@ export async function loadPublicMarketSnapshot(
   })
 }
 
-/**
- * Caching the session is best-effort: it is a read optimization for later visitors, never a
- * reason to fail the live build that already has the answer in hand.
- */
 /** Session only: overnight `after` becomes `pre` without rebuilding quotes. */
 async function refreshPublicMarketSession(
   env: AppEnv,
   snapshot: PublicMarketSnapshot,
 ): Promise<PublicMarketSnapshot> {
   const payload = await tastyRequest(env, '/market-time/equities/sessions/current')
-  const marketState = marketStateFromTastytradeSession(payload)
-  const marketOpensAt = marketOpensAtFromTastytradeSession(payload)
-  await cacheMarketSession(env, marketState, marketOpensAt)
-  return { ...snapshot, marketOpensAt, marketState }
+  return { ...snapshot, ...await cacheProviderSession(env, payload) }
 }
 
-async function cacheMarketSession(
-  env: AppEnv,
-  marketState: MarketSnapshot['marketState'],
-  marketOpensAt: string | undefined,
-): Promise<void> {
+/**
+ * Caching the session is best-effort: it is a read optimization for later visitors, never a
+ * reason to fail the live build that already has the answer in hand.
+ */
+async function cacheProviderSession(env: AppEnv, payload: JsonValue, now = new Date()) {
+  const session = {
+    marketClosesAt: marketClosesAtFromTastytradeSession(payload, now),
+    marketOpensAt: marketOpensAtFromTastytradeSession(payload, now),
+    marketState: marketStateFromTastytradeSession(payload),
+  }
   try {
-    await persistMarketSession(env, marketState, marketOpensAt)
+    await persistMarketSession(env, session.marketState, session.marketOpensAt, session.marketClosesAt)
   } catch (error) {
     console.error('MarketSessionCacheWriteFailed', error instanceof Error ? error.message : 'UnknownError')
   }
+  return session
 }
 
 /**
@@ -725,6 +729,7 @@ async function loadStoredPublicMarketSnapshot(env: AppEnv): Promise<PublicMarket
     syncedAt: parts.observedAt,
     marketState: parts.session?.state ?? 'unknown',
     marketOpensAt: parts.session?.opensAt,
+    marketClosesAt: parts.session?.closesAt,
     watchlists: [{
       id: 'public-options-watch',
       kind: 'public' as const,
@@ -751,6 +756,7 @@ async function loadStoredMarketSnapshot(env: AppEnv): Promise<MarketSnapshot | u
     syncedAt: parts.observedAt,
     marketState: parts.session?.state ?? 'unknown',
     marketOpensAt: parts.session?.opensAt,
+    marketClosesAt: parts.session?.closesAt,
     watchlists: [{ id: 'watchlist', kind: 'private' as const, name: 'Watchlist', symbols: focusSymbols }],
     tickers: parts.tickers,
     catalysts: parts.catalysts,

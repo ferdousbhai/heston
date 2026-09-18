@@ -5,6 +5,7 @@ import { type MarketState } from '../domain/market'
 
 import { Avatar, AvatarFallback } from '#/components/ui/avatar'
 import { Button } from '#/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '#/components/ui/tooltip'
 import { GoogleSignInButton } from './auth-gate'
 
 // Fine enough that "just now" becomes "1 min ago" while a reader is still looking at it.
@@ -66,10 +67,11 @@ export function useElapsedLabel(at: string | undefined): string | undefined {
 }
 
 /**
- * The session as the provider names it, and how long until the next bell. Outside the open
- * session the wait is what a reader wants from the bar; the age of the data is on the card.
+ * The session as a traffic light: green open, yellow waiting, red closed. What the color
+ * means, the New York clock, and the wait to the next bell live on hover — the bar itself
+ * has no room for that sentence.
  */
-export type MarketStatus = { label: string; tone: 'open' | 'waiting' | 'closed' }
+export type MarketStatus = { detail: string; tone: 'open' | 'waiting' | 'closed' }
 
 const SESSION_NAMES = {
   after: 'After hours',
@@ -79,33 +81,58 @@ const SESSION_NAMES = {
   unknown: 'Closed',
 } satisfies Record<MarketState, string>
 
+export function marketClockLabel(now: number): string {
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'America/New_York',
+    timeZoneName: 'short',
+    weekday: 'short',
+  }).format(new Date(now))
+}
+
+function waitLabel(target: number, now: number): string | undefined {
+  const minutes = Math.ceil((target - now) / 60_000)
+  if (!Number.isFinite(minutes) || minutes <= 0) return undefined
+  const hours = Math.floor(minutes / 60)
+  const remainder = minutes % 60
+  if (hours >= 24) {
+    const days = Math.floor(hours / 24)
+    const rest = hours % 24
+    return rest ? `${days}d ${rest}h` : `${days}d`
+  }
+  if (hours) return remainder ? `${hours}h ${remainder}m` : `${hours}h`
+  return `${remainder}m`
+}
+
 export function marketStatusLabel(
   state: MarketState,
   opensAt: string | undefined,
   now: number,
+  closesAt?: string,
 ): MarketStatus {
   const name = SESSION_NAMES[state]
-  if (state === 'open') return { label: name, tone: 'open' }
-  const tone = state === 'pre' ? 'waiting' : 'closed'
-  const opens = opensAt ? Date.parse(opensAt) : Number.NaN
-  const minutes = Number.isFinite(opens) ? Math.ceil((opens - now) / 60_000) : Number.NaN
-  // A bell already rung, or one the provider never named, leaves nothing honest to count down.
-  if (!Number.isFinite(minutes) || minutes <= 0) return { label: name, tone }
-  const hours = Math.floor(minutes / 60)
-  const remainder = minutes % 60
-  const wait = hours >= 24
-    ? `${Math.floor(hours / 24)}d ${hours % 24}h`
-    : hours ? `${hours}h ${remainder}m` : `${remainder}m`
-  return { label: `${name} · opens in ${wait}`, tone }
+  const tone = state === 'open' ? 'open' : state === 'pre' ? 'waiting' : 'closed'
+  const lines = [name, marketClockLabel(now)]
+  if (state === 'open') {
+    const wait = closesAt ? waitLabel(Date.parse(closesAt), now) : undefined
+    if (wait) lines.push(`Closes in ${wait}`)
+  } else {
+    const wait = opensAt ? waitLabel(Date.parse(opensAt), now) : undefined
+    if (wait) lines.push(`Opens in ${wait}`)
+  }
+  return { detail: lines.join('\n'), tone }
 }
 
 export function TopBar({
   lastUpdatedAt,
+  marketClosesAt,
   marketOpensAt,
   marketState,
   viewerName,
 }: {
   lastUpdatedAt?: string
+  marketClosesAt?: string
   marketOpensAt?: string
   marketState?: MarketState
   viewerName?: string
@@ -115,7 +142,9 @@ export function TopBar({
   // return to the market showed forty-minute-old quotes as "Updated just now".
   const now = useTick(Boolean(lastUpdatedAt) || Boolean(marketState))
   const updated = lastUpdatedAt ? elapsedLabel(lastUpdatedAt, now) : undefined
-  const status = marketState ? marketStatusLabel(marketState, marketOpensAt, now) : undefined
+  const status = marketState
+    ? marketStatusLabel(marketState, marketOpensAt, now, marketClosesAt)
+    : undefined
   return (
     <header className="top-bar">
       <Link aria-label="Spice home" className="brand" to="/">
@@ -123,9 +152,17 @@ export function TopBar({
       </Link>
       <div className="top-actions">
         {status && (
-          <span className="market-status" data-tone={status.tone}>
-            <span aria-hidden="true" /><span>{status.label}</span>
-          </span>
+          <Tooltip>
+            <TooltipTrigger
+              aria-label={status.detail.replaceAll('\n', '. ')}
+              className="market-status"
+              data-tone={status.tone}
+              type="button"
+            />
+            <TooltipContent className="market-status-tip" side="bottom">
+              {status.detail}
+            </TooltipContent>
+          </Tooltip>
         )}
         {/* The age matters while quotes move. Outside the session the bar counts down instead,
             and each reading's own age is stated on the card that shows it. */}

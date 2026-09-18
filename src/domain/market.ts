@@ -249,6 +249,9 @@ export const MarketSnapshotSchema = z.object({
   // Present when the provider named an opening bell for the current session; a reader waiting
   // through pre-market is counting down to this.
   marketOpensAt: z.string().optional(),
+  // Present when the provider named a close that is still ahead, so an open session can count
+  // down to the bell rather than inventing 16:00 ET.
+  marketClosesAt: z.string().optional(),
   watchlists: z.array(WatchlistSchema).length(1),
   tickers: z.array(TickerSchema),
   catalysts: z.array(CatalystSchema),
@@ -264,6 +267,7 @@ export const PublicMarketSnapshotSchema = z.strictObject({
   // Present when the provider named an opening bell for the current session; a reader waiting
   // through pre-market is counting down to this.
   marketOpensAt: z.string().optional(),
+  marketClosesAt: z.string().optional(),
   watchlists: z.array(PublicWatchlistSchema).length(1),
   tickers: z.array(PublicTickerSchema),
   catalysts: z.array(CatalystSchema),

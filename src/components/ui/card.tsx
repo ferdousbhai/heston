@@ -10,7 +10,6 @@ const cardVariants = cva(
       variant: {
         default: "rounded-xl bg-card text-card-foreground ring-1 ring-foreground/10",
         flat: "rounded-none bg-transparent text-foreground ring-0",
-        feature: "rounded-xl bg-card text-card-foreground ring-1 ring-primary/20",
       },
     },
     defaultVariants: { variant: "default" },

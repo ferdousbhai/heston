@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  marketClosesAtFromTastytradeSession,
   marketOpensAtFromTastytradeSession,
   marketStateFromTastytradeSession,
 } from '../src/server/tastytrade-market-normalization'
@@ -24,5 +25,18 @@ describe('the next bell from a tastytrade session', () => {
   it('yields nothing rather than a bell that already rang', () => {
     expect(marketOpensAtFromTastytradeSession({ data: { state: 'Closed', 'open-at': '2026-09-11T13:30:00.000Z' } }, NOW)).toBeUndefined()
     expect(marketOpensAtFromTastytradeSession({ data: { state: 'Closed', 'open-at': 'soon' } }, NOW)).toBeUndefined()
+  })
+})
+
+describe('the current close from a tastytrade session', () => {
+  it('names the close while it is still ahead', () => {
+    const payload = { data: { state: 'Open', 'open-at': '2026-09-11T13:30:00.000Z', 'close-at': '2026-09-11T20:00:00.000Z' } }
+    expect(marketClosesAtFromTastytradeSession(payload, new Date('2026-09-11T14:00:00.000Z'))).toBe('2026-09-11T20:00:00.000Z')
+  })
+
+  it('yields nothing once the close has rung', () => {
+    const payload = { data: { state: 'After-Hours', 'open-at': '2026-09-11T13:30:00.000Z', 'close-at': '2026-09-11T20:00:00.000Z' } }
+    expect(marketClosesAtFromTastytradeSession(payload, NOW)).toBeUndefined()
+    expect(marketClosesAtFromTastytradeSession({ data: { state: 'Open', 'close-at': 'soon' } }, NOW)).toBeUndefined()
   })
 })

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   applyLiveMarketEvent,
   selectTicker,
+  retainSymbolLookup,
   hydrateCollections,
   offlineSnapshotCollection,
   preferenceCollection,
@@ -15,11 +16,37 @@ import {
   tickerCollection,
 } from '../src/data/collections'
 import { audienceMarketView } from '../src/data/use-audience-market'
-import { mostActiveSymbol } from '../src/domain/market'
+import { mostActiveSymbol, publicTickerFromTicker } from '../src/domain/market'
 import { MAX_LIVE_STREAM_SYMBOLS, MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
 import { marketSnapshotFixture } from './fixtures/market'
 
 describe('default market focus', () => {
+  it('admits a discovered ticker before selecting it and restores it offline', async () => {
+    const snapshot = marketSnapshotFixture()
+    await hydrateCollections(snapshot, 'public')
+    const ticker = publicTickerFromTicker({ ...snapshot.tickers[0]!, symbol: 'TQQQ' })
+    await selectTicker('TQQQ', { ticker, catalysts: [], watchlisted: false })
+    expect(tickerCollection.get('TQQQ')?.symbol).toBe('TQQQ')
+    expect(preferenceCollection.get('primary')?.selectedSymbol).toBe('TQQQ')
+    await restoreOfflineSnapshot('public')
+    expect(tickerCollection.get('TQQQ')?.symbol).toBe('TQQQ')
+    expect(preferenceCollection.get('primary')?.selectedSymbol).toBe('TQQQ')
+    await expect(selectTicker('MISSING')).rejects.toThrow('Selected market symbol is unavailable')
+    await expect(selectTicker('META', { ticker, catalysts: [], watchlisted: false })).rejects.toThrow('does not match')
+  })
+
+  it('retains a starred search result without changing an explicit selection or duplicating rows', async () => {
+    const snapshot = marketSnapshotFixture()
+    await hydrateCollections(snapshot, 'public')
+    await selectTicker('META')
+    const lookup = { ticker: publicTickerFromTicker({ ...snapshot.tickers[0]!, symbol: 'TQQQ' }), catalysts: [], watchlisted: false }
+    await Promise.all([retainSymbolLookup(lookup), retainSymbolLookup(lookup)])
+    expect(preferenceCollection.get('primary')?.selectedSymbol).toBe('META')
+    const stored = offlineSnapshotCollection.get('snapshot')!.snapshot
+    expect(stored.tickers.filter((ticker) => ticker.symbol === 'TQQQ')).toHaveLength(1)
+    expect(stored.watchlists[0]!.symbols.filter((symbol) => symbol === 'TQQQ')).toHaveLength(1)
+  })
+
   it('chooses the highest-volume loaded ticker in the active watchlist', () => {
     const tickers = marketSnapshotFixture().tickers
 

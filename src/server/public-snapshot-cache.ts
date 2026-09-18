@@ -29,18 +29,20 @@ export const SNAPSHOT_GENERATED_AT_HEADER = 'X-Snapshot-Generated-At'
 export const SNAPSHOT_CACHED_AT_HEADER = 'X-Snapshot-Cached-At'
 export const SNAPSHOT_MARKET_STATE_HEADER = 'X-Market-State'
 export const SNAPSHOT_MARKET_OPENS_AT_HEADER = 'X-Market-Opens-At'
+export const SNAPSHOT_MARKET_CLOSES_AT_HEADER = 'X-Market-Closes-At'
 
 /** How far before the named open we will ask the provider for session state only. */
 export const PRE_SESSION_REFRESH_MS = 6 * 60 * 60 * 1_000
 
 const PublicSessionStatusSchema = PublicMarketSnapshotSchema.pick({
+  marketClosesAt: true,
   marketOpensAt: true,
   marketState: true,
   source: true,
   syncedAt: true,
 }).strip()
 
-type PublicSessionStatus = Pick<PublicMarketSnapshot, 'marketOpensAt' | 'marketState' | 'source' | 'syncedAt'>
+type PublicSessionStatus = Pick<PublicMarketSnapshot, 'marketClosesAt' | 'marketOpensAt' | 'marketState' | 'source' | 'syncedAt'>
 
 /** Query on `/api/public-snapshot`. The Cache API key discards the query, so this does not shard the retained copy. */
 export function publicSessionStatus(
@@ -52,6 +54,7 @@ export function publicSessionStatus(
     syncedAt: snapshot.syncedAt,
   }
   if (snapshot.marketOpensAt !== undefined) status.marketOpensAt = snapshot.marketOpensAt
+  if (snapshot.marketClosesAt !== undefined) status.marketClosesAt = snapshot.marketClosesAt
   return status
 }
 
@@ -64,7 +67,9 @@ function sessionFromHeaders(response: Response) {
   const syncedAt = response.headers.get(SNAPSHOT_GENERATED_AT_HEADER)
   if (!state.success || !syncedAt) return undefined
   const marketOpensAt = response.headers.get(SNAPSHOT_MARKET_OPENS_AT_HEADER)
+  const marketClosesAt = response.headers.get(SNAPSHOT_MARKET_CLOSES_AT_HEADER)
   return publicSessionStatus({
+    marketClosesAt: marketClosesAt || undefined,
     marketOpensAt: marketOpensAt || undefined,
     marketState: state.data,
     source: 'tastytrade',
@@ -104,6 +109,7 @@ function notModified(request: Request, stored: Response): Response | undefined {
     SNAPSHOT_GENERATED_AT_HEADER,
     SNAPSHOT_MARKET_STATE_HEADER,
     SNAPSHOT_MARKET_OPENS_AT_HEADER,
+    SNAPSHOT_MARKET_CLOSES_AT_HEADER,
   ]) {
     const value = stored.headers.get(name)
     if (value) headers.set(name, value)
@@ -239,6 +245,7 @@ async function retain(
     [SNAPSHOT_MARKET_STATE_HEADER]: snapshot.marketState,
   })
   if (snapshot.marketOpensAt !== undefined) headers.set(SNAPSHOT_MARKET_OPENS_AT_HEADER, snapshot.marketOpensAt)
+  if (snapshot.marketClosesAt !== undefined) headers.set(SNAPSHOT_MARKET_CLOSES_AT_HEADER, snapshot.marketClosesAt)
   const response = jsonPublic(slimPublicSnapshot(snapshot), { headers })
   const stored = response.clone()
   // This header governs only the distinct Cache API copy. Visitor cache policy is restored

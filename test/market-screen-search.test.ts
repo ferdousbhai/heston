@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { MarketScreen } from '../src/components/market-screen'
+import { publicTickerFromTicker } from '../src/domain/market'
 import { marketSnapshotFixture } from './fixtures/market'
 
 afterEach(() => {
@@ -12,7 +13,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function renderMarket(): void {
+function renderMarket(overrides: Partial<Parameters<typeof MarketScreen>[0]> = {}): void {
   const snapshot = marketSnapshotFixture()
   render(createElement(MarketScreen, {
     activeWatchlist: { ...snapshot.watchlists[0]!, kind: 'public' as const },
@@ -24,10 +25,73 @@ function renderMarket(): void {
     dailyRecommendations: snapshot.recommendations,
     selected: snapshot.tickers[0]!,
     tickers: snapshot.tickers,
+    ...overrides,
   }))
 }
 
 describe('searching beyond the loaded watchlist', () => {
+  it('keeps exact matches first within favorites instead of reordering search by volume', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ catalysts: [], evidence: [], series: [], ran: false })))
+    const meta = marketSnapshotFixture().tickers.find((ticker) => ticker.symbol === 'META')!
+    const tickers = [
+      { ...meta, symbol: 'MET', name: 'Metals Company', volume: 1_000 },
+      { ...meta, volume: 10 },
+      { ...meta, symbol: 'METU', name: 'Meta ETF', volume: 100 },
+    ]
+    renderMarket({
+      tickers,
+      pinnedSymbols: ['META', 'MET'],
+      activeWatchlist: { id: 'watchlist', kind: 'public', name: 'Watchlist', symbols: tickers.map((ticker) => ticker.symbol) },
+    })
+    const rowSymbols = () => screen.getAllByRole('button', { name: /^(Unpin|Pin) / })
+      .map((button) => button.getAttribute('aria-label'))
+
+    expect(rowSymbols()).toEqual(['Unpin MET', 'Unpin META', 'Pin METU'])
+    fireEvent.change(screen.getByLabelText('Search all symbols'), { target: { value: ' meta ' } })
+    expect(rowSymbols()).toEqual(['Unpin META', 'Unpin MET', 'Pin METU'])
+    fireEvent.click(screen.getByRole('button', { name: 'Volume' }))
+    expect(rowSymbols()).toEqual(['Unpin META', 'Unpin MET', 'Pin METU'])
+    fireEvent.click(screen.getByRole('button', { name: 'Volume' }))
+    expect(rowSymbols()).toEqual(['Unpin MET', 'Unpin META', 'Pin METU'])
+    fireEvent.change(screen.getByLabelText('Search all symbols'), { target: { value: '$META' } })
+    expect(rowSymbols()).toEqual(['Unpin META', 'Unpin MET', 'Pin METU'])
+    fireEvent.change(screen.getByLabelText('Search all symbols'), { target: { value: '' } })
+    expect(rowSymbols()).toEqual(['Unpin MET', 'Unpin META', 'Pin METU'])
+  })
+
+  it.each(['META', 'F'])('looks up %s despite fuzzy loaded matches and passes its data to selection', async (symbol) => {
+    const base = marketSnapshotFixture().tickers[0]!
+    const lookup = { catalysts: [], ticker: publicTickerFromTicker({ ...base, symbol, name: `${symbol} Company` }), watchlisted: true }
+    const requests: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).startsWith('/api/public-symbol-search')) {
+        requests.push(String(input))
+        return Response.json(lookup)
+      }
+      return Response.json({ catalysts: [], evidence: [], series: [], ran: false })
+    }))
+    const onSelectTicker = vi.fn()
+    const onTogglePinned = vi.fn()
+    renderMarket({ tickers: [{ ...base, symbol: 'OTHER', name: `${symbol} Fund` }], onSelectTicker, onTogglePinned })
+    fireEvent.change(screen.getByLabelText('Search all symbols'), { target: { value: symbol } })
+    await waitFor(() => expect(screen.getByRole('button', { name: `Pin ${symbol}` })).toBeTruthy())
+    expect(requests).toEqual([`/api/public-symbol-search?q=${symbol}`])
+    expect(screen.getByRole('button', { name: 'Pin OTHER' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(`${symbol}, ${symbol} Company`) }))
+    expect(onSelectTicker).toHaveBeenCalledWith(symbol, lookup)
+    fireEvent.click(screen.getByRole('button', { name: `Pin ${symbol}` }))
+    expect(onTogglePinned).toHaveBeenCalledWith(symbol, lookup)
+  })
+
+  it('reports a failed catalog lookup even when local fuzzy matches remain visible', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 503 })))
+    const base = marketSnapshotFixture().tickers[0]!
+    renderMarket({ tickers: [{ ...base, symbol: 'MET', name: 'Metals Company' }] })
+    fireEvent.change(screen.getByLabelText('Search all symbols'), { target: { value: 'META' } })
+    await waitFor(() => expect(screen.getByText('Symbol search is unavailable. Showing the loaded list only.')).toBeTruthy())
+    expect(screen.getByRole('button', { name: 'Pin MET' })).toBeTruthy()
+  })
+
   it('renders the symbol the catalog resolved, with the pin the reader can favorite it by', async () => {
     const lookupRequests: string[] = []
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {

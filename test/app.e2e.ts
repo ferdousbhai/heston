@@ -88,6 +88,7 @@ test('unauthenticated visitors can read market data but connecting an agent need
   publicSnapshot.tickers = publicSnapshot.tickers
     .filter((ticker) => publicSnapshot.watchlists[0]!.symbols.includes(ticker.symbol))
     .map((ticker) => ({ ...ticker, sparkline: ticker.sparkline.slice(-2) }))
+  publicSnapshot.marketClosesAt = new Date(Date.now() + 6 * 60 * 60 * 1_000).toISOString()
   await page.route('**/api/viewer', (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({ user: null }),
@@ -112,6 +113,9 @@ test('unauthenticated visitors can read market data but connecting an agent need
   })
   await page.goto('/')
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible()
+  await expect(page.locator('.market-status')).toBeVisible()
+  await expect(page.locator('.market-status')).toHaveAttribute('aria-label', /Open/)
+  await expect(page.locator('.market-status')).toHaveAttribute('aria-label', /Closes in/)
   await expect(page.getByText('Premium looks')).toHaveCount(0)
   await expect(page.locator('.intent-label')).toHaveCount(0)
   await expect(page.locator('.watch-list [data-slot="badge"]')).toHaveCount(0)
@@ -123,7 +127,7 @@ test('unauthenticated visitors can read market data but connecting an agent need
   expect(publicSnapshotRequests).toBeGreaterThan(0)
   await expect(page.getByRole('button', { name: 'Manage Options Watch' })).toHaveCount(0)
   await expect(page.getByRole('combobox', { name: 'Watchlist' })).toHaveCount(0)
-  await expect(page.locator('.watchlist-title')).toHaveCount(0)
+  await expect(page.locator('.watchlist-title')).toHaveText('Watchlist')
   await expect(page.getByRole('region', { name: 'Options Watch' })).toBeVisible()
   // A phone spends no row on an empty rail; it appears once something is pinned.
   await expect(page.getByRole('region', { name: 'Upcoming catalysts' })).toHaveCount(0)
@@ -335,7 +339,8 @@ test('mobile market, recommendations, search, sorting, and connect flows remain 
   // and finally the searched symbol as it is favorited. The server's own window decides
   // which of these actually buys a search.
   await expect.poll(() => catalystRefreshes).toEqual(['NVDA', 'TSLA', 'INTC', 'INTC', 'TQQQ'])
-  expect(symbolSearches).toEqual(['zzzz', 'TQQQ'])
+  expect(symbolSearches).toEqual(expect.arrayContaining(['ZZZZ', 'TQQQ']))
+  expect(symbolSearches.filter((query) => query === 'TQQQ')).toHaveLength(1)
   await search.fill('')
 
   const rows = page.locator('.watch-list .watch-row')
@@ -343,10 +348,11 @@ test('mobile market, recommendations, search, sorting, and connect flows remain 
   await sortBy.selectOption('premium')
   await expect(rows.nth(0)).toContainText('TSLA')
   await expect(rows.nth(1)).toContainText('NVDA')
-  await expect(rows.nth(2)).toContainText('BE')
+  await expect(rows.nth(2)).toContainText('TQQQ')
   await page.getByRole('button', { name: 'Sort ascending' }).click()
-  await expect(rows.nth(0)).toContainText('NVDA')
-  await expect(rows.nth(2)).toContainText('SPY')
+  await expect(rows.nth(0)).toContainText('TQQQ')
+  await expect(rows.nth(1)).toContainText('NVDA')
+  await expect(rows.nth(3)).toContainText('SPY')
 
   await sortBy.selectOption('price')
   await expect(rows.nth(0)).toContainText('TSLA')
@@ -354,6 +360,13 @@ test('mobile market, recommendations, search, sorting, and connect flows remain 
   await expect(beRow.locator('.watch-row-quote')).toContainText('$43.16')
   await expect(beRow.locator('.watch-pill')).toHaveText('+3%')
   await expect(page.locator('.watch-list .session-sparkline')).toHaveCount(11)
+  // The discovered favorite survives clearing search, and opens its own details.
+  await searchedRow.click()
+  await expect(selectedSymbol).toHaveText('TQQQ')
+  await closeDetail(page)
+  await page.getByRole('button', { name: /INTC, Intel, Cheap/ }).click()
+  await expect(selectedSymbol).toHaveText('INTC')
+  await closeDetail(page)
 
   await page.getByRole('tab', { name: 'Recommendations' }).click()
   await expect(page.getByRole('tab', { name: 'Recommendations' })).toHaveAttribute('aria-selected', 'true')

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLiveQuery } from '@tanstack/react-db'
 
 import { toError } from '../domain/failure'
-import { type MarketSnapshot, type Ticker } from '../domain/market'
+import { type MarketSnapshot, type PublicSymbolLookup, type Ticker } from '../domain/market'
 import { DeploymentMismatchError, reloadForDeployment } from './deployment'
 import {
   offlineSnapshotCollection,
@@ -153,9 +153,9 @@ export function useAudienceMarket(audience: SnapshotAudience | undefined) {
     }
   }, [audience, synchronizeWithWarning])
 
-  const chooseSymbol = useCallback(async (symbol: string): Promise<void> => {
+  const chooseSymbol = useCallback(async (symbol: string, lookup?: PublicSymbolLookup): Promise<void> => {
     try {
-      await selectTicker(symbol)
+      await selectTicker(symbol, lookup)
     } catch (cause: unknown) {
       setWarning(toError(cause)?.message ?? 'The market selection could not be saved')
     }

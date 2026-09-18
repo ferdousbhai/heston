@@ -147,6 +147,8 @@ describe('public symbol lookup', () => {
       TASTYTRADE_REFRESH_TOKEN: secret,
     }
 
+    await seedCatalog(env, [{ symbol: 'TQQQX', description: 'TQQQ Fund' }])
+    await expect(brokerApi().lookupStoredMarketSymbol(env, 'TQQQ')).resolves.toBeUndefined()
     const lookup = await brokerApi().lookupPublicMarketSymbol(env, 'TQQQ')
 
     expect(lookup?.ticker).toMatchObject({ name: 'TQQQ Corporation', price: 100, symbol: 'TQQQ' })
@@ -157,6 +159,34 @@ describe('public symbol lookup', () => {
     expect(JSON.parse(String(store.sqlite.prepare(
       `SELECT payload_json FROM public_market_universe WHERE id = 'primary'`,
     ).get()?.payload_json)).symbols).toContain('TQQQ')
+    store.close()
+  })
+
+  it('does not admit a catalog prefix when the exact ticker is missing at the broker', async () => {
+    const store = await seededStore()
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input))
+      if (url.pathname.endsWith('/oauth/token')) {
+        return Response.json({ access_token: 'public-read-token', expires_in: 900 })
+      }
+      if (url.pathname.endsWith('/instruments/equities')) {
+        return Response.json({ data: { items: [] } })
+      }
+      return new Response('', { status: 404 })
+    }))
+    const { brokerApi } = await import('../src/server/tastytrade')
+    const secret: SecretsStoreSecret = { get: async () => 'secret' }
+    const env = {
+      BROKER_GATE: stubBrokerGate().namespace,
+      DB: store.database,
+      TASTYTRADE_CLIENT_SECRET: secret,
+      TASTYTRADE_REFRESH_TOKEN: secret,
+    }
+
+    await seedCatalog(env, [{ symbol: 'TQQQX', description: 'TQQQ Fund' }])
+    await expect(brokerApi().lookupPublicMarketSymbol(env, 'TQQQ')).resolves.toBeUndefined()
+    const items = await readInternalWatchlist(env)
+    expect(items.some((item) => item.symbol === 'TQQQ' || item.symbol === 'TQQQX')).toBe(false)
     store.close()
   })
 

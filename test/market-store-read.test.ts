@@ -172,16 +172,24 @@ describe('stored market read model', () => {
     const env = { DB: store.database }
     await expect(readStoredMarketSession(env)).resolves.toBeUndefined()
 
-    await persistMarketSession(env, 'pre', '2026-08-28T13:30:00.000Z', new Date('2026-08-28T11:00:00.000Z'))
+    await persistMarketSession(
+      env,
+      'pre',
+      '2026-08-28T13:30:00.000Z',
+      '2026-08-28T20:00:00.000Z',
+      new Date('2026-08-28T11:00:00.000Z'),
+    )
     await expect(readStoredMarketSession(env)).resolves.toEqual({
+      closesAt: '2026-08-28T20:00:00.000Z',
       observedAt: '2026-08-28T11:00:00.000Z',
       opensAt: '2026-08-28T13:30:00.000Z',
       state: 'pre',
     })
 
     // A session with no opening bell to report leaves the countdown with nothing to count.
-    await persistMarketSession(env, 'closed', undefined, new Date('2026-08-28T20:01:00.000Z'))
+    await persistMarketSession(env, 'closed', undefined, undefined, new Date('2026-08-28T20:01:00.000Z'))
     await expect(readStoredMarketSession(env)).resolves.toEqual({
+      closesAt: undefined,
       observedAt: '2026-08-28T20:01:00.000Z',
       opensAt: undefined,
       state: 'closed',

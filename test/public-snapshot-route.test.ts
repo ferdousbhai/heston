@@ -15,6 +15,7 @@ import {
   sessionRefreshDue,
   SNAPSHOT_CACHED_AT_HEADER,
   SNAPSHOT_GENERATED_AT_HEADER,
+  SNAPSHOT_MARKET_CLOSES_AT_HEADER,
   SNAPSHOT_MARKET_OPENS_AT_HEADER,
   SNAPSHOT_MARKET_STATE_HEADER,
   snapshotEtag,
@@ -154,7 +155,11 @@ describe('public snapshot route cache', () => {
   })
 
   it('answers 304 when the observation has not changed', async () => {
-    const snapshot = storedPublicSnapshot(30_000, { marketState: 'open' })
+    const snapshot = storedPublicSnapshot(30_000, {
+      marketClosesAt: '2026-08-28T20:00:00.000Z',
+      marketOpensAt: '2026-08-28T13:30:00.000Z',
+      marketState: 'open',
+    })
     const etag = snapshotEtag(snapshot.syncedAt)
     const cache = new MemoryPublicSnapshotCache(Response.json(snapshot, {
       headers: {
@@ -163,6 +168,8 @@ describe('public snapshot route cache', () => {
         [SNAPSHOT_CACHED_AT_HEADER]: new Date(NOW).toISOString(),
         [SNAPSHOT_GENERATED_AT_HEADER]: snapshot.syncedAt,
         [SNAPSHOT_MARKET_STATE_HEADER]: 'open',
+        [SNAPSHOT_MARKET_OPENS_AT_HEADER]: '2026-08-28T13:30:00.000Z',
+        [SNAPSHOT_MARKET_CLOSES_AT_HEADER]: '2026-08-28T20:00:00.000Z',
       },
     }))
     const response = await servePublicSnapshot(
@@ -174,6 +181,8 @@ describe('public snapshot route cache', () => {
     )
     expect(response.status).toBe(304)
     expect(await response.text()).toBe('')
+    expect(response.headers.get(SNAPSHOT_MARKET_OPENS_AT_HEADER)).toBe('2026-08-28T13:30:00.000Z')
+    expect(response.headers.get(SNAPSHOT_MARKET_CLOSES_AT_HEADER)).toBe('2026-08-28T20:00:00.000Z')
     expect(cache.putCalls).toBe(0)
   })
 

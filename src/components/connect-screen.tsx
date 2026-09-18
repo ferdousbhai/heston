@@ -265,7 +265,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         <h2>What the agent cannot do</h2>
         <p>
           Orders run the same server-side guards regardless of what any agent recommends: the exact
-          contract is resolved from the live chain, the portfolio drawdown budget and market checks
+          contract is resolved from the live chain, the portfolio and market checks
           run against fresh broker state, and the broker&apos;s own dry-run must come back clean. A
           refusal is final. Your agent will ask you before placing anything, but that prompt belongs
           to your agent, not to Spice — the guards are what actually bound the risk.

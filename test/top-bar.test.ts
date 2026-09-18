@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { elapsedLabel, marketStatusLabel } from '../src/components/top-bar'
+import { elapsedLabel, marketClockLabel, marketStatusLabel } from '../src/components/top-bar'
 
 const NOW = Date.parse('2026-09-01T14:00:00.000Z')
 const ago = (ms: number) => new Date(NOW - ms).toISOString()
@@ -28,25 +28,57 @@ describe('last updated label', () => {
 
 describe('market status', () => {
   const opensAt = '2026-09-01T13:30:00.000Z'
+  const closesAt = '2026-09-01T20:00:00.000Z'
+  const clock = (instant: number) => marketClockLabel(instant)
 
-  it('names the session and counts down to the next bell outside the open one', () => {
-    expect(marketStatusLabel('open', opensAt, NOW)).toEqual({ label: 'Open', tone: 'open' })
-    expect(marketStatusLabel('pre', opensAt, Date.parse('2026-09-01T11:00:00.000Z')))
-      .toEqual({ label: 'Pre-market · opens in 2h 30m', tone: 'waiting' })
-    expect(marketStatusLabel('pre', opensAt, Date.parse('2026-09-01T13:12:00.000Z')))
-      .toEqual({ label: 'Pre-market · opens in 18m', tone: 'waiting' })
-    expect(marketStatusLabel('after', '2026-09-02T13:30:00.000Z', Date.parse('2026-09-01T21:00:00.000Z')))
-      .toEqual({ label: 'After hours · opens in 16h 30m', tone: 'closed' })
-    // A weekend counts in days, so the wait reads at the scale it is.
-    expect(marketStatusLabel('closed', '2026-09-08T13:30:00.000Z', Date.parse('2026-09-05T15:00:00.000Z')))
-      .toEqual({ label: 'Closed · opens in 2d 22h', tone: 'closed' })
-    expect(marketStatusLabel('unknown', undefined, NOW)).toEqual({ label: 'Closed', tone: 'closed' })
+  it('names the session, the New York clock, and the wait to the next bell', () => {
+    expect(marketStatusLabel('open', opensAt, NOW, closesAt)).toEqual({
+      detail: `Open\n${clock(NOW)}\nCloses in 6h`,
+      tone: 'open',
+    })
+    const pre = Date.parse('2026-09-01T11:00:00.000Z')
+    expect(marketStatusLabel('pre', opensAt, pre)).toEqual({
+      detail: `Pre-market\n${clock(pre)}\nOpens in 2h 30m`,
+      tone: 'waiting',
+    })
+    const soon = Date.parse('2026-09-01T13:12:00.000Z')
+    expect(marketStatusLabel('pre', opensAt, soon)).toEqual({
+      detail: `Pre-market\n${clock(soon)}\nOpens in 18m`,
+      tone: 'waiting',
+    })
+    const evening = Date.parse('2026-09-01T21:00:00.000Z')
+    expect(marketStatusLabel('after', '2026-09-02T13:30:00.000Z', evening)).toEqual({
+      detail: `After hours\n${clock(evening)}\nOpens in 16h 30m`,
+      tone: 'closed',
+    })
+    const weekend = Date.parse('2026-09-05T15:00:00.000Z')
+    expect(marketStatusLabel('closed', '2026-09-08T13:30:00.000Z', weekend)).toEqual({
+      detail: `Closed\n${clock(weekend)}\nOpens in 2d 22h`,
+      tone: 'closed',
+    })
+    expect(marketStatusLabel('unknown', undefined, NOW)).toEqual({
+      detail: `Closed\n${clock(NOW)}`,
+      tone: 'closed',
+    })
   })
 
   it('refuses to count down to a bell it cannot name or that already rang', () => {
-    expect(marketStatusLabel('pre', undefined, NOW)).toEqual({ label: 'Pre-market', tone: 'waiting' })
-    expect(marketStatusLabel('pre', opensAt, Date.parse('2026-09-01T13:31:00.000Z')))
-      .toEqual({ label: 'Pre-market', tone: 'waiting' })
-    expect(marketStatusLabel('closed', undefined, NOW)).toEqual({ label: 'Closed', tone: 'closed' })
+    expect(marketStatusLabel('pre', undefined, NOW)).toEqual({
+      detail: `Pre-market\n${clock(NOW)}`,
+      tone: 'waiting',
+    })
+    const afterBell = Date.parse('2026-09-01T13:31:00.000Z')
+    expect(marketStatusLabel('pre', opensAt, afterBell)).toEqual({
+      detail: `Pre-market\n${clock(afterBell)}`,
+      tone: 'waiting',
+    })
+    expect(marketStatusLabel('closed', undefined, NOW)).toEqual({
+      detail: `Closed\n${clock(NOW)}`,
+      tone: 'closed',
+    })
+    expect(marketStatusLabel('open', opensAt, NOW, '2026-09-01T13:00:00.000Z')).toEqual({
+      detail: `Open\n${clock(NOW)}`,
+      tone: 'open',
+    })
   })
 })

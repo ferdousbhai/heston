@@ -1,5 +1,26 @@
 export function alreadyPublishedToday(briefId: string | undefined, today: string): boolean
+export interface GrokUsageLimit {
+  label?: string
+  percent?: number
+  resetsAt?: string
+}
+export interface GrokUsageRecord {
+  limits?: GrokUsageLimit[]
+  updatedAt?: string
+}
+export function grokLimitRemaining(record: GrokUsageRecord | null | undefined, now?: Date): number | undefined
+export function grokUsageRecordPath(): string
 export function marketDate(now?: Date): string
+export function readGrokLimitRemaining(recordPath?: string, now?: Date): Promise<number | undefined>
+export function runResearchAgent(
+  prompt: string,
+  token: string,
+  runners?: {
+    grok: (prompt: string, token: string) => Promise<void>
+    muse: (prompt: string, token: string) => Promise<void>
+  },
+  skipGrok?: boolean,
+): Promise<'grok' | 'muse'>
 export function shouldRunForMarket(
   market: { opensAt?: string; state: string },
   now?: Date,

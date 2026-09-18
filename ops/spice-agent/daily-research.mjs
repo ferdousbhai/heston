@@ -5,7 +5,7 @@
  * The Worker never produces a brief. If this laptop is asleep, the site keeps the last one.
  */
 import { execFile, spawn } from 'node:child_process'
-import { access, copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { access, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -23,7 +23,18 @@ const MCP = process.env.SPICE_MCP_URL ?? 'https://tryspice.xyz/mcp'
 const SNAPSHOT = process.env.SPICE_PUBLIC_SNAPSHOT_URL
   ?? 'https://tryspice.xyz/api/public-snapshot?fields=session'
 const GROK = process.env.GROK_BIN ?? 'grok'
+const MUSE = process.env.MUSE_BIN ?? 'muse'
 const MAX_TURNS = Number(process.env.SPICE_DAILY_RESEARCH_MAX_TURNS ?? 80)
+/**
+ * Below this fraction of Grok's binding window left, the run goes to Muse instead.
+ * A product policy, not a measurement: Grok is the primary runner and Muse the spare.
+ */
+const GROK_MIN_FRACTION = Number(process.env.SPICE_DAILY_RESEARCH_GROK_MIN_FRACTION ?? 0.05)
+/**
+ * The tray's collectors refresh on the order of minutes; a record older than this
+ * means that pipeline is down, so its limits are unknown rather than zero.
+ */
+const LIMIT_RECORD_MAX_AGE_MS = 60 * 60 * 1_000
 
 /** Live session, or catch-up after today's named open has already rung. Holiday/weekend: skip. */
 export function shouldRunForMarket({ state, opensAt }, now = new Date()) {
@@ -60,14 +71,77 @@ Launcher facts (not publishable evidence; still call \`read_daily_recommendation
 - Standing brief id: ${briefId ?? 'none'}`
 }
 
+const UsageRecordSchema = z.object({
+  limits: z.array(z.object({
+    percent: z.number(),
+    resetsAt: z.string().optional(),
+  })).optional(),
+  updatedAt: z.string().optional(),
+})
+
+export function grokUsageRecordPath() {
+  const stateHome = process.env.XDG_STATE_HOME ?? join(homedir(), '.local', 'state')
+  return join(stateHome, 'omarchy', 'agents', 'usage', 'grok.json')
+}
+
+/**
+ * Fraction of Grok's binding window left, on the tray's own convention: each limit's
+ * `percent` is fullness (fraction consumed), and the fullest open window binds, since
+ * that is what stops the next prompt. Unknown when no usable window remains.
+ */
+function remainingFromUsage(data, now) {
+  let fullest
+  for (const entry of data.limits ?? []) {
+    if (!Number.isFinite(entry.percent) || entry.percent < 0) continue
+    if (entry.resetsAt) {
+      const reset = Date.parse(entry.resetsAt)
+      if (Number.isFinite(reset) && reset <= now.getTime()) continue
+    }
+    fullest = fullest === undefined ? entry.percent : Math.max(fullest, entry.percent)
+  }
+  if (fullest === undefined) return undefined
+  return Math.max(0, 1 - Math.min(fullest, 1))
+}
+
+export function grokLimitRemaining(record, now = new Date()) {
+  const parsed = UsageRecordSchema.safeParse(record)
+  if (!parsed.success) return undefined
+  return remainingFromUsage(parsed.data, now)
+}
+
+/** The tray's Grok limits, or undefined when the record is missing, stale, or invalid. */
+export async function readGrokLimitRemaining(recordPath = grokUsageRecordPath(), now = new Date()) {
+  let raw
+  try {
+    raw = await readFile(recordPath, 'utf8')
+  } catch {
+    return undefined
+  }
+  let record
+  try {
+    record = JSON.parse(raw)
+  } catch {
+    return undefined
+  }
+  const parsed = UsageRecordSchema.safeParse(record)
+  if (!parsed.success) return undefined
+  const updatedAt = Date.parse(parsed.data.updatedAt ?? '')
+  if (Number.isFinite(updatedAt) && now.getTime() - updatedAt > LIMIT_RECORD_MAX_AGE_MS) return undefined
+  return remainingFromUsage(parsed.data, now)
+}
+
+async function requireReadable(path, error) {
+  try {
+    await access(path)
+  } catch {
+    throw new Error(error)
+  }
+  return path
+}
+
 async function requireGrokAuth() {
   const home = process.env.GROK_HOME ?? join(homedir(), '.grok')
-  try {
-    await access(join(home, 'auth.json'))
-  } catch {
-    throw new Error('SpiceDailyResearch:grok-auth-missing')
-  }
-  return join(home, 'auth.json')
+  return requireReadable(join(home, 'auth.json'), 'SpiceDailyResearch:grok-auth-missing')
 }
 
 async function spiceToken() {
@@ -148,39 +222,106 @@ export async function readMarketState() {
   return { opensAt: parsed.data.marketOpensAt, state: parsed.data.marketState }
 }
 
-async function grokRun(prompt, token) {
+function waitForExit(child, name) {
+  return new Promise((resolve, reject) => {
+    child.on('error', reject)
+    child.on('exit', (exitCode, signal) => {
+      if (signal) reject(new Error(`SpiceDailyResearch:${name}-signal:${signal}`))
+      else resolve(exitCode ?? 1)
+    })
+  })
+}
+
+async function runIsolated(name, setup) {
   const directory = await mkdtemp(join(tmpdir(), 'spice-daily-research-'))
-  const promptPath = join(directory, 'prompt.txt')
-  const grokHome = join(directory, 'grok-home')
-  await mkdir(grokHome)
-  await copyFile(await requireGrokAuth(), join(grokHome, 'auth.json'))
-  await writeFile(
-    join(grokHome, 'config.toml'),
-    `[mcp_servers.spice]\nurl = "${MCP}"\ntype = "http"\nbearer_token_env_var = "SPICE_MCP_TOKEN"\n`,
-  )
-  await writeFile(promptPath, prompt)
   try {
-    const child = spawn(GROK, [
-      '--prompt-file', promptPath,
-      '--always-approve',
-      '--max-turns', String(MAX_TURNS),
-      '--output-format', 'plain',
-      '--disallowed-tools', 'Agent',
-    ], {
-      env: { ...process.env, GROK_HOME: grokHome, SPICE_MCP_TOKEN: token },
+    const launched = await setup(directory)
+    const child = spawn(launched.bin, launched.args, {
+      env: launched.env,
       stdio: ['ignore', 'inherit', 'inherit'],
     })
-    const code = await new Promise((resolve, reject) => {
-      child.on('error', reject)
-      child.on('exit', (exitCode, signal) => {
-        if (signal) reject(new Error(`SpiceDailyResearch:grok-signal:${signal}`))
-        else resolve(exitCode ?? 1)
-      })
-    })
-    if (code !== 0) throw new Error(`SpiceDailyResearch:grok-exit:${code}`)
+    const code = await waitForExit(child, name)
+    if (code !== 0) throw new Error(`SpiceDailyResearch:${name}-exit:${code}`)
   } finally {
     await rm(directory, { force: true, recursive: true })
   }
+}
+
+async function grokRun(prompt, token) {
+  await runIsolated('grok', async (directory) => {
+    const promptPath = join(directory, 'prompt.txt')
+    const grokHome = join(directory, 'grok-home')
+    await mkdir(grokHome)
+    await copyFile(await requireGrokAuth(), join(grokHome, 'auth.json'))
+    await writeFile(
+      join(grokHome, 'config.toml'),
+      `[mcp_servers.spice]\nurl = "${MCP}"\ntype = "http"\nbearer_token_env_var = "SPICE_MCP_TOKEN"\n`,
+    )
+    await writeFile(promptPath, prompt)
+    return {
+      args: [
+        '--prompt-file', promptPath,
+        '--always-approve',
+        '--max-turns', String(MAX_TURNS),
+        '--output-format', 'plain',
+        '--disallowed-tools', 'Agent',
+      ],
+      bin: GROK,
+      env: { ...process.env, GROK_HOME: grokHome, SPICE_MCP_TOKEN: token },
+    }
+  })
+}
+
+function museConfigHome() {
+  return process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config')
+}
+
+async function museRun(prompt, token) {
+  await runIsolated('muse', async (directory) => {
+    const promptPath = join(directory, 'prompt.txt')
+    // An isolated config home, mirroring the Grok runner: the token reaches only this
+    // run's settings file, and nothing is written to the member's real Muse config.
+    const configHome = join(directory, 'muse-home')
+    await mkdir(join(configHome, 'muse'), { recursive: true })
+    await requireReadable(join(museConfigHome(), 'muse', 'auth.json'), 'SpiceDailyResearch:muse-auth-missing')
+    await copyFile(join(museConfigHome(), 'muse', 'auth.json'), join(configHome, 'muse', 'auth.json'))
+    // Direct URL plus the request token, and no broker header: same asymmetry as the
+    // Grok runner, so account tools refuse structurally on an unattended run.
+    await writeFile(
+      join(configHome, 'muse', 'settings.json'),
+      JSON.stringify({
+        mcpServers: { spice: { headers: { Authorization: `Bearer ${token}` }, url: MCP } },
+        schema_version: 1,
+      }),
+      { mode: 0o600 },
+    )
+    await writeFile(promptPath, prompt)
+    return {
+      args: ['exec', '--yolo', '--prompt-file', promptPath, '--max-model-steps', String(MAX_TURNS)],
+      bin: MUSE,
+      env: { ...process.env, XDG_CONFIG_HOME: configHome },
+    }
+  })
+}
+
+/**
+ * Grok is the primary runner; Muse is the spare. A Grok failure never fails the
+ * run while the spare is still untried — the brief matters more than which agent
+ * wrote it.
+ */
+export async function runResearchAgent(prompt, token, runners = { grok: grokRun, muse: museRun }, skipGrok = false) {
+  if (!skipGrok) {
+    try {
+      await runners.grok(prompt, token)
+      return 'grok'
+    } catch (error) {
+      process.stderr.write(
+        `SpiceDailyResearch:grok-unavailable:${error instanceof Error ? error.message : 'unknown'}\n`,
+      )
+    }
+  }
+  await runners.muse(prompt, token)
+  return 'muse'
 }
 
 async function main() {
@@ -227,7 +368,14 @@ async function main() {
 
 ${unattendedPromptSuffix({ briefId, market, today })}`
   process.stdout.write(`SpiceDailyResearch: running for ${today} (standing ${briefId ?? 'none'})\n`)
-  await grokRun(prompt, token)
+  const remaining = await readGrokLimitRemaining()
+  const skipGrok = remaining !== undefined && remaining < GROK_MIN_FRACTION
+  if (skipGrok) {
+    process.stdout.write(
+      `SpiceDailyResearch: grok ${(remaining * 100).toFixed(1)}% left, running on muse\n`,
+    )
+  }
+  await runResearchAgent(prompt, token, undefined, skipGrok)
 }
 
 if (resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {

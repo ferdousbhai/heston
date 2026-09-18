@@ -148,19 +148,6 @@ function DrawerContent({
   )
 }
 
-function DrawerHeader({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="drawer-header"
-      className={cn(
-        "flex shrink-0 flex-col gap-0.5 p-4 pb-0 group-data-[swipe-axis=y]/drawer-popup:text-center md:gap-0.5 md:text-left",
-        className
-      )}
-      {...props}
-    />
-  )
-}
-
 function DrawerTitle({ className, ...props }: DrawerPrimitive.Title.Props) {
   return (
     <DrawerPrimitive.Title
@@ -174,24 +161,9 @@ function DrawerTitle({ className, ...props }: DrawerPrimitive.Title.Props) {
   )
 }
 
-function DrawerDescription({
-  className,
-  ...props
-}: DrawerPrimitive.Description.Props) {
-  return (
-    <DrawerPrimitive.Description
-      data-slot="drawer-description"
-      className={cn("text-sm text-balance text-muted-foreground", className)}
-      {...props}
-    />
-  )
-}
-
 export {
   Drawer,
   DrawerClose,
   DrawerContent,
-  DrawerHeader,
   DrawerTitle,
-  DrawerDescription,
 }

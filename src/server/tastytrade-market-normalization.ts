@@ -443,6 +443,16 @@ export function marketOpensAtFromTastytradeSession(payload: JsonValue, now = new
   return new Date(Math.min(...candidates)).toISOString()
 }
 
+/** The current session's close while it is still ahead. A close already behind yields nothing. */
+export function marketClosesAtFromTastytradeSession(payload: JsonValue, now = new Date()): string | undefined {
+  const body = jsonObject(payload)
+  const session = jsonObject(body?.data ?? payload)
+  if (!session) return undefined
+  const close = Date.parse(jsonText(session['close-at']) ?? '')
+  if (!Number.isFinite(close) || close <= now.getTime()) return undefined
+  return new Date(close).toISOString()
+}
+
 export function selectSnapshotSymbols(
   positionSymbols: readonly string[],
   requestedSymbols: readonly string[],

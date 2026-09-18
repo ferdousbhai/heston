@@ -18,6 +18,9 @@ import {
   marketSnapshotFromPublic,
   PublicMarketSnapshotSchema,
   TickerSchema,
+  PublicSymbolLookupSchema,
+  tickerFromPublic,
+  type PublicSymbolLookup,
   mostActiveSymbol,
   type MarketSnapshot,
   type Ticker,
@@ -355,14 +358,44 @@ export async function syncFromCloud(
   return snapshot
 }
 
-export async function selectTicker(symbol: string): Promise<void> {
-  const current = preferenceCollection.get('primary')
-  if (!current) throw new Error('Market preference is unavailable')
-  const mutation = preferenceCollection.update('primary', (draft) => {
-    draft.selectedByUser = true
-    draft.selectedSymbol = symbol
+async function retainSymbolLookupImmediately(lookup: PublicSymbolLookup): Promise<void> {
+  const symbol = lookup.ticker.symbol
+  const record = offlineSnapshotCollection.get('snapshot')
+  if (!record) throw new Error('Market snapshot is unavailable')
+  if (!tickerCollection.has(symbol)) {
+    // A catalog response is public data. Serialize its admission with audience changes,
+    // and persist it before selecting so reopening the app can resolve the same choice.
+    const snapshot = record.snapshot
+    await hydrateCollectionsImmediately({
+      ...snapshot,
+      tickers: [...snapshot.tickers, tickerFromPublic(lookup.ticker)],
+      catalysts: [...snapshot.catalysts.filter((row) => !lookup.catalysts.some((next) => next.id === row.id)), ...lookup.catalysts],
+      watchlists: snapshot.watchlists.map((list) => ({ ...list, symbols: [...new Set([...list.symbols, symbol])].sort() })),
+    }, record.audience)
+  }
+}
+
+export function retainSymbolLookup(lookup: PublicSymbolLookup): Promise<void> {
+  const parsed = PublicSymbolLookupSchema.parse(lookup)
+  return queueSnapshotOperation(() => retainSymbolLookupImmediately(parsed))
+}
+
+export function selectTicker(symbol: string, lookup?: PublicSymbolLookup): Promise<void> {
+  return queueSnapshotOperation(async () => {
+    if (lookup) {
+      const parsed = PublicSymbolLookupSchema.parse(lookup)
+      if (parsed.ticker.symbol !== symbol) throw new Error('Market selection does not match the search result')
+      await retainSymbolLookupImmediately(parsed)
+    }
+    if (!tickerCollection.has(symbol)) throw new Error('Selected market symbol is unavailable')
+    const current = preferenceCollection.get('primary')
+    if (!current) throw new Error('Market preference is unavailable')
+    const mutation = preferenceCollection.update('primary', (draft) => {
+      draft.selectedByUser = true
+      draft.selectedSymbol = symbol
+    })
+    await mutation.isPersisted.promise
   })
-  await mutation.isPersisted.promise
 }
 
 const candleSnapshots = new CandleSnapshotAccumulator()

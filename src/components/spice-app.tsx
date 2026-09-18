@@ -9,7 +9,7 @@ import { Empty, EmptyDescription, EmptyHeader } from '#/components/ui/empty'
 import { Skeleton } from '#/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { selectLiveMarketSymbols, type SnapshotAudience } from '../data/collections'
-import { mostActiveSymbol } from '../domain/market'
+import { mostActiveSymbol, type PublicSymbolLookup } from '../domain/market'
 import { useLiveMarket } from '../data/live-market'
 import { useAudienceMarket } from '../data/use-audience-market'
 import { useWorkspaceFavorites } from '../data/use-workspace-favorites'
@@ -91,8 +91,8 @@ function SpiceWorkspace({
 
   // Stable row callbacks keep the memoized market rows from re-rendering on every
   // workspace render.
-  const chooseSymbol = useCallback((symbol: string) => {
-    void saveSelectedSymbol(symbol)
+  const chooseSymbol = useCallback((symbol: string, lookup?: PublicSymbolLookup) => {
+    void saveSelectedSymbol(symbol, lookup)
     setTab('market')
   }, [saveSelectedSymbol])
 
@@ -112,6 +112,7 @@ function SpiceWorkspace({
             reader is not looking at. */}
         <TopBar
           lastUpdatedAt={tab === 'market' ? lastUpdatedAt : undefined}
+          marketClosesAt={snapshot?.marketClosesAt}
           marketOpensAt={snapshot?.marketOpensAt}
           marketState={snapshot?.marketState}
           viewerName={viewer?.name}
