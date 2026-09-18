@@ -28,6 +28,17 @@ export function jsonNoStore(value: JsonValue, init: ResponseInit = {}): Response
   return Response.json(value, { ...init, headers })
 }
 
+/** Owner snapshot: never CDN-cached, but ETag lets a sitting tab 304 instead of re-downloading. */
+export function jsonPrivateRevalidate(request: Request, value: JsonValue, etag: string): Response {
+  const headers = new Headers()
+  headers.set('Cache-Control', 'private, no-cache')
+  headers.set('ETag', etag)
+  headers.set(SPICE_DEPLOYMENT_ID_HEADER, SPICE_DEPLOYMENT_ID)
+  const tags = (request.headers.get('If-None-Match') ?? '').split(',').map((part) => part.trim())
+  if (tags.includes(etag) || tags.includes('*')) return new Response(null, { headers, status: 304 })
+  return Response.json(value, { headers })
+}
+
 /**
  * A year: the receipt should outlive any tab, and a browser that returns after longer than
  * that has earned a second purge over keeping whatever it still holds.

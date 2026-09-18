@@ -1,7 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
 
 import { appEnv } from '../server/worker-env'
-import { authorizePersonalRequest, jsonNoStore } from '../server/http'
+import { authorizePersonalRequest, jsonNoStore, jsonPrivateRevalidate } from '../server/http'
+import { snapshotEtag } from '../server/public-snapshot-cache'
 import { brokerApi } from '../server/tastytrade'
 
 /**
@@ -17,11 +18,14 @@ export const Route = createFileRoute('/api/snapshot')({
         if (unauthorized) return unauthorized
         const live = new URL(request.url).searchParams.get('live') === '1'
         try {
-          if (!live) {
-            const stored = await brokerApi().loadStoredMarketSnapshot(appEnv)
-            if (stored) return jsonNoStore(stored)
-          }
-          return jsonNoStore(await brokerApi().loadMarketSnapshot(appEnv))
+          const snapshot = !live
+            ? (await brokerApi().loadStoredMarketSnapshot(appEnv) ?? await brokerApi().loadMarketSnapshot(appEnv))
+            : await brokerApi().loadMarketSnapshot(appEnv)
+          return jsonPrivateRevalidate(
+            request,
+            snapshot,
+            snapshotEtag(snapshot.syncedAt, snapshot.recommendations),
+          )
         } catch (error) {
           console.error('MarketSnapshotUnavailable', error instanceof Error ? error.message : 'UnknownError')
           return jsonNoStore({ error: 'Market sync is temporarily unavailable' }, { status: 502 })

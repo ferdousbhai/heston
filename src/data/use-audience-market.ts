@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { QueryClient, QueryObserver } from '@tanstack/query-core'
 import { useLiveQuery } from '@tanstack/react-db'
 
 import { toError } from '../domain/failure'
@@ -15,10 +16,22 @@ import {
   type SnapshotAudience,
 } from './collections'
 
-type SnapshotSyncOperation = {
-  audience: SnapshotAudience
-  controller: AbortController
-  promise: Promise<void>
+/** Public snapshot max-age is 30s. A visible tab refetches on that bound so a new brief lands. */
+export const SNAPSHOT_REFETCH_MS = 30 * 1_000
+
+export function snapshotSyncQueryOptions(audience: SnapshotAudience) {
+  return {
+    queryFn: ({ signal }: { signal?: AbortSignal }) => syncFromCloud(signal, () => true, audience),
+    queryKey: ['spice-snapshot', audience] as const,
+    // Visibility, not window focus: a sitting tab on a second screen is still open.
+    refetchInterval: () => document.visibilityState === 'hidden' ? false : SNAPSHOT_REFETCH_MS,
+    refetchIntervalInBackground: true,
+    refetchOnMount: 'always' as const,
+    refetchOnReconnect: 'always' as const,
+    refetchOnWindowFocus: 'always' as const,
+    retry: false,
+    staleTime: 0,
+  }
 }
 
 type AudienceSnapshotRecord<TSnapshot> = {
@@ -39,6 +52,32 @@ export function audienceMarketView<TSnapshot extends MarketSnapshot, TTicker ext
   return { snapshot, tickers: snapshot ? [...tickers] : [] }
 }
 
+function applySnapshotQueryResult(
+  result: { error: unknown; isFetched: boolean },
+  setWarning: (warning: string | undefined) => void,
+): void {
+  if (!result.isFetched) return
+  const failure = toError(result.error)
+  if (!failure || failure.name === 'AbortError') {
+    setWarning(undefined)
+    return
+  }
+  if (failure instanceof DeploymentMismatchError) {
+    // The snapshot has already been hydrated when it could be read, so a reload that is
+    // declined costs the reader nothing and is not worth a banner. Only a payload this
+    // bundle could not parse leaves the screen empty, and the message names the one thing
+    // that actually clears it — closing the tab, not the app, which iOS restores.
+    if (!reloadForDeployment() && !failure.hydrated) {
+      setWarning('Spice needs a newer version. Close this tab and open the site again.')
+    }
+    return
+  }
+  // A failed sync is not something to interrupt a reader over: the saved data is still on
+  // screen and the last-updated time already says how old it is. Only a failure the reader
+  // must act on gets a banner.
+  setWarning(undefined)
+}
+
 /**
  * `audience` is undefined until the session check resolves. Guessing "public" in the meantime
  * cost the owner their whole view on every refresh: the stored snapshot belongs to one
@@ -52,62 +91,12 @@ export function useAudienceMarket(audience: SnapshotAudience | undefined) {
   const preferenceQuery = useLiveQuery((query) => query.from({ preference: preferenceCollection }))
   const [bootstrappedAudience, setBootstrappedAudience] = useState<SnapshotAudience>()
   const [warning, setWarning] = useState<string>()
-  const syncOperation = useRef<SnapshotSyncOperation | undefined>(undefined)
   const { snapshot, tickers } = audienceMarketView(
     audience ?? 'public',
     snapshotQuery.data ?? [],
     tickerQuery.data ?? [],
   )
   const preference = (preferenceQuery.data ?? [])[0]
-
-  const synchronize = useCallback(async (signal?: AbortSignal): Promise<void> => {
-    // Nothing may be fetched before the session check names the audience it belongs to.
-    if (!audience) return
-    // No `navigator.onLine` gate: WebKit on iOS reports offline for connected devices often
-    // enough that the gate held a phone on its saved market, silently, for as long as the tab
-    // lived. A request that fails is the only reliable answer, and it costs nothing offline.
-    const active = syncOperation.current
-    if (active) {
-      if (active.audience === audience) return active.promise
-      active.controller.abort()
-    }
-    const controller = new AbortController()
-    const taskSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
-    let operation!: SnapshotSyncOperation
-    const task = syncFromCloud(taskSignal, () => syncOperation.current === operation, audience).then(() => {
-      setWarning(undefined)
-    })
-    operation = { audience, controller, promise: task }
-    syncOperation.current = operation
-    try {
-      await task
-    } finally {
-      if (syncOperation.current === operation) syncOperation.current = undefined
-    }
-  }, [audience])
-
-  const synchronizeWithWarning = useCallback(async (signal?: AbortSignal): Promise<void> => {
-    try {
-      await synchronize(signal)
-    } catch (cause: unknown) {
-      const failure = toError(cause)
-      if (signal?.aborted || failure?.name === 'AbortError') return
-      if (failure instanceof DeploymentMismatchError) {
-        // The snapshot has already been hydrated when it could be read, so a reload that is
-        // declined costs the reader nothing and is not worth a banner. Only a payload this
-        // bundle could not parse leaves the screen empty, and the message names the one thing
-        // that actually clears it — closing the tab, not the app, which iOS restores.
-        if (!reloadForDeployment() && !failure.hydrated) {
-          setWarning('Spice needs a newer version. Close this tab and open the site again.')
-        }
-        return
-      }
-      // A failed sync is not something to interrupt a reader over: the saved data is still on
-      // screen and the last-updated time already says how old it is. Only a failure the reader
-      // must act on gets a banner.
-      setWarning(undefined)
-    }
-  }, [synchronize])
 
   // A visitor's own cached market has no bearing on who they turn out to be, so it is drawn
   // while the session check runs. An owner's cache waits for the answer.
@@ -118,7 +107,9 @@ export function useAudienceMarket(audience: SnapshotAudience | undefined) {
 
   useEffect(() => {
     if (!audience) return
-    const controller = new AbortController()
+    let cancelled = false
+    let unsubscribe = () => {}
+    let queryClient: QueryClient | undefined
 
     void (async () => {
       // Local storage is only one bootstrap source. A corrupt or unavailable offline
@@ -126,32 +117,26 @@ export function useAudienceMarket(audience: SnapshotAudience | undefined) {
       try {
         await restoreOfflineSnapshot(audience)
       } catch {
-        if (!controller.signal.aborted) {
-          setWarning('Saved market data could not be restored. Trying the network instead.')
-        }
+        if (!cancelled) setWarning('Saved market data could not be restored. Trying the network instead.')
       }
-      if (!controller.signal.aborted) await synchronizeWithWarning(controller.signal)
-      if (!controller.signal.aborted) setBootstrappedAudience(audience)
+      if (cancelled) return
+      // One client per hook instance: query-core focus/reconnect/interval is what pushes a
+      // new snapshot into the local collection while this tab stays open.
+      queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      const observer = new QueryObserver(queryClient, snapshotSyncQueryOptions(audience))
+      unsubscribe = observer.subscribe((result) => {
+        if (cancelled) return
+        applySnapshotQueryResult(result, setWarning)
+        if (result.isFetched) setBootstrappedAudience(audience)
+      })
     })()
-    const online = () => void synchronizeWithWarning(controller.signal)
-    const offline = () => {
-      setWarning(undefined)
-    }
-    const refreshVisible = () => {
-      if (document.visibilityState === 'visible') void synchronizeWithWarning(controller.signal)
-    }
-    window.addEventListener('online', online)
-    window.addEventListener('offline', offline)
-    window.addEventListener('focus', refreshVisible)
-    document.addEventListener('visibilitychange', refreshVisible)
+
     return () => {
-      controller.abort()
-      window.removeEventListener('online', online)
-      window.removeEventListener('offline', offline)
-      window.removeEventListener('focus', refreshVisible)
-      document.removeEventListener('visibilitychange', refreshVisible)
+      cancelled = true
+      unsubscribe()
+      queryClient?.clear()
     }
-  }, [audience, synchronizeWithWarning])
+  }, [audience])
 
   const chooseSymbol = useCallback(async (symbol: string, lookup?: PublicSymbolLookup): Promise<void> => {
     try {

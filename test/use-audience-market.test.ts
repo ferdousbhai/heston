@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest'
+// @vitest-environment jsdom
 
-import { audienceMarketView } from '../src/data/use-audience-market'
+import { QueryClient, QueryObserver } from '@tanstack/query-core'
+import { describe, expect, it, vi } from 'vitest'
+
+import {
+  audienceMarketView,
+  SNAPSHOT_REFETCH_MS,
+  snapshotSyncQueryOptions,
+} from '../src/data/use-audience-market'
 import { marketSnapshotFixture } from './fixtures/market'
 
 const OWNER_SNAPSHOT = marketSnapshotFixture()
@@ -44,5 +51,24 @@ describe('audience market projection', () => {
       [PUBLIC_TICKER],
     )
     expect(replaced.tickers).toEqual([PUBLIC_TICKER])
+  })
+})
+
+describe('snapshot sync while a tab stays open', () => {
+  it('refetches on the public cache lifetime, including without a focus event', async () => {
+    const queryFn = vi.fn(async () => ({ ok: true }))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const observer = new QueryObserver(queryClient, {
+      ...snapshotSyncQueryOptions('public'),
+      queryFn,
+      refetchInterval: 20,
+    })
+    const unsubscribe = observer.subscribe()
+    await vi.waitFor(() => expect(queryFn).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(queryFn.mock.calls.length).toBeGreaterThan(1))
+    expect(snapshotSyncQueryOptions('public').refetchInterval()).toBe(SNAPSHOT_REFETCH_MS)
+    unsubscribe()
+    observer.destroy()
+    queryClient.clear()
   })
 })

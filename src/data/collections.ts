@@ -310,7 +310,8 @@ export function restoreOfflineSnapshot(audience: SnapshotAudience = 'owner'): Pr
   return queueSnapshotOperation(() => restoreOfflineSnapshotImmediately(audience))
 }
 
-let publicSnapshotEtag: string | undefined
+let cloudSnapshotEtag: string | undefined
+let cloudSnapshotEtagAudience: SnapshotAudience | undefined
 
 export async function syncFromCloud(
   signal?: AbortSignal,
@@ -322,7 +323,9 @@ export async function syncFromCloud(
   // Later syncs send If-None-Match so an unchanged observation is a 304, not another body.
   const headers = new Headers()
   if (audience === 'owner') headers.set('Accept', 'application/json')
-  if (audience === 'public' && publicSnapshotEtag) headers.set('If-None-Match', publicSnapshotEtag)
+  if (cloudSnapshotEtag && cloudSnapshotEtagAudience === audience) {
+    headers.set('If-None-Match', cloudSnapshotEtag)
+  }
   const response = audience === 'owner'
     ? await fetch(OWNER_SNAPSHOT_URL, { headers, signal })
     : await fetch(PUBLIC_SNAPSHOT_URL, { headers, signal })
@@ -335,7 +338,10 @@ export async function syncFromCloud(
   // the status that actually explains it.
   if (!response.ok) throw new Error(`Snapshot sync failed (${response.status})`)
   const etag = response.headers.get('ETag')
-  if (audience === 'public' && etag) publicSnapshotEtag = etag
+  if (etag) {
+    cloudSnapshotEtag = etag
+    cloudSnapshotEtagAudience = audience
+  }
   const payload: unknown = await response.json()
   const newerDeployment = newerResponseDeployment(response)
   let snapshot: MarketSnapshot

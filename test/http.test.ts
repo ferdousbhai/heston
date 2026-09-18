@@ -5,6 +5,7 @@ import {
   authorizePersonalRequest,
   canonicalHostRedirect,
   finalizeDocumentResponse,
+  jsonPrivateRevalidate,
   jsonPublic,
   ownerHttpFailure,
 } from '../src/server/http'
@@ -61,6 +62,24 @@ describe('document response', () => {
     const response = finalizeDocumentResponse(new Request('https://tryspice.xyz/api/viewer'), json)
     expect(response).toBe(json)
     expect(response.headers.has('clear-site-data')).toBe(false)
+  })
+})
+
+describe('private snapshot revalidation', () => {
+  it('answers 304 when the owner already holds the current observation', async () => {
+    const etag = 'W/"2026-09-18T15:49:52.243Z"'
+    const matched = jsonPrivateRevalidate(
+      new Request('https://spice.test/api/snapshot', { headers: { 'If-None-Match': etag } }),
+      { ok: true },
+      etag,
+    )
+    expect(matched.status).toBe(304)
+    expect(matched.headers.get('etag')).toBe(etag)
+    expect(matched.headers.get('cache-control')).toBe('private, no-cache')
+    expect(await matched.text()).toBe('')
+    const fresh = jsonPrivateRevalidate(new Request('https://spice.test/api/snapshot'), { ok: true }, etag)
+    expect(fresh.status).toBe(200)
+    await expect(fresh.json()).resolves.toEqual({ ok: true })
   })
 })
 
