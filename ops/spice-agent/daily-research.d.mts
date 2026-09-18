@@ -9,3 +9,5 @@ export function unattendedPromptSuffix(input: {
   market: { opensAt?: string; state: string }
   today: string
 }): string
+
+export function readMarketState(): Promise<{ opensAt?: string; state: string }>

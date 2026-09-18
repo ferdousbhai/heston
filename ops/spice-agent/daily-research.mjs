@@ -10,6 +10,13 @@ import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import { z } from 'zod'
+
+const MarketOpenSchema = z.iso.datetime({ offset: true }).optional()
+const MarketSessionResponseSchema = z.object({
+  marketState: z.enum(['open', 'closed', 'pre', 'after', 'unknown']),
+  marketOpensAt: MarketOpenSchema,
+})
 
 const execFileAsync = promisify(execFile)
 const MCP = process.env.SPICE_MCP_URL ?? 'https://tryspice.xyz/mcp'
@@ -21,10 +28,11 @@ const MAX_TURNS = Number(process.env.SPICE_DAILY_RESEARCH_MAX_TURNS ?? 80)
 /** Live session, or catch-up after today's named open has already rung. Holiday/weekend: skip. */
 export function shouldRunForMarket({ state, opensAt }, now = new Date()) {
   if (state === 'open' || state === 'pre') return true
-  if (typeof opensAt !== 'string' || !opensAt) return false
-  const open = Date.parse(opensAt)
+  const parsed = MarketOpenSchema.safeParse(opensAt)
+  if (!parsed.success || parsed.data === undefined) return false
+  const open = Date.parse(parsed.data)
   if (!Number.isFinite(open)) return false
-  return marketDate(new Date(opensAt)) === marketDate(now) && now.getTime() >= open
+  return marketDate(new Date(parsed.data)) === marketDate(now) && now.getTime() >= open
 }
 
 export function marketDate(now = new Date()) {
@@ -132,13 +140,12 @@ function toolText(parsed) {
   }
 }
 
-async function readMarketState() {
+export async function readMarketState() {
   const response = await fetch(SNAPSHOT, { method: 'GET', signal: AbortSignal.timeout(20_000) })
   if (!response.ok) throw new Error(`SpiceDailyResearch:snapshot-${response.status}`)
-  const body = await response.json()
-  const state = body?.marketState
-  if (typeof state !== 'string') throw new Error('SpiceDailyResearch:snapshot-missing-market-state')
-  return { opensAt: body?.marketOpensAt, state }
+  const parsed = MarketSessionResponseSchema.safeParse(await response.json())
+  if (!parsed.success) throw new Error('SpiceDailyResearch:invalid-market-session')
+  return { opensAt: parsed.data.marketOpensAt, state: parsed.data.marketState }
 }
 
 async function grokRun(prompt, token) {

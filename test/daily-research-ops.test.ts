@@ -1,11 +1,23 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   alreadyPublishedToday,
   marketDate,
+  readMarketState,
   shouldRunForMarket,
   unattendedPromptSuffix,
 } from '../ops/spice-agent/daily-research.mjs'
+
+afterEach(() => vi.unstubAllGlobals())
+
+it('parses launcher session responses and rejects invalid states and opening times', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ marketState: 'pre', marketOpensAt: '2026-09-16T13:30:00.000Z' })))
+  await expect(readMarketState()).resolves.toEqual({ state: 'pre', opensAt: '2026-09-16T13:30:00.000Z' })
+  for (const body of [{ marketState: 'unexpected' }, { marketState: 'open', marketOpensAt: 42 }, { marketState: 'closed', marketOpensAt: 'yesterday' }]) {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json(body)))
+    await expect(readMarketState()).rejects.toThrow('SpiceDailyResearch:invalid-market-session')
+  }
+})
 
 describe('owner-machine daily research skip', () => {
   it('treats the stored id as today\'s brief when it matches the NY market date', () => {

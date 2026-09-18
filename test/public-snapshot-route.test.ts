@@ -117,6 +117,17 @@ describe('public snapshot route cache', () => {
     ])
   })
 
+  it('validates the session projection when an older cache copy has no session headers', async () => {
+    const snapshot = storedPublicSnapshot(30_000, { marketState: 'pre', marketOpensAt: '2026-08-28T13:30:00.000Z' })
+    const headers = retainedCopy(30_000, 'legacy').headers
+    const cache = new MemoryPublicSnapshotCache(Response.json(snapshot, { headers }))
+    const response = await servePublicSnapshot(new Request(`${SNAPSHOT_URL}?fields=session`), {}, cache, () => undefined, NOW)
+    await expect(response.json()).resolves.toEqual(publicSessionStatus(snapshot))
+
+    const invalidCache = new MemoryPublicSnapshotCache(Response.json({ ...snapshot, marketState: 'invalid' }, { headers }))
+    await expect(servePublicSnapshot(new Request(`${SNAPSHOT_URL}?fields=session`), {}, invalidCache, () => undefined, NOW)).rejects.toThrow()
+  })
+
   it('answers fields=session from retained headers without reading the body', async () => {
     const snapshot = storedPublicSnapshot(30_000, {
       marketOpensAt: '2026-08-28T13:30:00.000Z',

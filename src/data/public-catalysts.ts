@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
+import { z } from 'zod'
 
 import { CatalystSchema, type Catalyst } from '../domain/catalyst'
 import { EquitySymbolSchema } from '../domain/instrument'
+
+const PublicCatalystsResponseSchema = z.object({ catalysts: z.array(CatalystSchema) })
 
 const NO_CATALYSTS: readonly Catalyst[] = []
 const inflight = new Map<string, Promise<readonly Catalyst[]>>()
@@ -23,7 +26,9 @@ export function loadPublicCatalysts(symbol: string): Promise<readonly Catalyst[]
   })
     .then(async (response) => {
       if (!response.ok) throw new Error(`Catalysts failed (${response.status})`)
-      const body = zCatalysts(await response.json())
+      // Parse before caching: a malformed response must remain retryable, not become
+      // a successful empty calendar for the rest of this browser session.
+      const { catalysts: body } = PublicCatalystsResponseSchema.parse(await response.json())
       cache.set(parsed.data, body)
       return body
     })
@@ -36,15 +41,6 @@ export function loadPublicCatalysts(symbol: string): Promise<readonly Catalyst[]
     })
   inflight.set(parsed.data, request)
   return request
-}
-
-function zCatalysts(value: unknown): Catalyst[] {
-  const parsed = CatalystSchema.array().safeParse(
-    value && typeof value === 'object' && 'catalysts' in value
-      ? (value as { catalysts: unknown }).catalysts
-      : value,
-  )
-  return parsed.success ? parsed.data : []
 }
 
 export function usePublicCatalysts(symbol: string): readonly Catalyst[] {

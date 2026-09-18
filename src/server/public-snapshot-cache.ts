@@ -1,4 +1,4 @@
-import { MarketStateSchema, slimPublicSnapshot, type PublicMarketSnapshot } from '../domain/market'
+import { PublicMarketSnapshotSchema, MarketStateSchema, slimPublicSnapshot, type PublicMarketSnapshot } from '../domain/market'
 import { SPICE_DEPLOYMENT_ID } from '../deployment'
 import { SPICE_DEPLOYMENT_ID_HEADER } from '../domain/deployment'
 import { type AppEnv } from './env'
@@ -33,16 +33,26 @@ export const SNAPSHOT_MARKET_OPENS_AT_HEADER = 'X-Market-Opens-At'
 /** How far before the named open we will ask the provider for session state only. */
 export const PRE_SESSION_REFRESH_MS = 6 * 60 * 60 * 1_000
 
+const PublicSessionStatusSchema = PublicMarketSnapshotSchema.pick({
+  marketOpensAt: true,
+  marketState: true,
+  source: true,
+  syncedAt: true,
+}).strip()
+
+type PublicSessionStatus = Pick<PublicMarketSnapshot, 'marketOpensAt' | 'marketState' | 'source' | 'syncedAt'>
+
 /** Query on `/api/public-snapshot`. The Cache API key discards the query, so this does not shard the retained copy. */
 export function publicSessionStatus(
-  snapshot: Pick<PublicMarketSnapshot, 'marketOpensAt' | 'marketState' | 'source' | 'syncedAt'>,
+  snapshot: PublicSessionStatus,
 ) {
-  return {
+  const status: PublicSessionStatus = {
     marketState: snapshot.marketState,
     source: snapshot.source,
     syncedAt: snapshot.syncedAt,
-    ...(snapshot.marketOpensAt ? { marketOpensAt: snapshot.marketOpensAt } : {}),
   }
+  if (snapshot.marketOpensAt !== undefined) status.marketOpensAt = snapshot.marketOpensAt
+  return status
 }
 
 export function snapshotEtag(syncedAt: string): string {
@@ -65,7 +75,7 @@ function sessionFromHeaders(response: Response) {
 async function projectVisitorResponse(request: Request, response: Response): Promise<Response> {
   if (new URL(request.url).searchParams.get('fields') !== 'session' || !response.ok) return response
   const fromHeaders = sessionFromHeaders(response)
-  const snapshot = fromHeaders ?? publicSessionStatus(await response.json() as PublicMarketSnapshot)
+  const snapshot = fromHeaders ?? publicSessionStatus(PublicSessionStatusSchema.parse(await response.json()))
   const headers = new Headers()
   const cachedAt = response.headers.get(SNAPSHOT_CACHED_AT_HEADER)
   const generatedAt = response.headers.get(SNAPSHOT_GENERATED_AT_HEADER) ?? snapshot.syncedAt
@@ -222,17 +232,14 @@ async function retain(
   snapshot: PublicMarketSnapshot,
   now: number,
 ): Promise<Response> {
-  const response = jsonPublic(slimPublicSnapshot(snapshot), {
-    headers: {
-      ETag: snapshotEtag(snapshot.syncedAt),
-      [SNAPSHOT_CACHED_AT_HEADER]: new Date(now).toISOString(),
-      [SNAPSHOT_GENERATED_AT_HEADER]: snapshot.syncedAt,
-      [SNAPSHOT_MARKET_STATE_HEADER]: snapshot.marketState,
-      ...(snapshot.marketOpensAt
-        ? { [SNAPSHOT_MARKET_OPENS_AT_HEADER]: snapshot.marketOpensAt }
-        : {}),
-    },
+  const headers = new Headers({
+    ETag: snapshotEtag(snapshot.syncedAt),
+    [SNAPSHOT_CACHED_AT_HEADER]: new Date(now).toISOString(),
+    [SNAPSHOT_GENERATED_AT_HEADER]: snapshot.syncedAt,
+    [SNAPSHOT_MARKET_STATE_HEADER]: snapshot.marketState,
   })
+  if (snapshot.marketOpensAt !== undefined) headers.set(SNAPSHOT_MARKET_OPENS_AT_HEADER, snapshot.marketOpensAt)
+  const response = jsonPublic(slimPublicSnapshot(snapshot), { headers })
   const stored = response.clone()
   // This header governs only the distinct Cache API copy. Visitor cache policy is restored
   // by responseForVisitor.
