@@ -160,7 +160,7 @@ describe('public snapshot route cache', () => {
       marketOpensAt: '2026-08-28T13:30:00.000Z',
       marketState: 'open',
     })
-    const etag = snapshotEtag(snapshot.syncedAt)
+    const etag = snapshotEtag(snapshot)
     const cache = new MemoryPublicSnapshotCache(Response.json(snapshot, {
       headers: {
         ETag: etag,
@@ -201,8 +201,8 @@ describe('public snapshot route cache', () => {
         title: 'Post-hike tech chase',
       },
     })
-    const previous = snapshotEtag(snapshot.syncedAt)
-    const current = snapshotEtag(snapshot.syncedAt, snapshot.recommendations)
+    const previous = snapshotEtag({ syncedAt: snapshot.syncedAt, marketState: snapshot.marketState })
+    const current = snapshotEtag(snapshot)
     expect(current).not.toBe(previous)
     const cache = new MemoryPublicSnapshotCache(Response.json(snapshot, {
       headers: {
@@ -401,7 +401,8 @@ describe('provider refresh policy', () => {
   it('lets a closed market stand until the next open, then refreshes', () => {
     const closed = { marketOpensAt: new Date(NOW + hour).toISOString(), marketState: 'closed' as const }
     expect(providerRefreshDue(storedPublicSnapshot(12 * hour, closed), NOW)).toBe(false)
-    expect(providerRefreshDue(storedPublicSnapshot(12 * hour, closed), NOW + hour)).toBe(true)
+    expect(providerRefreshDue(storedPublicSnapshot(12 * hour, closed), NOW + hour)).toBe(false)
+    expect(sessionRefreshDue(storedPublicSnapshot(12 * hour, closed), NOW + hour)).toBe(true)
     expect(providerRefreshDue(storedPublicSnapshot(12 * hour, { ...closed, marketState: 'after' }), NOW)).toBe(false)
     expect(providerRefreshDue(storedPublicSnapshot(12 * hour, { ...closed, marketState: 'pre' }), NOW)).toBe(false)
   })
@@ -422,13 +423,40 @@ describe('pre-market session refresh', () => {
       marketState: 'after' as const,
     }
     expect(sessionRefreshDue(storedPublicSnapshot(12 * hour, after), NOW)).toBe(true)
-    expect(sessionRefreshDue(storedPublicSnapshot(minute - 1, after), NOW)).toBe(false)
+    expect(sessionRefreshDue(storedPublicSnapshot(minute - 1, after), NOW)).toBe(true)
     expect(sessionRefreshDue(storedPublicSnapshot(12 * hour, {
       ...after,
       marketOpensAt: new Date(NOW + PRE_SESSION_REFRESH_MS + minute).toISOString(),
     }), NOW)).toBe(false)
     expect(sessionRefreshDue(storedPublicSnapshot(12 * hour, { ...after, marketState: 'closed' }), NOW)).toBe(false)
     expect(sessionRefreshDue(storedPublicSnapshot(12 * hour, { ...after, marketState: 'pre' }), NOW)).toBe(false)
+  })
+
+  it('retags a named open that already rang without rebuilding quotes', async () => {
+    const stored = storedPublicSnapshot(18 * hour, {
+      marketOpensAt: new Date(NOW - hour).toISOString(),
+      marketState: 'closed',
+    })
+    expect(providerRefreshDue(stored, NOW)).toBe(false)
+    expect(sessionRefreshDue(stored, NOW)).toBe(true)
+    broker.loadStoredPublicMarketSnapshot.mockResolvedValue(stored)
+    broker.refreshPublicMarketSession.mockResolvedValue({
+      ...stored,
+      marketOpensAt: new Date(NOW + 48 * hour).toISOString(),
+      marketState: 'closed',
+    })
+    const cache = new MemoryPublicSnapshotCache()
+    const background = new Background()
+
+    const response = await serve(cache, background)
+    await expect(response.json()).resolves.toMatchObject({ marketState: 'closed' })
+    await background.settle()
+
+    expect(broker.loadPublicMarketSnapshot).not.toHaveBeenCalled()
+    expect(broker.refreshPublicMarketSession).toHaveBeenCalledTimes(1)
+    await expect(cache.current()?.json()).resolves.toMatchObject({
+      marketOpensAt: new Date(NOW + 48 * hour).toISOString(),
+    })
   })
 
   it('schedules a session-only refresh rather than a full provider rebuild', async () => {

@@ -24,7 +24,7 @@ export const Route = createFileRoute('/api/snapshot')({
           return jsonPrivateRevalidate(
             request,
             snapshot,
-            snapshotEtag(snapshot.syncedAt, snapshot.recommendations),
+            snapshotEtag(snapshot),
           )
         } catch (error) {
           console.error('MarketSnapshotUnavailable', error instanceof Error ? error.message : 'UnknownError')

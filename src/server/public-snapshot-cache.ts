@@ -59,13 +59,17 @@ export function publicSessionStatus(
 }
 
 export function snapshotEtag(
-  syncedAt: string,
-  recommendations?: { publishedAt?: string },
+  snapshot: Pick<PublicMarketSnapshot, 'syncedAt'> & Partial<Pick<PublicMarketSnapshot, 'marketOpensAt' | 'marketState'>> & {
+    recommendations?: { publishedAt?: string }
+  },
 ): string {
-  // Quotes and the brief are independent writes. Keying only the observation hid a newly
-  // published brief behind 304s for as long as the market store stayed stale.
-  const publishedAt = recommendations?.publishedAt
-  return publishedAt ? `W/"${syncedAt}:${publishedAt}"` : `W/"${syncedAt}"`
+  // Quotes, session, and the brief are independent writes. Keying only the observation hid a
+  // newly published brief, and a session-only refresh, behind 304s.
+  const parts = [snapshot.syncedAt]
+  if (snapshot.recommendations?.publishedAt) parts.push(snapshot.recommendations.publishedAt)
+  if (snapshot.marketState) parts.push(snapshot.marketState)
+  if (snapshot.marketOpensAt) parts.push(snapshot.marketOpensAt)
+  return `W/"${parts.join(':')}"`
 }
 
 function sessionFromHeaders(response: Response) {
@@ -172,20 +176,23 @@ export function providerRefreshDue(
   // repairs every row, so it is bought on the open-market bound. Bounded to a store where no
   // row carries the instant: a provider that dates most rows and not some is not asked again.
   if (snapshot.tickers.length && snapshot.tickers.every((ticker) => ticker.metricsUpdatedAt === undefined)) return true
-  const opens = snapshot.marketOpensAt ? Date.parse(snapshot.marketOpensAt) : Number.NaN
-  if (!Number.isFinite(opens)) return true
-  return now >= opens
+  // A named open that already rang is a stale session, not a reason to rebuild quotes. The
+  // session-only path retags the bell; quotes wait until the session itself is open.
+  return snapshot.marketOpensAt === undefined && snapshot.marketState === 'closed'
 }
 
 /** Overnight `after` becomes `pre` without a quote rebuild, starting six hours before the bell. */
 export function sessionRefreshDue(
-  snapshot: Pick<PublicMarketSnapshot, 'marketOpensAt' | 'marketState' | 'syncedAt'>,
+  snapshot: Pick<PublicMarketSnapshot, 'marketOpensAt' | 'marketState'>,
   now: number,
 ): boolean {
-  if (snapshot.marketState !== 'after') return false
-  if (now - Date.parse(snapshot.syncedAt) < SNAPSHOT_FRESH_MS) return false
+  if (snapshot.marketState === 'open' || snapshot.marketState === 'unknown') return false
   const opens = snapshot.marketOpensAt ? Date.parse(snapshot.marketOpensAt) : Number.NaN
-  if (!Number.isFinite(opens) || now >= opens) return false
+  if (!Number.isFinite(opens)) return false
+  // The named bell already rang and we are still not open: Friday's open sitting on a
+  // Saturday, or a failed cash-open quote rebuild that never retagged the session.
+  if (now >= opens) return true
+  if (snapshot.marketState !== 'after') return false
   return opens - now <= PRE_SESSION_REFRESH_MS
 }
 
@@ -245,7 +252,7 @@ async function retain(
   now: number,
 ): Promise<Response> {
   const headers = new Headers({
-    ETag: snapshotEtag(snapshot.syncedAt, snapshot.recommendations),
+    ETag: snapshotEtag(snapshot),
     [SNAPSHOT_CACHED_AT_HEADER]: new Date(now).toISOString(),
     [SNAPSHOT_GENERATED_AT_HEADER]: snapshot.syncedAt,
     [SNAPSHOT_MARKET_STATE_HEADER]: snapshot.marketState,
