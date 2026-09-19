@@ -66,7 +66,7 @@ describe('snapshot sync while a tab stays open', () => {
     const unsubscribe = observer.subscribe(() => undefined)
     await vi.waitFor(() => expect(queryFn).toHaveBeenCalledTimes(1))
     await vi.waitFor(() => expect(queryFn.mock.calls.length).toBeGreaterThan(1))
-    expect(typeof snapshotSyncQueryOptions('public').refetchInterval).toBe('function')
+    expect(snapshotSyncQueryOptions('public').refetchInterval).toEqual(expect.any(Function))
     expect(SNAPSHOT_REFETCH_MS).toBe(30_000)
     unsubscribe()
     observer.destroy()

@@ -189,6 +189,7 @@ export function tastytradeRowsByRequestedSymbol(
   rows: readonly JsonObject[],
   requestedSymbols: readonly string[],
   label: string,
+  requireAll = true,
 ): Map<string, JsonObject> {
   const requested = new Set(requestedSymbols)
   const bySymbol = new Map<string, JsonObject>()
@@ -200,7 +201,7 @@ export function tastytradeRowsByRequestedSymbol(
     if (bySymbol.has(symbol)) throw new Error(`${label}:duplicate-symbol`)
     bySymbol.set(symbol, row)
   }
-  if (bySymbol.size !== requested.size) throw new Error(`${label}:missing-symbol`)
+  if (requireAll && bySymbol.size !== requested.size) throw new Error(`${label}:missing-symbol`)
   return bySymbol
 }
 

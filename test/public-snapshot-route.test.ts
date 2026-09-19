@@ -11,6 +11,7 @@ import {
   PRE_SESSION_REFRESH_MS,
   providerRefreshDue,
   publicSessionStatus,
+  quoteCatchUpDue,
   servePublicSnapshot,
   sessionRefreshDue,
   SNAPSHOT_CACHED_AT_HEADER,
@@ -411,6 +412,12 @@ describe('provider refresh policy', () => {
     expect(providerRefreshDue(storedPublicSnapshot(minute, { marketState: 'unknown' }), NOW)).toBe(true)
     expect(providerRefreshDue(storedPublicSnapshot(minute, { marketOpensAt: undefined, marketState: 'closed' }), NOW)).toBe(true)
   })
+
+  it('catches up closed quotes that missed a cash session', () => {
+    expect(quoteCatchUpDue(storedPublicSnapshot(6 * hour, { marketState: 'closed' }), NOW)).toBe(true)
+    expect(quoteCatchUpDue(storedPublicSnapshot(hour, { marketState: 'closed' }), NOW)).toBe(false)
+    expect(quoteCatchUpDue(storedPublicSnapshot(12 * hour, { marketState: 'open' }), NOW)).toBe(false)
+  })
 })
 
 describe('pre-market session refresh', () => {
@@ -440,6 +447,7 @@ describe('pre-market session refresh', () => {
     expect(providerRefreshDue(stored, NOW)).toBe(false)
     expect(sessionRefreshDue(stored, NOW)).toBe(true)
     broker.loadStoredPublicMarketSnapshot.mockResolvedValue(stored)
+    broker.loadPublicMarketSnapshot.mockRejectedValue(new Error('TastytradeApi:503'))
     broker.refreshPublicMarketSession.mockResolvedValue({
       ...stored,
       marketOpensAt: new Date(NOW + 48 * hour).toISOString(),
@@ -452,7 +460,7 @@ describe('pre-market session refresh', () => {
     await expect(response.json()).resolves.toMatchObject({ marketState: 'closed' })
     await background.settle()
 
-    expect(broker.loadPublicMarketSnapshot).not.toHaveBeenCalled()
+    expect(broker.loadPublicMarketSnapshot).toHaveBeenCalledTimes(1)
     expect(broker.refreshPublicMarketSession).toHaveBeenCalledTimes(1)
     await expect(cache.current()?.json()).resolves.toMatchObject({
       marketOpensAt: new Date(NOW + 48 * hour).toISOString(),

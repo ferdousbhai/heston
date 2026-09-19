@@ -339,15 +339,16 @@ async function loadMarketFacts(
     loadMarketRows(env, symbols),
     readInstrumentCatalog(env, symbols),
   ])
-  const metricBySymbol = tastytradeRowsByRequestedSymbol(metrics, symbols, 'TastytradeMetrics')
-  const quoteBySymbol = tastytradeRowsByRequestedSymbol(quotes, symbols, 'TastytradeMarketData')
-  if (instrumentCatalog.size !== symbols.length) throw new Error('InstrumentCatalog:incomplete')
-  const normalized = symbols.map((symbol) => normalizeTastytradeMarketTicker(
-    symbol,
-    metricBySymbol.get(symbol),
-    quoteBySymbol.get(symbol),
-    catalogTickerInstrument(instrumentCatalog.get(symbol)),
-  ))
+  const metricBySymbol = tastytradeRowsByRequestedSymbol(metrics, symbols, 'TastytradeMetrics', false)
+  const quoteBySymbol = tastytradeRowsByRequestedSymbol(quotes, symbols, 'TastytradeMarketData', false)
+  const normalized = symbols.flatMap((symbol) => {
+    const metricsRow = metricBySymbol.get(symbol)
+    const quoteRow = quoteBySymbol.get(symbol)
+    const instrument = instrumentCatalog.get(symbol)
+    if (!metricsRow || !quoteRow || !instrument) return []
+    return [normalizeTastytradeMarketTicker(symbol, metricsRow, quoteRow, catalogTickerInstrument(instrument))]
+  })
+  if (!normalized.length) throw new Error('TastytradeSnapshot:empty')
   // Read-only: the year series is refreshed on the schedule, so a symbol the refresh has not
   // reached yet simply carries no year chart rather than delaying the whole market read.
   const yearCandles = await readOptionalYearCandles(env, symbols)

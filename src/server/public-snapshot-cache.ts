@@ -33,6 +33,8 @@ export const SNAPSHOT_MARKET_CLOSES_AT_HEADER = 'X-Market-Closes-At'
 
 /** How far before the named open we will ask the provider for session state only. */
 export const PRE_SESSION_REFRESH_MS = 6 * 60 * 60 * 1_000
+/** Closed quotes older than this get one catch-up rebuild so a missed cash session does not stick. */
+export const QUOTE_CATCH_UP_MS = 6 * 60 * 60 * 1_000
 
 const PublicSessionStatusSchema = PublicMarketSnapshotSchema.pick({
   marketClosesAt: true,
@@ -181,6 +183,16 @@ export function providerRefreshDue(
   return snapshot.marketOpensAt === undefined && snapshot.marketState === 'closed'
 }
 
+/** A closed book whose last quote predates the previous cash session still needs one rebuild. */
+export function quoteCatchUpDue(
+  snapshot: Pick<PublicMarketSnapshot, 'marketState' | 'syncedAt'>,
+  now: number,
+): boolean {
+  if (snapshot.marketState !== 'closed') return false
+  const synced = Date.parse(snapshot.syncedAt)
+  return Number.isFinite(synced) && now - synced >= QUOTE_CATCH_UP_MS
+}
+
 /** Overnight `after` becomes `pre` without a quote rebuild, starting six hours before the bell. */
 export function sessionRefreshDue(
   snapshot: Pick<PublicMarketSnapshot, 'marketOpensAt' | 'marketState'>,
@@ -296,9 +308,10 @@ function refreshRetainedCopy(
       // A cold store is filled in a reader's own path, where the wait is at least visible.
       if (!stored) return
       let snapshot = stored
-      if (providerRefreshDue(stored, now)) {
+      if (providerRefreshDue(stored, now) || quoteCatchUpDue(stored, now)) {
         snapshot = (await refreshFromProvider(env)) ?? stored
-      } else if (sessionRefreshDue(stored, now)) {
+      }
+      if (snapshot === stored && sessionRefreshDue(stored, now)) {
         try {
           snapshot = await brokerApi().refreshPublicMarketSession(env, stored)
         } catch (error) {
