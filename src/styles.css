@@ -72,6 +72,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .market-status[data-tone="waiting"] { color: var(--fair-tone); }
 .market-status[data-tone="closed"] { color: var(--down); }
 .market-status-tip { display: block; white-space: pre-line; text-align: left; line-height: 1.35; }
+.quote-source { color: var(--ink-faint); font-size: 12px; letter-spacing: 0; text-transform: none; white-space: nowrap; }
+.quote-source[data-live] { color: var(--up); }
 .last-updated { color: var(--ink-faint); font-size: 12px; font-variant-numeric: tabular-nums; letter-spacing: 0; text-transform: none; white-space: nowrap; }
 .top-link { padding: 12px 6px; color: var(--ink-muted); font-size: 13px; font-weight: 400; text-transform: none; text-decoration: none; }
 .top-link:hover { color: var(--text); }

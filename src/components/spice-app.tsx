@@ -72,12 +72,10 @@ function SpiceWorkspace({
     ?? tickers.find((ticker) => ticker.symbol === fallbackSymbol)
   const loadedSymbols = new Set(tickers.map((ticker) => ticker.symbol))
   const streamSymbols = selectLiveMarketSymbols(selected?.symbol, activeWatchlist?.symbols ?? [], loadedSymbols)
-  // Called for the subscription it opens; its transient states are no longer surfaced.
-  useLiveMarket(streamSymbols, snapshotReady && owner)
+  useLiveMarket(streamSymbols, snapshotReady)
   const collectionFailed = market.collectionFailed || favorites.collectionFailed
-  // A reconnect is the feed healing itself, and it happens whenever a tab wakes or a socket
-  // drops. Alerting on it made the banner flash on and off over nothing. Feed health is now
-  // told by how old the data is, and only a failure the reader must act on interrupts them.
+  // Reconnect is the feed healing itself. The top bar says Live or Snapshot; a banner
+  // for the in-between states would flash on every tab wake.
   const visibleSnapshotWarning = [
     collectionFailed ? 'Browser market storage failed. Reload to inspect the current state.' : undefined,
     market.warning,

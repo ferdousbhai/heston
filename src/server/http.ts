@@ -116,7 +116,8 @@ export async function authenticateRequest(
   return { identity }
 }
 
-/** Every account, agent, operations, live-stream, and trading route stays exact-owner only. */
+/** Account, agent, operations, and trading routes stay exact-owner only. The live stream is
+ *  same-origin for any visitor so one Durable Object can hold the only dxLink socket. */
 export async function authorizePersonalRequest(
   request: Request,
   env: AppEnv,

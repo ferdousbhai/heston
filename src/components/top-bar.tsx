@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 
+import { useLiveFeedIndicator } from '../data/live-market'
 import { type MarketState } from '../domain/market'
 
 import { Avatar, AvatarFallback } from '#/components/ui/avatar'
@@ -124,6 +125,18 @@ export function marketStatusLabel(
   return { detail: lines.join('\n'), tone }
 }
 
+export type LiveFeedSourceCopy = {
+  label: 'Live' | 'Snapshot'
+  title: string
+}
+
+export function liveFeedSourceLabel(source: 'live' | 'snapshot'): LiveFeedSourceCopy {
+  if (source === 'live') {
+    return { label: 'Live', title: 'Live quotes from the dxLink feed' }
+  }
+  return { label: 'Snapshot', title: 'Last stored print; live feed is off' }
+}
+
 export function TopBar({
   lastUpdatedAt,
   marketClosesAt,
@@ -142,6 +155,8 @@ export function TopBar({
   // return to the market showed forty-minute-old quotes as "Updated just now".
   const now = useTick(Boolean(lastUpdatedAt) || Boolean(marketState))
   const updated = lastUpdatedAt ? elapsedLabel(lastUpdatedAt, now) : undefined
+  const source = useLiveFeedIndicator()
+  const feed = liveFeedSourceLabel(source)
   const status = marketState
     ? marketStatusLabel(marketState, marketOpensAt, now, marketClosesAt)
     : undefined
@@ -152,17 +167,26 @@ export function TopBar({
       </Link>
       <div className="top-actions">
         {status && (
-          <Tooltip>
-            <TooltipTrigger
-              aria-label={status.detail.replaceAll('\n', '. ')}
-              className="market-status"
-              data-tone={status.tone}
-              type="button"
-            />
-            <TooltipContent className="market-status-tip" side="bottom">
-              {status.detail}
-            </TooltipContent>
-          </Tooltip>
+          <>
+            <Tooltip>
+              <TooltipTrigger
+                aria-label={status.detail.replaceAll('\n', '. ')}
+                className="market-status"
+                data-tone={status.tone}
+                type="button"
+              />
+              <TooltipContent className="market-status-tip" side="bottom">
+                {status.detail}
+              </TooltipContent>
+            </Tooltip>
+            <span
+              className="quote-source"
+              data-live={source === 'live' ? 'true' : undefined}
+              title={feed.title}
+            >
+              {feed.label}
+            </span>
+          </>
         )}
         {/* The age matters while quotes move. Outside the session the bar counts down instead,
             and each reading's own age is stated on the card that shows it. */}

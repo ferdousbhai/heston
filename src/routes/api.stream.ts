@@ -1,15 +1,16 @@
 import { createFileRoute } from '@tanstack/react-router'
 
 import { appEnv } from '../server/worker-env'
-import { authorizePersonalRequest } from '../server/http'
 import { isSameOriginWebSocketRequest, parseRequestedSymbols } from '../server/market-feed-contracts'
 
+/**
+ * Same-origin browsers, signed in or not, share one Durable Object. That object holds the
+ * only dxLink socket. The quote token never leaves Cloudflare.
+ */
 export const Route = createFileRoute('/api/stream')({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        const unauthorized = await authorizePersonalRequest(request, appEnv)
-        if (unauthorized) return unauthorized
         if (!isSameOriginWebSocketRequest(request)) {
           return new Response('Cross-origin WebSocket rejected', { status: 403 })
         }

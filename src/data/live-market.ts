@@ -1,9 +1,36 @@
-import { useEffect } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 import { z } from 'zod'
 
 import { type JsonValue } from '../domain/json-payload'
 import { applyLiveMarketEvent } from './collections'
 import { MarketFeedStatusSchema } from '../server/market-feed-contracts'
+
+export type LiveFeedIndicator = 'live' | 'snapshot'
+
+let indicator: LiveFeedIndicator = 'snapshot'
+const listeners = new Set<() => void>()
+
+function publishLiveFeedIndicator(next: LiveFeedIndicator): void {
+  if (indicator === next) return
+  indicator = next
+  for (const listener of listeners) listener()
+}
+
+export function readLiveFeedIndicator(): LiveFeedIndicator {
+  return indicator
+}
+
+/** Isolated from the market tree: a status frame must not re-render every quote row. */
+export function useLiveFeedIndicator(): LiveFeedIndicator {
+  return useSyncExternalStore(
+    (listener) => {
+      listeners.add(listener)
+      return () => { listeners.delete(listener) }
+    },
+    readLiveFeedIndicator,
+    readLiveFeedIndicator,
+  )
+}
 
 /** The relay delivers text frames; binary frames are not part of the market protocol. */
 const RelayFrameSchema = z.string()
@@ -12,8 +39,8 @@ const RECONNECT_MAX_DELAY_MS = 30_000
 const RECONNECT_MAX_EXPONENT = 5
 /**
  * A hidden tab is nobody looking. The relay holds one upstream connection for as long as any
- * client socket exists, so an abandoned overnight tab would stream a market nobody is reading.
- * The grace period keeps a tab switch or a brief alt-tab from cycling the connection.
+ * same-origin client socket exists. An abandoned overnight tab would otherwise keep dxLink
+ * up for a market nobody is reading. The grace period keeps a brief alt-tab from cycling it.
  */
 const HIDDEN_DISCONNECT_MS = 90 * 1_000
 /**
@@ -24,17 +51,16 @@ const HIDDEN_DISCONNECT_MS = 90 * 1_000
 const HEARTBEAT_MS = 30 * 1_000
 
 /**
- * Opens the subscription and writes what it receives into the market collections. The
- * connection's own transient states are deliberately not rendered: a reconnect is the feed
- * healing itself, and how old the data is — which the bar already states — is what tells a
- * reader whether the feed is working. Holding them in state re-rendered the whole market tree
- * on every status frame to update a value nothing read.
+ * Opens the subscription and writes what it receives into the market collections.
+ * Live vs snapshot is published to a store the top bar reads; reconnects must not
+ * re-render the quote rows.
  */
 export function useLiveMarket(symbols: readonly string[], enabled: boolean): void {
   const key = [...new Set(symbols)].sort().join(',')
 
   useEffect(() => {
     if (!enabled || !key) {
+      publishLiveFeedIndicator('snapshot')
       return
     }
     let socket: WebSocket | undefined
@@ -60,6 +86,7 @@ export function useLiveMarket(symbols: readonly string[], enabled: boolean): voi
           const status = MarketFeedStatusSchema.safeParse(payload)
           if (status.success) {
             if (status.data.state === 'live') attempts = 0
+            publishLiveFeedIndicator(status.data.state === 'live' ? 'live' : 'snapshot')
             return
           }
           applyLiveMarketEvent(payload)
@@ -76,6 +103,7 @@ export function useLiveMarket(symbols: readonly string[], enabled: boolean): voi
       socket.addEventListener('close', () => {
         if (heartbeat) clearInterval(heartbeat)
         heartbeat = undefined
+        publishLiveFeedIndicator('snapshot')
         if (stopped || idle) return
         // Cap browser reconnect backoff so a recovered live feed resumes without user action.
         const delay = Math.min(
@@ -96,6 +124,7 @@ export function useLiveMarket(symbols: readonly string[], enabled: boolean): voi
       // Closing the last client socket is what lets the relay drop its upstream connection.
       socket?.close(1000, 'Viewer idle')
       socket = undefined
+      publishLiveFeedIndicator('snapshot')
     }
 
     const onVisibilityChange = () => {
@@ -121,6 +150,7 @@ export function useLiveMarket(symbols: readonly string[], enabled: boolean): voi
       if (idleTimer) clearTimeout(idleTimer)
       if (heartbeat) clearInterval(heartbeat)
       socket?.close(1000, 'Subscription changed')
+      publishLiveFeedIndicator('snapshot')
     }
   }, [enabled, key])
 }

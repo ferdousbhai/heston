@@ -1,9 +1,22 @@
 import { describe, expect, it } from 'vitest'
 
-import { elapsedLabel, marketClockLabel, marketStatusLabel } from '../src/components/top-bar'
+import { elapsedLabel, liveFeedSourceLabel, marketClockLabel, marketStatusLabel } from '../src/components/top-bar'
 
 const NOW = Date.parse('2026-09-01T14:00:00.000Z')
 const ago = (ms: number) => new Date(NOW - ms).toISOString()
+
+describe('quote source', () => {
+  it('names live dxLink versus the stored print', () => {
+    expect(liveFeedSourceLabel('live')).toEqual({
+      label: 'Live',
+      title: 'Live quotes from the dxLink feed',
+    })
+    expect(liveFeedSourceLabel('snapshot')).toEqual({
+      label: 'Snapshot',
+      title: 'Last stored print; live feed is off',
+    })
+  })
+})
 
 describe('last updated label', () => {
   it('reads as a reader would say it, at every scale', () => {
