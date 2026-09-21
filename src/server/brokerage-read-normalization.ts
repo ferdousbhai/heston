@@ -82,9 +82,18 @@ export function optionalRatioPercent(row: JsonObject, keys: readonly string[], l
 
 /**
  * Fields tastytrade already reports in percent or points, so they are only rounded.
+ *
  * The unit is per field, not per provider: `implied-volatility-index` arrives as a ratio while
- * `implied-volatility-30-day` arrives as points, carrying the same number. Check a new field
- * against a sibling it must agree with arithmetically before choosing a converter.
+ * `implied-volatility-30-day` arrives as points, carrying the same number. Which fields fall
+ * on which side is recorded once, in the unit note above the helpers in
+ * `tastytrade-market-normalization.ts` -- established from production rows rather than
+ * documentation. Read it before choosing a converter here, and extend it there rather than
+ * starting a second list: this module and that one consume the same payload, and the 100x
+ * error on the 30-day survived because each had decided the units separately.
+ *
+ * When a field is not on that list, settle it arithmetically against a sibling that must
+ * agree: `iv-hv-30-day-difference` is the 30-day minus the 30-day historical, which holds in
+ * exactly one of the two readings.
  */
 export function optionalPercentPoints(row: JsonObject, keys: readonly string[], label: string): number | undefined {
   const value = optionalNumber(row, keys, label)

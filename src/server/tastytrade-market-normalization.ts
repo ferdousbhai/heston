@@ -80,10 +80,17 @@ function optionalBoolean(value: JsonValue, field: string): boolean | undefined {
  * tastytrade market metrics mix two units, established from production D1 rows
  * rather than documentation: `implied-volatility-index`, its rank, percentile,
  * 5-day change, and per-expiration IVs are decimal ratios (0.261 = 26.1%), while
- * `historical-volatility-30-day` (30.8), `iv-hv-30-day-difference` (-4.7), and the
- * annual `borrow-rate` (1.5 for Easy To Borrow, 951.15 for PCLA Locate Required) are
- * already percentage points. Multiplying those by 100 rejected or distorted real
- * observations, so the `*Points` helpers below keep them as reported.
+ * `historical-volatility-30-day` (30.8), `iv-hv-30-day-difference` (-4.7), the
+ * annual `borrow-rate` (1.5 for Easy To Borrow, 951.15 for PCLA Locate Required), and
+ * `implied-volatility-30-day` (24.59) are already percentage points. Multiplying those by 100
+ * rejected or distorted real observations, so the `*Points` helpers below keep them as
+ * reported.
+ *
+ * `implied-volatility-30-day` is the trap in that list: it carries the same number as
+ * `implied-volatility-index` in the other unit, so reading it as a ratio looks plausible and
+ * silently publishes 100x. `iv-hv-30-day-difference` is what separates them, and it is checked
+ * in the MCP reader's tests. This list is the single record of these units -- the reader in
+ * `brokerage-read-normalization.ts` defers to it rather than keeping its own.
  */
 /**
  * Decimal places kept on a number this module computed rather than read.
