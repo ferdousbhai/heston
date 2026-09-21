@@ -29,14 +29,14 @@ const RecommendationScreen = lazy(async () => {
 const TabSchema = z.enum(['market', 'recommendations', 'connect'])
 
 type Tab = z.infer<typeof TabSchema>
-export function SpiceApp() {
+export function HestonApp() {
   const auth = useViewer()
   // The audience stays unknown until the session check answers. Booting the public surface on
   // a guess discarded the owner's stored snapshot on every refresh — the record belongs to one
   // audience, and restoring for the other throws it away — so a page that already had the
   // market on disk went blank and fetched it again, twice.
   return (
-    <SpiceWorkspace
+    <HestonWorkspace
       audience={auth.phase === 'ready' ? (auth.user?.role === 'owner' ? 'owner' : 'public') : undefined}
       authError={auth.phase === 'error' ? auth.message : undefined}
       viewer={auth.phase === 'ready' ? auth.user : null}
@@ -44,7 +44,7 @@ export function SpiceApp() {
   )
 }
 
-function SpiceWorkspace({
+function HestonWorkspace({
   audience,
   authError,
   viewer,

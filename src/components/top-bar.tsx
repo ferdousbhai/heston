@@ -162,8 +162,8 @@ export function TopBar({
     : undefined
   return (
     <header className="top-bar">
-      <Link aria-label="Spice home" className="brand" to="/">
-        <span>SPICE</span>
+      <Link aria-label="Heston home" className="brand" to="/">
+        <span>HESTON</span>
       </Link>
       <div className="top-actions">
         {status && (

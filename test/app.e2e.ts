@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { z } from 'zod'
 
-import { SPICE_DEPLOYMENT_ID_HEADER } from '../src/domain/deployment'
+import { HESTON_DEPLOYMENT_ID_HEADER } from '../src/domain/deployment'
 import { marketSnapshotFixture } from './fixtures/market'
 
 /** `postDataJSON()` hands back an unparsed body; decode it before the route acts on it. */
@@ -61,7 +61,7 @@ test('a newer deployment reloads once before restoring the local snapshot', asyn
     snapshotRequests += 1
     return route.fulfill({
       contentType: 'application/json',
-      headers: { [SPICE_DEPLOYMENT_ID_HEADER]: documentRequests === 1 ? 'next-deployment' : 'development' },
+      headers: { [HESTON_DEPLOYMENT_ID_HEADER]: documentRequests === 1 ? 'next-deployment' : 'development' },
       body: JSON.stringify(snapshot),
     })
   })
@@ -71,7 +71,7 @@ test('a newer deployment reloads once before restoring the local snapshot', asyn
   await expect.poll(() => documentRequests).toBeGreaterThanOrEqual(2)
   await expect.poll(() => snapshotRequests).toBeGreaterThanOrEqual(2)
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible()
-  await expect.poll(() => page.evaluate(() => sessionStorage.getItem('spice.deployment-reload.v1'))).toBeNull()
+  await expect.poll(() => page.evaluate(() => sessionStorage.getItem('heston.deployment-reload.v1'))).toBeNull()
 })
 
 test('unauthenticated visitors can read market data but connecting an agent needs Google sign-in', async ({ page }) => {
@@ -107,9 +107,9 @@ test('unauthenticated visitors can read market data but connecting an agent need
     })
   })
   await page.addInitScript(() => {
-    localStorage.setItem('spice.tickers.v6', 'stale owner ticker rows')
-    localStorage.setItem('spice.watchlists.v6', 'stale owner watchlist rows')
-    localStorage.setItem('spice.snapshot.v9.previous-deployment', 'incompatible snapshot')
+    localStorage.setItem('heston.tickers.v6', 'stale owner ticker rows')
+    localStorage.setItem('heston.watchlists.v6', 'stale owner watchlist rows')
+    localStorage.setItem('heston.snapshot.v9.previous-deployment', 'incompatible snapshot')
   })
   await page.goto('/')
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible()
@@ -121,9 +121,9 @@ test('unauthenticated visitors can read market data but connecting an agent need
   await expect(page.locator('.watch-list [data-slot="badge"]')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /NVDA, NVIDIA, Expensive option premium/ })).toBeVisible()
   expect(await page.evaluate(() => Object.keys(localStorage).filter((key) => (
-    key.startsWith('spice.snapshot.v')
-      || /^spice\.(?:tickers|watchlists|research|recommendations|catalysts|sync-state)\.v/.test(key)
-  )))).toEqual(['spice.snapshot.v9'])
+    key.startsWith('heston.snapshot.v')
+      || /^heston\.(?:tickers|watchlists|research|recommendations|catalysts|sync-state)\.v/.test(key)
+  )))).toEqual(['heston.snapshot.v9'])
   expect(publicSnapshotRequests).toBeGreaterThan(0)
   await expect(page.getByRole('button', { name: 'Manage Options Watch' })).toHaveCount(0)
   await expect(page.getByRole('combobox', { name: 'Watchlist' })).toHaveCount(0)
@@ -198,7 +198,7 @@ test('unauthenticated visitors can read market data but connecting an agent need
 
   await page.goto('/privacy')
   await expect(page.getByRole('heading', { name: 'Privacy policy' })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'privacy@tryspice.xyz' }).first()).toHaveAttribute('href', 'mailto:privacy@tryspice.xyz')
+  await expect(page.getByRole('link', { name: 'privacy@heston.io' }).first()).toHaveAttribute('href', 'mailto:privacy@heston.io')
 })
 
 test('mobile market, recommendations, search, sorting, and connect flows remain coherent', async ({ page, context }) => {
@@ -274,10 +274,10 @@ test('mobile market, recommendations, search, sorting, and connect flows remain 
     })
   })
   await page.goto('/')
-  await expect(page).toHaveTitle(/Spice Must Flow/)
+  await expect(page).toHaveTitle(/Heston/)
   await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('href', '/manifest.webmanifest')
-  await expect(page.locator('.brand')).toHaveAccessibleName('Spice home')
-  await expect(page.locator('.brand')).toHaveText('SPICE')
+  await expect(page.locator('.brand')).toHaveAccessibleName('Heston home')
+  await expect(page.locator('.brand')).toHaveText('HESTON')
   await expect(page.getByText('tastytrade live')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /sync|refresh market data/i })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /sign out/i })).toHaveCount(0)
@@ -462,14 +462,14 @@ test('authenticated favorites consume only unchanged anonymous staging across ta
     })
   })
   await page.addInitScript(() => {
-    window.sessionStorage.setItem('spice.test.block-preference-storage', 'true')
+    window.sessionStorage.setItem('heston.test.block-preference-storage', 'true')
     window.addEventListener('storage', (event) => {
       if (
-        event.key !== 'spice.preferences.v2'
-        || window.sessionStorage.getItem('spice.test.block-preference-storage') !== 'true'
+        event.key !== 'heston.preferences.v2'
+        || window.sessionStorage.getItem('heston.test.block-preference-storage') !== 'true'
       ) return
       event.stopImmediatePropagation()
-      window.sessionStorage.setItem('spice.test.blocked-preference-value', event.newValue ?? '')
+      window.sessionStorage.setItem('heston.test.blocked-preference-value', event.newValue ?? '')
     }, { capture: true })
   })
 
@@ -503,11 +503,11 @@ test('authenticated favorites consume only unchanged anonymous staging across ta
   await expect(page.getByRole('button', { name: 'Unpin NVDA' })).toBeVisible()
 
   expect(await page.evaluate(() => {
-    const newValue = window.sessionStorage.getItem('spice.test.blocked-preference-value')
+    const newValue = window.sessionStorage.getItem('heston.test.blocked-preference-value')
     if (!newValue) return false
-    window.sessionStorage.removeItem('spice.test.block-preference-storage')
+    window.sessionStorage.removeItem('heston.test.block-preference-storage')
     window.dispatchEvent(new StorageEvent('storage', {
-      key: 'spice.preferences.v2',
+      key: 'heston.preferences.v2',
       newValue,
       storageArea: window.localStorage,
       url: window.location.href,
@@ -523,7 +523,7 @@ test('authenticated favorites consume only unchanged anonymous staging across ta
   await expect(staleAnonymous.getByRole('button', { name: 'Pin NVDA' })).toBeVisible()
   const authenticatedTabObservedStage = page.evaluate(() => new Promise<boolean>((resolve) => {
     const observePreference = (event: StorageEvent) => {
-      if (event.key !== 'spice.preferences.v2') return
+      if (event.key !== 'heston.preferences.v2') return
       window.removeEventListener('storage', observePreference)
       resolve(event.storageArea === window.localStorage)
     }

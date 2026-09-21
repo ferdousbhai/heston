@@ -92,7 +92,7 @@ export function validateOrderResponse(payload: JsonValue, intended: OrderPayload
 
 export class BrokerageSubmissionUnknownError extends OwnerVisibleError {
   constructor() {
-    super('ambiguous-brokerage', 'Tastytrade may have received this order, but Spice could not verify the result. Reconciliation is required before another trade.')
+    super('ambiguous-brokerage', 'Tastytrade may have received this order, but Heston could not verify the result. Reconciliation is required before another trade.')
     this.name = 'BrokerageSubmissionUnknownError'
   }
 }

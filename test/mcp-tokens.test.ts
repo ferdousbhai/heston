@@ -25,15 +25,15 @@ describe('per-user MCP tokens', () => {
   it('authenticates only the exact issued token and never leaks its digest', async () => {
     const store = await storeWithMembers()
     const issued = await issueMcpToken(store.database, 'user-a', 'laptop')
-    expect(issued.token).toMatch(/^spice_[0-9a-f]{16}_[A-Za-z0-9_-]{16,}$/)
+    expect(issued.token).toMatch(/^heston_[0-9a-f]{16}_[A-Za-z0-9_-]{16,}$/)
 
     await expect(authenticateMcpToken(store.database, issued.token))
       .resolves.toEqual({ tokenId: issued.tokenMetadata.tokenId, userId: 'user-a' })
     // A tampered secret, an unknown id, and a malformed prefix are all simply not authenticated.
     await expect(authenticateMcpToken(store.database, `${issued.token}x`)).resolves.toBeUndefined()
-    await expect(authenticateMcpToken(store.database, `spice_${'0'.repeat(16)}_AAAAAAAAAAAAAAAA`))
+    await expect(authenticateMcpToken(store.database, `heston_${'0'.repeat(16)}_AAAAAAAAAAAAAAAA`))
       .resolves.toBeUndefined()
-    await expect(authenticateMcpToken(store.database, 'not-a-spice-token')).resolves.toBeUndefined()
+    await expect(authenticateMcpToken(store.database, 'not-a-heston-token')).resolves.toBeUndefined()
     await expect(authenticateMcpToken(store.database, '')).resolves.toBeUndefined()
 
     const listed = await listMcpTokens(store.database, 'user-a')

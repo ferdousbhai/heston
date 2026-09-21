@@ -19,7 +19,7 @@ import { useViewer } from '../components/auth-gate'
  */
 export const Route = createFileRoute('/authorize/consent')({
   component: ConsentPage,
-  head: () => ({ meta: [{ title: 'Approve access | Spice Must Flow' }] }),
+  head: () => ({ meta: [{ title: 'Approve access | Heston' }] }),
 })
 
 /**
@@ -57,13 +57,13 @@ function ConsentPage() {
         // Say what the provider said. A generic message here is how a refused consent looked
         // like a button that did nothing at all.
         const reason = FailureSchema.safeParse(await response.json().catch(() => undefined))
-        throw new Error(reason.success ? reason.data.error_description : 'Spice could not record that answer.')
+        throw new Error(reason.success ? reason.data.error_description : 'Heston could not record that answer.')
       }
       const { url } = ConsentResponseSchema.parse(await response.json())
       window.location.replace(url)
     } catch (error) {
       setSubmitting(false)
-      setFailure(error instanceof Error ? error.message : 'Spice could not record that answer.')
+      setFailure(error instanceof Error ? error.message : 'Heston could not record that answer.')
     }
   }
 
@@ -77,7 +77,7 @@ function ConsentPage() {
       {viewer.phase === 'ready' && viewer.user !== null && (
         <>
           <p>
-            An agent is asking to connect to your Spice account, signed in as{' '}
+            An agent is asking to connect to your Heston account, signed in as{' '}
             <strong>{viewer.user.name}</strong>. It will be able to read live market data, option
             chains and Greeks, research and the daily brief, and to add symbols to the watchlist.
           </p>

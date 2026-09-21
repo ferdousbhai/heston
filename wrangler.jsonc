@@ -1,12 +1,16 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "spice",
+  "name": "heston",
   "compatibility_date": "2026-08-18",
   "compatibility_flags": ["nodejs_compat"],
   "main": "./src/server.ts",
   "workers_dev": false,
   "preview_urls": true,
+  // The retired tryspice.xyz pair still routes here so `canonicalHostRedirect` can 308 it to
+  // heston.io; drop both entries when the zone is allowed to lapse.
   "routes": [
+    { "pattern": "heston.io", "custom_domain": true },
+    { "pattern": "www.heston.io", "custom_domain": true },
     { "pattern": "tryspice.xyz", "custom_domain": true },
     { "pattern": "www.tryspice.xyz", "custom_domain": true }
   ],
@@ -74,7 +78,7 @@
     "crons": ["30 13,14 * * 1-5"]
   },
   "vars": {
-    "AUTH_BASE_URL": "https://tryspice.xyz",
+    "AUTH_BASE_URL": "https://heston.io",
     "TASTYTRADE_API_BASE": "https://api.tastyworks.com"
   }
 }

@@ -9,7 +9,7 @@ import { z } from 'zod'
  */
 
 /**
- * Every broker Spice can read an account from. Adding one means adding it here and
+ * Every broker Heston can read an account from. Adding one means adding it here and
  * registering its adapter — the header parser and the registry both derive from this list,
  * so a new id cannot be half-added and silently accepted by one and refused by the other.
  */

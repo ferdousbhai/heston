@@ -39,7 +39,7 @@ export function configureAuth(
   googleClientSecret: string,
 ) {
   return betterAuth({
-    appName: 'Spice Must Flow',
+    appName: 'Heston',
     baseURL,
     database,
     secret,
@@ -61,7 +61,7 @@ export function configureAuth(
       /*
        * The authorization server that lets an MCP client connect without anyone copying a token.
        *
-       * Spice issues its own tokens rather than pointing clients at Google, because Google offers
+       * Heston issues its own tokens rather than pointing clients at Google, because Google offers
        * neither dynamic client registration nor the loopback redirect URIs an MCP client registers
        * for itself. Google stays the identity; this only decides who mints the token in front of it.
        *
@@ -75,7 +75,7 @@ export function configureAuth(
         consentPage: MCP_CONSENT_PAGE,
         loginPage: MCP_LOGIN_PAGE,
         // Audience-binds every issued token to this endpoint (RFC 8707), so a token minted for
-        // Spice cannot be replayed against another resource that trusts the same issuer.
+        // Heston cannot be replayed against another resource that trusts the same issuer.
         resource: mcpResourceIdentifier(baseURL),
       }),
     ],
@@ -86,7 +86,7 @@ export function configureAuth(
  * The MCP endpoint as an OAuth protected-resource identifier (RFC 8707).
  *
  * Every issued token is audience-bound to this exact string, and verification checks it, so the
- * two must be derived from one definition or a token minted for Spice would be accepted for
+ * two must be derived from one definition or a token minted for Heston would be accepted for
  * something else that trusts the same issuer -- or, more likely, nothing would authenticate.
  */
 export function mcpResourceIdentifier(baseURL: string): string {

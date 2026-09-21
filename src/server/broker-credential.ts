@@ -12,19 +12,19 @@ export class BrokerCredentialMissingError extends OwnerVisibleError {
   constructor() {
     super(
       'broker-credential',
-      'No brokerage is connected for this request. Connect a brokerage from the Connect tab in the Spice web app, then try again.',
+      'No brokerage is connected for this request. Connect a brokerage from the Connect tab in the Heston web app, then try again.',
     )
     this.name = 'BrokerCredentialMissingError'
   }
 }
 
 export function brokerCredentialFromHeaders(headers: Headers): BrokerCredential | undefined {
-  const accessToken = headers.get('X-Spice-Broker-Token')?.trim()
+  const accessToken = headers.get('X-Heston-Broker-Token')?.trim()
   // Parsed against the broker list rather than compared to a literal, so adding a broker is
   // its adapter plus its id and nothing here. This token is request-scoped and is never
   // written to D1 or logged; an unknown id is refused rather than defaulted, so it can never
   // select the Worker's own market-data credential.
-  const broker = BrokerIdSchema.safeParse(headers.get('X-Spice-Broker')?.trim()).data
+  const broker = BrokerIdSchema.safeParse(headers.get('X-Heston-Broker')?.trim()).data
   if (!broker || !accessToken) return undefined
   return { accessToken, broker }
 }

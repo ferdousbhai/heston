@@ -3,11 +3,11 @@ set -euo pipefail
 
 source ops/shared/temporary-worker.sh
 
-seed_worker="$(temporary_worker_name 'spice-watchlist-bootstrap')"
-seed_mode="${SPICE_SEED_MODE:-bootstrap}"
+seed_worker="$(temporary_worker_name 'heston-watchlist-bootstrap')"
+seed_mode="${HESTON_SEED_MODE:-bootstrap}"
 
 if [[ "$seed_mode" != 'preview' && "$seed_mode" != 'sync' && "$seed_mode" != 'bootstrap' ]]; then
-  echo 'SPICE_SEED_MODE must be preview, sync, or bootstrap.' >&2
+  echo 'HESTON_SEED_MODE must be preview, sync, or bootstrap.' >&2
   exit 2
 fi
 
@@ -34,7 +34,7 @@ if [[ "$seed_mode" == 'bootstrap' ]]; then
     call_seed_worker sync
     exit 0
   fi
-  SPICE_CATALOG_MODE=apply bash ops/instrument-catalog/run.sh
+  HESTON_CATALOG_MODE=apply bash ops/instrument-catalog/run.sh
 else
   call_seed_worker "$seed_mode"
 fi

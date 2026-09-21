@@ -7,7 +7,7 @@ import {
   newerResponseDeployment,
   reloadForDeployment,
 } from '../src/data/deployment'
-import { deploymentScopedPath, SPICE_DEPLOYMENT_ID_HEADER } from '../src/domain/deployment'
+import { deploymentScopedPath, HESTON_DEPLOYMENT_ID_HEADER } from '../src/domain/deployment'
 
 function memoryStorage(initial?: Record<string, string>) {
   const values = new Map(Object.entries(initial ?? {}))
@@ -26,10 +26,10 @@ describe('deployment-aware snapshot recovery', () => {
   })
 
   it('reports a newer deployment rather than refusing the response', () => {
-    const current = new Response(null, { headers: { [SPICE_DEPLOYMENT_ID_HEADER]: 'current' } })
+    const current = new Response(null, { headers: { [HESTON_DEPLOYMENT_ID_HEADER]: 'current' } })
     expect(newerResponseDeployment(current, 'current')).toBeUndefined()
 
-    const newer = new Response(null, { headers: { [SPICE_DEPLOYMENT_ID_HEADER]: 'newer' } })
+    const newer = new Response(null, { headers: { [HESTON_DEPLOYMENT_ID_HEADER]: 'newer' } })
     expect(newerResponseDeployment(newer, 'current')).toBe('newer')
 
     // A response without the header says nothing about compatibility, and blocking on its

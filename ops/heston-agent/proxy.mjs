@@ -7,10 +7,10 @@ import { z } from 'zod'
 /**
  * The brokerage credential broker for a local agent.
  *
- * Spice holds no member's brokerage credential, so one has to reach the Worker on each request.
+ * Heston holds no member's brokerage credential, so one has to reach the Worker on each request.
  * It must not reach it through the agent: an MCP config's `${VAR}` interpolation reads the agent
  * process's own environment, which its Bash tool inherits, and a tastytrade refresh token never
- * expires and bypasses every Spice guard. One prompt-injected `printenv | curl` out of the
+ * expires and bypasses every Heston guard. One prompt-injected `printenv | curl` out of the
  * untrusted-content pipeline would be permanent, unguarded trading authority.
  *
  * So this runs as its own process. It reads the long-lived credential from the OS keyring,
@@ -32,7 +32,7 @@ const TokenResponseSchema = z.object({
 const BROKER = 'tastytrade'
 const LISTEN_HOST = '127.0.0.1'
 const DEFAULT_PORT = 8787
-const UPSTREAM = process.env.SPICE_MCP_URL ?? 'https://tryspice.xyz/mcp'
+const UPSTREAM = process.env.HESTON_MCP_URL ?? 'https://heston.io/mcp'
 const TASTYTRADE_API_BASE = process.env.TASTYTRADE_API_BASE ?? 'https://api.tastyworks.com'
 // The Worker's own bound. A forwarded request that has not answered by then is not going to.
 const UPSTREAM_TIMEOUT_MS = 60_000
@@ -48,7 +48,7 @@ const MAX_REFRESH_SKEW_MS = 30_000
  * Keyring reads go through the secret-tool binary, so no secret is ever an argv value here.
  *
  * Credentials are filed under the service that issued them, not the app that spends them: the
- * agent token is Spice's, while a client secret and refresh token are tastytrade's and would be
+ * agent token is Heston's, while a client secret and refresh token are tastytrade's and would be
  * Schwab's for a Schwab adapter. That keeps the keyring laid out the way `BROKER_ADAPTERS` is,
  * so adding a broker adds a service rather than more keys under this one.
  */
@@ -75,7 +75,7 @@ async function brokerAccessToken(clientSecret, refreshToken) {
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
-      'User-Agent': 'Spice-Agent-Proxy/0.1',
+      'User-Agent': 'Heston-Agent-Proxy/0.1',
     },
     method: 'POST',
     signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
@@ -102,11 +102,11 @@ async function readBody(request) {
 }
 
 async function main() {
-  const spiceToken = await keyringSecret('spice', 'mcp-token')
-  if (!spiceToken) {
+  const hestonToken = await keyringSecret('heston', 'mcp-token')
+  if (!hestonToken) {
     process.stderr.write(
-      'SpiceAgentProxy: no Spice token in the keyring. Create one in the Connect tab, then:\n'
-      + '  ./ops/spice-agent/store-credentials.sh mcp-token\n',
+      'HestonAgentProxy: no Heston token in the keyring. Create one in the Connect tab, then:\n'
+      + '  ./ops/heston-agent/store-credentials.sh mcp-token\n',
     )
     process.exit(1)
   }
@@ -119,13 +119,13 @@ async function main() {
   // message. Starting anyway beats refusing to run for a capability the user may not want.
   const brokerageConfigured = Boolean(clientSecret && refreshToken)
   if (!brokerageConfigured) {
-    process.stderr.write('SpiceAgentProxy: no brokerage credential in the keyring; forwarding market tools only\n')
+    process.stderr.write('HestonAgentProxy: no brokerage credential in the keyring; forwarding market tools only\n')
   }
 
   const server = createServer((request, response) => {
     void (async () => {
       try {
-        const headers = new Headers({ Authorization: `Bearer ${spiceToken}` })
+        const headers = new Headers({ Authorization: `Bearer ${hestonToken}` })
         // Node gives a repeated header as an array; MCP sends none of these more than once,
         // so the first value is the whole value.
         for (const name of ['accept', 'content-type', 'mcp-session-id', 'mcp-protocol-version', 'last-event-id']) {
@@ -134,8 +134,8 @@ async function main() {
           if (value) headers.set(name, value)
         }
         if (brokerageConfigured) {
-          headers.set('X-Spice-Broker', BROKER)
-          headers.set('X-Spice-Broker-Token', await brokerAccessToken(clientSecret, refreshToken))
+          headers.set('X-Heston-Broker', BROKER)
+          headers.set('X-Heston-Broker-Token', await brokerAccessToken(clientSecret, refreshToken))
         }
         const body = request.method === 'GET' || request.method === 'HEAD'
           ? undefined
@@ -167,18 +167,18 @@ async function main() {
         const cause = error instanceof Error && error.cause instanceof Error && 'code' in error.cause
           ? ` ${String(error.cause.code)}`
           : ''
-        process.stderr.write(`SpiceAgentProxy: ${request.method} ${name}${cause}\n`)
+        process.stderr.write(`HestonAgentProxy: ${request.method} ${name}${cause}\n`)
         if (!response.headersSent) response.writeHead(502, { 'content-type': 'application/json' })
-        response.end(JSON.stringify({ error: 'The Spice proxy could not complete this request' }))
+        response.end(JSON.stringify({ error: 'The Heston proxy could not complete this request' }))
       }
     })()
   })
 
-  const port = Number(process.env.SPICE_AGENT_PORT ?? DEFAULT_PORT)
+  const port = Number(process.env.HESTON_AGENT_PORT ?? DEFAULT_PORT)
   // Loopback only. This process holds a credential that grants trading, so it must never be
   // reachable from the network, only from processes on this machine.
   server.listen(port, LISTEN_HOST, () => {
-    process.stdout.write(`SpiceAgentProxy: http://${LISTEN_HOST}:${port}/mcp -> ${UPSTREAM}\n`)
+    process.stdout.write(`HestonAgentProxy: http://${LISTEN_HOST}:${port}/mcp -> ${UPSTREAM}\n`)
   })
 }
 

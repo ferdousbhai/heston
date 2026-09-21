@@ -1,7 +1,7 @@
 import { type Static, type TSchema } from 'typebox'
 
 /**
- * The tool shape every Spice tool factory produces and the MCP surface consumes.
+ * The tool shape every Heston tool factory produces and the MCP surface consumes.
  *
  * This was imported as a type from `@earendil-works/pi-agent-core`, the runtime that used to
  * run an agent loop inside the Worker. That loop is gone; nothing but this one interface was
@@ -31,7 +31,7 @@ export interface AgentToolResult<TDetails = unknown> {
 
 /**
  * Streams partial results while `execute` runs. Scoped to that invocation; calls after the
- * promise settles are ignored. Spice tools do not stream today, but the parameter is part of
+ * promise settles are ignored. Heston tools do not stream today, but the parameter is part of
  * the shape a wrapping tool must pass through.
  */
 export type AgentToolUpdateCallback<TDetails = unknown> = (partial: AgentToolResult<TDetails>) => void

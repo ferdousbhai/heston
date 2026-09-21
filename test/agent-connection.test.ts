@@ -17,7 +17,7 @@ async function storeWithMembers() {
   return store
 }
 
-describe('whether an agent has reached Spice as a member', () => {
+describe('whether an agent has reached Heston as a member', () => {
   it('is not connected until a token exists or a client is consented to', async () => {
     const store = await storeWithMembers()
     try {

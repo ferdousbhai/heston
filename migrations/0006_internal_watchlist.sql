@@ -1,5 +1,5 @@
 -- The tastytrade lists are imported exactly once. Source rows and entry rows retain
--- the broker model for audit; only the normalized Equity rows drive Spice.
+-- the broker model for audit; only the normalized Equity rows drive Heston.
 CREATE TABLE internal_watchlist_seed (
   id TEXT PRIMARY KEY CHECK (id = 'primary'),
   status TEXT NOT NULL CHECK (status IN ('seeding', 'ready', 'failed')),

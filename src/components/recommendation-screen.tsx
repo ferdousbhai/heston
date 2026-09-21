@@ -33,8 +33,8 @@ const DAY_MS = 24 * HOUR_MS
  * contract, while prompts are a client feature some agents do not surface. The names are the
  * ones `mcp.ts` registers.
  */
-const DAILY_RESEARCH_ASK = 'Research today\'s market and publish a fresh brief to Spice with its '
-  + 'publish_daily_recommendations tool. If your client lists Spice\'s prompts, run daily_research.'
+const DAILY_RESEARCH_ASK = 'Research today\'s market and publish a fresh brief to Heston with its '
+  + 'publish_daily_recommendations tool. If your client lists Heston\'s prompts, run daily_research.'
 
 function plural(count: number, unit: string): string {
   return `${count} ${unit}${count === 1 ? '' : 's'}`
@@ -72,7 +72,7 @@ function useMinuteClock(fixedNow?: Date): Date {
 }
 
 /**
- * Whether this member's agent has reached Spice, read only when there is a run to offer. A
+ * Whether this member's agent has reached Heston, read only when there is a run to offer. A
  * visitor who is not signed in is told the first step rather than asked; a check that fails
  * says so and still offers the Connect tab, because the tab is the answer either way.
  */
@@ -93,7 +93,7 @@ function AgentConnectionStep({ onConnect, signedIn }: { onConnect: () => void; s
   if (!signedIn) {
     return (
       <>
-        <p>Sign in, then point your own agent at Spice from the Connect tab.</p>
+        <p>Sign in, then point your own agent at Heston from the Connect tab.</p>
         {connectButton}
       </>
     )
@@ -110,7 +110,7 @@ function AgentConnectionStep({ onConnect, signedIn }: { onConnect: () => void; s
   if (!connection.connected) {
     return (
       <>
-        <p>No agent has reached Spice from your account yet.</p>
+        <p>No agent has reached Heston from your account yet.</p>
         {connectButton}
       </>
     )
@@ -120,7 +120,7 @@ function AgentConnectionStep({ onConnect, signedIn }: { onConnect: () => void; s
       Your agent is connected
       {connection.lastSeenAt && (
         <>
-          {' '}&middot; last reached Spice{' '}
+          {' '}&middot; last reached Heston{' '}
           <time dateTime={connection.lastSeenAt}>{issueDate.format(new Date(connection.lastSeenAt))}</time>
         </>
       )}
@@ -159,7 +159,7 @@ function ResearchRunPanel({
               <>
                 This brief was generated {briefAge(now, latest.publishedAt)}
                 {latest.model ? <> by <strong>{researchGeneratorLabel(latest.model)}</strong></> : '; the model was not recorded'}.
-                Any member&apos;s agent can produce the next one, and Spice verifies every citation before it replaces this.
+                Any member&apos;s agent can produce the next one, and Heston verifies every citation before it replaces this.
               </>
             )
           : 'Nothing has been published yet. The first brief is whoever asks their agent for it.'}
@@ -180,7 +180,7 @@ function ResearchRunPanel({
               <li>
                 <strong>Ask it for a fresh brief.</strong>
                 <p>
-                  Any agent that speaks MCP can do this. Spice&apos;s <code>daily_research</code> prompt walks
+                  Any agent that speaks MCP can do this. Heston&apos;s <code>daily_research</code> prompt walks
                   it through the research and the publish step, and the publish tool describes what it
                   will and will not accept, so an agent that does not surface prompts still has what it needs.
                 </p>

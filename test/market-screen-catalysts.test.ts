@@ -61,11 +61,11 @@ describe('reviewing a symbol with an empty calendar', () => {
 
     renderMarket('AAPL', [])
 
-    expect(screen.getByText(/Spice is searching for scheduled/)).toBeTruthy()
+    expect(screen.getByText(/Heston is searching for scheduled/)).toBeTruthy()
     await waitFor(() => expect(screen.getByText('AAPL analyst day')).toBeTruthy())
     expect(requested).toEqual(['AAPL'])
     // The found date is on the calendar now, not a promise of the next snapshot.
-    expect(screen.queryByText(/Spice is searching for scheduled/)).toBeNull()
+    expect(screen.queryByText(/Heston is searching for scheduled/)).toBeNull()
   })
 
   it('leaves a symbol alone when something is already scheduled this month', async () => {

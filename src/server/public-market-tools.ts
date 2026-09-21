@@ -138,7 +138,7 @@ export function createPublicMarketReadTools(env: AppEnv, schedule: BackgroundSch
             price: row.price,
             symbol: row.symbol,
           })),
-          source: 'spice-public-snapshot',
+          source: 'heston-public-snapshot',
         })
       },
       label: 'Reading public quotes',
@@ -163,7 +163,7 @@ export function createPublicMarketReadTools(env: AppEnv, schedule: BackgroundSch
             symbol: row.symbol,
           })),
           note: unavailableNote(missing),
-          source: 'spice-public-snapshot',
+          source: 'heston-public-snapshot',
         })
       },
       label: 'Reading public market metrics',

@@ -18,14 +18,14 @@ export type WatchlistReadResult =
   | {
     fetchedAt: string
     mode: 'index'
-    source: 'spice'
+    source: 'heston'
     status: 'ok'
     symbols: string[]
   }
   | {
     fetchedAt: string
     mode: 'detail'
-    source: 'spice'
+    source: 'heston'
     status: 'not_found'
     symbol: string
   }
@@ -33,7 +33,7 @@ export type WatchlistReadResult =
     details: InternalWatchlistSymbolDetails
     fetchedAt: string
     mode: 'detail'
-    source: 'spice'
+    source: 'heston'
     status: 'ok'
   }
 
@@ -54,14 +54,14 @@ async function readWatchlist(env: AppEnv, symbol?: string): Promise<WatchlistRea
       fetchedAt,
       symbols,
       mode: 'index',
-      source: 'spice',
+      source: 'heston',
       status: 'ok',
     }
   }
   const details = await readInternalWatchlistSymbolDetails(env, symbol)
   return details
-    ? { details, fetchedAt, mode: 'detail', source: 'spice', status: 'ok' }
-    : { fetchedAt, mode: 'detail', source: 'spice', status: 'not_found', symbol }
+    ? { details, fetchedAt, mode: 'detail', source: 'heston', status: 'ok' }
+    : { fetchedAt, mode: 'detail', source: 'heston', status: 'not_found', symbol }
 }
 
 export function createWatchlistReadTool(env: AppEnv): AgentTool<typeof WatchlistReadParameters, WatchlistReadResult> {

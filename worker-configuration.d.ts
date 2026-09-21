@@ -9,7 +9,7 @@ interface __BaseEnv_Env {
 	TASTYTRADE_CLIENT_SECRET: SecretsStoreSecret;
 	TASTYTRADE_REFRESH_TOKEN: SecretsStoreSecret;
 	BROWSER: BrowserRun;
-	AUTH_BASE_URL: "https://tryspice.xyz";
+	AUTH_BASE_URL: "https://heston.io";
 	TASTYTRADE_API_BASE: "https://api.tastyworks.com";
 	BROKER_GATE: DurableObjectNamespace<import("./src/server").BrokerGate>;
 	MARKET_FEED: DurableObjectNamespace<import("./src/server").MarketFeed>;

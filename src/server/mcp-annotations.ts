@@ -40,7 +40,7 @@ const ANNOTATIONS = {
   read_option_greeks: read('Read option Greeks', true),
   read_price_history: read('Read price history', true),
   search_symbols: read('Search symbols', true),
-  // Reads answered entirely from Spice's own stores.
+  // Reads answered entirely from Heston's own stores.
   read_catalysts: read('Read catalysts', false),
   read_daily_recommendations: read('Read the daily brief', false),
   read_watchlist: read('Read the watchlist', false),

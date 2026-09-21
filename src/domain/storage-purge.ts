@@ -3,7 +3,7 @@
  * current generation. Cookies are the one thing `Clear-Site-Data: "storage"` leaves behind,
  * which is what makes them the right receipt for it.
  */
-export const STORAGE_PURGE_COOKIE = 'spice-storage-purge'
+export const STORAGE_PURGE_COOKIE = 'heston-storage-purge'
 
 /** Bump to purge every browser once more; the comment on the purge says what that costs. */
 export const STORAGE_PURGE_GENERATION = '1'

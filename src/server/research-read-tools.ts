@@ -55,14 +55,14 @@ export type CatalystReadResult = {
   catalysts: AgentCatalyst[]
   fetchedAt: string
   horizonDays: number
-  source: 'spice-catalyst-store'
+  source: 'heston-catalyst-store'
   symbols: string[]
   truncated: boolean
 }
 
 export type DailyRecommendationsReadResult = {
   fetchedAt: string
-  source: 'spice-recommendation-store'
+  source: 'heston-recommendation-store'
 } & ({ dailyRecommendations: DailyRecommendations; status: 'ok' } | { status: 'not_found' })
 
 function endDate(start: string, horizonDays: number): string {
@@ -109,7 +109,7 @@ export async function readCatalysts(
     catalysts,
     fetchedAt: now.toISOString(),
     horizonDays: boundedHorizon,
-    source: 'spice-catalyst-store',
+    source: 'heston-catalyst-store',
     symbols,
     truncated: allCatalysts.length > catalysts.length,
   }
@@ -122,12 +122,12 @@ export async function readLatestDailyRecommendationsState(
   if (!env.DB) throw new Error('Daily research is unavailable.')
   const dailyRecommendations = await readLatestDailyRecommendations(env.DB)
   if (!dailyRecommendations) {
-    return { fetchedAt: now.toISOString(), source: 'spice-recommendation-store', status: 'not_found' }
+    return { fetchedAt: now.toISOString(), source: 'heston-recommendation-store', status: 'not_found' }
   }
   return {
     dailyRecommendations,
     fetchedAt: now.toISOString(),
-    source: 'spice-recommendation-store',
+    source: 'heston-recommendation-store',
     status: 'ok',
   }
 }

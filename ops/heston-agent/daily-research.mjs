@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Owner-machine market-open brief: run `daily_research` when today's US session has no brief.
- * Connects to Spice with the keyring token and no broker header, so account tools refuse.
+ * Connects to Heston with the keyring token and no broker header, so account tools refuse.
  * The Worker never produces a brief. If this laptop is asleep, the site keeps the last one.
  */
 import { execFile, spawn } from 'node:child_process'
@@ -19,17 +19,17 @@ const MarketSessionResponseSchema = z.object({
 })
 
 const execFileAsync = promisify(execFile)
-const MCP = process.env.SPICE_MCP_URL ?? 'https://tryspice.xyz/mcp'
-const SNAPSHOT = process.env.SPICE_PUBLIC_SNAPSHOT_URL
-  ?? 'https://tryspice.xyz/api/public-snapshot?fields=session'
+const MCP = process.env.HESTON_MCP_URL ?? 'https://heston.io/mcp'
+const SNAPSHOT = process.env.HESTON_PUBLIC_SNAPSHOT_URL
+  ?? 'https://heston.io/api/public-snapshot?fields=session'
 const GROK = process.env.GROK_BIN ?? 'grok'
 const MUSE = process.env.MUSE_BIN ?? 'muse'
-const MAX_TURNS = Number(process.env.SPICE_DAILY_RESEARCH_MAX_TURNS ?? 80)
+const MAX_TURNS = Number(process.env.HESTON_DAILY_RESEARCH_MAX_TURNS ?? 80)
 /**
  * Below this fraction of Grok's binding window left, the run goes to Muse instead.
  * A product policy, not a measurement: Grok is the primary runner and Muse the spare.
  */
-const GROK_MIN_FRACTION = Number(process.env.SPICE_DAILY_RESEARCH_GROK_MIN_FRACTION ?? 0.05)
+const GROK_MIN_FRACTION = Number(process.env.HESTON_DAILY_RESEARCH_GROK_MIN_FRACTION ?? 0.05)
 /**
  * The tray's collectors refresh on the order of minutes; a record older than this
  * means that pipeline is down, so its limits are unknown rather than zero.
@@ -141,20 +141,20 @@ async function requireReadable(path, error) {
 
 async function requireGrokAuth() {
   const home = process.env.GROK_HOME ?? join(homedir(), '.grok')
-  return requireReadable(join(home, 'auth.json'), 'SpiceDailyResearch:grok-auth-missing')
+  return requireReadable(join(home, 'auth.json'), 'HestonDailyResearch:grok-auth-missing')
 }
 
-async function spiceToken() {
+async function hestonToken() {
   try {
-    const { stdout } = await execFileAsync('secret-tool', ['lookup', 'service', 'spice', 'key', 'mcp-token'], {
+    const { stdout } = await execFileAsync('secret-tool', ['lookup', 'service', 'heston', 'key', 'mcp-token'], {
       timeout: 5_000,
     })
     const token = stdout.trim()
-    if (!token) throw new Error('SpiceDailyResearch:mcp-token-missing')
+    if (!token) throw new Error('HestonDailyResearch:mcp-token-missing')
     return token
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith('SpiceDailyResearch:')) throw error
-    throw new Error('SpiceDailyResearch:mcp-token-missing')
+    if (error instanceof Error && error.message.startsWith('HestonDailyResearch:')) throw error
+    throw new Error('HestonDailyResearch:mcp-token-missing')
   }
 }
 
@@ -168,7 +168,7 @@ function parseSseOrJson(raw) {
       if (payload && payload !== '[DONE]') last = JSON.parse(payload)
     }
   }
-  if (last === undefined) throw new Error(`SpiceDailyResearch:unparseable-mcp:${raw.slice(0, 200)}`)
+  if (last === undefined) throw new Error(`HestonDailyResearch:unparseable-mcp:${raw.slice(0, 200)}`)
   return last
 }
 
@@ -180,7 +180,7 @@ async function rpc(method, params, session, token, notif = false, timeoutMs = 60
     Accept: 'application/json, text/event-stream',
     Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
-    'User-Agent': 'spice-daily-research/1',
+    'User-Agent': 'heston-daily-research/1',
     'mcp-protocol-version': '2025-03-26',
   }
   if (session) headers['mcp-session-id'] = session
@@ -193,16 +193,16 @@ async function rpc(method, params, session, token, notif = false, timeoutMs = 60
       signal: AbortSignal.timeout(timeoutMs),
     })
   } catch (error) {
-    throw new Error(`SpiceDailyResearch:mcp-unreachable:${error instanceof Error ? error.name : 'unknown'}`)
+    throw new Error(`HestonDailyResearch:mcp-unreachable:${error instanceof Error ? error.name : 'unknown'}`)
   }
   const raw = await response.text()
-  if (!response.ok) throw new Error(`SpiceDailyResearch:mcp-${response.status}`)
+  if (!response.ok) throw new Error(`HestonDailyResearch:mcp-${response.status}`)
   if (notif && !raw.trim()) return { session: response.headers.get('mcp-session-id') ?? session, parsed: {} }
   return { session: response.headers.get('mcp-session-id') ?? session, parsed: parseSseOrJson(raw) }
 }
 
 function toolText(parsed) {
-  if (parsed.error) throw new Error(`SpiceDailyResearch:rpc:${JSON.stringify(parsed.error)}`)
+  if (parsed.error) throw new Error(`HestonDailyResearch:rpc:${JSON.stringify(parsed.error)}`)
   const texts = (parsed.result?.content ?? [])
     .filter((part) => part.type === 'text')
     .map((part) => part.text)
@@ -216,9 +216,9 @@ function toolText(parsed) {
 
 export async function readMarketState() {
   const response = await fetch(SNAPSHOT, { method: 'GET', signal: AbortSignal.timeout(20_000) })
-  if (!response.ok) throw new Error(`SpiceDailyResearch:snapshot-${response.status}`)
+  if (!response.ok) throw new Error(`HestonDailyResearch:snapshot-${response.status}`)
   const parsed = MarketSessionResponseSchema.safeParse(await response.json())
-  if (!parsed.success) throw new Error('SpiceDailyResearch:invalid-market-session')
+  if (!parsed.success) throw new Error('HestonDailyResearch:invalid-market-session')
   return { opensAt: parsed.data.marketOpensAt, state: parsed.data.marketState }
 }
 
@@ -226,14 +226,14 @@ function waitForExit(child, name) {
   return new Promise((resolve, reject) => {
     child.on('error', reject)
     child.on('exit', (exitCode, signal) => {
-      if (signal) reject(new Error(`SpiceDailyResearch:${name}-signal:${signal}`))
+      if (signal) reject(new Error(`HestonDailyResearch:${name}-signal:${signal}`))
       else resolve(exitCode ?? 1)
     })
   })
 }
 
 async function runIsolated(name, setup) {
-  const directory = await mkdtemp(join(tmpdir(), 'spice-daily-research-'))
+  const directory = await mkdtemp(join(tmpdir(), 'heston-daily-research-'))
   try {
     const launched = await setup(directory)
     const child = spawn(launched.bin, launched.args, {
@@ -242,7 +242,7 @@ async function runIsolated(name, setup) {
       stdio: ['ignore', 'inherit', 'inherit'],
     })
     const code = await waitForExit(child, name)
-    if (code !== 0) throw new Error(`SpiceDailyResearch:${name}-exit:${code}`)
+    if (code !== 0) throw new Error(`HestonDailyResearch:${name}-exit:${code}`)
   } finally {
     await rm(directory, { force: true, recursive: true })
   }
@@ -256,7 +256,7 @@ async function grokRun(prompt, token) {
     await copyFile(await requireGrokAuth(), join(grokHome, 'auth.json'))
     await writeFile(
       join(grokHome, 'config.toml'),
-      `[mcp_servers.spice]\nurl = "${MCP}"\ntype = "http"\nbearer_token_env_var = "SPICE_MCP_TOKEN"\n`,
+      `[mcp_servers.heston]\nurl = "${MCP}"\ntype = "http"\nbearer_token_env_var = "HESTON_MCP_TOKEN"\n`,
     )
     await writeFile(promptPath, prompt)
     return {
@@ -268,7 +268,7 @@ async function grokRun(prompt, token) {
         '--disallowed-tools', 'Agent',
       ],
       bin: GROK,
-      env: { ...process.env, GROK_HOME: grokHome, SPICE_MCP_TOKEN: token },
+      env: { ...process.env, GROK_HOME: grokHome, HESTON_MCP_TOKEN: token },
     }
   })
 }
@@ -310,7 +310,7 @@ export async function isolatedMuseSettings(
   const settings = {
     schema_version: 1,
     mcpServers: {
-      spice: { headers: { Authorization: `Bearer ${token}` }, url: MCP },
+      heston: { headers: { Authorization: `Bearer ${token}` }, url: MCP },
     },
   }
   if (provider) settings.provider = provider
@@ -323,7 +323,7 @@ export async function museRun(prompt, token) {
     const promptPath = join(directory, 'prompt.txt')
     const configHome = join(directory, 'muse-home')
     await mkdir(join(configHome, 'muse'), { recursive: true })
-    await requireReadable(join(museConfigHome(), 'muse', 'auth.json'), 'SpiceDailyResearch:muse-auth-missing')
+    await requireReadable(join(museConfigHome(), 'muse', 'auth.json'), 'HestonDailyResearch:muse-auth-missing')
     await copyFile(join(museConfigHome(), 'muse', 'auth.json'), join(configHome, 'muse', 'auth.json'))
     await writeFile(
       join(configHome, 'muse', 'settings.json'),
@@ -335,7 +335,7 @@ export async function museRun(prompt, token) {
       args: museExecArgs({
         promptPath,
         workspace: directory,
-        provider: process.env.SPICE_DAILY_RESEARCH_MUSE_PROVIDER || undefined,
+        provider: process.env.HESTON_DAILY_RESEARCH_MUSE_PROVIDER || undefined,
       }),
       bin: MUSE,
       cwd: directory,
@@ -356,7 +356,7 @@ export async function runResearchAgent(prompt, token, runners = { grok: grokRun,
       return 'grok'
     } catch (error) {
       process.stderr.write(
-        `SpiceDailyResearch:grok-unavailable:${error instanceof Error ? error.message : 'unknown'}\n`,
+        `HestonDailyResearch:grok-unavailable:${error instanceof Error ? error.message : 'unknown'}\n`,
       )
     }
   }
@@ -372,17 +372,17 @@ async function main() {
   const today = marketDate()
   const market = await readMarketState()
   if (!shouldRunForMarket(market)) {
-    process.stdout.write(`SpiceDailyResearch: market ${market.state}, skip ${today}\n`)
+    process.stdout.write(`HestonDailyResearch: market ${market.state}, skip ${today}\n`)
     return
   }
 
-  const token = await spiceToken()
+  const token = await hestonToken()
   const { session, parsed: init } = await rpc('initialize', {
     capabilities: {},
-    clientInfo: { name: 'spice-daily-research', version: '0.1' },
+    clientInfo: { name: 'heston-daily-research', version: '0.1' },
     protocolVersion: '2025-03-26',
   }, undefined, token, false, 5_000)
-  if (init.error) throw new Error(`SpiceDailyResearch:initialize:${JSON.stringify(init.error)}`)
+  if (init.error) throw new Error(`HestonDailyResearch:initialize:${JSON.stringify(init.error)}`)
   await rpc('notifications/initialized', {}, session, token, true)
 
   const brief = toolText((await rpc('tools/call', {
@@ -391,28 +391,28 @@ async function main() {
   }, session, token)).parsed)
   const briefId = brief?.dailyRecommendations?.id
   if (alreadyPublishedToday(briefId, today)) {
-    process.stdout.write(`SpiceDailyResearch: already have ${briefId}\n`)
+    process.stdout.write(`HestonDailyResearch: already have ${briefId}\n`)
     return
   }
 
   if (process.argv.includes('--check')) {
-    process.stdout.write(`SpiceDailyResearch: would run for ${today} (standing ${briefId ?? 'none'})\n`)
+    process.stdout.write(`HestonDailyResearch: would run for ${today} (standing ${briefId ?? 'none'})\n`)
     return
   }
 
   const promptResult = await rpc('prompts/get', { name: 'daily_research' }, session, token)
   const messages = promptResult.parsed.result?.messages ?? []
   const recipe = messages.map((message) => message.content?.text ?? '').filter(Boolean).join('\n\n')
-  if (!recipe) throw new Error('SpiceDailyResearch:missing-daily-research-prompt')
+  if (!recipe) throw new Error('HestonDailyResearch:missing-daily-research-prompt')
   const prompt = `${recipe.trim()}
 
 ${unattendedPromptSuffix({ briefId, market, today })}`
-  process.stdout.write(`SpiceDailyResearch: running for ${today} (standing ${briefId ?? 'none'})\n`)
+  process.stdout.write(`HestonDailyResearch: running for ${today} (standing ${briefId ?? 'none'})\n`)
   const remaining = await readGrokLimitRemaining()
   const skipGrok = remaining !== undefined && remaining < GROK_MIN_FRACTION
   if (skipGrok) {
     process.stdout.write(
-      `SpiceDailyResearch: grok ${(remaining * 100).toFixed(1)}% left, running on muse\n`,
+      `HestonDailyResearch: grok ${(remaining * 100).toFixed(1)}% left, running on muse\n`,
     )
   }
   await runResearchAgent(prompt, token, undefined, skipGrok)
@@ -420,7 +420,7 @@ ${unattendedPromptSuffix({ briefId, market, today })}`
 
 if (resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
   await main().catch((error) => {
-    process.stderr.write(`${error instanceof Error ? error.message : 'SpiceDailyResearch:unknown'}\n`)
+    process.stderr.write(`${error instanceof Error ? error.message : 'HestonDailyResearch:unknown'}\n`)
     process.exit(1)
   })
 }

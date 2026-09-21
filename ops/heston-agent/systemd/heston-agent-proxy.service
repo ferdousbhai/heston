@@ -1,15 +1,15 @@
 # The local brokerage credential broker for an agent on this machine. Enable with
-#   systemctl --user enable --now spice-agent-proxy.service
+#   systemctl --user enable --now heston-agent-proxy.service
 # Credentials come from the OS keyring at request time, so nothing secret lives in this unit,
 # in the environment block, or in any argv.
 [Unit]
-Description=Spice agent proxy
+Description=Heston agent proxy
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=%h/github.com/ferdousbhai/spice/ops/spice-agent/proxy.mjs
+ExecStart=%h/github.com/ferdousbhai/heston/ops/heston-agent/proxy.mjs
 Restart=on-failure
 RestartSec=5
 # The keyring is unlocked per login session, so this follows the session rather than the boot.

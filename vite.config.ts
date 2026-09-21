@@ -18,13 +18,13 @@ function dataDeploymentId(command: 'build' | 'serve'): string {
   // bundle with a different id, so every response looked like a newer deployment to the
   // client and the app never loaded. Publishing the first one back into the environment is
   // what makes the whole build agree on a single id.
-  process.env.SPICE_BUILD_UUID ||= randomUUID()
-  return process.env.SPICE_BUILD_UUID
+  process.env.HESTON_BUILD_UUID ||= randomUUID()
+  return process.env.HESTON_BUILD_UUID
 }
 
 const config = defineConfig(({ command }) => ({
   define: {
-    'import.meta.env.VITE_SPICE_DEPLOYMENT_ID': JSON.stringify(dataDeploymentId(command)),
+    'import.meta.env.VITE_HESTON_DEPLOYMENT_ID': JSON.stringify(dataDeploymentId(command)),
   },
   resolve: { tsconfigPaths: true },
   plugins: [

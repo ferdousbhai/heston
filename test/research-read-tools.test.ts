@@ -59,7 +59,7 @@ describe('Dan research read tools', () => {
       db.env,
       new Date('2026-08-13T14:00:00.000Z'),
     )).resolves.toMatchObject({
-      dailyRecommendations: dailyRecommendations, source: 'spice-recommendation-store', status: 'ok',
+      dailyRecommendations: dailyRecommendations, source: 'heston-recommendation-store', status: 'ok',
     })
 
     const broken = d1WithResults([{ payload_json: '{}' }])
@@ -73,7 +73,7 @@ describe('Dan research read tools', () => {
       new Date('2026-08-13T14:00:00.000Z'),
     )).resolves.toEqual({
       fetchedAt: '2026-08-13T14:00:00.000Z',
-      source: 'spice-recommendation-store',
+      source: 'heston-recommendation-store',
       status: 'not_found',
     })
   })

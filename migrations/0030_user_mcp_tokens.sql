@@ -2,7 +2,7 @@
 -- SHA-256 digest of the whole token string is kept: the plaintext is shown once at issue and is
 -- unrecoverable afterwards, so a database read never yields a working credential.
 --
--- The token carries its own row id (`spice_<token_id>_<secret>`) because a constant-time scan
+-- The token carries its own row id (`heston_<token_id>_<secret>`) because a constant-time scan
 -- over every row is not possible. The id selects one row; only the digest comparison needs to
 -- be constant time.
 CREATE TABLE user_mcp_tokens (

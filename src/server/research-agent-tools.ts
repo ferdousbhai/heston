@@ -168,7 +168,7 @@ export function createRecentCoverageTool(
   now = new Date(),
 ): AgentTool<typeof RecentCoverageParameters, RecentCoverageResult | { error: string }> {
   return {
-    description: `Prior Spice recommendations for these tickers within daysAgo, newest first; 
+    description: `Prior Heston recommendations for these tickers within daysAgo, newest first;
       today is excluded. At most ${MAX_RECENT_COVERAGE_ROWS} rows, and \`truncated\` says when 
       there were more -- narrow the tickers or the window rather than reading past it.`
       .replace(/\s+/g, ' '),

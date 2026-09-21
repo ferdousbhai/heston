@@ -1,7 +1,7 @@
 import { type JsonValue } from '../domain/json-payload'
 import { toError } from '../domain/failure'
-import { SPICE_DEPLOYMENT_ID } from '../deployment'
-import { SPICE_DEPLOYMENT_ID_HEADER } from '../domain/deployment'
+import { HESTON_DEPLOYMENT_ID } from '../deployment'
+import { HESTON_DEPLOYMENT_ID_HEADER } from '../domain/deployment'
 import { hasStoragePurge, STORAGE_PURGE_COOKIE, STORAGE_PURGE_GENERATION } from '../domain/storage-purge'
 import {
   getAuthenticatedIdentity,
@@ -11,8 +11,15 @@ import {
 import { type AppEnv } from './env'
 import { OwnerVisibleError } from './owner-visible-error'
 
-const CANONICAL_ORIGIN = 'https://tryspice.xyz'
-const NON_CANONICAL_HOSTS = new Set(['www.tryspice.xyz'])
+const CANONICAL_ORIGIN = 'https://heston.io'
+/**
+ * `www` plus the retired tryspice.xyz brand, whose zone still routes here so its links keep
+ * resolving. 308 preserves method and body, so a page load and a tool POST both survive the
+ * hop — but a cross-origin redirect drops `Authorization`, so an agent still pointed at the old
+ * host arrives unauthenticated and gets a 401 rather than silently working. That is deliberate:
+ * a member has to re-point the config, and a visible 401 is how they find out.
+ */
+const NON_CANONICAL_HOSTS = new Set(['www.heston.io', 'tryspice.xyz', 'www.tryspice.xyz'])
 export const PUBLIC_RESPONSE_CACHE_CONTROL = 'public, max-age=30, s-maxage=60'
 
 export function canonicalHostRedirect(request: Request): Response | undefined {
@@ -24,7 +31,7 @@ export function canonicalHostRedirect(request: Request): Response | undefined {
 export function jsonNoStore(value: JsonValue, init: ResponseInit = {}): Response {
   const headers = new Headers(init.headers)
   headers.set('Cache-Control', 'no-store')
-  headers.set(SPICE_DEPLOYMENT_ID_HEADER, SPICE_DEPLOYMENT_ID)
+  headers.set(HESTON_DEPLOYMENT_ID_HEADER, HESTON_DEPLOYMENT_ID)
   return Response.json(value, { ...init, headers })
 }
 
@@ -33,7 +40,7 @@ export function jsonPrivateRevalidate(request: Request, value: JsonValue, etag: 
   const headers = new Headers()
   headers.set('Cache-Control', 'private, no-cache')
   headers.set('ETag', etag)
-  headers.set(SPICE_DEPLOYMENT_ID_HEADER, SPICE_DEPLOYMENT_ID)
+  headers.set(HESTON_DEPLOYMENT_ID_HEADER, HESTON_DEPLOYMENT_ID)
   const tags = (request.headers.get('If-None-Match') ?? '').split(',').map((part) => part.trim())
   if (tags.includes(etag) || tags.includes('*')) return new Response(null, { headers, status: 304 })
   return Response.json(value, { headers })
@@ -71,7 +78,7 @@ export function finalizeDocumentResponse(request: Request, response: Response): 
   if (!response.headers.get('content-type')?.includes('text/html')) return response
   const headers = new Headers(response.headers)
   headers.set('Cache-Control', 'no-cache')
-  headers.set(SPICE_DEPLOYMENT_ID_HEADER, SPICE_DEPLOYMENT_ID)
+  headers.set(HESTON_DEPLOYMENT_ID_HEADER, HESTON_DEPLOYMENT_ID)
   if (!hasStoragePurge(request.headers.get('cookie'))) {
     headers.set('Clear-Site-Data', '"cache", "storage"')
     // Readable by the inline guard, which drops it before reloading; Secure only where the
@@ -86,7 +93,7 @@ export function finalizeDocumentResponse(request: Request, response: Response): 
 export function jsonPublic(value: JsonValue, init: ResponseInit = {}): Response {
   const headers = new Headers(init.headers)
   headers.set('Cache-Control', PUBLIC_RESPONSE_CACHE_CONTROL)
-  headers.set(SPICE_DEPLOYMENT_ID_HEADER, SPICE_DEPLOYMENT_ID)
+  headers.set(HESTON_DEPLOYMENT_ID_HEADER, HESTON_DEPLOYMENT_ID)
   return Response.json(value, { ...init, headers })
 }
 

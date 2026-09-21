@@ -340,11 +340,11 @@ function RunwayEmpty({ searching, symbol }: { searching: boolean; symbol: string
   const [heading, detail] = searching
     ? [
         'Looking for what’s coming.',
-        ` Nothing is on ${symbol}'s calendar yet, so Spice is searching for scheduled ${CATALYST_SCOPE} dates.`,
+        ` Nothing is on ${symbol}'s calendar yet, so Heston is searching for scheduled ${CATALYST_SCOPE} dates.`,
       ]
     : [
         'Nothing is on the calendar.',
-        ` Spice tracks ${CATALYST_SCOPE} dates for ${symbol}, and none are scheduled. A re-rating from here would have to come from something unannounced.`,
+        ` Heston tracks ${CATALYST_SCOPE} dates for ${symbol}, and none are scheduled. A re-rating from here would have to come from something unannounced.`,
       ]
   return (
     <div className="runway-empty" aria-live="polite">

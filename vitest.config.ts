@@ -2,7 +2,7 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   define: {
-    'import.meta.env.VITE_SPICE_DEPLOYMENT_ID': JSON.stringify('test'),
+    'import.meta.env.VITE_HESTON_DEPLOYMENT_ID': JSON.stringify('test'),
   },
   test: {
     environment: 'node',

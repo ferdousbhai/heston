@@ -11,7 +11,7 @@ self.addEventListener('install', (event) => {
 
 // The only caches this app ever created. Named here rather than deleting everything on the
 // origin, so a cache some later feature owns is not collateral to retiring an old shell.
-const LEGACY_CACHE_PREFIX = 'spice-public-shell-'
+const LEGACY_CACHE_PREFIX = 'heston-public-shell-'
 
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {

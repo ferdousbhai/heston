@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 /** The per-turn ceiling `test/mcp.test.ts` holds the whole advertised surface to. */
-const SPICE_MCP_INSTRUCTIONS_CHAR_BUDGET = 1_500
+const HESTON_MCP_INSTRUCTIONS_CHAR_BUDGET = 1_500
 import { RESEARCH_REFRESH_INTERVAL_MS } from '../src/domain/research-refresh'
-import { dailyResearchPrompt, PLACE_BROKERAGE_ORDER_DESCRIPTION, spiceMcpInstructions } from '../src/server/doctrine'
+import { dailyResearchPrompt, PLACE_BROKERAGE_ORDER_DESCRIPTION, hestonMcpInstructions } from '../src/server/doctrine'
 import { MAX_DAILY_RECOMMENDATIONS } from '../src/server/research-submission'
 import {
   createInstrumentQuoteReadTool,
@@ -20,8 +20,8 @@ import { createBrokerageReconciliationTool } from '../src/server/brokerage-recon
  * whether to call it. Each half is pinned where it actually lives.
  */
 describe('server instructions', () => {
-  const signedIn = spiceMcpInstructions(true)
-  const anonymous = spiceMcpInstructions(false)
+  const signedIn = hestonMcpInstructions(true)
+  const anonymous = hestonMcpInstructions(false)
 
   it('says the one thing about sizing that applies to every turn', () => {
     // The rest of the sizing posture moved into the trade-idea prompt, which costs nothing
@@ -52,7 +52,7 @@ describe('server instructions', () => {
     expect(anonymous).not.toContain('broker credential')
     expect(anonymous).toContain('public tier')
     expect(signedIn).not.toContain('public tier')
-    expect(signedIn.length).toBeLessThan(SPICE_MCP_INSTRUCTIONS_CHAR_BUDGET)
+    expect(signedIn.length).toBeLessThan(HESTON_MCP_INSTRUCTIONS_CHAR_BUDGET)
     expect(anonymous.length).toBeLessThan(signedIn.length)
     expect(signedIn).toContain('tick-aligned mid')
     expect(signedIn).toContain('several sells at once')

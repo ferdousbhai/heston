@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- The volatility skew: implied vol steep in the downside strikes, troughing near the money,
+       lifting again through the upside wing. The shape the Heston model exists to produce. -->
+  <defs>
+    <linearGradient id="skew" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffc15a"/>
+      <stop offset=".48" stop-color="#ff7a45"/>
+      <stop offset="1" stop-color="#ec3f64"/>
+    </linearGradient>
+    <radialGradient id="ember" cx=".72" cy=".18" r=".65">
+      <stop offset="0" stop-color="#3a2017"/>
+      <stop offset="1" stop-color="#08090c"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#ember)"/>
+  <!-- Strike axis, faint: enough to read as a chart at card size, gone at favicon size. -->
+  <path d="M96 412h320" stroke="#ffffff" stroke-opacity=".14" stroke-width="10" stroke-linecap="round"/>
+  <path d="M106 138C176 286 214 352 286 352c60 0 98-40 120-102"
+        fill="none" stroke="url(#skew)" stroke-width="58" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

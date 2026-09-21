@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import { type JsonValue } from '../src/domain/json-payload'
 
-import { SPICE_GUIDE } from '../src/server/doctrine'
+import { HESTON_GUIDE } from '../src/server/doctrine'
 import { handleMcpRequest, mcpEndpointRedirect, resolveMcpCaller, type McpExecutionContext } from '../src/server/mcp'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
@@ -38,7 +38,7 @@ function mcpRequest(body: JsonRpcFrame | Record<string, never>, token?: string):
     'content-type': 'application/json',
   })
   if (token !== undefined) headers.set('Authorization', `Bearer ${token}`)
-  return new Request('https://tryspice.xyz/mcp', {
+  return new Request('https://heston.io/mcp', {
     body: JSON.stringify(body),
     headers,
     method: 'POST',
@@ -60,7 +60,7 @@ describe('MCP bearer authentication', () => {
       .resolves.toMatchObject({ owner: true, userId: 'member-1' })
     await expect(resolveMcpCaller(mcpRequest({}, `${token}x`), env)).resolves.toBeUndefined()
     await expect(resolveMcpCaller(mcpRequest({}), env)).resolves.toBeUndefined()
-    await expect(resolveMcpCaller(mcpRequest({}, 'not-a-spice-token'), env)).resolves.toBeUndefined()
+    await expect(resolveMcpCaller(mcpRequest({}, 'not-a-heston-token'), env)).resolves.toBeUndefined()
     store.close()
   })
 
@@ -119,7 +119,7 @@ describe('MCP bearer authentication', () => {
     // to be anybody cannot, which is why only this case is refused. The challenge must also say
     // how to authenticate, or a stale token is indistinguishable from a broken endpoint.
     const response = await handleMcpRequest(
-      mcpRequest({ id: 1, jsonrpc: '2.0', method: 'tools/list' }, 'spice_0000000000000000_notarealsecret'),
+      mcpRequest({ id: 1, jsonrpc: '2.0', method: 'tools/list' }, 'heston_0000000000000000_notarealsecret'),
       {},
       executionContext,
     )
@@ -375,15 +375,15 @@ describe('the guide resource', () => {
       }, token), env, executionContext)
       const resources = z.object({ result: z.object({ resources: z.array(z.object({ uri: z.string() })) }) })
         .parse(await mcpPayload(listed))
-      expect(resources.result.resources.map((entry) => entry.uri)).toContain('spice://guide')
+      expect(resources.result.resources.map((entry) => entry.uri)).toContain('heston://guide')
 
       const read = await handleMcpRequest(mcpRequest({
-        id: 21, jsonrpc: '2.0', method: 'resources/read', params: { uri: 'spice://guide' },
+        id: 21, jsonrpc: '2.0', method: 'resources/read', params: { uri: 'heston://guide' },
       }, token), env, executionContext)
       const contents = z.object({ result: z.object({ contents: z.array(z.object({ text: z.string() })) }) })
         .parse(await mcpPayload(read))
       const guide = contents.result.contents[0]!.text
-      expect(guide).toBe(SPICE_GUIDE)
+      expect(guide).toBe(HESTON_GUIDE)
 
       // An index that names something gone is worse than no index: it sends an agent looking for
       // a tool that will never answer. Every backticked name in the guide must be real.
@@ -415,14 +415,14 @@ describe('the guide resource', () => {
       }), env, executionContext)
       const resources = z.object({ result: z.object({ resources: z.array(z.object({ uri: z.string() })) }) })
         .parse(await mcpPayload(listed))
-      expect(resources.result.resources.map((entry) => entry.uri)).toContain('spice://guide')
+      expect(resources.result.resources.map((entry) => entry.uri)).toContain('heston://guide')
 
       const read = await handleMcpRequest(mcpRequest({
-        id: 31, jsonrpc: '2.0', method: 'resources/read', params: { uri: 'spice://guide' },
+        id: 31, jsonrpc: '2.0', method: 'resources/read', params: { uri: 'heston://guide' },
       }), env, executionContext)
       const contents = z.object({ result: z.object({ contents: z.array(z.object({ text: z.string() })) }) })
         .parse(await mcpPayload(read))
-      expect(contents.result.contents[0]!.text).toBe(SPICE_GUIDE)
+      expect(contents.result.contents[0]!.text).toBe(HESTON_GUIDE)
     } finally {
       store.close()
     }
@@ -431,7 +431,7 @@ describe('the guide resource', () => {
 
 describe('misdirected MCP clients', () => {
   it('names the endpoint when an agent connects to the site instead of /mcp', async () => {
-    const response = await mcpEndpointRedirect(new Request('https://tryspice.xyz/', {
+    const response = await mcpEndpointRedirect(new Request('https://heston.io/', {
       body: JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'initialize' }),
       headers: { 'content-type': 'application/json' },
       method: 'POST',
@@ -439,19 +439,19 @@ describe('misdirected MCP clients', () => {
     expect(response?.status).toBe(404)
     const body = z.object({ error: z.object({ message: z.string() }) })
       .parse(await (response ?? Response.json({})).json())
-    expect(body.error.message).toContain('https://tryspice.xyz/mcp')
+    expect(body.error.message).toContain('https://heston.io/mcp')
   })
 
   it('leaves every request that is not an MCP handshake alone', async () => {
     const cases = [
-      new Request('https://tryspice.xyz/', { method: 'GET' }),
+      new Request('https://heston.io/', { method: 'GET' }),
       // A server function posting ordinary JSON must pass straight through.
-      new Request('https://tryspice.xyz/api/favorites', {
+      new Request('https://heston.io/api/favorites', {
         body: JSON.stringify({ symbols: ['NVDA'] }),
         headers: { 'content-type': 'application/json' },
         method: 'POST',
       }),
-      new Request('https://tryspice.xyz/', {
+      new Request('https://heston.io/', {
         body: 'not json at all',
         headers: { 'content-type': 'text/plain' },
         method: 'POST',

@@ -71,7 +71,7 @@ import {
   type TastytradeMarketQuoteRecord,
 } from './tastytrade-market-store'
 
-const USER_AGENT = 'Spice/0.1'
+const USER_AGENT = 'Heston/0.1'
 // tastytrade names every requested symbol in the query string. This is the symbol count
 // one such request carries, and it is deliberately independent of how long the
 // watchlist grows: the list is paged into requests, never sent as one URL.

@@ -1,4 +1,4 @@
--- A favorite is a reader telling Spice which symbol matters to them, so it is also the
+-- A favorite is a reader telling Heston which symbol matters to them, so it is also the
 -- cheapest signal for where catalyst coverage is worth buying. `exa` is that producer:
 -- one web search per symbol, at most once a month, recorded here so a symbol nobody has
 -- researched can be told apart from one whose search legitimately found nothing.

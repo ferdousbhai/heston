@@ -4,7 +4,7 @@ import {
   PublicMarketSnapshotSchema,
   type PublicMarketSnapshot,
 } from '../src/domain/market'
-import { SPICE_DEPLOYMENT_ID_HEADER } from '../src/domain/deployment'
+import { HESTON_DEPLOYMENT_ID_HEADER } from '../src/domain/deployment'
 import { PUBLIC_RESPONSE_CACHE_CONTROL } from '../src/server/http'
 import {
   type PublicSnapshotCache,
@@ -26,7 +26,7 @@ import { stubBroker } from './broker-stub'
 import { marketSnapshotFixture } from './fixtures/market'
 
 const NOW = Date.parse('2026-08-28T12:00:00.000Z')
-const SNAPSHOT_URL = 'https://tryspice.xyz/api/public-snapshot'
+const SNAPSHOT_URL = 'https://heston.io/api/public-snapshot'
 const broker = stubBroker()
 
 class MemoryPublicSnapshotCache implements PublicSnapshotCache {
@@ -71,7 +71,7 @@ function retainedCopy(age: number, label: string): Response {
   return Response.json({ label }, {
     headers: {
       'Cache-Control': 'public, max-age=900',
-      [SPICE_DEPLOYMENT_ID_HEADER]: 'previous-deployment',
+      [HESTON_DEPLOYMENT_ID_HEADER]: 'previous-deployment',
       [SNAPSHOT_CACHED_AT_HEADER]: new Date(NOW - age).toISOString(),
       [SNAPSHOT_GENERATED_AT_HEADER]: new Date(NOW - age).toISOString(),
     },
@@ -110,12 +110,12 @@ describe('public snapshot route cache', () => {
 
     await expect(response.json()).resolves.toEqual({ label: 'fresh' })
     expect(response.headers.get('Cache-Control')).toBe(PUBLIC_RESPONSE_CACHE_CONTROL)
-    expect(response.headers.get(SPICE_DEPLOYMENT_ID_HEADER)).toBe('test')
+    expect(response.headers.get(HESTON_DEPLOYMENT_ID_HEADER)).toBe('test')
     expect(background.tasks).toHaveLength(0)
     expect(broker.loadStoredPublicMarketSnapshot).not.toHaveBeenCalled()
     expect(cache.putCalls).toBe(0)
     expect(cache.matchedUrls).toEqual([
-      'https://tryspice.xyz/api/public-snapshot?schema=6&deployment=test&copy=fresh',
+      'https://heston.io/api/public-snapshot?schema=6&deployment=test&copy=fresh',
     ])
   })
 

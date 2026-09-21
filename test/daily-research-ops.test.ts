@@ -15,7 +15,7 @@ import {
   runResearchAgent,
   shouldRunForMarket,
   unattendedPromptSuffix,
-} from '../ops/spice-agent/daily-research.mjs'
+} from '../ops/heston-agent/daily-research.mjs'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -24,7 +24,7 @@ it('parses launcher session responses and rejects invalid states and opening tim
   await expect(readMarketState()).resolves.toEqual({ state: 'pre', opensAt: '2026-09-16T13:30:00.000Z' })
   for (const body of [{ marketState: 'unexpected' }, { marketState: 'open', marketOpensAt: 42 }, { marketState: 'closed', marketOpensAt: 'yesterday' }]) {
     vi.stubGlobal('fetch', vi.fn(async () => Response.json(body)))
-    await expect(readMarketState()).rejects.toThrow('SpiceDailyResearch:invalid-market-session')
+    await expect(readMarketState()).rejects.toThrow('HestonDailyResearch:invalid-market-session')
   }
 })
 
@@ -83,7 +83,7 @@ describe('owner-machine daily research skip', () => {
   })
 
   it('treats a missing, stale, or invalid limit record as unknown', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'spice-limit-test-'))
+    const directory = await mkdtemp(join(tmpdir(), 'heston-limit-test-'))
     try {
       const now = new Date('2026-09-18T13:00:00.000Z')
       await expect(readGrokLimitRemaining(join(directory, 'absent.json'), now)).resolves.toBeUndefined()
@@ -112,11 +112,11 @@ describe('owner-machine daily research skip', () => {
     const muse = vi.fn(async () => {})
     await expect(runResearchAgent('prompt', 'token', { grok, muse })).resolves.toBe('grok')
     expect(muse).not.toHaveBeenCalled()
-    grok.mockRejectedValueOnce(new Error('SpiceDailyResearch:grok-exit:1'))
+    grok.mockRejectedValueOnce(new Error('HestonDailyResearch:grok-exit:1'))
     await expect(runResearchAgent('prompt', 'token', { grok, muse })).resolves.toBe('muse')
     expect(muse).toHaveBeenCalledTimes(1)
-    grok.mockRejectedValueOnce(new Error('SpiceDailyResearch:grok-exit:1'))
-    muse.mockRejectedValueOnce(new Error('SpiceDailyResearch:muse-exit:1'))
+    grok.mockRejectedValueOnce(new Error('HestonDailyResearch:grok-exit:1'))
+    muse.mockRejectedValueOnce(new Error('HestonDailyResearch:muse-exit:1'))
     await expect(runResearchAgent('prompt', 'token', { grok, muse })).rejects.toThrow('muse-exit:1')
   })
 
@@ -128,8 +128,8 @@ describe('owner-machine daily research skip', () => {
     expect(muse).toHaveBeenCalledTimes(1)
   })
 
-  it('pins muse to an isolated workspace and keeps only the spice MCP server', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'spice-muse-settings-'))
+  it('pins muse to an isolated workspace and keeps only the heston MCP server', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'heston-muse-settings-'))
     try {
       const source = join(directory, 'settings.json')
       await writeFile(source, JSON.stringify({
@@ -138,11 +138,11 @@ describe('owner-machine daily research skip', () => {
         provider: 'meta',
         schema_version: 1,
       }))
-      const settings = await isolatedMuseSettings('spice-token', source)
+      const settings = await isolatedMuseSettings('heston-token', source)
       expect(settings).toEqual({
         model: 'muse-spark-1.3-contributor',
         mcpServers: {
-          spice: { headers: { Authorization: 'Bearer spice-token' }, url: 'https://tryspice.xyz/mcp' },
+          heston: { headers: { Authorization: 'Bearer heston-token' }, url: 'https://heston.io/mcp' },
         },
         provider: 'meta',
         schema_version: 1,
@@ -165,22 +165,22 @@ describe('owner-machine daily research skip', () => {
 
   it('launches muse exec on the echo provider', async () => {
     const muse = process.env.MUSE_BIN ?? 'muse'
-    const previous = process.env.SPICE_DAILY_RESEARCH_MUSE_PROVIDER
+    const previous = process.env.HESTON_DAILY_RESEARCH_MUSE_PROVIDER
     try {
       await access(join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'muse', 'auth.json'))
     } catch {
       return
     }
     try {
-      process.env.SPICE_DAILY_RESEARCH_MUSE_PROVIDER = 'echo'
+      process.env.HESTON_DAILY_RESEARCH_MUSE_PROVIDER = 'echo'
       process.env.MUSE_BIN = muse
       await museRun('reply with the single word pong', 'test-token')
     } catch (error) {
       if (String(error).includes('ENOENT')) return
       throw error
     } finally {
-      if (previous === undefined) delete process.env.SPICE_DAILY_RESEARCH_MUSE_PROVIDER
-      else process.env.SPICE_DAILY_RESEARCH_MUSE_PROVIDER = previous
+      if (previous === undefined) delete process.env.HESTON_DAILY_RESEARCH_MUSE_PROVIDER
+      else process.env.HESTON_DAILY_RESEARCH_MUSE_PROVIDER = previous
     }
   })
 

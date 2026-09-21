@@ -4,7 +4,7 @@ import { STORAGE_PURGE_COOKIE } from './domain/storage-purge'
 /** Long enough that a slow first paint is never mistaken for a build that cannot load. */
 export const BOOT_RECOVERY_DELAY_MS = 10_000
 
-export const BOOT_RECOVERY_COOKIE = 'spice.boot-recovery.v1'
+export const BOOT_RECOVERY_COOKIE = 'heston.boot-recovery.v1'
 
 /**
  * How long the cleanup may hold the reload. Unregistering a worker takes a healthy browser
@@ -57,7 +57,7 @@ export function bootRecoveryScript(
     return 0;
   } catch (error) { return Infinity } }
   function remember(){ try { document.cookie=KEY+'='+Date.now()+'; Max-Age='+MAX_AGE+'; Path=/; SameSite=Lax'+SECURE } catch (error) {} }
-  window.__spiceBooted=function(){ clearTimeout(timer); try { document.cookie=KEY+'=; Max-Age=0; Path=/' } catch (error) {} };
+  window.__hestonBooted=function(){ clearTimeout(timer); try { document.cookie=KEY+'=; Max-Age=0; Path=/' } catch (error) {} };
   var timer=setTimeout(function(){
     var at=attemptedAt();
     if (at > 0 && Date.now() - at < COOLDOWN) return;

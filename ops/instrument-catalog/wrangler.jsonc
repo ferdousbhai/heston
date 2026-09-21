@@ -1,6 +1,6 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  "name": "spice-instrument-catalog",
+  "name": "heston-instrument-catalog",
   "main": "./worker.ts",
   "compatibility_date": "2026-08-18",
   "compatibility_flags": ["nodejs_compat"],
@@ -9,7 +9,7 @@
     // Temporary broker reads share the production account throttle instead of
     // creating an isolated coordinator namespace for each run.
     "bindings": [
-      { "name": "BROKER_GATE", "class_name": "BrokerGate", "script_name": "spice" }
+      { "name": "BROKER_GATE", "class_name": "BrokerGate", "script_name": "heston" }
     ]
   },
   "secrets_store_secrets": [

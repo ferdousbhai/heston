@@ -13,11 +13,11 @@ import {
 import { toError } from '../domain/failure'
 import { CopyBlock } from './copy-block'
 
-const MCP_URL = 'https://tryspice.xyz/mcp'
+const MCP_URL = 'https://heston.io/mcp'
 const PROXY_URL = 'http://127.0.0.1:8787/mcp'
 /** No Authorization header: the proxy attaches the keyring token so the agent holds none. */
-const PROXY_CLAUDE_COMMAND = `claude mcp add --transport http spice ${PROXY_URL}`
-const PROXY_GROK_COMMAND = `grok mcp add --transport http spice ${PROXY_URL}`
+const PROXY_CLAUDE_COMMAND = `claude mcp add --transport http heston ${PROXY_URL}`
+const PROXY_GROK_COMMAND = `grok mcp add --transport http heston ${PROXY_URL}`
 
 /** The shape every failing handler in api.mcp-tokens returns. */
 const ErrorResponseSchema = z.object({ error: z.string() })
@@ -116,12 +116,12 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
   // reveal the placeholder is all that can honestly be shown: the digest is all the server kept.
   const bearer = issued ?? 'YOUR_TOKEN'
   const mcpConfig = JSON.stringify({
-    mcpServers: { spice: { headers: { Authorization: `Bearer ${bearer}` }, type: 'http', url: MCP_URL } },
+    mcpServers: { heston: { headers: { Authorization: `Bearer ${bearer}` }, type: 'http', url: MCP_URL } },
   }, null, 2)
   // No header. Claude Code skips the OAuth flow entirely when a static `Authorization` is
   // configured, so handing one out as the default would ship the browser sign-in and guarantee
   // nobody ever reaches it.
-  const claudeCommand = `claude mcp add --transport http spice ${MCP_URL}`
+  const claudeCommand = `claude mcp add --transport http heston ${MCP_URL}`
   const headlessCommand = `${claudeCommand} --header "Authorization: Bearer ${bearer}"`
 
   return (
@@ -129,7 +129,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
       <header>
         <h1>Connect your agent</h1>
         <p>
-          Spice is a tool surface for an agent running on your own machine — Claude Code, Grok, Codex, or
+          Heston is a tool surface for an agent running on your own machine — Claude Code, Grok, Codex, or
           anything that speaks MCP. Any agent can read the public market surface without signing in
           at all. Connecting yours adds live quotes, option chains and Greeks, lets it add symbols
           to the watchlist, and lets it generate the daily brief everyone reads.
@@ -144,7 +144,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
       )}
 
       <section className="connect-step">
-        <h2>1 · Point your agent at Spice</h2>
+        <h2>1 · Point your agent at Heston</h2>
         <p>
           Run this and your agent opens a browser to sign you in with Google. Nothing to copy, and
           it renews its own access — you should not need to come back here.
@@ -159,13 +159,13 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
       <section className="connect-step">
         <h2>2 · Local proxy <span className="connect-optional">optional</span></h2>
         <p>
-          A process on this machine attaches the Spice token from the keyring so the agent holds
+          A process on this machine attaches the Heston token from the keyring so the agent holds
           none. That is how live quotes, chains, Greeks, and publishing the brief reach a client
           that cannot complete a browser sign-in.
         </p>
         <CopyBlock
-          label="Store your Spice token"
-          value={'./ops/spice-agent/store-credentials.sh mcp-token'}
+          label="Store your Heston token"
+          value={'./ops/heston-agent/store-credentials.sh mcp-token'}
         />
         <p>Issue the token in step 3, paste it at the prompt. The script restarts the proxy.</p>
         <CopyBlock label="Claude Code" value={PROXY_CLAUDE_COMMAND} />
@@ -182,7 +182,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         </p>
         <CopyBlock
           label="Store your brokerage credentials"
-          value={'./ops/spice-agent/store-credentials.sh tastytrade'}
+          value={'./ops/heston-agent/store-credentials.sh tastytrade'}
         />
       </section>
 
@@ -268,7 +268,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
           contract is resolved from the live chain, the portfolio and market checks
           run against fresh broker state, and the broker&apos;s own dry-run must come back clean. A
           refusal is final. Your agent will ask you before placing anything, but that prompt belongs
-          to your agent, not to Spice — the guards are what actually bound the risk.
+          to your agent, not to Heston — the guards are what actually bound the risk.
         </p>
         {owner && (
           <p className="connect-owner-note">

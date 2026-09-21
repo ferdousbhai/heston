@@ -190,7 +190,7 @@ describe('one-time tastytrade watchlist seed', () => {
       metadata: { seedSourceIds: ['tastytrade-public-0'] },
       symbol,
     })
-    const spiceItem = (symbol: string, origin: 'owner' | 'scheduled-research') => ({
+    const hestonItem = (symbol: string, origin: 'owner' | 'scheduled-research') => ({
       ...pltr!,
       origin,
       symbol,
@@ -203,8 +203,8 @@ describe('one-time tastytrade watchlist seed', () => {
         pltr!,
         publicSeedItem('AAPL'),
         publicSeedItem('TSLA'),
-        spiceItem('MSFT', 'owner'),
-        spiceItem('GOOG', 'scheduled-research'),
+        hestonItem('MSFT', 'owner'),
+        hestonItem('GOOG', 'scheduled-research'),
       ],
       [],
       4,

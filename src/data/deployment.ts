@@ -1,7 +1,7 @@
-import { SPICE_DEPLOYMENT_ID } from '../deployment'
-import { SPICE_DEPLOYMENT_ID_HEADER } from '../domain/deployment'
+import { HESTON_DEPLOYMENT_ID } from '../deployment'
+import { HESTON_DEPLOYMENT_ID_HEADER } from '../domain/deployment'
 
-export const DEPLOYMENT_RELOAD_STORAGE_KEY = 'spice.deployment-reload.v1'
+export const DEPLOYMENT_RELOAD_STORAGE_KEY = 'heston.deployment-reload.v1'
 
 export class DeploymentMismatchError extends Error {
   /**
@@ -9,7 +9,7 @@ export class DeploymentMismatchError extends Error {
    * unreadable payload leaves the screen empty, and only that is worth telling them about.
    */
   constructor(readonly receivedDeploymentId: string, readonly hydrated = false) {
-    super(`A newer Spice deployment is available (${receivedDeploymentId})`)
+    super(`A newer Heston deployment is available (${receivedDeploymentId})`)
     this.name = 'DeploymentMismatchError'
   }
 }
@@ -24,9 +24,9 @@ type ReloadStorage = Pick<Storage, 'getItem' | 'removeItem' | 'setItem'>
  */
 export function newerResponseDeployment(
   response: Pick<Response, 'headers'>,
-  deploymentId = SPICE_DEPLOYMENT_ID,
+  deploymentId = HESTON_DEPLOYMENT_ID,
 ): string | undefined {
-  const receivedDeploymentId = response.headers.get(SPICE_DEPLOYMENT_ID_HEADER)
+  const receivedDeploymentId = response.headers.get(HESTON_DEPLOYMENT_ID_HEADER)
   if (!receivedDeploymentId || receivedDeploymentId === deploymentId) return undefined
   return receivedDeploymentId
 }

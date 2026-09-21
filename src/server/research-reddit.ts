@@ -26,7 +26,7 @@ export type RedditDiscussion = {
   url: string
 }
 
-const USER_AGENT = 'SpiceMustFlow/0.2 personal-options-research'
+const USER_AGENT = 'Heston/0.2 personal-options-research'
 /*
  * Reddit is untrusted and then embedded in one research packet. These caps bound upstream
  * requests, Worker memory, and model context; no post or comment is authoritative.

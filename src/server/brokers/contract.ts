@@ -69,7 +69,7 @@ export interface BrokerHistoryQuery {
 }
 
 /**
- * Every account READ Spice performs against a brokerage. Order placement is deliberately
+ * Every account READ Heston performs against a brokerage. Order placement is deliberately
  * absent: it still lives in `brokerage.ts` behind its own guards.
  *
  * Each method takes the request-scoped credential explicitly. No adapter may hold, cache,

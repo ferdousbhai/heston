@@ -25,7 +25,7 @@ export function isolatedMuseSettings(
   schema_version: 1
   provider?: string
   model?: string
-  mcpServers: { spice: { headers: { Authorization: string }; url: string } }
+  mcpServers: { heston: { headers: { Authorization: string }; url: string } }
 }>
 export function museRun(prompt: string, token: string): Promise<void>
 export function runResearchAgent(

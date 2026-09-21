@@ -6,13 +6,13 @@ import {
 import { base64Url, sha256Base64Url } from './digest'
 
 /**
- * `spice_<token_id>_<secret>`.
+ * `heston_<token_id>_<secret>`.
  *
  * The id travels inside the token on purpose. Verification cannot scan every row in constant
  * time, so the id selects exactly one row and only the digest comparison has to be constant
  * time. The id is not a secret and grants nothing on its own.
  */
-const TOKEN_PREFIX = 'spice_'
+const TOKEN_PREFIX = 'heston_'
 const TOKEN_ID_HEX_LENGTH = 16
 const TOKEN_PATTERN = new RegExp(`^${TOKEN_PREFIX}([0-9a-f]{${TOKEN_ID_HEX_LENGTH}})_([A-Za-z0-9_-]{16,})$`)
 /**

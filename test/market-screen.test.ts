@@ -120,7 +120,7 @@ describe('selected market context', () => {
     })
 
     expect(html).toContain('Nothing is on the calendar.')
-    expect(html).toContain('Spice tracks earnings, regulatory, clinical, investor day, product launch, conference and shareholder vote dates for SPY')
+    expect(html).toContain('Heston tracks earnings, regulatory, clinical, investor day, product launch, conference and shareholder vote dates for SPY')
     expect(html).not.toContain('Recommendation')
   })
 })

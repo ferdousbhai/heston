@@ -60,7 +60,7 @@ export function readsSymbols(toolName: string): boolean {
 const MAX_ATTENTION_SYMBOLS = 5
 
 /**
- * The slice of a tool call this reads. Every Spice tool that names an instrument does it with one
+ * The slice of a tool call this reads. Every Heston tool that names an instrument does it with one
  * of these two fields, and a call carrying neither is simply not attention on a symbol.
  */
 export type SymbolNamingCall = z.infer<typeof AttentionParametersSchema>

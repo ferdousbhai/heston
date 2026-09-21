@@ -118,7 +118,7 @@ export function OwnerAccessScreen({
       </h1>
       <p>{signedIn
         ? 'Operations remain restricted to the owner account. Everything else — the market surface, your favorites, and connecting your own agent — is already yours.'
-        : 'Sign in with Google to connect your own agent to Spice, sync your favorites across devices, and — with your own brokerage credentials — read your account and place guarded orders.'}</p>
+        : 'Sign in with Google to connect your own agent to Heston, sync your favorites across devices, and — with your own brokerage credentials — read your account and place guarded orders.'}</p>
       {authError && (
         <Alert className="owner-access-error" variant="destructive">
           <AlertTitle>Owner sign-in unavailable</AlertTitle>

@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 const REFRESH_TOKEN = 'refresh-token-that-must-never-leave-this-machine'
 const CLIENT_SECRET = 'client-secret-that-must-never-leave-this-machine'
-const SPICE_TOKEN = 'spice_0123456789abcdef_AAAAAAAAAAAAAAAAAAAA'
+const HESTON_TOKEN = 'heston_0123456789abcdef_AAAAAAAAAAAAAAAAAAAA'
 const MINTED = 'minted-15-minute-access-token'
 
 type Captured = { body: string; headers: IncomingMessage['headers'] }
@@ -40,11 +40,11 @@ async function listen(handler: (request: IncomingMessage, response: ServerRespon
 
 /**
  * A `secret-tool` stand-in on PATH, so the proxy's own keyring code path is what runs. Keyed by
- * `service/key` rather than key alone, because the service is what separates Spice's own token
+ * `service/key` rather than key alone, because the service is what separates Heston's own token
  * from a broker's credentials and a stub that ignored it would not notice them being confused.
  */
 async function fakeKeyring(entries: Record<string, string>): Promise<string> {
-  const directory = await mkdtemp(join(tmpdir(), 'spice-keyring-'))
+  const directory = await mkdtemp(join(tmpdir(), 'heston-keyring-'))
   const cases = Object.entries(entries)
     .map(([path, value]) => `    ${path}) printf '%s' '${value}' ;;`)
     .join('\n')
@@ -61,14 +61,14 @@ esac
 }
 
 async function startProxy(env: Record<string, string>, port: number): Promise<void> {
-  proxy = spawn(process.execPath, ['ops/spice-agent/proxy.mjs'], {
-    env: { ...process.env, ...env, SPICE_AGENT_PORT: String(port) },
+  proxy = spawn(process.execPath, ['ops/heston-agent/proxy.mjs'], {
+    env: { ...process.env, ...env, HESTON_AGENT_PORT: String(port) },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('proxy did not start')), 10_000)
     proxy!.stdout?.on('data', (chunk: Buffer) => {
-      if (chunk.toString().includes('SpiceAgentProxy: http://')) {
+      if (chunk.toString().includes('HestonAgentProxy: http://')) {
         clearTimeout(timer)
         resolve()
       }
@@ -98,14 +98,14 @@ describe('local agent proxy', () => {
       })
     })
     const keyring = await fakeKeyring({
-      'spice/mcp-token': SPICE_TOKEN,
+      'heston/mcp-token': HESTON_TOKEN,
       'tastytrade/client-secret': CLIENT_SECRET,
       'tastytrade/refresh-token': REFRESH_TOKEN,
     })
     const proxyPort = 18_787
     await startProxy({
       PATH: `${keyring}:${process.env.PATH ?? ''}`,
-      SPICE_MCP_URL: `http://127.0.0.1:${port}/mcp`,
+      HESTON_MCP_URL: `http://127.0.0.1:${port}/mcp`,
       TASTYTRADE_API_BASE: `http://127.0.0.1:${port}`,
     }, proxyPort)
 
@@ -120,9 +120,9 @@ describe('local agent proxy', () => {
 
     expect(captured).toHaveLength(2)
     for (const request of captured) {
-      expect(request.headers.authorization).toBe(`Bearer ${SPICE_TOKEN}`)
-      expect(request.headers['x-spice-broker']).toBe('tastytrade')
-      expect(request.headers['x-spice-broker-token']).toBe(MINTED)
+      expect(request.headers.authorization).toBe(`Bearer ${HESTON_TOKEN}`)
+      expect(request.headers['x-heston-broker']).toBe('tastytrade')
+      expect(request.headers['x-heston-broker-token']).toBe(MINTED)
       // The whole reason this process exists: the permanent credential stays here.
       const serialized = JSON.stringify(request)
       expect(serialized).not.toContain(REFRESH_TOKEN)
@@ -142,11 +142,11 @@ describe('local agent proxy', () => {
         response.end(JSON.stringify({ ok: true }))
       })
     })
-    const keyring = await fakeKeyring({ 'spice/mcp-token': SPICE_TOKEN })
+    const keyring = await fakeKeyring({ 'heston/mcp-token': HESTON_TOKEN })
     const proxyPort = 18_788
     await startProxy({
       PATH: `${keyring}:${process.env.PATH ?? ''}`,
-      SPICE_MCP_URL: `http://127.0.0.1:${port}/mcp`,
+      HESTON_MCP_URL: `http://127.0.0.1:${port}/mcp`,
       TASTYTRADE_API_BASE: `http://127.0.0.1:${port}`,
     }, proxyPort)
 
@@ -156,11 +156,11 @@ describe('local agent proxy', () => {
       method: 'POST',
     })
     expect(captured).toHaveLength(1)
-    expect(captured[0]?.headers.authorization).toBe(`Bearer ${SPICE_TOKEN}`)
+    expect(captured[0]?.headers.authorization).toBe(`Bearer ${HESTON_TOKEN}`)
     // No broker headers at all, so the Worker's account tools answer with their own
     // connect-a-brokerage message rather than being handed a half-configured credential.
-    expect(captured[0]?.headers['x-spice-broker']).toBeUndefined()
-    expect(captured[0]?.headers['x-spice-broker-token']).toBeUndefined()
+    expect(captured[0]?.headers['x-heston-broker']).toBeUndefined()
+    expect(captured[0]?.headers['x-heston-broker-token']).toBeUndefined()
   }, 30_000)
 
   it('forwards MCP session headers in both directions', async () => {
@@ -177,11 +177,11 @@ describe('local agent proxy', () => {
         response.end(JSON.stringify({ ok: true }))
       })
     })
-    const keyring = await fakeKeyring({ 'spice/mcp-token': SPICE_TOKEN })
+    const keyring = await fakeKeyring({ 'heston/mcp-token': HESTON_TOKEN })
     const proxyPort = 18_789
     await startProxy({
       PATH: `${keyring}:${process.env.PATH ?? ''}`,
-      SPICE_MCP_URL: `http://127.0.0.1:${port}/mcp`,
+      HESTON_MCP_URL: `http://127.0.0.1:${port}/mcp`,
       TASTYTRADE_API_BASE: `http://127.0.0.1:${port}`,
     }, proxyPort)
 

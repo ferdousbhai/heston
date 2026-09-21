@@ -30,8 +30,8 @@ import {
   dailyResearchPrompt,
   PLACE_BROKERAGE_ORDER_DESCRIPTION,
   PORTFOLIO_REVIEW_PROMPT,
-  SPICE_GUIDE,
-  spiceMcpInstructions,
+  HESTON_GUIDE,
+  hestonMcpInstructions,
   tradeIdeaPrompt,
 } from './doctrine'
 import { toolAnnotations } from './mcp-annotations'
@@ -61,7 +61,7 @@ function asJsonSchema(schema: TSchema): JsonSchemaType {
  * Every tool here is stateless per call; all state lives in D1 and at the broker, which is
  * why the stateless handler lane fits and no Durable Object is involved.
  */
-export function createSpiceMcpServer(
+export function createHestonMcpServer(
   env: AppEnv,
   caller: McpCaller,
   credential?: BrokerCredential,
@@ -72,8 +72,8 @@ export function createSpiceMcpServer(
   // built for this caller's tier: it is paid for on every turn, and a rule about a tool they
   // were not given is a per-turn tax on a refusal they cannot reach.
   const server = new McpServer(
-    { name: 'spice', version: '1.0.0' },
-    { instructions: spiceMcpInstructions(caller.signedIn) },
+    { name: 'heston', version: '1.0.0' },
+    { instructions: hestonMcpInstructions(caller.signedIn) },
   )
   // Scheduling rather than awaiting: a search the caller did not ask for must not lengthen the
   // turn they did ask for. Absent in a test harness, where doing the work inline is correct.
@@ -191,9 +191,9 @@ export function createSpiceMcpServer(
   // at this URI, and the guide describes the credential-free tier as well.
   server.registerResource(
     'guide',
-    'spice://guide',
-    { description: 'What Spice can answer and which tool answers it.', mimeType: 'text/markdown', title: 'Spice guide' },
-    (uri) => ({ contents: [{ text: SPICE_GUIDE, uri: uri.href }] }),
+    'heston://guide',
+    { description: 'What Heston can answer and which tool answers it.', mimeType: 'text/markdown', title: 'Heston guide' },
+    (uri) => ({ contents: [{ text: HESTON_GUIDE, uri: uri.href }] }),
   )
 
   // Any member's agent may produce the public brief; the site does not wait on a schedule or on
@@ -305,7 +305,7 @@ function registerOrderTools(
  * own machine and a cookie jar is the wrong shape for it. Ownership is decided by the same
  * `isOwnerEmail` the cookie surface uses, so there is exactly one definition of it.
  *
- * Every caller is a row in `user_mcp_tokens`. The shared `SPICE_MCP_TOKEN` that authenticated as
+ * Every caller is a row in `user_mcp_tokens`. The shared `HESTON_MCP_TOKEN` that authenticated as
  * the owner during the pivot is gone: it could not be revoked, did not die with the account, sat
  * outside the per-member cap, and left no trace of use, which is everything the token table
  * exists to fix.
@@ -370,7 +370,7 @@ function serveMcp(
   const credential = brokerCredentialFromHeaders(request.headers)
   // SAFETY: the handler reads only `props` from the context (verified against its dist), which
   // McpExecutionContext carries; the platform type's other members are never touched.
-  return createMcpHandler(() => createSpiceMcpServer(env, caller, credential, (task) => ctx.waitUntil(task)), {
+  return createMcpHandler(() => createHestonMcpServer(env, caller, credential, (task) => ctx.waitUntil(task)), {
     route: '/mcp',
     // Out-of-band failures — a rejected request, an error raised after the response is under
     // way — are otherwise dropped without a trace. Named, never bodied: the argument may carry
@@ -415,7 +415,7 @@ export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpEx
     // would be the one shape that risks opening the surface. The outage is observable in this log
     // line rather than in the status code.
     console.error('McpAuthUnavailable', error instanceof Error ? error.name : 'UnknownError')
-    return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'Spice could not verify this request.'))
+    return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'Heston could not verify this request.'))
   }
 
   const presented = request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '').trim()
@@ -433,14 +433,14 @@ export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpEx
     // loses the challenge that would let them authenticate; it also reads as a broken endpoint
     // rather than a bad token, which is how a whole broken flow stayed invisible.
     console.error('McpOAuthVerificationFailed', error instanceof Error ? error.name : 'UnknownError')
-    return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'Spice could not verify this token.'))
+    return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'Heston could not verify this token.'))
   }
 
   const caller = await callerForUser(env, claims.sub, `oauth:${claims.jti ?? claims.sub}`)
   // A token whose subject is not a user this server knows authenticates nothing.
   if (!caller) {
     console.error('McpAuthRejected')
-    return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'This token does not identify a Spice member.'))
+    return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'This token does not identify a Heston member.'))
   }
   return serveMcp(request, env, ctx, caller)
 }
@@ -449,7 +449,7 @@ export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpEx
 /**
  * The JSON-RPC answer for an MCP client that connected to the wrong path.
  *
- * People are told to point their agent at Spice, and the natural thing to type is the site's
+ * People are told to point their agent at Heston, and the natural thing to type is the site's
  * own address rather than the endpoint under it. That request lands on the web app, which
  * answers `200 text/html`, and the client fails somewhere inside its JSON parser — the one
  * failure mode that tells the user nothing at all. A JSON-RPC error naming the endpoint is
@@ -468,7 +468,7 @@ export async function mcpEndpointRedirect(request: Request): Promise<Response | 
   return Response.json({
     error: {
       code: -32_600,
-      message: `Spice's MCP endpoint is ${endpoint} — this address serves the web app. Reconnect to ${endpoint}.`,
+      message: `Heston's MCP endpoint is ${endpoint} — this address serves the web app. Reconnect to ${endpoint}.`,
     },
     id: null,
     jsonrpc: '2.0',

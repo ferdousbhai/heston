@@ -23,14 +23,14 @@ describe('authorized app identity', () => {
   it('answers a request with no session cookie without building the auth runtime', async () => {
     // No database and no secrets: building the runtime would throw, so resolving to null is
     // the proof that the anonymous path never reached it.
-    await expect(getAuthenticatedIdentity(new Request('https://tryspice.xyz/api/viewer'), {})).resolves.toBeNull()
-    await expect(getAuthenticatedIdentity(new Request('https://tryspice.xyz/api/viewer', {
-      headers: { cookie: 'spice.purge=1' },
+    await expect(getAuthenticatedIdentity(new Request('https://heston.io/api/viewer'), {})).resolves.toBeNull()
+    await expect(getAuthenticatedIdentity(new Request('https://heston.io/api/viewer', {
+      headers: { cookie: 'heston.purge=1' },
     }), {})).resolves.toBeNull()
   })
 
   it('still checks a request that carries a session cookie', async () => {
-    await expect(getAuthenticatedIdentity(new Request('https://tryspice.xyz/api/viewer', {
+    await expect(getAuthenticatedIdentity(new Request('https://heston.io/api/viewer', {
       headers: { cookie: '__Secure-better-auth.session_token=abc' },
     }), {})).rejects.toThrow('AuthDatabaseMissing')
   })
@@ -46,7 +46,7 @@ describe('MCP authorization server', () => {
   async function authFor(store: SqliteD1Store) {
     return configureAuth(
       store.database,
-      'https://tryspice.xyz',
+      'https://heston.io',
       'test-secret-that-is-long-enough-32',
       'google-client-id',
       'google-client-secret',
@@ -61,7 +61,7 @@ describe('MCP authorization server', () => {
       // metadata, which is only under it. The two are asymmetric, a client fetches both from the
       // root, and a 404 on either reads as "this server has no OAuth", so both are pinned.
       const response = await auth.handler(new Request(
-        'https://tryspice.xyz/.well-known/oauth-protected-resource/mcp',
+        'https://heston.io/.well-known/oauth-protected-resource/mcp',
       ))
       expect(response.status).toBe(200)
       const body = z.object({
@@ -69,7 +69,7 @@ describe('MCP authorization server', () => {
         resource: z.string(),
       }).parse(await response.json())
       // The audience every issued token is bound to. It must be the endpoint, not the origin.
-      expect(body.resource).toBe(mcpResourceIdentifier('https://tryspice.xyz'))
+      expect(body.resource).toBe(mcpResourceIdentifier('https://heston.io'))
     } finally {
       store.close()
     }
@@ -80,7 +80,7 @@ describe('MCP authorization server', () => {
     try {
       const auth = await authFor(store)
       const response = await auth.handler(new Request(
-        'https://tryspice.xyz/api/auth/.well-known/oauth-authorization-server',
+        'https://heston.io/api/auth/.well-known/oauth-authorization-server',
       ))
       expect(response.status).toBe(200)
       const body = z.object({
@@ -101,7 +101,7 @@ describe('MCP authorization server', () => {
     const store = await migrationStore()
     try {
       const auth = await authFor(store)
-      const response = await auth.handler(new Request('https://tryspice.xyz/api/auth/sign-in/social', {
+      const response = await auth.handler(new Request('https://heston.io/api/auth/sign-in/social', {
         body: JSON.stringify({ callbackURL: '/', provider: 'google' }),
         headers: { 'content-type': 'application/json' },
         method: 'POST',

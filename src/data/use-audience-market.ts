@@ -22,7 +22,7 @@ export const SNAPSHOT_REFETCH_MS = 30 * 1_000
 export function snapshotSyncQueryOptions(audience: SnapshotAudience) {
   return {
     queryFn: ({ signal }: { signal?: AbortSignal }) => syncFromCloud(signal, () => true, audience),
-    queryKey: ['spice-snapshot', audience] as const,
+    queryKey: ['heston-snapshot', audience] as const,
     // Visibility, not window focus: a sitting tab on a second screen is still open.
     refetchInterval: () => document.visibilityState === 'hidden' ? false : SNAPSHOT_REFETCH_MS,
     refetchIntervalInBackground: true,
@@ -68,7 +68,7 @@ function applySnapshotQueryResult(
     // bundle could not parse leaves the screen empty, and the message names the one thing
     // that actually clears it — closing the tab, not the app, which iOS restores.
     if (!reloadForDeployment() && !failure.hydrated) {
-      setWarning('Spice needs a newer version. Close this tab and open the site again.')
+      setWarning('Heston needs a newer version. Close this tab and open the site again.')
     }
     return
   }

@@ -30,8 +30,8 @@ export type FavoriteStageMarker = z.infer<typeof FavoriteStageMarkerSchema>
 // row written by another tab while that request was in flight.
 export const favoriteStageMarkerCollection = createCollection(
   localStorageCollectionOptions({
-    id: 'spice-favorite-stage-markers',
-    storageKey: 'spice.favorite-stage.v1',
+    id: 'heston-favorite-stage-markers',
+    storageKey: 'heston.favorite-stage.v1',
     storage: browserStorage,
     schema: FavoriteStageMarkerSchema,
     getKey: (marker) => marker.id,
@@ -124,7 +124,7 @@ function favoriteRows(symbols: readonly string[]) {
  */
 export function createFavoriteSync(userId: string) {
   const queryClient = new QueryClient()
-  const queryKey = ['spice-favorites', userId] as const
+  const queryKey = ['heston-favorites', userId] as const
   let mutationTail: Promise<void> = Promise.resolve()
 
   const enqueueMutation = <T,>(task: () => Promise<T>): Promise<T> => {
@@ -135,7 +135,7 @@ export function createFavoriteSync(userId: string) {
 
   const collection = createCollection(
     queryCollectionOptions({
-      id: `spice-favorites-${userId}`,
+      id: `heston-favorites-${userId}`,
       queryKey,
       queryClient,
       schema: FavoriteRowSchema,

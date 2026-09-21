@@ -29,7 +29,7 @@ export const Route = createRootRoute({
         content: 'black-translucent',
       },
       {
-        title: 'Spice Must Flow',
+        title: 'Heston',
       },
       {
         name: 'description',
@@ -56,11 +56,11 @@ export const Route = createRootRoute({
       },
       {
         rel: 'icon',
-        href: '/spice-mark.svg',
+        href: '/heston-mark.svg',
       },
       {
         rel: 'apple-touch-icon',
-        href: '/spice-mark-180.png',
+        href: '/heston-mark-180.png',
       },
     ],
   }),
@@ -85,13 +85,13 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   )
 }
 
-const LEGACY_SPICE_CACHE_PREFIX = 'spice-public-shell-'
+const LEGACY_HESTON_CACHE_PREFIX = 'heston-public-shell-'
 
-async function clearLegacySpiceCaches(): Promise<void> {
+async function clearLegacyHestonCaches(): Promise<void> {
   if (!('caches' in globalThis)) return
   const names = await caches.keys()
   await Promise.all(names
-    .filter((name) => name.startsWith(LEGACY_SPICE_CACHE_PREFIX))
+    .filter((name) => name.startsWith(LEGACY_HESTON_CACHE_PREFIX))
     .map((name) => caches.delete(name)))
 }
 
@@ -99,7 +99,7 @@ async function retireLegacyServiceWorker(): Promise<void> {
   // The worker clears caches on activation now, which is the path that survives a document
   // its own code cannot load. This covers the other case: caches orphaned by a worker that
   // is already gone, where no activation will ever come.
-  await clearLegacySpiceCaches()
+  await clearLegacyHestonCaches()
   const registration = await navigator.serviceWorker.getRegistration('/')
   if (registration) {
     // Registering the same URL updates the installed offline-shell worker to the
@@ -110,13 +110,13 @@ async function retireLegacyServiceWorker(): Promise<void> {
 
 declare global {
   /** Installed by the inline recovery guard in the document head, before any module runs. */
-  var __spiceBooted: (() => void) | undefined
+  var __hestonBooted: (() => void) | undefined
 }
 
 /** Rendering at all is the proof the entry module ran; the recovery guard needs nothing more. */
 function BootSignal() {
   useEffect(() => {
-    globalThis.__spiceBooted?.()
+    globalThis.__hestonBooted?.()
   }, [])
   return null
 }
@@ -132,7 +132,7 @@ function LegacyServiceWorkerRetirement() {
   }, [])
   return failed ? (
     <aside className="service-worker-error" role="alert">
-      Spice could not clear an obsolete offline copy. Clear this site's browser data, then reload.
+      Heston could not clear an obsolete offline copy. Clear this site's browser data, then reload.
     </aside>
   ) : null
 }
