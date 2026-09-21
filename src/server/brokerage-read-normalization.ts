@@ -80,7 +80,12 @@ export function optionalRatioPercent(row: JsonObject, keys: readonly string[], l
   return value === undefined ? undefined : Math.round(value * 10_000) / 100
 }
 
-/** Fields tastytrade already reports in percent or points (see the unit note in `tastytrade.ts`). */
+/**
+ * Fields tastytrade already reports in percent or points, so they are only rounded.
+ * The unit is per field, not per provider: `implied-volatility-index` arrives as a ratio while
+ * `implied-volatility-30-day` arrives as points, carrying the same number. Check a new field
+ * against a sibling it must agree with arithmetically before choosing a converter.
+ */
 export function optionalPercentPoints(row: JsonObject, keys: readonly string[], label: string): number | undefined {
   const value = optionalNumber(row, keys, label)
   return value === undefined ? undefined : Math.round(value * 100) / 100

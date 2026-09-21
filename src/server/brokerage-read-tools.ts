@@ -197,7 +197,12 @@ function compactMetric(row: JsonObject): CompactMarketMetric {
     earningsTimeOfDay: earnings ? optionalText(earnings, ['time-of-day'], label, 32) : undefined,
     historicalVolatility30Day: optionalPercentPoints(row, ['historical-volatility-30-day'], label),
     impliedHistoricalVolatility30DayDifference: optionalPercentPoints(row, ['iv-hv-30-day-difference'], label),
-    impliedVolatility30Day: optionalRatioPercent(row, ['implied-volatility-30-day'], label),
+    // tastytrade sends these two as the same number in different units: the index as a ratio
+    // (0.2459) and the 30-day as percentage points (24.59). Converting both as ratios inflated
+    // the 30-day by 100x, so a reader saw NVDA at 3468 under a `percentage_points` label.
+    // `iv-hv-30-day-difference` settles which is which: it equals the 30-day minus
+    // `historical-volatility-30-day` only when the 30-day is read as points.
+    impliedVolatility30Day: optionalPercentPoints(row, ['implied-volatility-30-day'], label),
     impliedVolatilityIndex: optionalRatioPercent(row, ['implied-volatility-index'], label),
     impliedVolatilityPercentile: optionalRatioPercent(row, ['implied-volatility-percentile'], label),
     impliedVolatilityRank: optionalRatioPercent(row, ['implied-volatility-index-rank', 'implied-volatility-rank'], label),

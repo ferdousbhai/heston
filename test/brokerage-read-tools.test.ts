@@ -256,8 +256,9 @@ describe('brokerage read tools', () => {
       beta: '1.7',
       'earnings-per-share': '4.20',
       'historical-volatility-30-day': '42',
-      'implied-volatility-30-day': '0.51',
-      'implied-volatility-index': '0.49',
+      // Points, not a ratio, and equal to the index's number: 51 - 42 = the 9 below.
+      'implied-volatility-30-day': '51',
+      'implied-volatility-index': '0.51',
       'implied-volatility-index-rank': '0.72',
       'implied-volatility-percentile': '0.81',
       'iv-hv-30-day-difference': '9',
@@ -287,11 +288,37 @@ describe('brokerage read tools', () => {
       historicalVolatility30Day: 42,
       impliedHistoricalVolatility30DayDifference: 9,
       impliedVolatility30Day: 51,
+      impliedVolatilityIndex: 51,
       impliedVolatilityRank: 72,
       liquidityRating: 5,
       marketCap: 3_000_000_000_000,
       symbol: 'NVDA',
     })])
+  })
+
+  /**
+   * The 100x bug this guards: `implied-volatility-30-day` arrives as points and
+   * `implied-volatility-index` as a ratio, both carrying the same number. Reading the 30-day as
+   * a ratio published NVDA at 3468 under a `percentage_points` label. The provider's own
+   * difference field is the invariant that catches it.
+   */
+  it('keeps the 30-day implied volatility in the same points as the difference tastytrade reports', async () => {
+    tastytrade.tastyRequest.mockResolvedValue({ data: { items: [{
+      symbol: 'AAPL',
+      'historical-volatility-30-day': '22.89',
+      'implied-volatility-30-day': '24.59',
+      'implied-volatility-index': '0.2459',
+      'iv-hv-30-day-difference': '1.7',
+      'updated-at': '2026-09-21T12:02:13.037Z',
+    }] } })
+
+    const [metric] = (await readMarketMetrics({}, ['AAPL'], now)).metrics
+
+    expect(metric.impliedVolatility30Day).toBe(24.59)
+    expect(metric.impliedVolatilityIndex).toBe(24.59)
+    expect(
+      Math.round((metric.impliedVolatility30Day! - metric.historicalVolatility30Day!) * 100) / 100,
+    ).toBe(metric.impliedHistoricalVolatility30DayDifference)
   })
 
   it('leaves the capitalization tastytrade reports as zero out of the row', async () => {
