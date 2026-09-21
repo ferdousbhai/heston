@@ -41,18 +41,13 @@ export const OFFLINE_SNAPSHOT_STORAGE_KEY = `${OFFLINE_SNAPSHOT_STORAGE_PREFIX}$
 
 type SnapshotStorage = Pick<EnumerableStorage, 'key' | 'length' | 'removeItem'>
 
-/**
- * Split-generation keys from before the snapshot committed atomically, under the retired
- * `spice` brand. These name rows a browser already holds, so they do not track the brand --
- * renaming them would orphan the rows forever and target keys nothing ever wrote.
- */
 const LEGACY_SNAPSHOT_STORAGE_PREFIXES = [
-  'spice.catalysts.v',
-  'spice.research.v',
-  'spice.recommendations.v',
-  'spice.sync-state.v',
-  'spice.tickers.v',
-  'spice.watchlists.v',
+  'heston.catalysts.v',
+  'heston.research.v',
+  'heston.recommendations.v',
+  'heston.sync-state.v',
+  'heston.tickers.v',
+  'heston.watchlists.v',
 ]
 
 export function retireLegacySnapshotStorage(storage: SnapshotStorage): void {

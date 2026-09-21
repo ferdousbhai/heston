@@ -85,14 +85,13 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   )
 }
 
-/** The retired brand's cache prefix: a name already in browsers, so it never tracks the brand. */
-const LEGACY_CACHE_PREFIX = 'spice-public-shell-'
+const LEGACY_HESTON_CACHE_PREFIX = 'heston-public-shell-'
 
-async function clearLegacyCaches(): Promise<void> {
+async function clearLegacyHestonCaches(): Promise<void> {
   if (!('caches' in globalThis)) return
   const names = await caches.keys()
   await Promise.all(names
-    .filter((name) => name.startsWith(LEGACY_CACHE_PREFIX))
+    .filter((name) => name.startsWith(LEGACY_HESTON_CACHE_PREFIX))
     .map((name) => caches.delete(name)))
 }
 
@@ -100,7 +99,7 @@ async function retireLegacyServiceWorker(): Promise<void> {
   // The worker clears caches on activation now, which is the path that survives a document
   // its own code cannot load. This covers the other case: caches orphaned by a worker that
   // is already gone, where no activation will ever come.
-  await clearLegacyCaches()
+  await clearLegacyHestonCaches()
   const registration = await navigator.serviceWorker.getRegistration('/')
   if (registration) {
     // Registering the same URL updates the installed offline-shell worker to the

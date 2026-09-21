@@ -11,11 +11,7 @@ self.addEventListener('install', (event) => {
 
 // The only caches this app ever created. Named here rather than deleting everything on the
 // origin, so a cache some later feature owns is not collateral to retiring an old shell.
-//
-// This is the retired `spice` brand's prefix on purpose: it names caches a browser already
-// holds, which no later rename can change. Tracking the brand would point the cleanup at the
-// current app's own caches and leave the ones it exists to delete untouched.
-const LEGACY_CACHE_PREFIX = 'spice-public-shell-'
+const LEGACY_CACHE_PREFIX = 'heston-public-shell-'
 
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
