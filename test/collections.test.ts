@@ -62,7 +62,7 @@ describe('offline snapshot boundary', () => {
     const rows = new Map([
       ['heston.snapshot.v8', 'old schema'],
       ['heston.snapshot.v9.previous-build', 'old deployment'],
-      ['heston.tickers.v6', 'old split snapshot'],
+      ['spice.tickers.v6', 'old split snapshot'],
       [OFFLINE_SNAPSHOT_STORAGE_KEY, 'current schema'],
       ['heston.preferences.v2', 'preferences'],
       ['heston.favorite-stage.v1', 'favorite staging'],

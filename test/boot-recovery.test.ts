@@ -49,7 +49,7 @@ function loadDocument(options: { blockedCookies?: boolean; hungWorkerApis?: bool
   const registration = { unregister: vi.fn(async (): Promise<boolean> => true) }
   const cacheStorage = {
     delete: vi.fn(async (_name: string): Promise<boolean> => true),
-    keys: vi.fn(async (): Promise<string[]> => ['heston-public-shell-v2']),
+    keys: vi.fn(async (): Promise<string[]> => ['spice-public-shell-v2']),
   }
   const reload = vi.fn()
   const window: RecoveryWindow = { caches: cacheStorage }
@@ -98,7 +98,7 @@ describe('boot recovery guard', () => {
     await page.elapse(DELAY_MS)
 
     expect(page.registration.unregister).toHaveBeenCalledOnce()
-    expect(page.cacheStorage.delete).toHaveBeenCalledWith('heston-public-shell-v2')
+    expect(page.cacheStorage.delete).toHaveBeenCalledWith('spice-public-shell-v2')
     expect(page.reload).toHaveBeenCalledOnce()
     expect(page.cookies.get(BOOT_RECOVERY_COOKIE)).toBe(String(page.clock.now))
     // The reloaded document must arrive without the purge receipt, so the server purges again.

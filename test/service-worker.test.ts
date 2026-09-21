@@ -51,8 +51,8 @@ describe('legacy service-worker retirement', () => {
 
   it('clears the shell it served before unregistering, and leaves other caches alone', async () => {
     const { cacheStorage, handlers, worker } = loadWorker([
-      'heston-public-shell-v1',
-      'heston-public-shell-v2',
+      'spice-public-shell-v1',
+      'spice-public-shell-v2',
       'unrelated-browser-cache',
     ])
 
@@ -61,8 +61,8 @@ describe('legacy service-worker retirement', () => {
     // The page used to own this, but a document whose own modules 404 never runs page code —
     // which is exactly the document that needs the stale shell gone.
     expect(cacheStorage.delete).toHaveBeenCalledTimes(2)
-    expect(cacheStorage.delete).toHaveBeenCalledWith('heston-public-shell-v1')
-    expect(cacheStorage.delete).toHaveBeenCalledWith('heston-public-shell-v2')
+    expect(cacheStorage.delete).toHaveBeenCalledWith('spice-public-shell-v1')
+    expect(cacheStorage.delete).toHaveBeenCalledWith('spice-public-shell-v2')
     // Retiring an old shell must not be collateral for a cache something else owns.
     expect(cacheStorage.delete).not.toHaveBeenCalledWith('unrelated-browser-cache')
     expect(worker.clients.claim).not.toHaveBeenCalled()
