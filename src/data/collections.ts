@@ -41,6 +41,13 @@ export const OFFLINE_SNAPSHOT_STORAGE_KEY = `${OFFLINE_SNAPSHOT_STORAGE_PREFIX}$
 
 type SnapshotStorage = Pick<EnumerableStorage, 'key' | 'length' | 'removeItem'>
 
+/**
+ * "Legacy" here is an older schema generation of this app, not an older brand: these are the
+ * split-generation keys that predate the atomic snapshot, and the `.v` suffix is what dates
+ * them. They travel with the storage namespace, so a rebrand renames them like any other key --
+ * keys written under a previous brand lived on that brand's origin and are unreachable from
+ * this one.
+ */
 const LEGACY_SNAPSHOT_STORAGE_PREFIXES = [
   'heston.catalysts.v',
   'heston.research.v',
