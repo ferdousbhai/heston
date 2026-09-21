@@ -54,6 +54,14 @@
       "secret_name": "reddit-client-secret"
     },
     {
+      // Store-backed rather than a per-Worker secret: a Secrets Store entry binds to any
+      // Worker by name, so renaming or recreating this Worker never asks a human to retype
+      // the credential. `GOOGLE_CLIENT_ID` stays a plain secret because it is not one.
+      "binding": "GOOGLE_CLIENT_SECRET",
+      "store_id": "a436a6cefedc4acd8bb920cdbc202c1c",
+      "secret_name": "google-client-secret"
+    },
+    {
       "binding": "TASTYTRADE_CLIENT_SECRET",
       "store_id": "a436a6cefedc4acd8bb920cdbc202c1c",
       "secret_name": "tastytrade-client-secret"
@@ -67,6 +75,10 @@
   "d1_databases": [
     {
       "binding": "DB",
+      // Keeps the pre-rebrand name because D1 cannot rename a database, and the binding
+      // resolves by id regardless. Renaming it here would point at a database that does not
+      // exist. `migrations/0001_spice.sql` stays for the same shape of reason: D1 records
+      // applied migrations by filename, so renaming it would re-apply the initial schema.
       "database_name": "spice-production",
       "database_id": "e45e35cc-bd01-4e29-8940-b5d2ef5e840c",
       "migrations_dir": "migrations"

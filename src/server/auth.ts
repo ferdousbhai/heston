@@ -3,7 +3,7 @@ import { betterAuth } from 'better-auth'
 import { jwt } from 'better-auth/plugins/jwt'
 
 import { type AppEnv } from './env'
-import { readBoundSecret } from './secrets'
+import { readBoundSecret, readStoredSecret } from './secrets'
 
 export const OWNER_EMAIL = 'ferdousbd@gmail.com'
 
@@ -114,7 +114,7 @@ async function createAuthRuntime(env: AppEnv): Promise<AuthRuntime> {
   if (!env.DB) throw new Error('AuthDatabaseMissing')
   const secret = readBoundSecret(env.BETTER_AUTH_SECRET, 'BETTER_AUTH_SECRET')
   const googleClientId = readBoundSecret(env.GOOGLE_CLIENT_ID, 'GOOGLE_CLIENT_ID')
-  const googleClientSecret = readBoundSecret(env.GOOGLE_CLIENT_SECRET, 'GOOGLE_CLIENT_SECRET')
+  const googleClientSecret = await readStoredSecret(env.GOOGLE_CLIENT_SECRET, 'GOOGLE_CLIENT_SECRET')
   if (secret.length < 32) throw new Error('AuthSecretTooShort')
   const baseURL = requireProductionOrigin(env.AUTH_BASE_URL)
 

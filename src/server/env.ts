@@ -32,7 +32,7 @@ export interface AppEnv {
   DB?: D1Database
   EXA_API_KEY?: SecretsStoreSecret
   GOOGLE_CLIENT_ID?: string
-  GOOGLE_CLIENT_SECRET?: string
+  GOOGLE_CLIENT_SECRET?: SecretsStoreSecret
   MARKET_FEED?: MarketFeedNamespace
   REDDIT_CLIENT_ID?: SecretsStoreSecret
   REDDIT_CLIENT_SECRET?: SecretsStoreSecret
