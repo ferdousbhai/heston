@@ -402,7 +402,7 @@ function CatalystRunway({
 }
 
 /**
- * What members' agents have quoted under this name since the last brief.
+ * What members' agents have quoted under this name.
  *
  * Every card is a passage the server re-read on the page it cites, so the quote is the source's
  * own words; the note beside it is the recorder's reading and is labelled as theirs. Nothing

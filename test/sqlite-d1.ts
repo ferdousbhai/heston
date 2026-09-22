@@ -93,8 +93,8 @@ export async function migrationStore() {
 }
 
 /**
- * The member row the foreign keys point at. Publishing a brief records the account behind it,
- * so a store that publishes needs that account to exist here exactly as it does in production.
+ * The member row the foreign keys point at. Recording evidence keeps the account behind it, so
+ * a store that records needs that account to exist here exactly as it does in production.
  */
 export function seedMember(store: SqliteD1Store, userId: string): string {
   store.sqlite.prepare(

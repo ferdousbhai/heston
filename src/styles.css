@@ -336,8 +336,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 /* A grid item's minimum width is its content, so the ask block's one long line widened the
    column past the panel; the line is prose to read, not a command to keep intact, so it wraps. */
 
-/* The surviving channel posts, dense and dated: a bare link post is one line, a brief keeps
-   its own line breaks. */
+/* The surviving channel posts, dense and dated: a bare link post is one line, a longer post
+   keeps its own line breaks. */
 .channel-archive { padding: 26px 22px 34px; border-top: 1px solid var(--hairline); }
 .channel-archive h2 { margin: 0; font-size: 15px; font-weight: 700; line-height: 1.1; text-transform: none; }
 .channel-archive h2::before { content: "\250C\2500"; margin-right: .4em; vertical-align: -.2em; color: var(--ink-faint); font-weight: 300; }

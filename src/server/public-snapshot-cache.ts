@@ -63,8 +63,8 @@ export function publicSessionStatus(
 export function snapshotEtag(
   snapshot: Pick<PublicMarketSnapshot, 'syncedAt'> & Partial<Pick<PublicMarketSnapshot, 'marketOpensAt' | 'marketState'>>,
 ): string {
-  // Quotes, session, and the brief are independent writes. Keying only the observation hid a
-  // newly published brief, and a session-only refresh, behind 304s.
+  // Quotes and session are independent writes. Keying only the observation hid a session-only
+  // refresh behind 304s.
   const parts = [snapshot.syncedAt]
   if (snapshot.marketState) parts.push(snapshot.marketState)
   if (snapshot.marketOpensAt) parts.push(snapshot.marketOpensAt)

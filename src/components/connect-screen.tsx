@@ -132,7 +132,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
           Heston is a tool surface for an agent running on your own machine — Claude Code, Grok, Codex, or
           anything that speaks MCP. Any agent can read the public market surface without signing in
           at all. Connecting yours adds live quotes, option chains and Greeks, lets it add symbols
-          to the watchlist, and lets it generate the daily brief everyone reads.
+          to the watchlist, and lets it record catalysts and evidence everyone reads.
         </p>
       </header>
 

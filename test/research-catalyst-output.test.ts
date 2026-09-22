@@ -41,9 +41,9 @@ describe('structured catalyst output binding', () => {
       confidence: 'estimated',
       date: '2026-09-15',
       description: null,
-      id: 'daily-research:NVDA:investor-event:2026-09-15',
+      id: 'member-research:NVDA:investor-event:2026-09-15',
       kind: 'investor-event',
-      source: 'Daily research · investors.example.com',
+      source: 'Member research · investors.example.com',
       sourceUrl: PAGE_URL,
       symbol: 'NVDA',
       timing: 'unknown',
@@ -77,7 +77,7 @@ describe('structured catalyst output binding', () => {
       retained('The investor day is September 15, 2026.'),
       NOW,
     ).rejected).toEqual([
-      'catalyst 2: duplicates daily-research:NVDA:investor-event:2026-09-15',
+      'catalyst 2: duplicates member-research:NVDA:investor-event:2026-09-15',
     ])
   })
 })

@@ -79,7 +79,7 @@ function ConsentPage() {
           <p>
             An agent is asking to connect to your Heston account, signed in as{' '}
             <strong>{viewer.user.name}</strong>. It will be able to read live market data, option
-            chains and Greeks, research and the daily brief, and to add symbols to the watchlist.
+            chains and Greeks, and the shared research, and to add symbols to the watchlist.
           </p>
           <p>
             It cannot reach your brokerage this way. Balances, positions and order placement need a

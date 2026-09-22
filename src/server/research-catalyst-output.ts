@@ -49,16 +49,16 @@ export type BoundCatalystProvider = keyof typeof BOUND_CATALYST_LABELS
  * Turn model-authored catalyst candidates into application-owned rows. A candidate survives
  * only when this run retained its HTTPS page and the page contains the exact event date.
  *
- * The provider is a parameter rather than a constant because the same binding now serves two
- * producers under the same rules; it defaults to the brief so the publish boundary, which is
- * what this was written for, keeps stating exactly what it always did.
+ * The provider is a parameter so any producer of model-authored dates is bound under the same
+ * rules. A member's recording is the one producer left; `daily-research` stays in the label map
+ * because rows it wrote are still on the calendar.
  */
 export function bindCatalystCandidates(
   candidates: readonly ResearchCatalystCandidate[],
   sources: readonly { sourceUrl: string }[],
   retained: ReadonlyMap<string, RetainedPage>,
   now: Date,
-  provider: BoundCatalystProvider = 'daily-research',
+  provider: BoundCatalystProvider = 'member-research',
 ): CatalystCandidateBinding {
   const catalysts: Catalyst[] = []
   const rejected: string[] = []

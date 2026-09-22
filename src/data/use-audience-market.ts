@@ -16,7 +16,7 @@ import {
   type SnapshotAudience,
 } from './collections'
 
-/** Public snapshot max-age is 30s. A visible tab refetches on that bound so a new brief lands. */
+/** Public snapshot max-age is 30s. A visible tab refetches on that bound so a new observation lands. */
 export const SNAPSHOT_REFETCH_MS = 30 * 1_000
 
 export function snapshotSyncQueryOptions(audience: SnapshotAudience) {

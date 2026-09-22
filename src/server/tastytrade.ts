@@ -518,8 +518,8 @@ async function loadMarketSnapshot(
   const requestedSymbols = (options.symbols ?? [])
     .map((symbol) => EquitySymbolSchema.parse(symbol))
   const symbols = selectSnapshotSymbols([], requestedSymbols, privateWatchlist.symbols)
-  // New owner, agent, and research symbols get an authoritative name
-  // immediately. A market-open research run retries the honest unresolved rows.
+  // New owner and agent symbols get an authoritative name immediately; a later market-open
+  // snapshot retries the honest unresolved rows.
   await refreshMissingTastytradeInstruments(env, symbols)
   const { catalysts, tickers } = await loadMarketFacts(env, symbols)
   const session = await cacheProviderSession(env, sessionPayload)

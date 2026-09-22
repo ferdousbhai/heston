@@ -12,12 +12,11 @@ import { CatalystSubmissionSchema, NativeSearchSource } from './research-submiss
 
 /*
  * The gap this fills: catalyst coverage is bought by reader attention, one search per symbol per
- * window, plus whatever the daily brief happens to argue. A member's agent that has just spent a
- * session on a name knows dates that neither of those will find, and until now had nowhere to
- * put them.
+ * window. A member's agent that has just spent a session on a name knows dates that search will
+ * not find, and until now had nowhere to put them.
  *
- * It is the publish boundary's contract at a smaller scale, and deliberately not a shortcut
- * around it: what arrives is untrusted model output, so the Worker re-reads every cited page
+ * It is a citation contract, deliberately not a shortcut around one: what arrives is untrusted
+ * model output, so the Worker re-reads every cited page
  * through its own browser and `bindCatalystCandidates` refuses any date it cannot find in that
  * text. Rows land under their own producer id, which is what keeps them traceable to the surface
  * that wrote them and retractable as a set.

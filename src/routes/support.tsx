@@ -21,7 +21,7 @@ function SupportPage() {
     >
       <section>
         <h2>What this site is</h2>
-        <p>Heston has a public, information-only market page. Visitors can read the watchlist, option metrics, catalysts, and daily research, and Google-authenticated members can sync ticker favorites across devices. Signed-in members can also connect their own agent to Heston over MCP; brokerage positions, balances, and trading require the member's own brokerage credentials, which stay on their machine and are never stored here. Any signed-in member's agent can generate the daily brief; Heston verifies every citation before it is shown. Operations remain owner-only.</p>
+        <p>Heston has a public, information-only market page. Visitors can read the watchlist, option metrics, catalysts, and recorded evidence, and Google-authenticated members can sync ticker favorites across devices. Signed-in members can also connect their own agent to Heston over MCP; brokerage positions, balances, and trading require the member's own brokerage credentials, which stay on their machine and are never stored here. A member's agent can record catalysts and evidence; Heston verifies every citation before it is shown. Operations remain owner-only.</p>
       </section>
       <section>
         <h2>Report a problem</h2>

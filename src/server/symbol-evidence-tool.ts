@@ -21,9 +21,8 @@ import { upsertSymbolEvidence } from './symbol-evidence'
 /*
  * One quoted passage, attached to a symbol, by a member's own agent.
  *
- * The daily brief argues a few names once an interval; between them a member researching some
- * other name has read something worth keeping, and the site has had nowhere to keep it. This is
- * that place, held to the same rule as every other citation here: the Worker re-reads the page
+ * A member researching a name has read something worth keeping, and the site has had nowhere
+ * to keep it. This is that place, held to the same rule as every other citation here: the Worker re-reads the page
  * itself and refuses a quote it cannot find in that text, so a card is always the page's own
  * words rather than a model's recollection of them. Why the passage matters is the member's
  * note, which is labelled as theirs and binds nothing.
@@ -93,7 +92,7 @@ export async function recordSymbolEvidence(
 
   const markdown = await readResearchPageMarkdown(browser, sourceUrl)
   if (markdown === undefined) return { rejected: [`page did not open: ${sourceUrl}`], status: 'rejected' }
-  // The same normalization the brief's citations are bound by: markdown renders one sentence
+  // The same normalization every citation here is bound by: markdown renders one sentence
   // many ways, and only its words decide whether the page contains the quote.
   if (!normalizedCitationText(markdown).includes(normalizedCitationText(evidence.quote))) {
     return { rejected: [quoteAbsentFromSourceReason(evidence.quote)], status: 'rejected' }
