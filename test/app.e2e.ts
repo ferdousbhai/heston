@@ -10,14 +10,6 @@ const FavoriteMutationRequestSchema = z.object({
   symbols: z.array(z.string()),
 })
 
-// The channel archive tab is reached below; its posts are not under test here.
-test.beforeEach(async ({ page }) => {
-  await page.route('**/api/public-channel-archive*', (route) => route.fulfill({
-    body: JSON.stringify({ posts: [] }),
-    contentType: 'application/json',
-  }))
-})
-
 /** On a phone the focus card is a sheet: opened to read it, closed to reach the list again. */
 async function openDetail(page: Page, symbol: string): Promise<void> {
   await page.getByRole('button', { name: `Open ${symbol} detail` }).click()
@@ -184,7 +176,7 @@ test('unauthenticated visitors can read market data but connecting an agent need
   await expect(page.getByText('Long vol')).toHaveCount(0)
 
   await page.getByRole('tab', { name: 'Recommendations' }).click()
-  await expect(page.getByRole('heading', { name: 'From the Long Vol channel' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Trades' })).toBeVisible()
 
   await page.getByRole('tab', { name: 'Connect' }).click()
   await expect(page.getByRole('heading', { name: 'Your agent. Your account.' })).toBeVisible()
@@ -368,7 +360,7 @@ test('mobile market, recommendations, search, sorting, and connect flows remain 
 
   await page.getByRole('tab', { name: 'Recommendations' }).click()
   await expect(page.getByRole('tab', { name: 'Recommendations' })).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByRole('heading', { name: 'From the Long Vol channel' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Trades' })).toBeVisible()
 
   await page.getByRole('tab', { name: 'Connect' }).click()
   // A signed-in member is first class here: the setup surface is theirs, not the owner's.

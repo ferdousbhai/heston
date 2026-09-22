@@ -334,24 +334,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
 .archive-error { margin: 16px 20px 0; }
 
-/* The surviving channel posts, dense and dated: a bare link post is one line, a longer post
-   keeps its own line breaks. */
-.channel-archive { padding: 26px 22px 34px; border-top: 1px solid var(--hairline); }
-.channel-archive h2 { margin: 0; font-size: 15px; font-weight: 700; line-height: 1.1; text-transform: none; }
-.channel-archive h2::before { content: "\250C\2500"; margin-right: .4em; vertical-align: -.2em; color: var(--ink-faint); font-weight: 300; }
-.channel-archive-note { max-width: 560px; margin: 8px 0 14px; color: #8f929b; font-size: 13px; line-height: 1.5; }
-.channel-posts { margin: 0; padding: 0; border-top: 1px solid var(--hairline); list-style: none; }
-.channel-post { padding: 9px 0 10px; border-bottom: 1px solid var(--hairline); }
-.channel-post time { display: block; color: var(--ink-faint); font: 13px/1.4 var(--sans); text-transform: none; letter-spacing: 0; }
-.channel-post p { margin: 4px 0 0; color: #b5b7be; font-size: 15px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
-.channel-post a { display: inline-flex; align-items: center; gap: 3px; margin-top: 3px; color: var(--accent); font-size: 13px; text-decoration: none; }
-.channel-post a:hover { color: var(--text); }
-.channel-post a svg { width: 10px; height: 10px; }
-.channel-post-links { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 4px; }
-.channel-archive-loading { display: flex; align-items: center; gap: 9px; padding: 14px 0; color: var(--ink-muted); font-size: 13px; }
-.channel-archive > [data-slot="button"] { margin-top: 14px; }
-.channel-archive-end { margin: 14px 0 0; color: var(--ink-faint); font-size: 13px; text-transform: none; letter-spacing: 0; }
-
 .app-shell[data-slot="tabs"] { display: block; gap: 0; }
 .market-state-loading { width: min(100%, 260px); display: flex; flex-direction: column; gap: 10px; }
 .market-state-loading [data-slot="skeleton"]:first-child { width: 54%; height: 13px; margin-inline: auto; }

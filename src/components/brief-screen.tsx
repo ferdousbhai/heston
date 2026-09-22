@@ -8,7 +8,6 @@ import { loadPreviousDailyBrief } from '../data/brief-archive'
 import { type DailyBrief } from '../domain/brief'
 import { RecommendationCard } from './brief-card'
 import { nyDateTime } from './ny-time'
-import { ChannelArchiveScreen } from './channel-archive-screen'
 
 function BriefNavigation({ index, loading, onNewer, onOlder, olderDisabled }: {
   index: number
@@ -125,7 +124,6 @@ export function BriefScreen({ latest, onSymbol }: { latest?: DailyBrief; onSymbo
               <p>The first brief lands with the next trading morning's run.</p>
             </section>
           )}
-      <ChannelArchiveScreen />
     </div>
   )
 }

@@ -34,10 +34,9 @@ describe('the brief screen', () => {
     expect(html).toContain('[x](javascript:alert(1))')
   })
 
-  it('says so when nothing has been published, and still shows the channel archive', () => {
+  it('says so when nothing has been published', () => {
     const html = render(undefined)
     expect(html).toContain('No brief yet')
     expect(html).not.toContain('Previous')
-    expect(html).toContain('From the Long Vol channel')
   })
 })

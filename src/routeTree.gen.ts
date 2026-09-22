@@ -20,7 +20,6 @@ import { Route as ApiHealthRouteImport } from './routes/api.health'
 import { Route as ApiMcpTokensRouteImport } from './routes/api.mcp-tokens'
 import { Route as ApiPublicCatalystRefreshRouteImport } from './routes/api.public-catalyst-refresh'
 import { Route as ApiPublicCatalystsRouteImport } from './routes/api.public-catalysts'
-import { Route as ApiPublicChannelArchiveRouteImport } from './routes/api.public-channel-archive'
 import { Route as ApiPublicDailyBriefsRouteImport } from './routes/api.public-daily-briefs'
 import { Route as ApiPublicSnapshotRouteImport } from './routes/api.public-snapshot'
 import { Route as ApiPublicSymbolEvidenceRouteImport } from './routes/api.public-symbol-evidence'
@@ -87,11 +86,6 @@ const ApiPublicCatalystRefreshRoute =
 const ApiPublicCatalystsRoute = ApiPublicCatalystsRouteImport.update({
   id: '/api/public-catalysts',
   path: '/api/public-catalysts',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiPublicChannelArchiveRoute = ApiPublicChannelArchiveRouteImport.update({
-  id: '/api/public-channel-archive',
-  path: '/api/public-channel-archive',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicDailyBriefsRoute = ApiPublicDailyBriefsRouteImport.update({
@@ -162,7 +156,6 @@ export interface FileRoutesByFullPath {
   '/api/mcp-tokens': typeof ApiMcpTokensRoute
   '/api/public-catalyst-refresh': typeof ApiPublicCatalystRefreshRoute
   '/api/public-catalysts': typeof ApiPublicCatalystsRoute
-  '/api/public-channel-archive': typeof ApiPublicChannelArchiveRoute
   '/api/public-daily-briefs': typeof ApiPublicDailyBriefsRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
   '/api/public-symbol-evidence': typeof ApiPublicSymbolEvidenceRoute
@@ -186,7 +179,6 @@ export interface FileRoutesByTo {
   '/api/mcp-tokens': typeof ApiMcpTokensRoute
   '/api/public-catalyst-refresh': typeof ApiPublicCatalystRefreshRoute
   '/api/public-catalysts': typeof ApiPublicCatalystsRoute
-  '/api/public-channel-archive': typeof ApiPublicChannelArchiveRoute
   '/api/public-daily-briefs': typeof ApiPublicDailyBriefsRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
   '/api/public-symbol-evidence': typeof ApiPublicSymbolEvidenceRoute
@@ -212,7 +204,6 @@ export interface FileRoutesById {
   '/api/mcp-tokens': typeof ApiMcpTokensRoute
   '/api/public-catalyst-refresh': typeof ApiPublicCatalystRefreshRoute
   '/api/public-catalysts': typeof ApiPublicCatalystsRoute
-  '/api/public-channel-archive': typeof ApiPublicChannelArchiveRoute
   '/api/public-daily-briefs': typeof ApiPublicDailyBriefsRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
   '/api/public-symbol-evidence': typeof ApiPublicSymbolEvidenceRoute
@@ -239,7 +230,6 @@ export interface FileRouteTypes {
     | '/api/mcp-tokens'
     | '/api/public-catalyst-refresh'
     | '/api/public-catalysts'
-    | '/api/public-channel-archive'
     | '/api/public-daily-briefs'
     | '/api/public-snapshot'
     | '/api/public-symbol-evidence'
@@ -263,7 +253,6 @@ export interface FileRouteTypes {
     | '/api/mcp-tokens'
     | '/api/public-catalyst-refresh'
     | '/api/public-catalysts'
-    | '/api/public-channel-archive'
     | '/api/public-daily-briefs'
     | '/api/public-snapshot'
     | '/api/public-symbol-evidence'
@@ -288,7 +277,6 @@ export interface FileRouteTypes {
     | '/api/mcp-tokens'
     | '/api/public-catalyst-refresh'
     | '/api/public-catalysts'
-    | '/api/public-channel-archive'
     | '/api/public-daily-briefs'
     | '/api/public-snapshot'
     | '/api/public-symbol-evidence'
@@ -314,7 +302,6 @@ export interface RootRouteChildren {
   ApiMcpTokensRoute: typeof ApiMcpTokensRoute
   ApiPublicCatalystRefreshRoute: typeof ApiPublicCatalystRefreshRoute
   ApiPublicCatalystsRoute: typeof ApiPublicCatalystsRoute
-  ApiPublicChannelArchiveRoute: typeof ApiPublicChannelArchiveRoute
   ApiPublicDailyBriefsRoute: typeof ApiPublicDailyBriefsRoute
   ApiPublicSnapshotRoute: typeof ApiPublicSnapshotRoute
   ApiPublicSymbolEvidenceRoute: typeof ApiPublicSymbolEvidenceRoute
@@ -403,13 +390,6 @@ declare module '@tanstack/react-router' {
       path: '/api/public-catalysts'
       fullPath: '/api/public-catalysts'
       preLoaderRoute: typeof ApiPublicCatalystsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public-channel-archive': {
-      id: '/api/public-channel-archive'
-      path: '/api/public-channel-archive'
-      fullPath: '/api/public-channel-archive'
-      preLoaderRoute: typeof ApiPublicChannelArchiveRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public-daily-briefs': {
@@ -518,7 +498,6 @@ const rootRouteChildren: RootRouteChildren = {
   ApiMcpTokensRoute: ApiMcpTokensRoute,
   ApiPublicCatalystRefreshRoute: ApiPublicCatalystRefreshRoute,
   ApiPublicCatalystsRoute: ApiPublicCatalystsRoute,
-  ApiPublicChannelArchiveRoute: ApiPublicChannelArchiveRoute,
   ApiPublicDailyBriefsRoute: ApiPublicDailyBriefsRoute,
   ApiPublicSnapshotRoute: ApiPublicSnapshotRoute,
   ApiPublicSymbolEvidenceRoute: ApiPublicSymbolEvidenceRoute,
