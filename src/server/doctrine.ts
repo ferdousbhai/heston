@@ -120,8 +120,9 @@ What is not obvious from the tool list:
   reader's calendar, or one passage quoted from a page and kept under a symbol. The server
   re-reads each cited page and refuses anything absent from that text; a repeat refreshes what
   is stored rather than duplicating it.
-- There is no daily brief here. Recommendations are produced and delivered elsewhere; this
-  server is market data, the shared calendar, and the evidence members' agents record.
+- \`read_daily_brief\` is the standing brief: the day's trade lines, theses and links, as the
+  site shows them. It is prior work argued here, not a current read of anything, and nothing on
+  this server writes one.
 
 \`portfolio_review\` and \`evaluate_trade_idea\` are registered prompts the user invokes. If a
 question is really one of those, say the workflow exists.

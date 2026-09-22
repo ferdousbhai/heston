@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { DailyBriefSchema } from './brief'
+
 import { CatalystSchema, snapshotCatalyst } from './catalyst'
 import { CandlePointSchema, MAX_YEAR_CANDLES } from './candle'
 import { EquitySymbolSchema } from './instrument'
@@ -79,9 +81,6 @@ export const PublicTickerSchema = TickerSchema.omit({ earningsDate: true, sparkl
   sparkline: z.array(CandlePointSchema).optional(),
 }).strict()
 
-/** One rule for every page address a member's agent cites, stated once. */
-export const HttpsSourceUrlSchema = z.string().url()
-  .refine((url) => new URL(url).protocol === 'https:', 'Use an HTTPS source URL')
 
 /**
  * A quote is one sentence of a page, not a page. The evidence binder holds a submission to
@@ -157,6 +156,8 @@ export const MarketSnapshotSchema = z.object({
   watchlists: z.array(WatchlistSchema).length(1),
   tickers: z.array(TickerSchema),
   catalysts: z.array(CatalystSchema),
+  /** The day's brief, when one has been published; absent is a fact, never an empty brief. */
+  brief: DailyBriefSchema.optional(),
 })
 
 const PublicWatchlistSchema = WatchlistSchema.extend({ kind: z.literal('public') }).strict()
@@ -172,6 +173,8 @@ export const PublicMarketSnapshotSchema = z.strictObject({
   watchlists: z.array(PublicWatchlistSchema).length(1),
   tickers: z.array(PublicTickerSchema),
   catalysts: z.array(CatalystSchema),
+  /** The day's brief, when one has been published; absent is a fact, never an empty brief. */
+  brief: DailyBriefSchema.optional(),
 })
 
 /**

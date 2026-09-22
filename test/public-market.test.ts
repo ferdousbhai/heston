@@ -374,6 +374,7 @@ describe('public market boundary', () => {
           if (sql.includes('FROM public_market_universe')) {
             return { payload_json: JSON.stringify({ symbols: ['BE', 'NVDA'] }) }
           }
+          if (sql.includes('FROM daily_briefs')) return null
           throw new Error(`Unexpected first query: ${sql}`)
         },
         bind: () => ({

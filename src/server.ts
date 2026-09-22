@@ -15,6 +15,7 @@ const authSurface = () => import('./server/auth')
 
 configureTypeboxRuntime()
 
+export { BriefPublisher } from './server/brief-publisher'
 export { BrokerGate } from './server/broker-gate'
 export { MarketFeed } from './server/market-feed'
 

@@ -3,9 +3,11 @@ import { Type } from 'typebox'
 
 import { CatalystSchema, marketDate, type Catalyst } from '../domain/catalyst'
 import { equitySymbolsFromModelText, EquitySymbolSchema, ModelTextEquitySymbolType } from '../domain/instrument'
+import { type DailyBrief } from '../domain/brief'
 import { type AppEnv } from './env'
 import { textResult } from './agent-tool-result'
 import { MAX_MARKET_SYMBOLS } from './brokerage-read-contracts'
+import { readLatestDailyBrief } from './daily-brief-store'
 
 // A catalyst call shares the normal market-read batch budget. The row ceiling is a model-context
 // budget and is observable through `truncated`; the one-year horizon keeps "upcoming" scheduled
@@ -60,6 +62,20 @@ function endDate(start: string, horizonDays: number): string {
   const [year, month, day] = start.split('-').map(Number)
   const date = new Date(Date.UTC(year!, month! - 1, day! + horizonDays))
   return date.toISOString().slice(0, 10)
+}
+
+const BriefReadParameters = Type.Object({}, { additionalProperties: false })
+
+export type DailyBriefReadResult = {
+  fetchedAt: string
+  source: 'heston-brief-store'
+} & ({ brief: DailyBrief; status: 'ok' } | { status: 'not_found' })
+
+export async function readLatestDailyBriefState(env: AppEnv, now = new Date()): Promise<DailyBriefReadResult> {
+  if (!env.DB) throw new Error('Daily brief is unavailable.')
+  const brief = await readLatestDailyBrief(env.DB)
+  const fetchedAt = now.toISOString()
+  return brief ? { brief, fetchedAt, source: 'heston-brief-store', status: 'ok' } : { fetchedAt, source: 'heston-brief-store', status: 'not_found' }
 }
 
 export async function readCatalysts(
@@ -118,5 +134,12 @@ export function createResearchReadTools(env: AppEnv, now = new Date()) {
     name: 'read_catalysts',
     parameters: CatalystReadParameters,
   }
-  return [catalysts]
+  const brief: AgentTool<typeof BriefReadParameters, DailyBriefReadResult> = {
+    description: 'The standing daily brief: trade lines, theses and the day\'s links, as the site shows them.',
+    execute: async () => textResult(await readLatestDailyBriefState(env, now)),
+    label: 'Reading the daily brief',
+    name: 'read_daily_brief',
+    parameters: BriefReadParameters,
+  }
+  return [catalysts, brief]
 }

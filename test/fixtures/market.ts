@@ -1,5 +1,6 @@
 import { type Catalyst } from '../../src/domain/catalyst'
 import { type CandlePoint } from '../../src/domain/candle'
+import { type DailyBrief } from '../../src/domain/brief'
 import { type MarketSnapshot, type Ticker, type Watchlist } from '../../src/domain/market'
 
 const UPDATED_AT = '2026-08-13T13:31:00.000Z'
@@ -41,6 +42,21 @@ const catalysts: Catalyst[] = [
   { id: 'tastytrade:AAPL:earnings', symbol: 'AAPL', kind: 'earnings', title: 'AAPL earnings', date: '2026-10-29', timing: 'after-hours', confidence: 'estimated', source: 'tastytrade market metrics', sourceUrl: 'https://developer.tastytrade.com/open-api-spec/market-metrics/', updatedAt: UPDATED_AT },
 ]
 
+export const dailyBriefFixture: DailyBrief = {
+  id: 'brief-2026-08-13',
+  marketDate: '2026-08-13',
+  publishedAt: '2026-08-13T13:35:00.000Z',
+  model: '@cf/zai-org/glm-5.3',
+  links: [{ url: 'https://www.reuters.com/markets/us/capex-2026' }],
+  recommendations: [{
+    symbol: 'NVDA',
+    direction: 'bullish',
+    trade: 'Buy NVDA 205c 10/16/26',
+    legs: [{ action: 'BUY_TO_OPEN', optionType: 'C', strike: 205, expiry: '2026-10-16' }],
+    thesis: '**Catalyst:** demand checks keep the AI capex case alive.\n\n- IV rank 22, options are cheap.\n- Risk: a guide-down or capex pause would break the demand case.',
+  }],
+}
+
 export function marketSnapshotFixture(): MarketSnapshot {
   return structuredClone({
     source: 'tastytrade',
@@ -49,5 +65,6 @@ export function marketSnapshotFixture(): MarketSnapshot {
     watchlists: marketWatchlistsFixture,
     tickers: marketTickersFixture,
     catalysts,
+    brief: dailyBriefFixture,
   })
 }

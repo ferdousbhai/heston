@@ -159,7 +159,7 @@ describe('MCP tool surface', () => {
       // all while every "right now" tool worked. Naming them is what makes that omission fail.
       for (const expected of [
         'read_market_metrics', 'read_instrument_quotes', 'search_symbols',
-        'find_option_contracts', 'read_catalysts', 'read_watchlist',
+        'find_option_contracts', 'read_catalysts', 'read_daily_brief', 'read_watchlist',
         'read_price_history', 'read_option_greeks', 'remember_symbols',
         'place_brokerage_order',
         'cancel_brokerage_order',

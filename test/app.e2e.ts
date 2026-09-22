@@ -183,7 +183,7 @@ test('unauthenticated visitors can read market data but connecting an agent need
   await expect(page.locator('.story').first()).toContainText('NVDA')
   await expect(page.getByText('Long vol')).toHaveCount(0)
 
-  await page.getByRole('tab', { name: 'Archive' }).click()
+  await page.getByRole('tab', { name: 'Recommendations' }).click()
   await expect(page.getByRole('heading', { name: 'From the Long Vol channel' })).toBeVisible()
 
   await page.getByRole('tab', { name: 'Connect' }).click()
@@ -201,7 +201,7 @@ test('unauthenticated visitors can read market data but connecting an agent need
   await expect(page.getByRole('link', { name: 'privacy@heston.io' }).first()).toHaveAttribute('href', 'mailto:privacy@heston.io')
 })
 
-test('mobile market, archive, search, sorting, and connect flows remain coherent', async ({ page, context }) => {
+test('mobile market, recommendations, search, sorting, and connect flows remain coherent', async ({ page, context }) => {
   const snapshot = marketSnapshotFixture()
   let rejectSnapshots = false
   snapshot.catalysts.forEach((catalyst, index) => {
@@ -366,8 +366,8 @@ test('mobile market, archive, search, sorting, and connect flows remain coherent
   await expect(selectedSymbol).toHaveText('INTC')
   await closeDetail(page)
 
-  await page.getByRole('tab', { name: 'Archive' }).click()
-  await expect(page.getByRole('tab', { name: 'Archive' })).toHaveAttribute('aria-selected', 'true')
+  await page.getByRole('tab', { name: 'Recommendations' }).click()
+  await expect(page.getByRole('tab', { name: 'Recommendations' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByRole('heading', { name: 'From the Long Vol channel' })).toBeVisible()
 
   await page.getByRole('tab', { name: 'Connect' }).click()

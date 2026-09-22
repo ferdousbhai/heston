@@ -21,6 +21,7 @@ import { Route as ApiMcpTokensRouteImport } from './routes/api.mcp-tokens'
 import { Route as ApiPublicCatalystRefreshRouteImport } from './routes/api.public-catalyst-refresh'
 import { Route as ApiPublicCatalystsRouteImport } from './routes/api.public-catalysts'
 import { Route as ApiPublicChannelArchiveRouteImport } from './routes/api.public-channel-archive'
+import { Route as ApiPublicDailyBriefsRouteImport } from './routes/api.public-daily-briefs'
 import { Route as ApiPublicSnapshotRouteImport } from './routes/api.public-snapshot'
 import { Route as ApiPublicSymbolEvidenceRouteImport } from './routes/api.public-symbol-evidence'
 import { Route as ApiPublicSymbolSearchRouteImport } from './routes/api.public-symbol-search'
@@ -93,6 +94,11 @@ const ApiPublicChannelArchiveRoute = ApiPublicChannelArchiveRouteImport.update({
   path: '/api/public-channel-archive',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicDailyBriefsRoute = ApiPublicDailyBriefsRouteImport.update({
+  id: '/api/public-daily-briefs',
+  path: '/api/public-daily-briefs',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicSnapshotRoute = ApiPublicSnapshotRouteImport.update({
   id: '/api/public-snapshot',
   path: '/api/public-snapshot',
@@ -157,6 +163,7 @@ export interface FileRoutesByFullPath {
   '/api/public-catalyst-refresh': typeof ApiPublicCatalystRefreshRoute
   '/api/public-catalysts': typeof ApiPublicCatalystsRoute
   '/api/public-channel-archive': typeof ApiPublicChannelArchiveRoute
+  '/api/public-daily-briefs': typeof ApiPublicDailyBriefsRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
   '/api/public-symbol-evidence': typeof ApiPublicSymbolEvidenceRoute
   '/api/public-symbol-search': typeof ApiPublicSymbolSearchRoute
@@ -180,6 +187,7 @@ export interface FileRoutesByTo {
   '/api/public-catalyst-refresh': typeof ApiPublicCatalystRefreshRoute
   '/api/public-catalysts': typeof ApiPublicCatalystsRoute
   '/api/public-channel-archive': typeof ApiPublicChannelArchiveRoute
+  '/api/public-daily-briefs': typeof ApiPublicDailyBriefsRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
   '/api/public-symbol-evidence': typeof ApiPublicSymbolEvidenceRoute
   '/api/public-symbol-search': typeof ApiPublicSymbolSearchRoute
@@ -205,6 +213,7 @@ export interface FileRoutesById {
   '/api/public-catalyst-refresh': typeof ApiPublicCatalystRefreshRoute
   '/api/public-catalysts': typeof ApiPublicCatalystsRoute
   '/api/public-channel-archive': typeof ApiPublicChannelArchiveRoute
+  '/api/public-daily-briefs': typeof ApiPublicDailyBriefsRoute
   '/api/public-snapshot': typeof ApiPublicSnapshotRoute
   '/api/public-symbol-evidence': typeof ApiPublicSymbolEvidenceRoute
   '/api/public-symbol-search': typeof ApiPublicSymbolSearchRoute
@@ -231,6 +240,7 @@ export interface FileRouteTypes {
     | '/api/public-catalyst-refresh'
     | '/api/public-catalysts'
     | '/api/public-channel-archive'
+    | '/api/public-daily-briefs'
     | '/api/public-snapshot'
     | '/api/public-symbol-evidence'
     | '/api/public-symbol-search'
@@ -254,6 +264,7 @@ export interface FileRouteTypes {
     | '/api/public-catalyst-refresh'
     | '/api/public-catalysts'
     | '/api/public-channel-archive'
+    | '/api/public-daily-briefs'
     | '/api/public-snapshot'
     | '/api/public-symbol-evidence'
     | '/api/public-symbol-search'
@@ -278,6 +289,7 @@ export interface FileRouteTypes {
     | '/api/public-catalyst-refresh'
     | '/api/public-catalysts'
     | '/api/public-channel-archive'
+    | '/api/public-daily-briefs'
     | '/api/public-snapshot'
     | '/api/public-symbol-evidence'
     | '/api/public-symbol-search'
@@ -303,6 +315,7 @@ export interface RootRouteChildren {
   ApiPublicCatalystRefreshRoute: typeof ApiPublicCatalystRefreshRoute
   ApiPublicCatalystsRoute: typeof ApiPublicCatalystsRoute
   ApiPublicChannelArchiveRoute: typeof ApiPublicChannelArchiveRoute
+  ApiPublicDailyBriefsRoute: typeof ApiPublicDailyBriefsRoute
   ApiPublicSnapshotRoute: typeof ApiPublicSnapshotRoute
   ApiPublicSymbolEvidenceRoute: typeof ApiPublicSymbolEvidenceRoute
   ApiPublicSymbolSearchRoute: typeof ApiPublicSymbolSearchRoute
@@ -397,6 +410,13 @@ declare module '@tanstack/react-router' {
       path: '/api/public-channel-archive'
       fullPath: '/api/public-channel-archive'
       preLoaderRoute: typeof ApiPublicChannelArchiveRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public-daily-briefs': {
+      id: '/api/public-daily-briefs'
+      path: '/api/public-daily-briefs'
+      fullPath: '/api/public-daily-briefs'
+      preLoaderRoute: typeof ApiPublicDailyBriefsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public-snapshot': {
@@ -499,6 +519,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicCatalystRefreshRoute: ApiPublicCatalystRefreshRoute,
   ApiPublicCatalystsRoute: ApiPublicCatalystsRoute,
   ApiPublicChannelArchiveRoute: ApiPublicChannelArchiveRoute,
+  ApiPublicDailyBriefsRoute: ApiPublicDailyBriefsRoute,
   ApiPublicSnapshotRoute: ApiPublicSnapshotRoute,
   ApiPublicSymbolEvidenceRoute: ApiPublicSymbolEvidenceRoute,
   ApiPublicSymbolSearchRoute: ApiPublicSymbolSearchRoute,

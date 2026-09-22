@@ -16,7 +16,9 @@ import {
   TableRow,
 } from '#/components/ui/table'
 import { equitySymbolFromModelText } from '../domain/instrument'
+import { RecommendationCard } from './brief-screen'
 import { cn } from '#/lib/utils'
+import { type DailyBrief } from '../domain/brief'
 import { latestSessionCandles, REGULAR_SESSION_MS, type CandlePoint } from '../domain/candle'
 import {
   CATALYST_KIND_NAMES,
@@ -715,6 +717,7 @@ export function MarketScreen({
   onSelectTicker,
   onTogglePinned,
   pinnedSymbols,
+  brief,
   selected,
   tickers,
 }: {
@@ -724,6 +727,7 @@ export function MarketScreen({
   onSelectTicker: (symbol: string, lookup?: PublicSymbolLookup) => void
   onTogglePinned: (symbol: string, lookup?: PublicSymbolLookup) => void
   pinnedSymbols: readonly string[]
+  brief?: DailyBrief
   selected: Ticker
   tickers: Ticker[]
 }) {
@@ -807,6 +811,7 @@ export function MarketScreen({
   const selectedCopy = verdictCopy[selectedVerdict]
   const selectedPremiumScore = premiumScore(selected)
   const selectedAsset = assetLabel(selected)
+  const selectedRecommendation = brief?.recommendations.find((recommendation) => recommendation.symbol === selected.symbol)
   const selectedTape = focusTape(selected)
   // Two ages, because they are two facts: the quote moves with the market, while the provider
   // recomputes volatility and liquidity on its own schedule and can leave them hours behind.
@@ -830,7 +835,7 @@ export function MarketScreen({
             </div>
           </div>
           {/* The premium verdict keeps the product's gradient axis, at a scale that
-              leaves the runway as the panel's primary reading. */}
+              leaves the recommendation and the runway as the panel's primary reading. */}
           <div className="premium-gauge">
             <span>Option premium</span>
             <strong className="premium-verdict">{selectedCopy}</strong>
@@ -840,6 +845,12 @@ export function MarketScreen({
           </div>
         </CardHeader>
         <CardContent className="focus-narrative">
+          {selectedRecommendation && (
+            <section aria-labelledby="focus-recommendation-title" className="focus-recommendation">
+              <header className="focus-eyebrow"><h3 id="focus-recommendation-title">Recommendation</h3></header>
+              <RecommendationCard recommendation={selectedRecommendation} />
+            </section>
+          )}
           <CatalystRunway
             catalysts={visibleCatalysts}
             now={now}

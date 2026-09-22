@@ -15,8 +15,8 @@ where they belong. Read the relevant code before changing behavior.
 `src/components/` product surfaces · `migrations/` D1 schema · `ops/` the member's own
 machine (credential proxy) and the owner's temporary bootstrap Workers, which reach the
 production bindings · `tools/` local jobs. No process on this Worker, and no tool it serves,
-produces the daily brief: recommendation generation lives in a separate private Workflow that
-never touches this codebase.
+produces the daily brief: the private long-vol Workflow generates it and delivers it through
+the `BriefPublisher` entrypoint over a service binding.
 
 ## Boundaries
 
@@ -70,10 +70,11 @@ never touches this codebase.
   doctrine the server publishes as MCP `instructions` and prompts is content it injects into
   someone else's agent, so it is assembled only from this repository's constants — never from
   D1 rows, provider payloads, model output, or a fetched page — and it advises rather than
-  commands. **There is no daily brief here.** Recommendations are generated and delivered by a
-  separate private Workflow that never touches this codebase. The research writes that remain
-  — catalysts and evidence — bind model output to pages this Worker re-reads itself, and
-  nothing partial is stored.
+  commands. **The daily brief has exactly one writer**: the private long-vol Workflow, over a
+  service binding into `BriefPublisher`, never over HTTP and never through a tool. What arrives
+  is untrusted model output; this Worker parses it against its own schema and bounds, assigns
+  the id and the instant, and stores nothing partial. The research writes that remain —
+  catalysts and evidence — bind model output to pages this Worker re-reads itself.
 - **Secrets and account numbers stay server-side**, missing bindings fail closed, and provider
   bodies or credentials must not enter logs. A log line carries an event name and an error
   name, never a token, digest, account number, or user id. A refusal names the check that

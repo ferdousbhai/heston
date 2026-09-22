@@ -661,3 +661,36 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 @media (min-width: 960px) and (max-width: 1279px) {
   .top-actions .last-updated { display: none; }
 }
+
+/* The daily brief: the channel's trade lines and theses, one issue at a time. */
+.brief-screen { max-width: 760px; margin-inline: auto; animation: enter .35s var(--ease) both; }
+.brief-navigation { min-height: 42px; padding: 7px 14px; border-bottom: 1px solid var(--hairline); display: flex; align-items: center; justify-content: space-between; }
+.brief-navigation [data-slot="button"]:only-child { margin-right: auto; }
+.brief-cover { padding: 24px 22px 18px; border-bottom: 1px solid var(--hairline); }
+.brief-cover time { color: var(--ink-faint); font: 13px/1 var(--sans); text-transform: none; letter-spacing: 0; }
+.brief-byline { margin: 8px 0 0; color: var(--ink-faint); font-size: 13px; }
+.brief-byline strong { color: var(--text); font-weight: 600; }
+.brief-links-section, .brief-trades { padding: 20px 22px 0; }
+.brief-links-section h2, .brief-trades h2, .brief-empty h2 { margin: 0 0 10px; font-size: 15px; font-weight: 700; line-height: 1.1; text-transform: none; }
+.brief-links { margin: 0; padding: 0; border-top: 1px solid var(--hairline); list-style: none; }
+.brief-links li { border-bottom: 1px solid var(--hairline); }
+.brief-links a { display: block; padding: 9px 0; color: #858891; font-size: 13px; line-height: 1.4; text-decoration: none; overflow-wrap: anywhere; }
+.brief-links a span { display: block; color: #d7d8dd; font-size: 15px; }
+.brief-links a:hover span, .brief-links a:focus-visible span { color: var(--accent); }
+.brief-links svg { display: inline-block; width: 10px; height: 10px; margin-left: 3px; vertical-align: -1px; }
+.brief-card { padding: 18px 0 20px; border-top: 1px solid var(--hairline); }
+.brief-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.trade-line { color: var(--accent); font: 700 17px/1.2 var(--sans); }
+.thesis { max-width: 60ch; margin-top: 10px; color: #adafb7; font-size: var(--type-secondary); line-height: 1.6; }
+.thesis p { margin: 0 0 10px; white-space: pre-line; }
+.thesis p:last-child { margin-bottom: 0; }
+.thesis-heading { color: var(--text); }
+.thesis strong { color: var(--text); }
+.thesis ul, .thesis ol { margin: 0 0 10px; padding-left: 1.3em; }
+.thesis li { margin: 3px 0; }
+.thesis a { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+.brief-empty { padding: 26px 22px; }
+.brief-empty p { margin: 8px 0 0; color: var(--ink-faint); font-size: 15px; }
+.disclaimer { color: #6b6e78; font-size: 13px; line-height: 1.5; text-align: center; margin: 18px 12px 0; }
+.focus-recommendation + .focus-runway { padding-top: 20px; border-top: 1px solid var(--hairline); }
+.focus-recommendation .brief-card { padding-top: 10px; border-top: 0; }

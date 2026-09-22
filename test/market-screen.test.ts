@@ -15,6 +15,7 @@ function renderMarket(
 ): string {
   return renderToStaticMarkup(createElement(MarketScreen, {
     activeWatchlist: { ...snapshot.watchlists[0]!, kind: 'public' },
+    brief: snapshot.brief,
     catalysts: overrides.catalysts ?? snapshot.catalysts,
     owner: false,
     onSelectTicker: () => undefined,
@@ -26,6 +27,12 @@ function renderMarket(
 }
 
 describe('selected market context', () => {
+  it('leads with the selected symbol\'s recommendation from the brief and shows none for another name', () => {
+    const snapshot = marketSnapshotFixture()
+    expect(renderMarket(snapshot, { symbol: 'NVDA' })).toContain('Buy NVDA 205c 10/16/26')
+    expect(renderMarket(snapshot, { symbol: 'SPY' })).not.toContain('Recommendation')
+  })
+
   it('lists every upcoming catalyst nearest first and drops past dates', () => {
     const snapshot = marketSnapshotFixture()
     const template = snapshot.catalysts[0]!

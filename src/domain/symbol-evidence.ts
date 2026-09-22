@@ -1,8 +1,8 @@
 import { z } from 'zod'
 
 import { EquitySymbolSchema } from './instrument'
+import { HttpsSourceUrlSchema } from './https-url'
 import {
-  HttpsSourceUrlSchema,
   MAX_CITED_SOURCE_TITLE_LENGTH,
   MAX_CITED_SOURCE_URL_LENGTH,
   MAX_RESEARCH_BYLINE_LENGTH,
