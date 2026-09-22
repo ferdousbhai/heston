@@ -32,9 +32,7 @@ describe('recommendation archive navigation', () => {
     render(createElement(RecommendationScreen, {
       availableSymbols: new Set(['NVDA']),
       dailyRecommendations: latest,
-      onConnect: () => undefined,
       onSymbol: () => undefined,
-      signedIn: false,
     }))
 
     fireEvent.click(screen.getByRole('button', { name: 'Previous' }))

@@ -180,9 +180,7 @@ function HestonWorkspace({
                 <RecommendationScreen
                   availableSymbols={loadedSymbols}
                   dailyRecommendations={dailyRecommendations}
-                  onConnect={() => setTab('connect')}
                   onSymbol={chooseSymbol}
-                  signedIn={Boolean(viewer)}
                 />
               </Suspense>
             )}

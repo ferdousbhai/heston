@@ -102,7 +102,7 @@ describe('MCP bearer authentication', () => {
       // absent, so placement is withheld rather than advertised and rejected.
       for (const withheld of [
         'find_option_contracts', 'read_option_greeks', 'remember_symbols',
-        'read_account_history', 'read_account_snapshot', 'publish_daily_recommendations',
+        'read_account_history', 'read_account_snapshot',
         'challenge_recommendation',
         'place_brokerage_order', 'cancel_brokerage_order',
         'record_catalysts', 'record_evidence',
@@ -162,12 +162,9 @@ describe('MCP tool surface', () => {
         'read_market_metrics', 'read_instrument_quotes', 'search_symbols',
         'find_option_contracts', 'read_catalysts', 'read_daily_recommendations', 'read_watchlist',
         'read_price_history', 'read_option_greeks', 'remember_symbols',
-        'get_recent_coverage',
-        'ingest_wsb',
         'place_brokerage_order',
         'cancel_brokerage_order',
         'reconcile_brokerage_action',
-        'publish_daily_recommendations',
         'challenge_recommendation',
         'record_catalysts',
         'record_evidence',
@@ -178,9 +175,11 @@ describe('MCP tool surface', () => {
       // pending-action surface left to confirm or resolve against.
       expect(names.join(' ')).not.toMatch(/confirm|prepare_brokerage/)
       expect(names).not.toContain('read_watchlists')
-      // read_page exists to retain text for the Worker's own binders; the local agent reads
-      // the web with its own tools and the publish boundary re-reads whatever it cites.
+      // The local agent reads the web with its own tools; the Worker reads a page only to bind
+      // a citation an agent recorded, never as a tool it offers.
       expect(names).not.toContain('read_page')
+      // The brief is produced elsewhere; nothing here writes one.
+      expect(names).not.toContain('publish_daily_recommendations')
     } finally {
       resetBrokerApi()
       store.close()
@@ -202,7 +201,7 @@ describe('MCP tool tiers', () => {
     }
   }
 
-  const OWNER_ONLY = ['ingest_wsb', 'get_recent_coverage', 'manage_watchlist']
+  const OWNER_ONLY = ['manage_watchlist']
 
   it('hides the owner surface from a member rather than refusing it on call', async () => {
     const { store, token } = await harness('member@example.com')
@@ -214,9 +213,6 @@ describe('MCP tool tiers', () => {
       'cancel_brokerage_order',
       // Additive only; removing a name is owner-only because it changes what every reader sees.
       'remember_symbols',
-      // The public brief is produced by members' own agents; the site waits on no schedule. The
-      // boundary, not the caller's tier, is what keeps it honest.
-      'publish_daily_recommendations',
       // Challenging the standing brief spends the server's page reads, so it wants a name
       // behind it even though it can only ever trigger a re-read of what the server published.
       'challenge_recommendation',
@@ -227,13 +223,12 @@ describe('MCP tool tiers', () => {
     ]) {
       expect(names).toContain(expected)
     }
-    // Private Reddit discovery and watchlist removal are owner acts, and a member is not shown a
-    // surface they cannot use.
+    // Watchlist removal is an owner act, and a member is not shown a surface they cannot use.
     for (const ownerOnly of OWNER_ONLY) expect(names).not.toContain(ownerOnly)
     store.close()
   })
 
-  it('gives the owner the discovery surface', async () => {
+  it('gives the owner the watchlist management surface', async () => {
     const { OWNER_EMAIL } = await import('../src/server/auth')
     const { store, token } = await harness(OWNER_EMAIL)
     const names = await toolNames(token, store.database)
@@ -278,16 +273,8 @@ describe('MCP guidance surface', () => {
       const names = promptPayload.result.prompts.map((prompt: { name: string }) => prompt.name)
       expect(names).toContain('portfolio_review')
       expect(names).toContain('evaluate_trade_idea')
-      expect(names).toContain('daily_research')
-
-      // The run ends in a publish, which an anonymous caller does not have; a prompt that walks
-      // an agent to a tool it cannot call is withheld with the tool.
-      const anonymousPrompts = await handleMcpRequest(mcpRequest({
-        id: 7, jsonrpc: '2.0', method: 'prompts/list', params: {},
-      }), env, executionContext)
-      const anonymousNames = (await mcpPayload(anonymousPrompts)).result.prompts
-        .map((prompt: { name: string }) => prompt.name)
-      expect(anonymousNames).not.toContain('daily_research')
+      // The research run left with the publish tool; no prompt walks an agent to it now.
+      expect(names).not.toContain('daily_research')
     } finally {
       resetBrokerApi()
       store.close()
@@ -396,7 +383,6 @@ describe('the guide resource', () => {
         ...tools.result.tools.map((tool) => tool.name),
         'portfolio_review',
         'evaluate_trade_idea',
-        'daily_research',
       ])
       const named = [...guide.matchAll(/`([a-z_]+)`/g)].map((match) => match[1]!)
       expect(named.length).toBeGreaterThan(5)
@@ -532,7 +518,7 @@ describe('MCP surface budget', () => {
       // watchlist action -- where the branches differ by more than one value.
       const constTools = tools.filter((tool) => JSON.stringify(tool).includes('"const"')).map((tool) => tool.name)
       expect([...constTools].sort()).toEqual([
-        'manage_watchlist', 'place_brokerage_order', 'publish_daily_recommendations',
+        'manage_watchlist', 'place_brokerage_order',
       ])
     } finally {
       resetBrokerApi()

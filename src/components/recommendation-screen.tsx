@@ -6,19 +6,11 @@ import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '#/components/ui/card'
 import { Spinner } from '#/components/ui/spinner'
-import { loadAgentConnection } from '../data/agent-connection'
 import { loadChannelArchivePage } from '../data/channel-archive'
 import { loadPreviousDailyRecommendations } from '../data/recommendation-archive'
-import { type AgentConnection } from '../domain/agent-connection'
 import { type ChannelPost } from '../domain/channel-post'
 import { researchGeneratorLabel, type DailyRecommendations, type RecommendationVerification } from '../domain/market'
 import { recommendedOrderLabel } from '../domain/recommended-order'
-import {
-  RESEARCH_REFRESH_INTERVAL_MINUTES,
-  researchRefreshOpen,
-  researchRefreshOpensAt,
-} from '../domain/research-refresh'
-import { CopyBlock } from './copy-block'
 
 // The run publishes at a time of day, not on a day, so the issue line carries the time too.
 const issueDate = new Intl.DateTimeFormat('en-US', {
@@ -27,15 +19,6 @@ const issueDate = new Intl.DateTimeFormat('en-US', {
 const MINUTE_MS = 60_000
 const HOUR_MS = 60 * MINUTE_MS
 const DAY_MS = 24 * HOUR_MS
-/**
- * What a reader tells their agent, whatever agent that is. It names the tool rather than only
- * the prompt: every MCP client supports tools, and the tool's own description carries the
- * contract, while prompts are a client feature some agents do not surface. The names are the
- * ones `mcp.ts` registers.
- */
-const DAILY_RESEARCH_ASK = 'Research today\'s market and publish a fresh brief to Heston with its '
-  + 'publish_daily_recommendations tool. If your client lists Heston\'s prompts, run daily_research.'
-
 function plural(count: number, unit: string): string {
   return `${count} ${unit}${count === 1 ? '' : 's'}`
 }
@@ -50,16 +33,9 @@ export function briefAge(now: Date, publishedAt: string): string {
   return `${plural(Math.floor(elapsed / DAY_MS), 'day')} ago`
 }
 
-/** Until a fresh brief may be generated; the interval is minutes, so minutes is the unit. */
-export function refreshCountdown(now: Date, opensAt: Date): string {
-  const remaining = opensAt.getTime() - now.getTime()
-  if (remaining <= 0) return 'now'
-  return `in about ${plural(Math.ceil(remaining / MINUTE_MS), 'minute')}`
-}
-
 /**
- * A clock that ticks on the minute unless a test pins it. The age and the countdown are both
- * stated to the minute, so that is how often they can move.
+ * A clock that ticks on the minute unless a test pins it. The age is stated to the minute, so
+ * that is how often it can move.
  */
 function useMinuteClock(fixedNow?: Date): Date {
   const [now, setNow] = useState(() => fixedNow ?? new Date())
@@ -72,122 +48,24 @@ function useMinuteClock(fixedNow?: Date): Date {
 }
 
 /**
- * Whether this member's agent has reached Heston, read only when there is a run to offer. A
- * visitor who is not signed in is told the first step rather than asked; a check that fails
- * says so and still offers the Connect tab, because the tab is the answer either way.
+ * What the current brief is -- which model, how long ago. Nothing on this site produces the next
+ * one: generation lives in a separate private Workflow, so the note describes provenance and
+ * offers nothing.
  */
-function AgentConnectionStep({ onConnect, signedIn }: { onConnect: () => void; signedIn: boolean }) {
-  const [connection, setConnection] = useState<AgentConnection | 'checking' | 'unavailable'>('checking')
-  useEffect(() => {
-    if (!signedIn) return
-    const controller = new AbortController()
-    loadAgentConnection(controller.signal)
-      .then((agent) => { if (!controller.signal.aborted) setConnection(agent) })
-      .catch(() => { if (!controller.signal.aborted) setConnection('unavailable') })
-    return () => controller.abort()
-  }, [signedIn])
-
-  const connectButton = (
-    <Button onClick={onConnect} size="sm" type="button" variant="outline">Connect an agent</Button>
-  )
-  if (!signedIn) {
-    return (
-      <>
-        <p>Sign in, then point your own agent at Heston from the Connect tab.</p>
-        {connectButton}
-      </>
-    )
-  }
-  if (connection === 'checking') return <p className="research-run-checking" role="status"><Spinner />Checking for your agent</p>
-  if (connection === 'unavailable') {
-    return (
-      <>
-        <p>Whether your agent is connected could not be checked. If it is not, the Connect tab is where to start.</p>
-        {connectButton}
-      </>
-    )
-  }
-  if (!connection.connected) {
-    return (
-      <>
-        <p>No agent has reached Heston from your account yet.</p>
-        {connectButton}
-      </>
-    )
-  }
+function StandingBriefNote({ latest, now }: { latest?: DailyRecommendations; now: Date }) {
   return (
-    <p className="research-run-connected">
-      Your agent is connected
-      {connection.lastSeenAt && (
-        <>
-          {' '}&middot; last reached Heston{' '}
-          <time dateTime={connection.lastSeenAt}>{issueDate.format(new Date(connection.lastSeenAt))}</time>
-        </>
-      )}
-      .
-    </p>
-  )
-}
-
-/**
- * The brief is produced by whoever asks their own agent for it; nothing on the site waits on a
- * schedule or on anyone's laptop. This panel says what the current brief is -- which model, how
- * long ago -- and, once the refresh interval has passed, how to replace it. The interval is the
- * server's; the panel only mirrors it so a reader is not sent to a refusal.
- */
-function ResearchRunPanel({
-  latest,
-  now,
-  onConnect,
-  signedIn,
-}: {
-  latest?: DailyRecommendations
-  now: Date
-  onConnect: () => void
-  signedIn: boolean
-}) {
-  // Set exactly while a standing brief still holds the window shut, which is also the branch.
-  const opensAt = latest && !researchRefreshOpen(latest.publishedAt, now)
-    ? researchRefreshOpensAt(latest.publishedAt)
-    : undefined
-  return (
-    <section aria-labelledby="research-run-title" aria-live="polite" className="research-run-panel" id="research-run">
-      <h2 id="research-run-title">{latest ? 'Generate a fresh brief' : 'No brief yet'}</h2>
+    <section aria-labelledby="standing-brief-title" className="research-run-panel" id="standing-brief">
+      <h2 id="standing-brief-title">{latest ? 'About this brief' : 'No brief yet'}</h2>
       <p className="research-run-standing">
         {latest
           ? (
               <>
                 This brief was generated {briefAge(now, latest.publishedAt)}
                 {latest.model ? <> by <strong>{researchGeneratorLabel(latest.model)}</strong></> : '; the model was not recorded'}.
-                Any member&apos;s agent can produce the next one, and Heston verifies every citation before it replaces this.
               </>
             )
-          : 'Nothing has been published yet. The first brief is whoever asks their agent for it.'}
+          : 'Nothing has been published yet.'}
       </p>
-      {opensAt
-        ? (
-            <p className="research-run-wait">
-              A brief stands for {RESEARCH_REFRESH_INTERVAL_MINUTES} minutes. A fresh one can be generated{' '}
-              <time dateTime={opensAt.toISOString()}>{refreshCountdown(now, opensAt)}</time>.
-            </p>
-          )
-        : (
-            <ol className="research-run-steps">
-              <li>
-                <strong>Connect your agent.</strong>
-                <AgentConnectionStep onConnect={onConnect} signedIn={signedIn} />
-              </li>
-              <li>
-                <strong>Ask it for a fresh brief.</strong>
-                <p>
-                  Any agent that speaks MCP can do this. Heston&apos;s <code>daily_research</code> prompt walks
-                  it through the research and the publish step, and the publish tool describes what it
-                  will and will not accept, so an agent that does not surface prompts still has what it needs.
-                </p>
-                <CopyBlock label="Ask your agent" value={DAILY_RESEARCH_ASK} />
-              </li>
-            </ol>
-          )}
     </section>
   )
 }
@@ -342,16 +220,12 @@ function RecommendationArchive({
   availableSymbols,
   latest,
   now,
-  onConnect,
   onSymbol,
-  signedIn,
 }: {
   availableSymbols: ReadonlySet<string>
   latest?: DailyRecommendations
   now?: Date
-  onConnect: () => void
   onSymbol: (symbol: string) => void
-  signedIn: boolean
 }) {
   const [history, setHistory] = useState<DailyRecommendations[]>(() => latest ? [latest] : [])
   const [index, setIndex] = useState(0)
@@ -359,15 +233,10 @@ function RecommendationArchive({
   const [archiveError, setArchiveError] = useState<string>()
   const [loading, setLoading] = useState(false)
   const current = history[index]
-  // One clock for the age, the countdown, and whether the cover may point at the offer.
   const clock = useMinuteClock(now)
-  const refreshOpen = researchRefreshOpen(latest?.publishedAt, clock)
-  // The panel belongs to the latest brief only: an older one is history, and the offer to
-  // replace the current brief would be misplaced under it.
+  // The note belongs to the latest brief only: an older one is history.
   const onLatest = index === 0
-  const runPanel = onLatest
-    ? <ResearchRunPanel latest={latest} now={clock} onConnect={onConnect} signedIn={signedIn} />
-    : null
+  const runPanel = onLatest ? <StandingBriefNote latest={latest} now={clock} /> : null
   // A brief with nothing in it predates the publish boundary's refusal of one; the panel, or
   // for an older one the bare fact, is all there is to show for it.
   const showRunPanelOnly = !current || (current.recommendations.length === 0 && current.links.length === 0)
@@ -444,23 +313,6 @@ function RecommendationArchive({
           {/* The handle the publishing member chose for this brief, and nothing account-derived:
               a brief published without one says nothing about who published it. */}
           {current.byline && <> &middot; published by <strong>{current.byline}</strong></>}
-          {onLatest && refreshOpen && (
-            <>
-              {' '}&middot;{' '}
-              {/* The page scrolls inside the tab, not the window, and the router owns the hash,
-                  so a bare fragment link changed the address and moved nothing. The href stays
-                  for anyone reading the link; the scroll is done by hand. */}
-              <a
-                href="#research-run"
-                onClick={(event) => {
-                  event.preventDefault()
-                  document.getElementById('research-run')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                }}
-              >
-                Generate a fresh brief
-              </a>
-            </>
-          )}
         </p>
         <h1>{current.regime}</h1>
         <p>{current.regimeDetail}</p>
@@ -551,16 +403,12 @@ export function RecommendationScreen({
   availableSymbols,
   dailyRecommendations,
   now,
-  onConnect,
   onSymbol,
-  signedIn,
 }: {
   availableSymbols: ReadonlySet<string>
   dailyRecommendations?: DailyRecommendations
   now?: Date
-  onConnect: () => void
   onSymbol: (symbol: string) => void
-  signedIn: boolean
 }) {
   return (
     <RecommendationArchive
@@ -570,9 +418,7 @@ export function RecommendationScreen({
         : 'no-recommendations'}
       latest={dailyRecommendations}
       now={now}
-      onConnect={onConnect}
       onSymbol={onSymbol}
-      signedIn={signedIn}
     />
   )
 }

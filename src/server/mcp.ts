@@ -22,12 +22,8 @@ import { createPublicMarketReadTools } from './public-market-tools'
 import { noteSymbolAttention, readsSymbols, type SymbolNamingCall } from './symbol-attention'
 import { createExactOptionGreeksReadTool } from './option-greeks-tool'
 import { createRecommendationChallengeTool } from './recommendation-challenge'
-import { createRecentCoverageTool, createRedditIngestTool } from './research-agent-tools'
-import { DailyRecommendationsSubmissionSchema } from './research-submission'
-import { publishSubmittedDailyRecommendations } from './research-publish'
 import { createResearchReadTools } from './research-read-tools'
 import {
-  dailyResearchPrompt,
   PLACE_BROKERAGE_ORDER_DESCRIPTION,
   PORTFOLIO_REVIEW_PROMPT,
   HESTON_GUIDE,
@@ -47,8 +43,8 @@ import {
 
 function asJsonSchema(schema: TSchema): JsonSchemaType {
   // SAFETY: a TypeBox schema is a plain JSON Schema object at runtime. `TUnsafe` (which the
-  // order-placement union and the submission schema use) merely hides the structural properties
-  // from the type system, not from the wire, so this asserts nothing that is not already true.
+  // order-placement union uses) merely hides the structural properties from the type system,
+  // not from the wire, so this asserts nothing that is not already true.
   return schema as JsonSchemaType
 }
 
@@ -100,10 +96,9 @@ export function createHestonMcpServer(
         // want an account behind them even though neither touches one directly.
         createRememberSymbolsTool(env),
         createBrokerageReconciliationTool(env, credential),
-        // Challenging the standing brief belongs with publishing it, and for the same reason:
-        // a challenge can only ever trigger the server's own re-read of pages the server itself
-        // published -- it injects nothing and names no address -- but it spends page reads, and
-        // a cost the site pays wants a name behind it.
+        // A challenge can only ever trigger the server's own re-read of pages the standing brief
+        // cites -- it injects nothing and names no address -- but it spends page reads, and a
+        // cost the site pays wants a name behind it.
         createRecommendationChallengeTool(env),
         // Writing research back to the site between briefs: dated events for every reader's
         // calendar, and the passages a member's agent read them in. Both are bound against
@@ -112,12 +107,9 @@ export function createHestonMcpServer(
         createSymbolEvidenceTool(env, caller.userId),
       ]
       : createPublicMarketReadTools(env, waitUntil)),
-    // Private Reddit discovery and removing a name from the shared watchlist are owner acts. A
-    // member is not shown a surface they cannot use, so these are absent from their tool list
-    // rather than present and refused.
-    ...(caller.owner
-      ? [createRedditIngestTool(env), createRecentCoverageTool(env), createWatchlistManageTool(env)]
-      : []),
+    // Removing a name from the shared watchlist is an owner act. A member is not shown a surface
+    // they cannot use, so it is absent from their tool list rather than present and refused.
+    ...(caller.owner ? [createWatchlistManageTool(env)] : []),
   ]
   for (const tool of tools) {
     server.registerTool(
@@ -195,47 +187,6 @@ export function createHestonMcpServer(
     { description: 'What Heston can answer and which tool answers it.', mimeType: 'text/markdown', title: 'Heston guide' },
     (uri) => ({ contents: [{ text: HESTON_GUIDE, uri: uri.href }] }),
   )
-
-  // Any member's agent may produce the public brief; the site does not wait on a schedule or on
-  // the owner's machine. What keeps that safe is not who calls it but what the boundary does
-  // with the call: every cited page is re-read here, the binders run here, the refresh interval
-  // is enforced here, and nothing partial publishes. Withheld from the anonymous tier because
-  // a brief carries a name readers can hold to account, and a token is that name.
-  if (caller.signedIn) {
-    server.registerTool(
-      'publish_daily_recommendations',
-      {
-        description: 'Submit a finished research brief for publication on the public site. The '
-          + 'server reads every cited page itself and refuses any quote or catalyst date it '
-          + 'cannot find in that text; a rejected submission returns the exact reasons so '
-          + 'citations can be fixed and the brief submitted again. Publishing replaces the '
-          + 'current brief, and is refused while the last one is younger than the refresh '
-          + 'interval. `model` is published with the brief.',
-        annotations: toolAnnotations('publish_daily_recommendations'),
-        inputSchema: fromJsonSchema(asJsonSchema(DailyRecommendationsSubmissionSchema)),
-      },
-      async (params) => {
-        // SAFETY: `publishSubmittedDailyRecommendations` re-parses its input with the same
-        // submission schema at the trust boundary regardless of what the transport checked.
-        // The publishing member is recorded privately with the brief; the byline the reader
-        // sees is whatever that member put in the submission, and is never derived from this.
-        const publication = await publishSubmittedDailyRecommendations(env, params as never, {
-          publishedByUserId: caller.userId,
-        })
-        return { content: [{ text: JSON.stringify(publication), type: 'text' as const }] }
-      },
-    )
-    // The run itself, offered exactly where publishing is: a prompt that ends in a tool the
-    // caller does not have would send an anonymous agent all the way to a refusal.
-    server.registerPrompt(
-      'daily_research',
-      {
-        description: 'Research today\'s market, write the brief, and publish it to the site.',
-        title: 'Daily research',
-      },
-      () => ({ messages: [{ content: { text: dailyResearchPrompt(caller.owner), type: 'text' as const }, role: 'user' as const }] }),
-    )
-  }
 
   return server
 }
@@ -384,9 +335,9 @@ function serveMcp(
  *
  * A person at a terminal authenticates with OAuth: their client discovers this server, registers
  * itself, and sends them through Google in a browser. A machine that runs alone cannot do any of
- * that -- the daily research run is a systemd oneshot with no browser and no interactive session
- * -- so a minted `user_mcp_tokens` row stays the non-interactive path. Both resolve to the same
- * user id, so nothing downstream can tell them apart, which is the point.
+ * that -- an unattended agent has no browser and no interactive session -- so a minted
+ * `user_mcp_tokens` row stays the non-interactive path. Both resolve to the same user id, so
+ * nothing downstream can tell them apart, which is the point.
  *
  * The minted token is tried first because recognising one is a regex and a single indexed read.
  * Anything else is handed to the provider, which verifies the signature, issuer, audience and

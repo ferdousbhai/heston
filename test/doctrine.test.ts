@@ -2,9 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 /** The per-turn ceiling `test/mcp.test.ts` holds the whole advertised surface to. */
 const HESTON_MCP_INSTRUCTIONS_CHAR_BUDGET = 1_500
-import { RESEARCH_REFRESH_INTERVAL_MS } from '../src/domain/research-refresh'
-import { dailyResearchPrompt, PLACE_BROKERAGE_ORDER_DESCRIPTION, hestonMcpInstructions } from '../src/server/doctrine'
-import { MAX_DAILY_RECOMMENDATIONS } from '../src/server/research-submission'
+import { PLACE_BROKERAGE_ORDER_DESCRIPTION, hestonMcpInstructions } from '../src/server/doctrine'
 import {
   createInstrumentQuoteReadTool,
   createOptionContractFindTool,
@@ -81,29 +79,6 @@ describe('rules that ride on the tool they govern', () => {
   it('forbids automatically retrying an ambiguous broker mutation', () => {
     expect(createBrokerageReconciliationTool({}, undefined).description)
       .toContain('never automatically retry an ambiguous broker mutation')
-  })
-})
-
-describe('the daily research prompt', () => {
-  it('promises only what the publish boundary enforces', () => {
-    const prompt = dailyResearchPrompt(false)
-    // The numbers a run can be refused on, from the constants the boundary reads.
-    expect(prompt).toContain(`at most ${MAX_DAILY_RECOMMENDATIONS} ideas`)
-    expect(prompt).toContain(`${RESEARCH_REFRESH_INTERVAL_MS / 60_000} minutes`)
-    expect(prompt).toContain('publish_daily_recommendations')
-    // The model is what the site shows readers; the prompt is where the agent is told to say it.
-    expect(prompt).toContain('`model`')
-    // A research run is not a trading session, whoever's agent is running it.
-    expect(prompt).toContain('Place no order')
-    expect(prompt).not.toMatch(/undefined|\[object|NaN/)
-  })
-
-  it('names the private discovery tools only to the caller who has them', () => {
-    // A member's agent walked to `ingest_wsb` would meet a tool that is not on its list.
-    expect(dailyResearchPrompt(false)).not.toMatch(/ingest_wsb|get_recent_coverage/)
-    expect(dailyResearchPrompt(true)).toContain('ingest_wsb')
-    expect(dailyResearchPrompt(true)).toContain('get_recent_coverage')
-    expect(dailyResearchPrompt(true)).not.toMatch(/undefined|\[object|NaN/)
   })
 })
 

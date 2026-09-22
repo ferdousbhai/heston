@@ -160,8 +160,8 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         <h2>2 · Local proxy <span className="connect-optional">optional</span></h2>
         <p>
           A process on this machine attaches the Heston token from the keyring so the agent holds
-          none. That is how live quotes, chains, Greeks, and publishing the brief reach a client
-          that cannot complete a browser sign-in.
+          none. That is how live quotes, chains, and Greeks reach a client that cannot complete a
+          browser sign-in.
         </p>
         <CopyBlock
           label="Store your Heston token"
@@ -172,9 +172,8 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         <CopyBlock label="Grok" value={PROXY_GROK_COMMAND} />
         <p className="connect-note">
           No <code>Authorization</code> header. Pointing at <code>{MCP_URL}</code> instead is the
-          public snapshot: cached quotes, no chains, no publish. Grok lists tools, not prompts;
-          the publish tool is the contract, and an unattended run fetches <code>daily_research</code>{' '}
-          itself.
+          public snapshot: cached quotes, no chains, no account. Grok lists tools, not prompts;
+          every tool&apos;s own description carries its contract.
         </p>
         <p>
           A brokerage is a second store: balances, positions, order history, and orders against
@@ -190,8 +189,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         <h2>3 · Headless access <span className="connect-optional">optional</span></h2>
         <p>
           A machine that runs unattended cannot complete a browser sign-in, so it uses a token
-          instead — a scheduled research run, say. If you are sitting at a terminal, step one is
-          the one you want.
+          instead. If you are sitting at a terminal, step one is the one you want.
         </p>
         <form
           className="connect-issue"

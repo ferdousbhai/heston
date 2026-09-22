@@ -31,8 +31,6 @@ function read(title: string, openWorld: boolean): McpToolAnnotations {
 const ANNOTATIONS = {
   // Reads that reach a provider or the open web.
   find_option_contracts: read('Find option contracts', true),
-  get_recent_coverage: read('Read recent coverage', true),
-  ingest_wsb: read('Read WallStreetBets candidates', true),
   read_account_history: read('Read account history', true),
   read_account_snapshot: read('Read the account snapshot', true),
   read_instrument_quotes: read('Read quotes', true),
@@ -118,15 +116,6 @@ const ANNOTATIONS = {
     openWorldHint: true,
     readOnlyHint: false,
     title: 'Challenge a published recommendation',
-  },
-  publish_daily_recommendations: {
-    // Replaces the market date's brief, which is what the public site then shows. The
-    // replaced brief is not kept, so this is destructive in the way that matters most.
-    destructiveHint: true,
-    idempotentHint: false,
-    openWorldHint: true,
-    readOnlyHint: false,
-    title: 'Publish the daily brief',
   },
 } satisfies Readonly<Record<string, McpToolAnnotations>>
 

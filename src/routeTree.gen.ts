@@ -15,7 +15,6 @@ import { Route as DisclosuresRouteImport } from './routes/disclosures'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as SupportRouteImport } from './routes/support'
 import { Route as TermsRouteImport } from './routes/terms'
-import { Route as ApiAgentConnectionRouteImport } from './routes/api.agent-connection'
 import { Route as ApiFavoritesRouteImport } from './routes/api.favorites'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
 import { Route as ApiMcpTokensRouteImport } from './routes/api.mcp-tokens'
@@ -62,11 +61,6 @@ const SupportRoute = SupportRouteImport.update({
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiAgentConnectionRoute = ApiAgentConnectionRouteImport.update({
-  id: '/api/agent-connection',
-  path: '/api/agent-connection',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiFavoritesRoute = ApiFavoritesRouteImport.update({
@@ -164,7 +158,6 @@ export interface FileRoutesByFullPath {
   '/privacy': typeof PrivacyRoute
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
-  '/api/agent-connection': typeof ApiAgentConnectionRoute
   '/api/favorites': typeof ApiFavoritesRoute
   '/api/health': typeof ApiHealthRoute
   '/api/mcp-tokens': typeof ApiMcpTokensRoute
@@ -189,7 +182,6 @@ export interface FileRoutesByTo {
   '/privacy': typeof PrivacyRoute
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
-  '/api/agent-connection': typeof ApiAgentConnectionRoute
   '/api/favorites': typeof ApiFavoritesRoute
   '/api/health': typeof ApiHealthRoute
   '/api/mcp-tokens': typeof ApiMcpTokensRoute
@@ -216,7 +208,6 @@ export interface FileRoutesById {
   '/privacy': typeof PrivacyRoute
   '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
-  '/api/agent-connection': typeof ApiAgentConnectionRoute
   '/api/favorites': typeof ApiFavoritesRoute
   '/api/health': typeof ApiHealthRoute
   '/api/mcp-tokens': typeof ApiMcpTokensRoute
@@ -244,7 +235,6 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/support'
     | '/terms'
-    | '/api/agent-connection'
     | '/api/favorites'
     | '/api/health'
     | '/api/mcp-tokens'
@@ -269,7 +259,6 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/support'
     | '/terms'
-    | '/api/agent-connection'
     | '/api/favorites'
     | '/api/health'
     | '/api/mcp-tokens'
@@ -295,7 +284,6 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/support'
     | '/terms'
-    | '/api/agent-connection'
     | '/api/favorites'
     | '/api/health'
     | '/api/mcp-tokens'
@@ -322,7 +310,6 @@ export interface RootRouteChildren {
   PrivacyRoute: typeof PrivacyRoute
   SupportRoute: typeof SupportRoute
   TermsRoute: typeof TermsRoute
-  ApiAgentConnectionRoute: typeof ApiAgentConnectionRoute
   ApiFavoritesRoute: typeof ApiFavoritesRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiMcpTokensRoute: typeof ApiMcpTokensRoute
@@ -382,13 +369,6 @@ declare module '@tanstack/react-router' {
       path: '/terms'
       fullPath: '/terms'
       preLoaderRoute: typeof TermsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/agent-connection': {
-      id: '/api/agent-connection'
-      path: '/api/agent-connection'
-      fullPath: '/api/agent-connection'
-      preLoaderRoute: typeof ApiAgentConnectionRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/favorites': {
@@ -534,7 +514,6 @@ const rootRouteChildren: RootRouteChildren = {
   PrivacyRoute: PrivacyRoute,
   SupportRoute: SupportRoute,
   TermsRoute: TermsRoute,
-  ApiAgentConnectionRoute: ApiAgentConnectionRoute,
   ApiFavoritesRoute: ApiFavoritesRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiMcpTokensRoute: ApiMcpTokensRoute,
