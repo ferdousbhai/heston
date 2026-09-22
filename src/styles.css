@@ -154,28 +154,18 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .instrument-focus.fair .premium-verdict { color: var(--fair-tone); }
 .instrument-focus.rich .premium-verdict { color: var(--rich); }
 
-/* One column reads recommendation → runway → tape; the wide layout instead dissolves this grid
-   into the panel's own columns. */
+/* One column reads runway → tape; the wide layout instead dissolves this grid into the
+   panel's own columns. */
 .focus-narrative { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--hairline); display: grid; gap: 22px; }
-.focus-recommendation + .focus-runway { padding-top: 20px; border-top: 1px solid var(--hairline); }
 .focus-eyebrow { min-height: 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .focus-eyebrow h3 { margin: 0; color: var(--text); font: 600 var(--type-secondary)/1.3 var(--sans); font-weight: 400; text-transform: none; letter-spacing: 0; }
 .focus-eyebrow > span { flex: 0 0 auto; color: var(--ink-faint); font: 12px/1 var(--sans); text-transform: none; letter-spacing: 0; }
 
-.recommendation-headline { margin: 12px 0 0; font-size: clamp(20px, 5.4vw, 25px); font-weight: 700; line-height: 1.14; }
-.recommendation-body { margin: 10px 0 0; max-width: 54ch; color: #adafb7; font-size: var(--type-secondary); line-height: 1.6; }
-.recommendation-risk, .recommendation-order { margin: 12px 0 0; padding-top: 11px; border-top: 1px solid var(--hairline); font-size: 13px; line-height: 1.55; }
-.recommendation-risk { color: var(--ink-muted); }
-.recommendation-risk span, .recommendation-order span { display: block; margin-bottom: 4px; font: 12px/1 var(--sans); text-transform: none; letter-spacing: 0; }
-.recommendation-risk span { color: var(--rich); }
-.recommendation-order span { color: var(--ink-faint); }
-.recommendation-order strong { color: var(--accent); font: 700 13px/1.2 var(--sans); }
-.recommendation-sources { margin: 11px 0 0; display: flex; flex-wrap: wrap; gap: 5px 14px; }
 /* The arrow rides the last word rather than sitting in its own flex slot, so a source that
    wraps in a narrow column never strands it on a line of its own. */
-.recommendation-sources a, .runway-body > a { min-width: 0; color: #83868f; font-size: 13px; line-height: 1.3; text-decoration: none; }
-.recommendation-sources a:hover, .recommendation-sources a:focus-visible, .runway-body > a:hover, .runway-body > a:focus-visible { color: var(--text); }
-.recommendation-sources svg, .runway-body > a svg { display: inline-block; width: 10px; height: 10px; margin-left: 3px; vertical-align: -1px; }
+.runway-body > a { min-width: 0; color: #83868f; font-size: 13px; line-height: 1.3; text-decoration: none; }
+.runway-body > a:hover, .runway-body > a:focus-visible { color: var(--text); }
+.runway-body > a svg { display: inline-block; width: 10px; height: 10px; margin-left: 3px; vertical-align: -1px; }
 
 .focus-runway { container-type: inline-size; }
 .runway { margin: 14px 0 0; padding: 0; list-style: none; }
@@ -229,7 +219,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .focus-freshness time { color: #a3a6b0; text-transform: none; letter-spacing: 0; }
 .runway-as-of { white-space: nowrap; }
 
-.watch-table, .recommendations-section { padding: 24px var(--page-gutter) 0; }
+.watch-table { padding: 24px var(--page-gutter) 0; }
 .section-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .section-header h2 { margin: 0; font-size: 22px; font-weight: 700; line-height: 1.2; text-transform: none; }
 .watch-table { padding-bottom: 16px; }
@@ -342,62 +332,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
 .bottom-nav { border-radius: 0; position: fixed; z-index: 20; left: 50%; bottom: 0; transform: translateX(-50%); width: 100%; height: calc(71px + env(safe-area-inset-bottom)); padding: 6px 18px env(safe-area-inset-bottom); background: rgba(9, 9, 11, .94); backdrop-filter: blur(28px) saturate(150%); border-top: 1px solid var(--hairline); display: grid; grid-template-columns: repeat(3, 1fr); }
 
-.recommendation-screen { max-width: 760px; margin-inline: auto; animation: enter .35s var(--ease) both; }
-.recommendation-navigation { min-height: 42px; padding: 7px 14px; border-bottom: 1px solid var(--hairline); display: flex; align-items: center; justify-content: space-between; }
-.recommendation-navigation [data-slot="button"]:only-child { margin-right: auto; }
-.recommendation-archive-error { margin: 16px 20px 0; }
-.research-run-panel { padding: 26px 22px 30px; border-top: 1px solid var(--hairline); }
-.research-run-panel h2 { margin: 0; font-size: 15px; font-weight: 700; line-height: 1.1; text-transform: none; }
-.research-run-panel p { max-width: 560px; margin: 8px 0 0; color: #a7a9b1; font-size: 15px; line-height: 1.6; }
-.research-run-panel strong, .research-run-panel time { color: var(--text); }
-.research-run-steps { max-width: 560px; margin: 14px 0 0; padding-left: 1.4em; display: grid; gap: 14px; font-size: 15px; line-height: 1.6; }
+.channel-archive-error { margin: 16px 20px 0; }
 /* A grid item's minimum width is its content, so the ask block's one long line widened the
    column past the panel; the line is prose to read, not a command to keep intact, so it wraps. */
-.research-run-steps > li { min-width: 0; }
-.research-run-panel .connect-code code { white-space: pre-wrap; }
-.research-run-steps li > strong { display: block; color: var(--text); }
-.research-run-steps [data-slot="button"] { margin-top: 8px; }
-.research-run-checking { display: flex; align-items: center; gap: 9px; color: var(--ink-muted); font-size: 13px; }
-.recommendation-empty { padding: 26px 22px; color: var(--ink-faint); font-size: 15px; }
-.recommendation-byline { margin: 10px 0 0; color: var(--ink-faint); font-size: 13px; }
-.recommendation-byline strong { color: var(--text); font-weight: 600; }
-.recommendation-byline a { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
-.recommendation-cover { padding: 28px 22px 26px; border-bottom: 1px solid var(--hairline); }
-.recommendation-cover time { color: var(--ink-faint); font: 13px/1 var(--sans); text-transform: none; letter-spacing: 0; }
-.recommendation-cover h1 { max-width: 560px; margin: 22px 0 4px; font-size: clamp(26px, 6.4vw, 36px); font-weight: 700; line-height: 1.06; }
-.recommendation-cover p { max-width: 560px; margin: 8px 0 0; color: #a7a9b1; font-size: var(--type-body); line-height: 1.6; }
-.recommendation-links-section { margin-bottom: 24px; }
-.recommendation-links { margin: 0; padding: 0; border-top: 1px solid var(--hairline); list-style: none; counter-reset: recommendation-link; }
-.recommendation-links li { counter-increment: recommendation-link; border-bottom: 1px solid var(--hairline); }
-.recommendation-links a { min-height: 62px; padding: 12px 0 12px 28px; position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 8px; color: inherit; text-decoration: none; }
-.recommendation-links a[data-preview] { grid-template-columns: 88px minmax(0, 1fr) auto; }
-.recommendation-links a::before { content: counter(recommendation-link, decimal-leading-zero); position: absolute; top: 15px; left: 0; color: var(--ink-faint); font: 12px/1 var(--sans); }
-.recommendation-links strong { overflow: hidden; color: #d7d8dd; font-size: 15px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
-.recommendation-links span { grid-column: 1 / -1; color: #858891; font-size: 13px; line-height: 1.45; }
-.recommendation-links a[data-preview] span { grid-column: 2 / -1; }
-.recommendation-links img { width: 88px; height: 54px; grid-row: 1 / 3; object-fit: cover; background: var(--muted); }
-.recommendation-links svg { width: 12px; height: 12px; margin-top: 2px; color: var(--ink-faint); }
-.recommendation-links a:hover strong, .recommendation-links a:focus-visible strong { color: var(--accent); }
-.recommendation-sources[data-slot="card-footer"] { padding: 9px 0 0; border: 0; background: transparent; display: flex; flex-wrap: wrap; gap: 6px 14px; }
-.recommendation-sources a { min-width: 0; display: inline-flex; align-items: center; gap: 3px; color: #8f929b; font-size: 13px; line-height: 1.3; text-decoration: none; }
-.recommendation-sources a:hover, .recommendation-sources a:focus-visible { color: var(--text); }
-.recommendation-sources svg { width: 10px; height: 10px; flex: 0 0 auto; }
-.recommendation-stack { border-top: 1px solid var(--hairline); }
-.recommendation-card { padding: 20px 0 22px; border-bottom: 1px solid var(--hairline); }
-.order-line { padding: 12px 0; border-block: 1px solid var(--hairline); display: flex; align-items: center; justify-content: space-between; gap: 18px; }
-.order-line span { color: var(--ink-faint); font-size: 13px; }
-.order-line strong { color: var(--accent); font: 700 13px/1.2 var(--sans); text-align: right; }
-.risk-line { display: flex; gap: 9px; padding-top: 12px; border-top: 1px solid var(--hairline); color: var(--ink-muted); }
-.order-line + .risk-line { border-top: 0; }
-.risk-line svg { flex: 0 0 auto; color: #777a85; }
-.risk-line span { display: flex; flex-direction: column; gap: 3px; font-size: 13px; line-height: 1.45; }
-.risk-line strong { color: #d1d2d6; font-size: 13px; }
-/* A recheck that holds is a footnote; one that does not keeps the alert's own weight. */
-.recommendation-verification[data-slot="card-footer"] { padding: 10px 0 0; border: 0; background: transparent; display: block; }
-.recommendation-verification > p { color: var(--ink-faint); font-size: 13px; line-height: 1.4; margin: 0; }
-.recommendation-verification time { color: inherit; font: inherit; }
-.recommendation-verification ul { margin: 4px 0 0; padding-left: 14px; font-size: 13px; line-height: 1.45; }
-.disclaimer { color: #6b6e78; font-size: 13px; line-height: 1.5; text-align: center; margin: 18px 12px 0; }
 
 /* The surviving channel posts, dense and dated: a bare link post is one line, a brief keeps
    its own line breaks. */
@@ -439,17 +376,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .bottom-nav [data-slot="tabs-trigger"][data-active] { color: var(--text); }
 .bottom-nav [data-slot="tabs-trigger"][data-active] svg { color: var(--accent); }
 
-.recommendation-card { --card-spacing: 0px; gap: 0; }
-.recommendation-top[data-slot="card-header"] { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0 12px; padding: 0; }
-.recommendation-top [data-slot="button"], .recommendation-symbol { width: fit-content; padding: 0; color: var(--cheap); font-size: 17px; font-weight: 700; }
-.recommendation-top [data-slot="card-title"] { grid-column: 1 / -1; max-width: 560px; margin-top: 14px; font-size: 21px; line-height: 1.1; }
-.recommendation-top [data-slot="card-description"] { grid-column: 1 / -1; max-width: 560px; margin-top: 9px; color: #aeb0b7; font-size: var(--type-body); line-height: 1.6; }
-.risk-line[data-slot="card-footer"] { padding: 12px 0 0; border: 0; background: transparent; }
-.risk-line [data-slot="alert"] { border: 0; padding: 0; background: transparent; }
-.disclaimer[data-slot="alert"] { display: block; padding: 14px 0 0; border: 0; border-top: 1px solid var(--hairline); background: transparent; }
-.disclaimer [data-slot="alert-title"] { margin-bottom: 3px; color: #777a83; font-size: 13px; }
-.disclaimer [data-slot="alert-description"] { color: #6b6e78; font-size: 13px; }
-
 @media (min-width: 960px) {
   .app-shell { padding-bottom: 48px; }
   .top-bar { padding-inline: 24px; }
@@ -458,7 +384,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   /* The tab bar floats over the top of the page here, so a scroll to the run panel lands its
      heading beneath it: its 11px offset, a 34px trigger inside 1px borders, and the same 11px
      of air below. On a phone the bar sits at the bottom and the panel needs no margin. */
-  .research-run-panel { scroll-margin-top: calc(11px + 34px + 2px + 11px); }
     .bottom-nav [data-slot="tabs-trigger"] { min-height: 34px; flex-direction: row; gap: 7px; padding: 0 18px; border-right: 1px solid var(--hairline); font-size: 13px; }
   .bottom-nav [data-slot="tabs-trigger"]:last-child { border-right: 0; }
   .bottom-nav [data-slot="tabs-trigger"][data-active] { background: var(--accent); color: #09090b; }
@@ -480,12 +405,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   .premium-verdict { margin-top: 0; justify-self: end; font-size: 15px; line-height: 1; }
   .premium-axis[data-slot="progress"] { width: 100%; grid-column: 1 / -1; height: 9px; margin-top: 8px; }
   .focus-narrative { display: contents; }
-  .focus-recommendation { grid-column: 1; grid-row: 2; min-width: 0; }
-  .focus-recommendation, .focus-tape { margin-top: 15px; padding: 13px 0 0; border-top: 1px solid var(--hairline); }
+  .focus-tape { margin-top: 15px; padding: 13px 0 0; border-top: 1px solid var(--hairline); }
   .instrument-focus [data-slot="card-footer"] { grid-column: 1; grid-row: 3; }
   /* The last column line puts the runway right of the rail in both the two- and three-column
      arrangements, and the columns beside the rail stretch so their rules run the full height. */
-  .focus-recommendation + .focus-runway, .focus-runway { grid-column: -2; grid-row: 1 / -1; align-self: stretch; padding: 0 0 0 clamp(22px, 2.4vw, 40px); border-top: 0; border-left: 1px solid var(--hairline); }
+  .focus-runway { grid-column: -2; grid-row: 1 / -1; align-self: stretch; padding: 0 0 0 clamp(22px, 2.4vw, 40px); border-top: 0; border-left: 1px solid var(--hairline); }
   /* Evidence keeps the runway's column and takes an implicit row under it, so the rail's rows
      are untouched and the column's rule runs on down the page. */
   .focus-runway + .focus-evidence { grid-column: -2; padding: 18px 0 0 clamp(22px, 2.4vw, 40px); border-top: 0; border-left: 1px solid var(--hairline); }
@@ -495,10 +419,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
   .watch-table { padding: 24px 24px 16px; }
   .ticker-table-button[data-slot="button"] { max-width: 330px; }
-
-  .recommendation-screen { border-inline: 1px solid var(--hairline); }
-  .recommendation-cover { padding-inline: 28px; }
-  .recommendations-section { padding-inline: 28px; }
 
 }
 
@@ -512,24 +432,18 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   .runway-detail { grid-column: 2; grid-row: 2 / span 2; max-width: 62ch; margin: 0; }
 }
 
-/* With a recommendation to carry, the panel splits three ways instead of lengthening the rail:
-   the instrument and its numbers, the recommendation, then the runway. Below this the recommendation and
-   the runway would each fall under a readable measure, so the rail keeps the recommendation. */
+/* The widest layout gives the year column its own cell instead of lengthening the rail. */
 @media (min-width: 1120px) {
   .premium-data-table .year-cell { display: table-cell; width: 11%; min-width: 96px; text-align: right; }
   .premium-data-table .year-cell strong { display: block; margin-top: 3px; color: var(--ink-faint); font-size: 13px; font-variant-numeric: tabular-nums; }
   .year-sparkline { max-width: 96px; height: 20px; }
 
-  .instrument-focus:has(.focus-recommendation) { grid-template-columns: clamp(300px, 20vw, 380px) minmax(0, .82fr) minmax(0, 1.1fr); }
-  .instrument-focus:has(.focus-recommendation) .focus-recommendation { grid-column: 2; grid-row: 1 / -1; align-self: stretch; margin-top: 0; padding: 0 0 0 clamp(22px, 2.4vw, 40px); border-top: 0; border-left: 1px solid var(--hairline); }
 }
 
 /* A phone. The top bar keeps what a glance needs and drops the word and the link it has no
-   room for; the recommendation keeps its headline and order, with the argument and the risk one
-   tap away on their own tab; the empty calendar keeps its verdict and drops the explanation. */
+   room for; the empty calendar keeps its verdict and drops the explanation. */
 @media (max-width: 959px) {
   .top-link, .last-updated-word { display: none; }
-  .focus-recommendation .recommendation-body, .focus-recommendation .recommendation-risk { display: none; }
   .runway-empty-detail { display: none; }
 }
 
@@ -741,8 +655,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   .watch-table { padding: 28px var(--page-gutter); }
   .watch-table .section-header { gap: 24px; }
   .watchlist-title { margin-right: auto; }
-  .focus-recommendation, .focus-tape { margin-top: 24px; padding-top: 20px; }
-  .research-run-panel { scroll-margin-top: 84px; }
+  .focus-tape { margin-top: 24px; padding-top: 20px; }
 }
 
 @media (min-width: 960px) and (max-width: 1279px) {

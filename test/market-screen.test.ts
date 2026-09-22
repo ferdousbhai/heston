@@ -10,7 +10,6 @@ function renderMarket(
   snapshot: ReturnType<typeof marketSnapshotFixture>,
   overrides: {
     catalysts?: MarketSnapshot['catalysts']
-    dailyRecommendations?: MarketSnapshot['recommendations']
     symbol: string
   },
 ): string {
@@ -21,58 +20,12 @@ function renderMarket(
     onSelectTicker: () => undefined,
     onTogglePinned: () => undefined,
     pinnedSymbols: [],
-    dailyRecommendations: overrides.dailyRecommendations ?? snapshot.recommendations,
     selected: snapshot.tickers.find((ticker) => ticker.symbol === overrides.symbol)!,
     tickers: snapshot.tickers,
   }))
 }
 
 describe('selected market context', () => {
-  it('leads with the selected symbol recommendation and its dated catalysts', () => {
-    const snapshot = marketSnapshotFixture()
-    const dailyRecommendations = {
-      ...snapshot.recommendations!,
-      recommendations: [
-        snapshot.recommendations!.recommendations[0]!,
-        {
-          ...snapshot.recommendations!.recommendations[0]!,
-          symbol: 'META' as const,
-          headline: 'Unrelated META recommendation',
-          recommendedOrder: {
-            kind: 'equity-option' as const,
-            legs: [{
-              action: 'Buy to Open' as const,
-              contract: { expiry: '2026-10-16', optionType: 'C' as const, strike: 800, underlying: 'META' },
-              instrumentType: 'Equity Option' as const,
-            }],
-          },
-        },
-      ],
-    }
-    const catalysts = [
-      {
-        ...snapshot.catalysts[0]!,
-        date: '2099-01-01',
-        description: 'Selected-symbol catalyst detail.',
-      },
-      {
-        ...snapshot.catalysts[0]!,
-        id: 'test:META:earnings',
-        symbol: 'META' as const,
-        title: 'Unrelated META catalyst',
-      },
-    ]
-
-    const html = renderMarket(snapshot, { catalysts, dailyRecommendations, symbol: 'NVDA' })
-
-    expect(html).toContain('Selected-symbol catalyst detail.')
-    expect(html).toContain('Demand checks keep the AI capex case alive')
-    expect(html).toContain('A guide-down or capex pause would break the demand case.')
-    expect(html).toContain('Buy to Open NVDA 205C · 2026-10-16')
-    expect(html).not.toContain('Unrelated META catalyst')
-    expect(html).not.toContain('Unrelated META recommendation')
-  })
-
   it('lists every upcoming catalyst nearest first and drops past dates', () => {
     const snapshot = marketSnapshotFixture()
     const template = snapshot.catalysts[0]!
@@ -115,7 +68,6 @@ describe('selected market context', () => {
 
     const html = renderMarket(snapshot, {
       catalysts: [],
-      dailyRecommendations: { ...snapshot.recommendations!, recommendations: [] },
       symbol: 'SPY',
     })
 

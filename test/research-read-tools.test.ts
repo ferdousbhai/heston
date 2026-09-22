@@ -3,15 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { readUpcomingCatalysts } from '../src/server/catalysts'
 import {
   readCatalysts,
-  readLatestDailyRecommendationsState,
 } from '../src/server/research-read-tools'
 import { unsupportedDatabase, unsupportedStatement } from './fake-d1'
-
-const dailyRecommendations = {
-  id: 'daily-1', publishedAt: '2026-08-13T13:30:00.000Z', title: 'Wait for the pitch',
-  summary: 'Liquidity is thin.', regime: 'Cautious', regimeDetail: 'Keep dry powder.',
-  recommendations: [], links: [],
-}
 
 function d1WithResults(results: unknown[]) {
   const all = vi.fn().mockResolvedValue({ results })
@@ -51,30 +44,5 @@ describe('Dan research read tools', () => {
     await expect(readCatalysts(db.env, ['nvda'])).rejects.toThrow('symbols are invalid')
     await expect(readCatalysts(db.env, Array.from({ length: 21 }, (_, index) => `A${index}`))).rejects.toThrow('symbols are invalid')
     expect(db.prepare).not.toHaveBeenCalled()
-  })
-
-  it('strictly parses the latest stored daily recommendations', async () => {
-    const db = d1WithResults([{ payload_json: JSON.stringify(dailyRecommendations) }])
-    await expect(readLatestDailyRecommendationsState(
-      db.env,
-      new Date('2026-08-13T14:00:00.000Z'),
-    )).resolves.toMatchObject({
-      dailyRecommendations: dailyRecommendations, source: 'heston-recommendation-store', status: 'ok',
-    })
-
-    const broken = d1WithResults([{ payload_json: '{}' }])
-    await expect(readLatestDailyRecommendationsState(broken.env)).rejects.toThrow()
-  })
-
-  it('reports an absent dailyRecommendations without manufacturing research', async () => {
-    const db = d1WithResults([])
-    await expect(readLatestDailyRecommendationsState(
-      db.env,
-      new Date('2026-08-13T14:00:00.000Z'),
-    )).resolves.toEqual({
-      fetchedAt: '2026-08-13T14:00:00.000Z',
-      source: 'heston-recommendation-store',
-      status: 'not_found',
-    })
   })
 })

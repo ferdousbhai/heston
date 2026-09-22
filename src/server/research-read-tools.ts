@@ -3,11 +3,9 @@ import { Type } from 'typebox'
 
 import { CatalystSchema, marketDate, type Catalyst } from '../domain/catalyst'
 import { equitySymbolsFromModelText, EquitySymbolSchema, ModelTextEquitySymbolType } from '../domain/instrument'
-import { type DailyRecommendations } from '../domain/market'
 import { type AppEnv } from './env'
 import { textResult } from './agent-tool-result'
 import { MAX_MARKET_SYMBOLS } from './brokerage-read-contracts'
-import { readLatestDailyRecommendations } from './daily-recommendations-store'
 
 // A catalyst call shares the normal market-read batch budget. The row ceiling is a model-context
 // budget and is observable through `truncated`; the one-year horizon keeps "upcoming" scheduled
@@ -35,8 +33,6 @@ const CatalystReadParameters = Type.Object({
   }),
 }, { additionalProperties: false })
 
-const DailyRecommendationsReadParameters = Type.Object({}, { additionalProperties: false })
-
 /**
  * What the agent is handed is a projection of the stored row, not the row: a catalyst `id` is
  * `<producer>:<symbol>:<kind>:<date>`, every part of which is already a field beside it, and no
@@ -59,11 +55,6 @@ export type CatalystReadResult = {
   symbols: string[]
   truncated: boolean
 }
-
-export type DailyRecommendationsReadResult = {
-  fetchedAt: string
-  source: 'heston-recommendation-store'
-} & ({ dailyRecommendations: DailyRecommendations; status: 'ok' } | { status: 'not_found' })
 
 function endDate(start: string, horizonDays: number): string {
   const [year, month, day] = start.split('-').map(Number)
@@ -115,23 +106,6 @@ export async function readCatalysts(
   }
 }
 
-export async function readLatestDailyRecommendationsState(
-  env: AppEnv,
-  now = new Date(),
-): Promise<DailyRecommendationsReadResult> {
-  if (!env.DB) throw new Error('Daily research is unavailable.')
-  const dailyRecommendations = await readLatestDailyRecommendations(env.DB)
-  if (!dailyRecommendations) {
-    return { fetchedAt: now.toISOString(), source: 'heston-recommendation-store', status: 'not_found' }
-  }
-  return {
-    dailyRecommendations,
-    fetchedAt: now.toISOString(),
-    source: 'heston-recommendation-store',
-    status: 'ok',
-  }
-}
-
 export function createResearchReadTools(env: AppEnv, now = new Date()) {
   const catalysts: AgentTool<typeof CatalystReadParameters, CatalystReadResult | { error: string }> = {
     description: 'Stored upcoming catalysts; excludes dividends.',
@@ -144,15 +118,5 @@ export function createResearchReadTools(env: AppEnv, now = new Date()) {
     name: 'read_catalysts',
     parameters: CatalystReadParameters,
   }
-  const dailyRecommendations: AgentTool<
-    typeof DailyRecommendationsReadParameters,
-    DailyRecommendationsReadResult
-  > = {
-    description: 'Latest stored daily recommendations, including their reader links.',
-    execute: async () => textResult(await readLatestDailyRecommendationsState(env, now)),
-    label: 'Reading daily recommendations',
-    name: 'read_daily_recommendations',
-    parameters: DailyRecommendationsReadParameters,
-  }
-  return [catalysts, dailyRecommendations]
+  return [catalysts]
 }

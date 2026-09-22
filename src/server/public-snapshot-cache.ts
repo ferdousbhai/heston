@@ -7,7 +7,7 @@ import { brokerApi } from './tastytrade'
 
 // A provider reading is usable for one minute while the market is open before a refresh is
 // attempted; the retained copy of the store is rebuilt on the same bound, since catalysts,
-// recommendations and searched-in symbols reach it through the store at any hour.
+// searched-in symbols reach it through the store at any hour.
 const SNAPSHOT_FRESH_MS = 60 * 1_000
 // How long one refresh may hold the exclusive claim before another caller may retry it. Long
 // enough to cover a slow provider, short enough that a crashed refresh unblocks quickly.
@@ -61,14 +61,11 @@ export function publicSessionStatus(
 }
 
 export function snapshotEtag(
-  snapshot: Pick<PublicMarketSnapshot, 'syncedAt'> & Partial<Pick<PublicMarketSnapshot, 'marketOpensAt' | 'marketState'>> & {
-    recommendations?: { publishedAt?: string }
-  },
+  snapshot: Pick<PublicMarketSnapshot, 'syncedAt'> & Partial<Pick<PublicMarketSnapshot, 'marketOpensAt' | 'marketState'>>,
 ): string {
   // Quotes, session, and the brief are independent writes. Keying only the observation hid a
   // newly published brief, and a session-only refresh, behind 304s.
   const parts = [snapshot.syncedAt]
-  if (snapshot.recommendations?.publishedAt) parts.push(snapshot.recommendations.publishedAt)
   if (snapshot.marketState) parts.push(snapshot.marketState)
   if (snapshot.marketOpensAt) parts.push(snapshot.marketOpensAt)
   return `W/"${parts.join(':')}"`

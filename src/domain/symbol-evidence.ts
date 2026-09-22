@@ -11,11 +11,9 @@ import {
 
 /*
  * An evidence card is one quoted passage from a page, attached to a symbol by a member's own
- * agent. It is the between-briefs surface: the daily brief argues three names once an interval,
- * while a member researching a fourth has nowhere to leave what they read. The card is that
- * place, and it is bound the way a brief's evidence is -- the Worker re-reads the page and
- * refuses a quote it cannot find in that text -- so what accumulates under a name is still
- * sentences somebody's source actually contains.
+ * agent: the place a member researching a name leaves what they read. It is bound -- the Worker
+ * re-reads the page and refuses a quote it cannot find in that text -- so what accumulates
+ * under a name is still sentences somebody's source actually contains.
  *
  * Every bound below is a rendering envelope for untrusted text rather than a research limit:
  * the card is read in a list beside the runway, and prose that overruns its measure is the one
@@ -23,7 +21,7 @@ import {
  */
 
 /**
- * A card's quote is the same thing a brief's evidence quote is -- one passage the binder matched
+ * A card's quote is one passage the binder matched
  * -- so it is held to that one bound rather than a second number for the same envelope.
  */
 export const MAX_EVIDENCE_QUOTE_LENGTH = MAX_RESEARCH_EVIDENCE_QUOTE_LENGTH
@@ -31,7 +29,7 @@ export const MAX_EVIDENCE_QUOTE_LENGTH = MAX_RESEARCH_EVIDENCE_QUOTE_LENGTH
 export const MAX_EVIDENCE_NOTE_LENGTH = 240
 /**
  * A handle the member chose, never a name an identity provider gave us: this is a public
- * surface and the account behind it stays private. The same envelope a brief's byline gets,
+ * surface and the account behind it stays private. The same envelope any recorded byline gets,
  * for the same reason -- wide enough for a handle, too narrow for a sentence or an address.
  */
 export const MAX_EVIDENCE_BYLINE_LENGTH = MAX_RESEARCH_BYLINE_LENGTH

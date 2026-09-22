@@ -10,7 +10,6 @@ import {
 } from '../src/server/instrument-catalog'
 import { ensureInternalWatchlistSeeded, finalizeInternalWatchlist } from '../src/server/internal-watchlist'
 import { MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
-import { marketSnapshotFixture } from './fixtures/market'
 import {
   loadStoredPublicMarketUniverse,
   publishInternalWatchlistUniverse,
@@ -202,10 +201,6 @@ describe('public market boundary', () => {
         (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
       VALUES ('NVDA', 'Equity', 'tastytrade-seed', '{}', '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z');
     `)
-    const research = marketSnapshotFixture().recommendations!
-    store.sqlite.prepare(
-      'INSERT INTO daily_recommendations (id, published_at, payload_json) VALUES (?, ?, ?)',
-    ).run(research.id, research.publishedAt, JSON.stringify(research))
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
       if (url.endsWith('/oauth/token')) return Response.json({ access_token: 'owner-read-token', expires_in: 900 })
@@ -286,10 +281,6 @@ describe('public market boundary', () => {
       publicPayload: [],
     }))
     await finalizeInternalWatchlist(env, [])
-    const research = marketSnapshotFixture().recommendations!
-    store.sqlite.prepare(
-      'INSERT INTO daily_recommendations (id, published_at, payload_json) VALUES (?, ?, ?)',
-    ).run(research.id, research.publishedAt, JSON.stringify(research))
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input))
       if (url.pathname.endsWith('/oauth/token')) return Response.json({ access_token: 'owner-read-token', expires_in: 900 })
@@ -382,9 +373,6 @@ describe('public market boundary', () => {
         first: async () => {
           if (sql.includes('FROM public_market_universe')) {
             return { payload_json: JSON.stringify({ symbols: ['BE', 'NVDA'] }) }
-          }
-          if (sql.includes('FROM daily_recommendations')) {
-            return { payload_json: JSON.stringify(marketSnapshotFixture().recommendations) }
           }
           throw new Error(`Unexpected first query: ${sql}`)
         },

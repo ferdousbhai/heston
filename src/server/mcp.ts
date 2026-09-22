@@ -21,7 +21,6 @@ import { createMarketResearchTools } from './market-research-tools'
 import { createPublicMarketReadTools } from './public-market-tools'
 import { noteSymbolAttention, readsSymbols, type SymbolNamingCall } from './symbol-attention'
 import { createExactOptionGreeksReadTool } from './option-greeks-tool'
-import { createRecommendationChallengeTool } from './recommendation-challenge'
 import { createResearchReadTools } from './research-read-tools'
 import {
   PLACE_BROKERAGE_ORDER_DESCRIPTION,
@@ -96,13 +95,9 @@ export function createHestonMcpServer(
         // want an account behind them even though neither touches one directly.
         createRememberSymbolsTool(env),
         createBrokerageReconciliationTool(env, credential),
-        // A challenge can only ever trigger the server's own re-read of pages the standing brief
-        // cites -- it injects nothing and names no address -- but it spends page reads, and a
-        // cost the site pays wants a name behind it.
-        createRecommendationChallengeTool(env),
-        // Writing research back to the site between briefs: dated events for every reader's
-        // calendar, and the passages a member's agent read them in. Both are bound against
-        // pages this Worker re-reads, so what the tier adds is a name behind the row.
+        // Writing research back to the site: dated events for every reader's calendar, and the
+        // passages a member's agent read them in. Both are bound against pages this Worker
+        // re-reads, so what the tier adds is a name behind the row.
         createCatalystRecordTool(env),
         createSymbolEvidenceTool(env, caller.userId),
       ]

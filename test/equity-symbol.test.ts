@@ -22,7 +22,6 @@ import {
 import { PriceHistoryReadParameters } from '../src/server/market-research-contracts'
 import { ExactOptionGreeksReadParameters } from '../src/server/option-greeks-tool'
 import { WatchlistReadParameters } from '../src/server/watchlist-tool'
-import { RecommendedOrderSubmissionSchema } from '../src/server/research-submission'
 
 type SchemaNode = {
   anyOf?: SchemaNode[]
@@ -61,7 +60,6 @@ describe('equity symbol rule', () => {
       AccountHistoryReadParameters, InstrumentQuoteReadParameters, MarketMetricsReadParameters,
       OptionContractFindParameters, SymbolSearchParameters, WatchlistActionParameters,
       ExactOptionGreeksReadParameters, PriceHistoryReadParameters, WatchlistReadParameters,
-      RecommendedOrderSubmissionSchema,
     ].flatMap((contract) => advertisedPatterns(SchemaNodeSchema.parse(contract)))
 
     const equityPatterns = patterns.filter((pattern) => {

@@ -22,7 +22,6 @@ function renderMarket(overrides: Partial<Parameters<typeof MarketScreen>[0]> = {
     onSelectTicker: () => undefined,
     onTogglePinned: () => undefined,
     pinnedSymbols: [],
-    dailyRecommendations: snapshot.recommendations,
     selected: snapshot.tickers[0]!,
     tickers: snapshot.tickers,
     ...overrides,

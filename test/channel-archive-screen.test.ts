@@ -4,15 +4,14 @@ import { createElement } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { RecommendationScreen } from '../src/components/recommendation-screen'
-import { marketSnapshotFixture } from './fixtures/market'
+import { ChannelArchiveScreen } from '../src/components/channel-archive-screen'
 
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
 })
 
-describe('the channel archive on the recommendations tab', () => {
+describe('the channel archive tab', () => {
   it('lists the surviving posts newest first and pages older on a tap', async () => {
     const requests: string[] = []
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
@@ -26,13 +25,7 @@ describe('the channel archive on the recommendations tab', () => {
         posts: [{ id: 3548, links: [], postedAt: '2026-09-08T13:42:03.000Z', text: 'PCG · Neutral\nPCG still has a Wednesday liability event.' }],
       })
     }))
-    const snapshot = marketSnapshotFixture()
-
-    render(createElement(RecommendationScreen, {
-      availableSymbols: new Set(snapshot.tickers.map((ticker) => ticker.symbol)),
-      dailyRecommendations: snapshot.recommendations,
-      onSymbol: () => undefined,
-    }))
+    render(createElement(ChannelArchiveScreen))
 
     await waitFor(() => expect(screen.getByText(/PCG still has a Wednesday liability event/)).toBeTruthy())
     // The channel's markup never reaches the page: the text is text, and the link is a link.

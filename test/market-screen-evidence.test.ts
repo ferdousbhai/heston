@@ -45,7 +45,6 @@ function renderMarket(symbol: string): void {
     onSelectTicker: () => undefined,
     onTogglePinned: () => undefined,
     pinnedSymbols: [],
-    dailyRecommendations: undefined,
     selected: snapshot.tickers.find((ticker) => ticker.symbol === symbol)!,
     tickers: snapshot.tickers,
   }))

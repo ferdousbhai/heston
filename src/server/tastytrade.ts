@@ -57,7 +57,6 @@ import {
 import { defineSeam, type SeamValue } from './seam'
 import { searchInstrumentCatalog, symbolCandidate } from './symbol-search'
 import { loadStoredPublicMarketUniverse, publishInternalWatchlistUniverse } from './public-market-universe'
-import { readLatestDailyRecommendations } from './daily-recommendations-store'
 import { readYearAgoCloses } from './year-candle-store'
 import {
   BrokerCredentialMissingError,
@@ -283,11 +282,6 @@ async function loadQuoteToken(env: AppEnv): Promise<{ token: string; url: string
   const url = jsonText(data['dxlink-url'])
   if (!token || !url || !url.startsWith('wss://')) throw new Error('TastytradeQuoteToken:invalid')
   return { token, url }
-}
-
-async function loadStoredDailyRecommendations(env: AppEnv): Promise<MarketSnapshot['recommendations']> {
-  if (!env.DB) throw new Error('TastytradeResearch:store-unavailable')
-  return readLatestDailyRecommendations(env.DB)
 }
 
 type MarketSnapshotOptions = {
@@ -538,7 +532,6 @@ async function loadMarketSnapshot(
     watchlists,
     tickers,
     catalysts,
-    recommendations: await loadStoredDailyRecommendations(env),
   })
   await publishInternalWatchlistUniverse(env, new Date(syncedAt))
   return snapshot
@@ -652,7 +645,6 @@ export async function loadPublicMarketSnapshot(
     watchlists,
     tickers: marketFacts.tickers.map(publicTickerFromTicker),
     catalysts: marketFacts.catalysts,
-    recommendations: await loadStoredDailyRecommendations(env),
   })
 }
 
@@ -691,13 +683,12 @@ async function cacheProviderSession(env: AppEnv, payload: JsonValue, now = new D
  */
 async function storedSnapshotParts(env: AppEnv, symbols: readonly string[]) {
   if (!env.DB || !symbols.length) return undefined
-  const [records, catalog, yearCandles, catalysts, session, recommendations] = await Promise.all([
+  const [records, catalog, yearCandles, catalysts, session] = await Promise.all([
     readStoredMarketRecords(env, symbols),
     readInstrumentCatalog(env, symbols),
     readYearAgoCloses(env.DB, symbols),
     readUpcomingCatalysts(env),
     readStoredMarketSession(env),
-    loadStoredDailyRecommendations(env),
   ])
   // A quote is what makes a row renderable; a symbol the store has never seen is left out
   // rather than shown at a price of zero.
@@ -712,7 +703,7 @@ async function storedSnapshotParts(env: AppEnv, symbols: readonly string[]) {
       yearCandles.get(symbol),
     ))
   if (!tickers.length || !records.observedAt) return undefined
-  return { catalysts, observedAt: records.observedAt, recommendations, session, tickers }
+  return { catalysts, observedAt: records.observedAt, session, tickers }
 }
 
 /**
@@ -739,7 +730,6 @@ async function loadStoredPublicMarketSnapshot(env: AppEnv): Promise<PublicMarket
     }],
     tickers: parts.tickers.map(publicTickerFromTicker),
     catalysts: parts.catalysts,
-    recommendations: parts.recommendations,
   })
 }
 
@@ -761,7 +751,6 @@ async function loadStoredMarketSnapshot(env: AppEnv): Promise<MarketSnapshot | u
     watchlists: [{ id: 'watchlist', kind: 'private' as const, name: 'Watchlist', symbols: focusSymbols }],
     tickers: parts.tickers,
     catalysts: parts.catalysts,
-    recommendations: parts.recommendations,
   })
 }
 

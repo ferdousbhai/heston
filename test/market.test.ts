@@ -7,9 +7,7 @@ import {
   issuerName,
   MarketSnapshotSchema,
   marketSnapshotFromPublic,
-  parseStoredDailyRecommendations,
   PublicMarketSnapshotSchema,
-  researchGeneratorLabel,
   volatilityVerdict,
 } from '../src/domain/market'
 import { MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
@@ -115,54 +113,6 @@ describe('snapshot contract', () => {
     expect(PublicMarketSnapshotSchema.parse(publicValue).tickers[0]).toEqual(owner.tickers[0])
     expect(() => PublicMarketSnapshotSchema.parse(owner)).toThrow()
     expect(marketSnapshotFromPublic(publicValue).tickers).toEqual(owner.tickers)
-  })
-
-  it('rejects the pre-evidence recommendation shape instead of manufacturing current output', () => {
-    const legacy = {
-      id: 'brief-2026-08-12',
-      publishedAt: '2026-08-12T13:35:00.000Z',
-      title: 'Legacy daily recommendations',
-      summary: 'A stored recommendation from the earlier research contract.',
-      regime: 'Selective',
-      regimeDetail: 'Defined risk',
-      recommendations: [{
-        symbol: 'NVDA',
-        direction: 'bullish',
-        setup: 'Defined-risk call spread',
-        thesis: 'Demand remains resilient.',
-        risk: 'A guide-down would break the thesis.',
-        horizon: '45–75 DTE',
-      }],
-      sources: [{ label: 'tastytrade market metrics', url: 'https://example.com/metrics' }],
-    }
-
-    expect(() => parseStoredDailyRecommendations(legacy)).toThrow()
-  })
-
-  it('rejects non-HTTPS links in historical recommendations before they reach anchor elements', () => {
-    // On the recommendation, which is where a stored source becomes an anchor a reader clicks:
-    // the brief no longer carries a list of its own, so this is the field that must refuse one.
-    const stored = marketSnapshotFixture().recommendations!
-    const legacy = {
-      ...stored,
-      recommendations: stored.recommendations.map((recommendation) => ({
-        ...recommendation,
-        sources: [{ label: 'Untrusted legacy source', url: 'javascript:alert(1)' }],
-      })),
-    }
-
-    expect(() => parseStoredDailyRecommendations(legacy)).toThrow(/HTTPS source URL/)
-  })
-
-  it('keeps the product name and drops a powered-by marketing suffix', () => {
-    expect(researchGeneratorLabel('Muse Code powered by Meta Muse Spark')).toBe('Muse Code')
-    expect(researchGeneratorLabel('Claude Code running on Opus 4.6')).toBe('Claude Code')
-    expect(researchGeneratorLabel('claude-opus-5')).toBe('claude-opus-5')
-    const stored = marketSnapshotFixture().recommendations!
-    expect(parseStoredDailyRecommendations({
-      ...stored,
-      model: 'Muse Code powered by Meta Muse Spark',
-    }).model).toBe('Muse Code')
   })
 })
 

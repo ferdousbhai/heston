@@ -1,7 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
-import { DailyRecommendationsSchema } from '../src/domain/market'
 
 /** Each test names the migration files it applies; `test/sqlite-d1.ts` explains why. */
 const read = (name: string) => readFile(new URL(`../migrations/${name}`, import.meta.url), 'utf8')
@@ -65,8 +64,6 @@ describe('brokerage action migrations', () => {
       recommendedOrder: { kind: 'legacy-unstructured', label: 'NVDA 225c 10/16' },
     })
     expect(stored.recommendations[0]).not.toHaveProperty('play')
-    expect(DailyRecommendationsSchema.parse(stored).recommendations[0]?.recommendedOrder.kind)
-      .toBe('legacy-unstructured')
     expect(stored).not.toHaveProperty('ideas')
     expect(stored).not.toHaveProperty('readingList')
     expect(db.prepare(

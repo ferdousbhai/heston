@@ -103,7 +103,6 @@ describe('MCP bearer authentication', () => {
       for (const withheld of [
         'find_option_contracts', 'read_option_greeks', 'remember_symbols',
         'read_account_history', 'read_account_snapshot',
-        'challenge_recommendation',
         'place_brokerage_order', 'cancel_brokerage_order',
         'record_catalysts', 'record_evidence',
       ]) {
@@ -160,12 +159,11 @@ describe('MCP tool surface', () => {
       // all while every "right now" tool worked. Naming them is what makes that omission fail.
       for (const expected of [
         'read_market_metrics', 'read_instrument_quotes', 'search_symbols',
-        'find_option_contracts', 'read_catalysts', 'read_daily_recommendations', 'read_watchlist',
+        'find_option_contracts', 'read_catalysts', 'read_watchlist',
         'read_price_history', 'read_option_greeks', 'remember_symbols',
         'place_brokerage_order',
         'cancel_brokerage_order',
         'reconcile_brokerage_action',
-        'challenge_recommendation',
         'record_catalysts',
         'record_evidence',
       ]) {
@@ -213,9 +211,6 @@ describe('MCP tool tiers', () => {
       'cancel_brokerage_order',
       // Additive only; removing a name is owner-only because it changes what every reader sees.
       'remember_symbols',
-      // Challenging the standing brief spends the server's page reads, so it wants a name
-      // behind it even though it can only ever trigger a re-read of what the server published.
-      'challenge_recommendation',
       // Recording research is the same bargain at a smaller scale: bound against pages this
       // Worker re-reads, and withheld from the anonymous tier only so a row has a name behind it.
       'record_catalysts',
@@ -457,8 +452,8 @@ describe('MCP surface budget', () => {
    * move a number here, with a reason. They are budgets, not measurements — the headroom is
    * deliberate, and the owner surface is the superset a member never sees all of.
    */
-  // Raised for the three member research tools -- `challenge_recommendation`,
-  // `record_catalysts` and `record_evidence` -- each of which advertises the citation contract
+  // Raised for the member research tools -- `record_catalysts` and `record_evidence` --
+  // each of which advertises the citation contract
   // it is held to, which is what lets an agent fix a rejection without a round trip. Then
   // lowered again, to just above the measured surface, once the published schemas stopped
   // carrying zod's safe-integer bounds and spelling closed string sets as `anyOf` of `const`:

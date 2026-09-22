@@ -40,7 +40,6 @@ const ANNOTATIONS = {
   search_symbols: read('Search symbols', true),
   // Reads answered entirely from Heston's own stores.
   read_catalysts: read('Read catalysts', false),
-  read_daily_recommendations: read('Read the daily brief', false),
   read_watchlist: read('Read the watchlist', false),
 
   // Writes.
@@ -106,16 +105,6 @@ const ANNOTATIONS = {
     openWorldHint: false,
     readOnlyHint: false,
     title: 'Manage the watchlist',
-  },
-  challenge_recommendation: {
-    // Writes, but only ever the server's own finding about a recommendation's sources: it
-    // replaces no brief and removes nothing, and re-running it after the window reaches the
-    // same answer from the same pages.
-    destructiveHint: false,
-    idempotentHint: true,
-    openWorldHint: true,
-    readOnlyHint: false,
-    title: 'Challenge a published recommendation',
   },
 } satisfies Readonly<Record<string, McpToolAnnotations>>
 

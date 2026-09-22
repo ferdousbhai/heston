@@ -39,7 +39,6 @@ function renderMarket(symbol: string, catalysts: readonly Catalyst[], owner = fa
     onSelectTicker: () => undefined,
     onTogglePinned: () => undefined,
     pinnedSymbols: [],
-    dailyRecommendations: undefined,
     selected: snapshot.tickers.find((ticker) => ticker.symbol === symbol)!,
     tickers: snapshot.tickers,
   }))

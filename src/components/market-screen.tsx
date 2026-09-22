@@ -2,7 +2,6 @@ import { memo, useCallback, useEffect, useMemo, useState, useSyncExternalStore }
 import { ArrowDown, ArrowUp, ArrowUpRight, ChevronRight, Search, Star, X } from 'lucide-react'
 import { matchSorter } from 'match-sorter'
 
-import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader } from '#/components/ui/card'
 import { Drawer, DrawerClose, DrawerContent, DrawerTitle } from '#/components/ui/drawer'
@@ -19,7 +18,6 @@ import {
 import { equitySymbolFromModelText } from '../domain/instrument'
 import { cn } from '#/lib/utils'
 import { latestSessionCandles, REGULAR_SESSION_MS, type CandlePoint } from '../domain/candle'
-import { recommendedOrderLabel } from '../domain/recommended-order'
 import {
   CATALYST_KIND_NAMES,
   hasNearTermCatalyst,
@@ -42,7 +40,6 @@ import {
   termStructureSpread,
   volatilityVerdict,
   type IvTermStructure,
-  type DailyRecommendations,
   type Ticker,
   type PublicSymbolLookup,
   type VolatilityVerdict,
@@ -307,33 +304,6 @@ function searchEmptyMessage(query: string, status: SymbolSearchState['status']):
 }
 
 const CATALYST_SCOPE = `${CATALYST_KIND_NAMES.slice(0, -1).join(', ')} and ${CATALYST_KIND_NAMES.at(-1)}`
-
-function RecommendationPanel({ recommendation }: { recommendation: DailyRecommendations['recommendations'][number] }) {
-  return (
-    <section className="focus-recommendation" aria-labelledby="focus-recommendation-title">
-      <header className="focus-eyebrow">
-        <h3 id="focus-recommendation-title">Recommendation</h3>
-        <Badge variant={recommendation.direction}>{recommendation.direction}</Badge>
-      </header>
-      <p className="recommendation-headline">{recommendation.headline}</p>
-      <p className="recommendation-body">{recommendation.description}</p>
-      <p className="recommendation-risk"><span>What breaks it</span>{recommendation.risk}</p>
-      <p className="recommendation-order">
-        <span>Recommended order</span>
-        <strong>{recommendedOrderLabel(recommendation.recommendedOrder)}</strong>
-      </p>
-      {recommendation.sources.length > 0 && (
-        <p className="recommendation-sources">
-          {recommendation.sources.map((source) => (
-            <a href={source.url} key={source.url} rel="noreferrer" target="_blank">
-              {source.label}<ArrowUpRight aria-hidden="true" />
-            </a>
-          ))}
-        </p>
-      )}
-    </section>
-  )
-}
 
 /** An empty calendar is either one nobody has searched yet or one with nothing on it. */
 function RunwayEmpty({ searching, symbol }: { searching: boolean; symbol: string }) {
@@ -745,7 +715,6 @@ export function MarketScreen({
   onSelectTicker,
   onTogglePinned,
   pinnedSymbols,
-  dailyRecommendations,
   selected,
   tickers,
 }: {
@@ -755,7 +724,6 @@ export function MarketScreen({
   onSelectTicker: (symbol: string, lookup?: PublicSymbolLookup) => void
   onTogglePinned: (symbol: string, lookup?: PublicSymbolLookup) => void
   pinnedSymbols: readonly string[]
-  dailyRecommendations?: DailyRecommendations
   selected: Ticker
   tickers: Ticker[]
 }) {
@@ -839,9 +807,6 @@ export function MarketScreen({
   const selectedCopy = verdictCopy[selectedVerdict]
   const selectedPremiumScore = premiumScore(selected)
   const selectedAsset = assetLabel(selected)
-  const selectedRecommendation = dailyRecommendations?.recommendations.find(
-    (recommendation) => recommendation.symbol === selected.symbol,
-  )
   const selectedTape = focusTape(selected)
   // Two ages, because they are two facts: the quote moves with the market, while the provider
   // recomputes volatility and liquidity on its own schedule and can leave them hours behind.
@@ -865,7 +830,7 @@ export function MarketScreen({
             </div>
           </div>
           {/* The premium verdict keeps the product's gradient axis, at a scale that
-              leaves the recommendation and the runway as the panel's primary reading. */}
+              leaves the runway as the panel's primary reading. */}
           <div className="premium-gauge">
             <span>Option premium</span>
             <strong className="premium-verdict">{selectedCopy}</strong>
@@ -875,7 +840,6 @@ export function MarketScreen({
           </div>
         </CardHeader>
         <CardContent className="focus-narrative">
-          {selectedRecommendation && <RecommendationPanel recommendation={selectedRecommendation} />}
           <CatalystRunway
             catalysts={visibleCatalysts}
             now={now}

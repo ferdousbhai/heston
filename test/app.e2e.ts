@@ -10,7 +10,7 @@ const FavoriteMutationRequestSchema = z.object({
   symbols: z.array(z.string()),
 })
 
-// The channel archive loads with the recommendations tab and is not under test here.
+// The channel archive tab is reached below; its posts are not under test here.
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/public-channel-archive*', (route) => route.fulfill({
     body: JSON.stringify({ posts: [] }),
@@ -183,8 +183,8 @@ test('unauthenticated visitors can read market data but connecting an agent need
   await expect(page.locator('.story').first()).toContainText('NVDA')
   await expect(page.getByText('Long vol')).toHaveCount(0)
 
-  await page.getByRole('tab', { name: 'Recommendations' }).click()
-  await expect(page.getByText('Selective long vol')).toBeVisible()
+  await page.getByRole('tab', { name: 'Archive' }).click()
+  await expect(page.getByRole('heading', { name: 'From the Long Vol channel' })).toBeVisible()
 
   await page.getByRole('tab', { name: 'Connect' }).click()
   await expect(page.getByRole('heading', { name: 'Your agent. Your account.' })).toBeVisible()
@@ -201,7 +201,7 @@ test('unauthenticated visitors can read market data but connecting an agent need
   await expect(page.getByRole('link', { name: 'privacy@heston.io' }).first()).toHaveAttribute('href', 'mailto:privacy@heston.io')
 })
 
-test('mobile market, recommendations, search, sorting, and connect flows remain coherent', async ({ page, context }) => {
+test('mobile market, archive, search, sorting, and connect flows remain coherent', async ({ page, context }) => {
   const snapshot = marketSnapshotFixture()
   let rejectSnapshots = false
   snapshot.catalysts.forEach((catalyst, index) => {
@@ -306,8 +306,6 @@ test('mobile market, recommendations, search, sorting, and connect flows remain 
   await expect(page.locator('.focus-runway')).toContainText('NVDA earnings')
   await expect(page.locator('.focus-runway')).toContainText('earnings \u00b7 After hours \u00b7 estimated')
   await expect(page.locator('.focus-runway')).toContainText('as of')
-  await expect(page.locator('.focus-recommendation')).toContainText('Demand checks keep the AI capex case alive')
-  await expect(page.locator('.focus-recommendation')).toContainText('A guide-down or capex pause would break the demand case.')
   await closeDetail(page)
   await expect(page.locator('.watchlist-title')).toHaveText('Watchlist')
   await expect(page.getByRole('combobox', { name: 'Watchlist' })).toHaveCount(0)
@@ -368,11 +366,9 @@ test('mobile market, recommendations, search, sorting, and connect flows remain 
   await expect(selectedSymbol).toHaveText('INTC')
   await closeDetail(page)
 
-  await page.getByRole('tab', { name: 'Recommendations' }).click()
-  await expect(page.getByRole('tab', { name: 'Recommendations' })).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByText('Buy to Open NVDA 205C · 2026-10-16')).toBeVisible()
-  await expect(page.getByText('Selective long vol')).toBeVisible()
-  await expect(page.getByRole('button', { name: /NVDA/ })).toBeVisible()
+  await page.getByRole('tab', { name: 'Archive' }).click()
+  await expect(page.getByRole('tab', { name: 'Archive' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('heading', { name: 'From the Long Vol channel' })).toBeVisible()
 
   await page.getByRole('tab', { name: 'Connect' }).click()
   // A signed-in member is first class here: the setup surface is theirs, not the owner's.

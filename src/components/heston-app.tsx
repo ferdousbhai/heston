@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { Gauge, Newspaper, Plug } from 'lucide-react'
+import { Archive, Gauge, Plug } from 'lucide-react'
 import { z } from 'zod'
 
 import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
@@ -21,12 +21,12 @@ const ConnectScreen = lazy(async () => {
   const { ConnectScreen: Screen } = await import('./connect-screen')
   return { default: Screen }
 })
-const RecommendationScreen = lazy(async () => {
-  const { RecommendationScreen: Screen } = await import('./recommendation-screen')
+const ChannelArchiveScreen = lazy(async () => {
+  const { ChannelArchiveScreen: Screen } = await import('./channel-archive-screen')
   return { default: Screen }
 })
 
-const TabSchema = z.enum(['market', 'recommendations', 'connect'])
+const TabSchema = z.enum(['market', 'archive', 'connect'])
 
 type Tab = z.infer<typeof TabSchema>
 export function HestonApp() {
@@ -61,7 +61,6 @@ function HestonWorkspace({
   const snapshotReady = Boolean(snapshot)
   const catalysts = snapshot?.catalysts ?? []
   const watchlists = snapshot?.watchlists ?? []
-  const dailyRecommendations = snapshot?.recommendations
   const [tab, setTab] = useState<Tab>('market')
   // One D1-backed watchlist reaches each audience; the preference only survives
   // so a stale stored id cannot outrank the list the snapshot actually carries.
@@ -106,7 +105,7 @@ function HestonWorkspace({
         value={tab}
       >
         {/* The age belongs to the market data, so it is stated where that data is read and
-            nowhere else: on the recommendations or connect tab it would describe something the
+            nowhere else: on the archive or connect tab it would describe something the
             reader is not looking at. */}
         <TopBar
           lastUpdatedAt={tab === 'market' ? lastUpdatedAt : undefined}
@@ -167,7 +166,6 @@ function HestonWorkspace({
                 onSelectTicker={chooseSymbol}
                 onTogglePinned={favorites.togglePinned}
                 pinnedSymbols={favorites.pinnedSymbols}
-                dailyRecommendations={dailyRecommendations}
                 selected={selected}
                 tickers={tickers}
               />
@@ -175,20 +173,16 @@ function HestonWorkspace({
             {snapshotReady && tab === 'market' && (!selected || !activeWatchlist) && (
               <MarketState message="No market symbols are available." />
             )}
-            {snapshotReady && tab === 'recommendations' && (
+            {tab === 'archive' && (
               <Suspense fallback={<MarketState loading message="Loading…" />}>
-                <RecommendationScreen
-                  availableSymbols={loadedSymbols}
-                  dailyRecommendations={dailyRecommendations}
-                  onSymbol={chooseSymbol}
-                />
+                <ChannelArchiveScreen />
               </Suspense>
             )}
           </main>
         </TabsContent>
         <TabsList aria-label="Primary navigation" className="bottom-nav">
           <TabsTrigger value="market"><Gauge /><span>Watch</span></TabsTrigger>
-          <TabsTrigger value="recommendations"><Newspaper /><span>Recommendations</span></TabsTrigger>
+          <TabsTrigger value="archive"><Archive /><span>Archive</span></TabsTrigger>
           <TabsTrigger value="connect"><Plug /><span>Connect</span></TabsTrigger>
         </TabsList>
       </Tabs>

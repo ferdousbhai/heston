@@ -108,7 +108,6 @@ What is not obvious from the tool list:
   Contract rows carry open interest and volume and are ranked by those unless a strike target
   is given. A contract exists only if the chain lists it -- never name one the lookup did not
   return.
-- \`read_daily_recommendations\` is prior work argued here, not a current read of anything.
 - There are three tiers and they are cumulative. With no credential you get the website's cached
   public snapshot and the rows behind it -- quotes are a snapshot price, not a live bid and ask.
   Signing in adds live broker quotes, chains, Greeks, and writing to the shared watchlist.
@@ -121,11 +120,8 @@ What is not obvious from the tool list:
   reader's calendar, or one passage quoted from a page and kept under a symbol. The server
   re-reads each cited page and refuses anything absent from that text; a repeat refreshes what
   is stored rather than duplicating it.
-- The daily brief is not produced through this server. Nothing here writes one; the standing
-  brief is what \`read_daily_recommendations\` returns and what the site shows.
-- \`challenge_recommendation\` puts one published recommendation back against its own sources:
-  the server re-reads the pages it quoted and records on the brief whether the quotes still
-  stand. A brief published before evidence was retained cannot be re-checked.
+- There is no daily brief here. Recommendations are produced and delivered elsewhere; this
+  server is market data, the shared calendar, and the evidence members' agents record.
 
 \`portfolio_review\` and \`evaluate_trade_idea\` are registered prompts the user invokes. If a
 question is really one of those, say the workflow exists.

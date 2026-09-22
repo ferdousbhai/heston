@@ -6,8 +6,6 @@ import { EquitySymbolSchema } from './instrument'
 import { IsoDateSchema } from './iso-date'
 import { type JsonValue } from './json-payload'
 import {
-  RecommendedOrderSchema,
-  recommendedOrderIssues,
 } from './recommended-order'
 
 // One list, two audiences: `private` is the owner's authoritative D1 internal
@@ -81,98 +79,20 @@ export const PublicTickerSchema = TickerSchema.omit({ earningsDate: true, sparkl
   sparkline: z.array(CandlePointSchema).optional(),
 }).strict()
 
-const RecommendationFields = {
-  symbol: EquitySymbolSchema,
-  direction: z.enum(['bullish', 'bearish', 'neutral']),
-  headline: z.string().min(1).max(100),
-  description: z.string().min(1).max(360),
-  risk: z.string().min(1).max(240),
-}
-
-/** One rule for every page address a brief publishes, stated once. */
+/** One rule for every page address a member's agent cites, stated once. */
 export const HttpsSourceUrlSchema = z.string().url()
   .refine((url) => new URL(url).protocol === 'https:', 'Use an HTTPS source URL')
 
-const ResearchSourceLinkSchema = z.object({
-  label: z.string(),
-  // Stored recommendations predate the current evidence binder. Only web citations may
-  // cross that persistence boundary into owner or public anchor elements.
-  url: HttpsSourceUrlSchema,
-})
-
 /**
- * A quote is one sentence of a page, not a page. The publish boundary holds a submission to
- * this same bound, so the quote a brief stores is the quote the binder matched.
+ * A quote is one sentence of a page, not a page. The evidence binder holds a submission to
+ * this bound, so the quote a card stores is the quote the binder matched.
  */
 export const MAX_RESEARCH_EVIDENCE_QUOTE_LENGTH = 300
 
 /**
- * The verbatim quote a recommendation leans on and the page it was read from. Both were
- * already public — the quote comes from a page the brief cites by URL — and keeping them with
- * the recommendation is what lets the claim be put back against its source afterwards, by a
- * reader or by `challenge_recommendation`. A brief published before this was retained has none.
- */
-const RecommendationEvidenceSchema = z.object({
-  quote: z.string().min(1).max(MAX_RESEARCH_EVIDENCE_QUOTE_LENGTH),
-  url: HttpsSourceUrlSchema,
-})
-
-/**
- * What a later re-read of a recommendation's own sources found. `holds` means every quote was
- * still in the page the Worker fetched again; `stale` names in `reasons` what was not — a page
- * that no longer opens, or a quote no longer in it. Absent until someone challenges it:
- * unchecked is not the same claim as checked and holding.
- */
-export const RecommendationVerificationSchema = z.object({
-  checkedAt: z.string(),
-  reasons: z.array(z.string()),
-  status: z.enum(['holds', 'stale']),
-})
-
-export const RecommendationSchema = z.object({
-  ...RecommendationFields,
-  evidence: z.array(RecommendationEvidenceSchema).optional(),
-  recommendedOrder: RecommendedOrderSchema,
-  sources: z.array(ResearchSourceLinkSchema),
-  verification: RecommendationVerificationSchema.optional(),
-}).superRefine((recommendation, context) => {
-  if (recommendation.recommendedOrder.kind === 'legacy-unstructured') return
-  for (const message of recommendedOrderIssues(
-    recommendation.recommendedOrder,
-    recommendation.symbol,
-    recommendation.direction,
-  )) {
-    context.addIssue({ code: 'custom', message, path: ['recommendedOrder'] })
-  }
-})
-
-export const RecommendationLinkSchema = z.object({
-  description: z.string().min(1).max(180),
-  previewImageUrl: z.string().url()
-    .refine((url) => new URL(url).protocol === 'https:', 'Use an HTTPS preview image URL')
-    .optional(),
-  title: z.string().min(1).max(180),
-  url: HttpsSourceUrlSchema,
-})
-
-/**
- * A model identifier as the agent's own runtime names it, one line of it. A rendering envelope
- * for a self-reported value: the brief says which model produced it because a reader deciding
- * how much to trust a brief deserves to know, and the submitting agent is the only party that
- * can say. The submission requires it; a brief published before it was recorded carries none.
- */
-export const MAX_RESEARCH_MODEL_NAME_LENGTH = 80
-
-/** Agents often report a marketing line. The cover names the product that produced the brief. */
-export function researchGeneratorLabel(model: string): string {
-  const cut = model.search(/\s+(?:powered by|running on)\s+/i)
-  return (cut > 0 ? model.slice(0, cut) : model).trim()
-}
-
-/**
  * The envelope a cited source arrives in, wherever it is cited: a page address and the page's
- * own title. Every surface that admits a citation -- the brief, a recorded catalyst, an
- * evidence card -- holds it to these, so a page a brief may cite is a page a card may cite.
+ * own title. Every surface that admits a citation -- a recorded catalyst, an evidence card --
+ * holds it to these, so a page one may cite is a page the other may cite.
  * The address bound is a rendering and storage envelope, not a URL-spec limit; the title is
  * held to one line at the card's measure.
  */
@@ -180,39 +100,12 @@ export const MAX_CITED_SOURCE_URL_LENGTH = 2_000
 export const MAX_CITED_SOURCE_TITLE_LENGTH = 180
 
 /**
- * How the publishing member wants to be credited, in their own words: a handle, not a name we
- * hold. It shares one line on the brief cover with the model that produced the brief, which is
- * what the bound is for — a handle that does not fit beside the model name on a phone is a
- * sentence, and the cover is not where a sentence goes. Nothing account-derived ever fills it:
- * the member types it into the submission or leaves it out, and a brief without one shows none.
+ * How a member wants to be credited on what their agent recorded, in their own words: a handle,
+ * not a name we hold. One line at a card's measure -- a handle that does not fit beside the
+ * symbol on a phone is a sentence, and a card is not where a sentence goes. Nothing
+ * account-derived ever fills it: the member types it into the submission or leaves it out.
  */
 export const MAX_RESEARCH_BYLINE_LENGTH = 40
-
-export const DailyRecommendationsSchema = z.object({
-  id: z.string(),
-  publishedAt: z.string(),
-  /** Chosen by the publishing member for this brief. Never a Google name or a user id. */
-  byline: z.string().min(1).max(MAX_RESEARCH_BYLINE_LENGTH).optional(),
-  /** Reported by the agent that submitted the brief, and shown as reported. */
-  model: z.string().min(1).max(MAX_RESEARCH_MODEL_NAME_LENGTH).optional(),
-  title: z.string(),
-  summary: z.string(),
-  regime: z.string(),
-  regimeDetail: z.string(),
-  recommendations: z.array(RecommendationSchema),
-  links: z.array(RecommendationLinkSchema),
-  // No brief-level source list: it was every recommendation's sources and every link's title
-  // concatenated, so a fifth of the brief restated addresses that sit on the thing they belong
-  // to. Nothing read it. A stored brief that still carries one parses and drops it here.
-})
-
-/** D1 stores the current public recommendation contract; incompatible rows fail visibly. */
-export function parseStoredDailyRecommendations(value: JsonValue): DailyRecommendations {
-  const parsed = DailyRecommendationsSchema.parse(value)
-  if (parsed.model === undefined) return parsed
-  const model = researchGeneratorLabel(parsed.model)
-  return model === parsed.model ? parsed : { ...parsed, model }
-}
 
 /**
  * A year of daily closes, oldest first. Only the closes travel: the year chart spaces points
@@ -264,7 +157,6 @@ export const MarketSnapshotSchema = z.object({
   watchlists: z.array(WatchlistSchema).length(1),
   tickers: z.array(TickerSchema),
   catalysts: z.array(CatalystSchema),
-  recommendations: DailyRecommendationsSchema.optional(),
 })
 
 const PublicWatchlistSchema = WatchlistSchema.extend({ kind: z.literal('public') }).strict()
@@ -280,7 +172,6 @@ export const PublicMarketSnapshotSchema = z.strictObject({
   watchlists: z.array(PublicWatchlistSchema).length(1),
   tickers: z.array(PublicTickerSchema),
   catalysts: z.array(CatalystSchema),
-  recommendations: DailyRecommendationsSchema.optional(),
 })
 
 /**
@@ -300,10 +191,6 @@ export type PublicSymbolLookup = z.infer<typeof PublicSymbolLookupSchema>
 export type Watchlist = z.infer<typeof WatchlistSchema>
 export type Ticker = z.infer<typeof TickerSchema>
 export type IvTermStructure = z.infer<typeof IvTermStructureSchema>
-export type DailyRecommendations = z.infer<typeof DailyRecommendationsSchema>
-/** A cited page as a brief publishes it: the label a reader sees and the address it opens. */
-export type ResearchSourceLink = z.infer<typeof ResearchSourceLinkSchema>
-export type RecommendationVerification = z.infer<typeof RecommendationVerificationSchema>
 export type MarketSnapshot = z.infer<typeof MarketSnapshotSchema>
 export type PublicMarketSnapshot = z.infer<typeof PublicMarketSnapshotSchema>
 export type PublicTicker = z.infer<typeof PublicTickerSchema>

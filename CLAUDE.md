@@ -70,10 +70,10 @@ never touches this codebase.
   doctrine the server publishes as MCP `instructions` and prompts is content it injects into
   someone else's agent, so it is assembled only from this repository's constants — never from
   D1 rows, provider payloads, model output, or a fetched page — and it advises rather than
-  commands. **This Worker neither generates nor accepts a daily brief.** The standing brief
-  is read-only data: what `read_daily_recommendations` returns and what the site shows. The
-  research writes that remain — catalysts, evidence, challenges — bind model output to pages
-  this Worker re-reads itself, and nothing partial is stored.
+  commands. **There is no daily brief here.** Recommendations are generated and delivered by a
+  separate private Workflow that never touches this codebase. The research writes that remain
+  — catalysts and evidence — bind model output to pages this Worker re-reads itself, and
+  nothing partial is stored.
 - **Secrets and account numbers stay server-side**, missing bindings fail closed, and provider
   bodies or credentials must not enter logs. A log line carries an event name and an error
   name, never a token, digest, account number, or user id. A refusal names the check that

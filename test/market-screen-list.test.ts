@@ -30,7 +30,6 @@ function renderMarket(onSelectTicker: (symbol: string) => void = () => undefined
     onSelectTicker,
     onTogglePinned: () => undefined,
     pinnedSymbols: [],
-    dailyRecommendations: snapshot.recommendations,
     selected: snapshot.tickers.find((ticker) => ticker.symbol === 'NVDA')!,
     tickers: snapshot.tickers,
   }))
@@ -130,7 +129,6 @@ describe('the phone row chart', () => {
       onSelectTicker: () => undefined,
       onTogglePinned: () => undefined,
       pinnedSymbols: [],
-      dailyRecommendations: snapshot.recommendations,
       selected: snapshot.tickers[0]!,
       tickers: snapshot.tickers,
     }))
