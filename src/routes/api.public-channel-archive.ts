@@ -2,7 +2,8 @@ import { createFileRoute } from '@tanstack/react-router'
 import { z } from 'zod'
 
 import { readChannelArchivePage } from '../server/channel-archive'
-import { jsonNoStore, jsonPublic } from '../server/http'
+import { toError } from '../domain/failure'
+import { ARCHIVE_RESPONSE_CACHE_CONTROL, jsonNoStore, jsonPublic } from '../server/http'
 import { appEnv } from '../server/worker-env'
 
 const CursorSchema = z.coerce.number().int().positive().optional()
@@ -17,11 +18,10 @@ export const Route = createFileRoute('/api/public-channel-archive')({
         if (!appEnv.DB) return jsonNoStore({ error: 'Channel archive is unavailable' }, { status: 503 })
         try {
           const response = jsonPublic(await readChannelArchivePage(appEnv.DB, cursor.data))
-          // The archive is finite and does not change, so a page may be kept for a day.
-          response.headers.set('Cache-Control', 'public, max-age=3600, s-maxage=86400')
+          response.headers.set('Cache-Control', ARCHIVE_RESPONSE_CACHE_CONTROL)
           return response
         } catch (error) {
-          console.error('ChannelArchiveUnavailable', error instanceof Error ? error.message : 'UnknownError')
+          console.error('ChannelArchiveUnavailable', toError(error)?.name ?? 'UnknownError')
           return jsonNoStore({ error: 'Channel archive is temporarily unavailable' }, { status: 503 })
         }
       },

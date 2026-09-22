@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { EquitySymbolSchema } from './instrument'
-import { HttpsSourceUrlSchema, MAX_CITED_SOURCE_TITLE_LENGTH, MAX_CITED_SOURCE_URL_LENGTH } from './https-url'
+import { CitedSourceUrlSchema, MAX_CITED_SOURCE_TITLE_LENGTH } from './https-url'
 import { MAX_RESEARCH_BYLINE_LENGTH, MAX_RESEARCH_EVIDENCE_QUOTE_LENGTH } from './market'
 
 /*
@@ -28,9 +28,6 @@ export const MAX_EVIDENCE_NOTE_LENGTH = 240
  * for the same reason -- wide enough for a handle, too narrow for a sentence or an address.
  */
 export const MAX_EVIDENCE_BYLINE_LENGTH = MAX_RESEARCH_BYLINE_LENGTH
-/** The same envelope every cited source is held to; see `market.ts`. */
-export const MAX_EVIDENCE_SOURCE_TITLE_LENGTH = MAX_CITED_SOURCE_TITLE_LENGTH
-export const MAX_EVIDENCE_SOURCE_URL_LENGTH = MAX_CITED_SOURCE_URL_LENGTH
 
 /**
  * How many cards a public read returns for one symbol. The section sits under the runway in the
@@ -50,8 +47,8 @@ export const SymbolEvidenceSchema = z.strictObject({
   note: z.string().min(1).max(MAX_EVIDENCE_NOTE_LENGTH).nullable(),
   quote: z.string().min(1).max(MAX_EVIDENCE_QUOTE_LENGTH),
   recordedAt: z.string(),
-  sourceTitle: z.string().min(1).max(MAX_EVIDENCE_SOURCE_TITLE_LENGTH),
-  sourceUrl: HttpsSourceUrlSchema,
+  sourceTitle: z.string().min(1).max(MAX_CITED_SOURCE_TITLE_LENGTH),
+  sourceUrl: CitedSourceUrlSchema,
   symbol: EquitySymbolSchema,
 })
 

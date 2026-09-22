@@ -11,7 +11,7 @@ export type RetainedPage = { markdown: string; readAt: string }
  * per event and records a handful of events, so this is comfortably above any honest call and
  * well inside what one browser session can open before the caller's turn times out.
  */
-export const MAX_RESEARCH_PAGE_READS = 30
+const MAX_RESEARCH_PAGE_READS = 30
 
 /*
  * A citation is worth what this Worker can show was read. Native web search happens inside

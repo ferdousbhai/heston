@@ -6,7 +6,7 @@ import { Button } from '#/components/ui/button'
 import { Spinner } from '#/components/ui/spinner'
 import { loadChannelArchivePage } from '../data/channel-archive'
 import { type ChannelPost } from '../domain/channel-post'
-import { issueDate } from './brief-card'
+import { nyDateTime } from './ny-time'
 
 /**
  * What survives of the Telegram channel this site replaced. Telegram deleted the channel's
@@ -59,7 +59,7 @@ export function ChannelArchiveScreen() {
           const bareLink = post.links.length === 1 && post.text === post.links[0]
           return (
             <li className="channel-post" key={post.id}>
-              <time dateTime={post.postedAt}>{issueDate.format(new Date(post.postedAt))}</time>
+              <time dateTime={post.postedAt}>{nyDateTime.format(new Date(post.postedAt))}</time>
               {bareLink
                 ? <a href={post.links[0]} rel="noreferrer" target="_blank">{new URL(post.links[0]!).host}<ArrowUpRight aria-hidden="true" /></a>
                 : (
@@ -79,7 +79,7 @@ export function ChannelArchiveScreen() {
         })}
       </ol>
       {failed && (
-        <Alert className="channel-archive-error" variant="destructive">
+        <Alert className="archive-error" variant="destructive">
           <AlertTitle>Channel archive unavailable</AlertTitle>
           <AlertDescription>The channel archive could not be loaded.</AlertDescription>
         </Alert>

@@ -6,17 +6,20 @@ import { type JsonValue } from '../domain/json-payload'
 import { textResult } from './agent-tool-result'
 import { persistResearchCatalysts } from './catalysts'
 import { type AppEnv } from './env'
-import { MAX_CITED_SOURCE_TITLE_LENGTH, MAX_CITED_SOURCE_URL_LENGTH } from '../domain/https-url'
+import { MAX_CITED_SOURCE_URL_LENGTH } from '../domain/https-url'
 import { bindCatalystCandidates, ResearchCatalystCandidateSchema } from './research-catalyst-output'
 import { retainCitedPages } from './research-page-retention'
 import { zodTypeBoxSchema } from './zod-typebox'
 
-/** The model-authored shapes a member's agent submits: a candidate dated event, and the sources it indexes into. */
+/**
+ * The model-authored shapes a member's agent submits: a candidate dated event, and the pages it
+ * indexes into. A source is an address and nothing more, because the server reads the page
+ * itself and binds the date to that text; a title or summary from the agent would be a claim
+ * about the page that nothing here checks.
+ */
 const CatalystSubmissionSchema = zodTypeBoxSchema(ResearchCatalystCandidateSchema)
 const NativeSearchSource = Type.Object({
-  context: Type.String({ minLength: 1, maxLength: 900 }),
   sourceUrl: Type.String({ minLength: 1, maxLength: MAX_CITED_SOURCE_URL_LENGTH }),
-  title: Type.String({ minLength: 1, maxLength: MAX_CITED_SOURCE_TITLE_LENGTH }),
 }, { additionalProperties: false })
 
 /*

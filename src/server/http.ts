@@ -21,6 +21,11 @@ const CANONICAL_ORIGIN = 'https://heston.io'
  */
 const NON_CANONICAL_HOSTS = new Set(['www.heston.io', 'tryspice.xyz', 'www.tryspice.xyz'])
 export const PUBLIC_RESPONSE_CACHE_CONTROL = 'public, max-age=30, s-maxage=60'
+/**
+ * An archived page is finite and replaced only by a republish of its own date, so it may be
+ * kept for an hour by a browser and a day at the edge.
+ */
+export const ARCHIVE_RESPONSE_CACHE_CONTROL = 'public, max-age=3600, s-maxage=86400'
 
 export function canonicalHostRedirect(request: Request): Response | undefined {
   const url = new URL(request.url)

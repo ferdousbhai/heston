@@ -8,9 +8,8 @@ import {
   MAX_EVIDENCE_BYLINE_LENGTH,
   MAX_EVIDENCE_NOTE_LENGTH,
   MAX_EVIDENCE_QUOTE_LENGTH,
-  MAX_EVIDENCE_SOURCE_TITLE_LENGTH,
-  MAX_EVIDENCE_SOURCE_URL_LENGTH,
 } from '../domain/symbol-evidence'
+import { MAX_CITED_SOURCE_TITLE_LENGTH, MAX_CITED_SOURCE_URL_LENGTH } from '../domain/https-url'
 import { textResult } from './agent-tool-result'
 import { type AppEnv } from './env'
 import { readResearchPageMarkdown } from './research-page-retention'
@@ -47,10 +46,10 @@ const EvidenceParameters = Type.Object({
     maxLength: MAX_EVIDENCE_QUOTE_LENGTH,
     minLength: 1,
   }),
-  sourceTitle: Type.String({ maxLength: MAX_EVIDENCE_SOURCE_TITLE_LENGTH, minLength: 1 }),
+  sourceTitle: Type.String({ maxLength: MAX_CITED_SOURCE_TITLE_LENGTH, minLength: 1 }),
   sourceUrl: Type.String({
     description: 'The exact https address the quote was read from.',
-    maxLength: MAX_EVIDENCE_SOURCE_URL_LENGTH,
+    maxLength: MAX_CITED_SOURCE_URL_LENGTH,
     minLength: 1,
   }),
   symbol: ModelTextEquitySymbolType,

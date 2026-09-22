@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { HttpsSourceUrlSchema, MAX_CITED_SOURCE_URL_LENGTH } from './https-url'
+import { CitedSourceUrlSchema } from './https-url'
 import { EquitySymbolSchema } from './instrument'
 import { IsoDateSchema } from './iso-date'
 
@@ -36,7 +36,7 @@ export const BriefRecommendationSchema = z.strictObject({
   thesis: z.string().min(1).max(MAX_THESIS_LENGTH),
 })
 
-export const BriefLinkSchema = z.strictObject({ url: HttpsSourceUrlSchema.pipe(z.string().max(MAX_CITED_SOURCE_URL_LENGTH)) })
+export const BriefLinkSchema = z.strictObject({ url: CitedSourceUrlSchema })
 
 /** What the producer submits. The id and the instant are assigned at the publish boundary. */
 export const DailyBriefSubmissionSchema = z.strictObject({

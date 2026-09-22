@@ -332,9 +332,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
 .bottom-nav { border-radius: 0; position: fixed; z-index: 20; left: 50%; bottom: 0; transform: translateX(-50%); width: 100%; height: calc(71px + env(safe-area-inset-bottom)); padding: 6px 18px env(safe-area-inset-bottom); background: rgba(9, 9, 11, .94); backdrop-filter: blur(28px) saturate(150%); border-top: 1px solid var(--hairline); display: grid; grid-template-columns: repeat(3, 1fr); }
 
-.channel-archive-error, .brief-archive-error { margin: 16px 20px 0; }
-/* A grid item's minimum width is its content, so the ask block's one long line widened the
-   column past the panel; the line is prose to read, not a command to keep intact, so it wraps. */
+.archive-error { margin: 16px 20px 0; }
 
 /* The surviving channel posts, dense and dated: a bare link post is one line, a longer post
    keeps its own line breaks. */

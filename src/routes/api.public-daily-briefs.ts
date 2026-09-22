@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { z } from 'zod'
 
 import { toError } from '../domain/failure'
-import { jsonNoStore, jsonPublic } from '../server/http'
+import { ARCHIVE_RESPONSE_CACHE_CONTROL, jsonNoStore, jsonPublic } from '../server/http'
 import { readDailyBriefBefore } from '../server/daily-brief-store'
 import { appEnv } from '../server/worker-env'
 
@@ -19,9 +19,7 @@ export const Route = createFileRoute('/api/public-daily-briefs')({
           // The brief already crosses the public snapshot boundary; this exposes the same
           // validated contract one row at a time and never reads account state.
           const response = jsonPublic({ brief: (await readDailyBriefBefore(appEnv.DB, cursor.data)) ?? null })
-          // An archived issue is replaced only by a republish of its own date, so a page may be
-          // kept for a day, as the channel archive is.
-          response.headers.set('Cache-Control', 'public, max-age=3600, s-maxage=86400')
+          response.headers.set('Cache-Control', ARCHIVE_RESPONSE_CACHE_CONTROL)
           return response
         } catch (error) {
           console.error('PublicDailyBriefArchiveUnavailable', toError(error)?.name ?? 'UnknownError')

@@ -13,3 +13,6 @@ export const HttpsSourceUrlSchema = z.string().url()
  */
 export const MAX_CITED_SOURCE_URL_LENGTH = 2_000
 export const MAX_CITED_SOURCE_TITLE_LENGTH = 180
+
+/** A cited page address as every surface admits it: https, and inside the envelope. */
+export const CitedSourceUrlSchema = HttpsSourceUrlSchema.pipe(z.string().max(MAX_CITED_SOURCE_URL_LENGTH))

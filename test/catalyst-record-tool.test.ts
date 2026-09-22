@@ -34,9 +34,7 @@ function recording() {
       title: 'NVIDIA investor day',
     }],
     sources: [{
-      context: 'The page dates both events.',
       sourceUrl: SOURCE_URL,
-      title: 'NVIDIA investor day',
     }],
   }
 }
