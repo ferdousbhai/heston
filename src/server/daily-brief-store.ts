@@ -12,7 +12,7 @@ const StoredRowSchema = z.object({ payload_json: z.string() })
 
 type StoredRow = z.infer<typeof StoredRowSchema>
 
-/** D1 hands back whatever the row holds; the contract is re-parsed on every read. */
+/** D1's row type is a claim, not a check: the row and its payload are both re-parsed on every read. */
 function parseStored(row: StoredRow): DailyBrief {
   return DailyBriefSchema.parse(JSON.parse(StoredRowSchema.parse(row).payload_json))
 }
@@ -45,9 +45,9 @@ export async function publishDailyBrief(db: D1Database, submission: DailyBriefSu
     publishedAt: now.toISOString(),
   })
   await db.prepare(
-    `INSERT INTO daily_briefs (id, market_date, published_at, payload_json)
-     VALUES (?, ?, ?, ?)
+    `INSERT INTO daily_briefs (id, published_at, payload_json)
+     VALUES (?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET published_at = excluded.published_at, payload_json = excluded.payload_json`,
-  ).bind(brief.id, brief.marketDate, brief.publishedAt, JSON.stringify(brief)).run()
+  ).bind(brief.id, brief.publishedAt, JSON.stringify(brief)).run()
   return brief
 }

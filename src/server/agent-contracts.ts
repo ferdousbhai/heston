@@ -2,13 +2,15 @@ import { z } from 'zod'
 
 import { EquitySymbolSchema } from '../domain/instrument'
 import { ISO_DATE_REGEX } from '../domain/iso-date'
-import { OrderLegActionSchema } from '../domain/recommended-order'
 import { zodTypeBoxSchema } from './zod-typebox'
 
 import {
   AddWatchlistSymbolsSchema,
   RemoveWatchlistSymbolsSchema,
 } from '../domain/watchlist'
+
+/** Exact tastytrade leg actions, as the order placement contract advertises them. */
+const OrderLegActionSchema = z.enum(['Buy to Open', 'Sell to Open', 'Buy to Close', 'Sell to Close'])
 
 const OrderIdSchema = z.string().regex(/^\d{1,40}$/)
 const ExpiryDateSchema = z.string().regex(ISO_DATE_REGEX)

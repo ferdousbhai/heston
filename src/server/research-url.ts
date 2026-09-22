@@ -1,5 +1,5 @@
-/** Normalize the page identity used by reads, citations, and recommendation-link history. */
-export function recommendationLinkKey(value: string): string | undefined {
+/** The one identity a cited page has here: what a citation is bound by and a re-read is keyed on. */
+export function citedPageKey(value: string): string | undefined {
   let url: URL
   try {
     url = new URL(value)

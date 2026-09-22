@@ -2,37 +2,12 @@ import { useState } from 'react'
 import { ArrowUpRight, ChevronLeft, ChevronRight } from 'lucide-react'
 
 import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
-import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
 import { Spinner } from '#/components/ui/spinner'
 import { loadPreviousDailyBrief } from '../data/brief-archive'
-import { type BriefRecommendation, type DailyBrief } from '../domain/brief'
+import { type DailyBrief } from '../domain/brief'
+import { issueDate, RecommendationCard } from './brief-card'
 import { ChannelArchiveScreen } from './channel-archive-screen'
-import { ThesisMarkdown } from './thesis-markdown'
-
-// The brief publishes at a time of day, not on a day, so the issue line carries the time too.
-const issueDate = new Intl.DateTimeFormat('en-US', {
-  day: 'numeric', hour: 'numeric', minute: '2-digit', month: 'short', timeZone: 'America/New_York', timeZoneName: 'short', year: 'numeric',
-})
-
-/** One trade as the channel posted it: the bold trade line, the direction, and the thesis. */
-export function RecommendationCard({ onSymbol, recommendation }: { onSymbol?: (symbol: string) => void; recommendation: BriefRecommendation }) {
-  const badgeVariant = recommendation.direction === 'neutral' ? 'default' : recommendation.direction
-  return (
-    <article className="brief-card">
-      <header className="brief-card-head">
-        <strong className="trade-line">{recommendation.trade}</strong>
-        <Badge variant={badgeVariant}>{recommendation.direction}</Badge>
-        {onSymbol && (
-          <Button onClick={() => onSymbol(recommendation.symbol)} size="sm" type="button" variant="link">
-            {recommendation.symbol}
-          </Button>
-        )}
-      </header>
-      <ThesisMarkdown text={recommendation.thesis} />
-    </article>
-  )
-}
 
 function BriefNavigation({ index, loading, onNewer, onOlder, olderDisabled }: {
   index: number
@@ -136,7 +111,7 @@ export function BriefScreen({ latest, onSymbol }: { latest?: DailyBrief; onSymbo
         />
       )}
       {archiveError && (
-        <Alert className="channel-archive-error" variant="destructive">
+        <Alert className="brief-archive-error" variant="destructive">
           <AlertTitle>Archive unavailable</AlertTitle>
           <AlertDescription>{archiveError}</AlertDescription>
         </Alert>

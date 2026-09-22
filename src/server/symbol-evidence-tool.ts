@@ -13,9 +13,9 @@ import {
 } from '../domain/symbol-evidence'
 import { textResult } from './agent-tool-result'
 import { type AppEnv } from './env'
-import { readResearchPageMarkdown } from './research-agent-tools'
+import { readResearchPageMarkdown } from './research-page-retention'
 import { normalizedCitationText, quoteAbsentFromSourceReason } from './research-citation-binding'
-import { recommendationLinkKey } from './research-url'
+import { citedPageKey } from './research-url'
 import { upsertSymbolEvidence } from './symbol-evidence'
 
 /*
@@ -85,7 +85,7 @@ export async function recordSymbolEvidence(
 
   const symbol = equitySymbolFromModelText(evidence.symbol)
   if (symbol === undefined) return { rejected: ['symbol: not a ticker symbol'], status: 'rejected' }
-  const sourceUrl = recommendationLinkKey(evidence.sourceUrl)
+  const sourceUrl = citedPageKey(evidence.sourceUrl)
   if (sourceUrl === undefined) {
     return { rejected: ['sourceUrl: not a readable https page address'], status: 'rejected' }
   }

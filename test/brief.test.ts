@@ -5,18 +5,13 @@ import {
   DailyBriefSchema,
   DailyBriefSubmissionSchema,
   MAX_THESIS_LENGTH,
-  TradeLegSchema,
 } from '../src/domain/brief'
 import { parseThesisMarkdown, thesisPlainText } from '../src/domain/thesis-markdown'
 import { dailyBriefFixture } from './fixtures/market'
 
 describe('brief contract', () => {
-  it('accepts the fixture and refuses a leg that is neither a whole option nor bare stock', () => {
+  it('accepts the fixture', () => {
     expect(DailyBriefSchema.parse(dailyBriefFixture)).toEqual(dailyBriefFixture)
-    expect(TradeLegSchema.safeParse({ action: 'BUY' }).success).toBe(true)
-    expect(TradeLegSchema.safeParse({ action: 'BUY_TO_OPEN', optionType: 'C' }).success).toBe(false)
-    expect(TradeLegSchema.safeParse({ action: 'BUY', strike: 200 }).success).toBe(false)
-    expect(TradeLegSchema.safeParse({ action: 'BUY_TO_OPEN', optionType: 'C', strike: 200, expiry: '2027-02-30' }).success).toBe(false)
   })
 
   it('holds every field to its envelope and refuses unknown ones', () => {

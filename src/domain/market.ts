@@ -1,14 +1,11 @@
 import { z } from 'zod'
 
 import { DailyBriefSchema } from './brief'
-
 import { CatalystSchema, snapshotCatalyst } from './catalyst'
 import { CandlePointSchema, MAX_YEAR_CANDLES } from './candle'
 import { EquitySymbolSchema } from './instrument'
 import { IsoDateSchema } from './iso-date'
 import { type JsonValue } from './json-payload'
-import {
-} from './recommended-order'
 
 // One list, two audiences: `private` is the owner's authoritative D1 internal
 // watchlist, `public` its published projection. The kind still gates the manage
@@ -81,22 +78,11 @@ export const PublicTickerSchema = TickerSchema.omit({ earningsDate: true, sparkl
   sparkline: z.array(CandlePointSchema).optional(),
 }).strict()
 
-
 /**
  * A quote is one sentence of a page, not a page. The evidence binder holds a submission to
  * this bound, so the quote a card stores is the quote the binder matched.
  */
 export const MAX_RESEARCH_EVIDENCE_QUOTE_LENGTH = 300
-
-/**
- * The envelope a cited source arrives in, wherever it is cited: a page address and the page's
- * own title. Every surface that admits a citation -- a recorded catalyst, an evidence card --
- * holds it to these, so a page one may cite is a page the other may cite.
- * The address bound is a rendering and storage envelope, not a URL-spec limit; the title is
- * held to one line at the card's measure.
- */
-export const MAX_CITED_SOURCE_URL_LENGTH = 2_000
-export const MAX_CITED_SOURCE_TITLE_LENGTH = 180
 
 /**
  * How a member wants to be credited on what their agent recorded, in their own words: a handle,

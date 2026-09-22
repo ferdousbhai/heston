@@ -6,9 +6,18 @@ import { type JsonValue } from '../domain/json-payload'
 import { textResult } from './agent-tool-result'
 import { persistResearchCatalysts } from './catalysts'
 import { type AppEnv } from './env'
-import { retainCitedPages } from './research-agent-tools'
-import { bindCatalystCandidates } from './research-catalyst-output'
-import { CatalystSubmissionSchema, NativeSearchSource } from './research-submission'
+import { MAX_CITED_SOURCE_TITLE_LENGTH, MAX_CITED_SOURCE_URL_LENGTH } from '../domain/https-url'
+import { bindCatalystCandidates, ResearchCatalystCandidateSchema } from './research-catalyst-output'
+import { retainCitedPages } from './research-page-retention'
+import { zodTypeBoxSchema } from './zod-typebox'
+
+/** The model-authored shapes a member's agent submits: a candidate dated event, and the sources it indexes into. */
+const CatalystSubmissionSchema = zodTypeBoxSchema(ResearchCatalystCandidateSchema)
+const NativeSearchSource = Type.Object({
+  context: Type.String({ minLength: 1, maxLength: 900 }),
+  sourceUrl: Type.String({ minLength: 1, maxLength: MAX_CITED_SOURCE_URL_LENGTH }),
+  title: Type.String({ minLength: 1, maxLength: MAX_CITED_SOURCE_TITLE_LENGTH }),
+}, { additionalProperties: false })
 
 /*
  * The gap this fills: catalyst coverage is bought by reader attention, one search per symbol per
@@ -75,7 +84,6 @@ export async function recordResearchCatalysts(
     recording.sources,
     recording.catalysts.map((candidate) => candidate.sourceIndex),
     now.toISOString(),
-    'call',
   )
   if (rejected.length) return { rejected, status: 'rejected' }
 

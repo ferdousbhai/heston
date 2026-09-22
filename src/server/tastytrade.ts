@@ -287,7 +287,7 @@ async function loadQuoteToken(env: AppEnv): Promise<{ token: string; url: string
 
 /** Both audiences read the same brief; a missing store is a fault, never an empty brief. */
 async function loadStoredBrief(env: AppEnv): Promise<MarketSnapshot['brief']> {
-  if (!env.DB) throw new Error('TastytradeResearch:store-unavailable')
+  if (!env.DB) throw new Error('DailyBrief:store-unavailable')
   return readLatestDailyBrief(env.DB)
 }
 

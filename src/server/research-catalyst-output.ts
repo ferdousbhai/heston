@@ -12,8 +12,8 @@ import {
 import { EquitySymbolSchema } from '../domain/instrument'
 import { addDays, IsoDateSchema, textMentionsDateWithinHorizon } from '../domain/iso-date'
 import { type CatalystProvider } from './catalysts'
-import { type RetainedPage } from './research-agent-tools'
-import { recommendationLinkKey } from './research-url'
+import { type RetainedPage } from './research-page-retention'
+import { citedPageKey } from './research-url'
 
 export const ResearchCatalystCandidateSchema = z.strictObject({
   date: IsoDateSchema,
@@ -58,7 +58,7 @@ export function bindCatalystCandidates(
   sources: readonly { sourceUrl: string }[],
   retained: ReadonlyMap<string, RetainedPage>,
   now: Date,
-  provider: BoundCatalystProvider = 'member-research',
+  provider: BoundCatalystProvider,
 ): CatalystCandidateBinding {
   const catalysts: Catalyst[] = []
   const rejected: string[] = []
@@ -76,7 +76,7 @@ export function bindCatalystCandidates(
     }
     const candidate = parsed.data
     const source = sources[candidate.sourceIndex]
-    const sourceUrl = source ? recommendationLinkKey(source.sourceUrl) : undefined
+    const sourceUrl = source ? citedPageKey(source.sourceUrl) : undefined
     const page = sourceUrl ? retained.get(sourceUrl) : undefined
     if (!sourceUrl || !page) {
       rejected.push(`catalyst ${index + 1}: source was not read this run`)

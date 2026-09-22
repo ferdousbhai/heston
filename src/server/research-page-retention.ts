@@ -2,10 +2,16 @@ import { z } from 'zod'
 
 import { readBoundedJson } from './bounded-response'
 import { type AppEnv } from './env'
-import { MAX_RESEARCH_PAGE_READS } from './research-contracts'
-import { recommendationLinkKey } from './research-url'
+import { citedPageKey } from './research-url'
 
 export type RetainedPage = { markdown: string; readAt: string }
+
+/**
+ * One call may read at most this many public pages. A member recording catalysts cites a page
+ * per event and records a handful of events, so this is comfortably above any honest call and
+ * well inside what one browser session can open before the caller's turn times out.
+ */
+export const MAX_RESEARCH_PAGE_READS = 30
 
 /*
  * A citation is worth what this Worker can show was read. Native web search happens inside
@@ -56,16 +62,12 @@ export interface RetainedCitedPages {
  * Indices are not deduplicated: a bad address cited twice is named once per citation, which is
  * what an agent fixes. Distinct pages are, because a page that will not open is one fact about
  * that page however many citations lean on it.
- *
- * `readBudgetUnit` names the thing the ceiling belongs to in the refusal: a call, for an agent
- * recording what it researched.
  */
 export async function retainCitedPages(
   browser: NonNullable<AppEnv['BROWSER']>,
   sources: readonly { sourceUrl: string }[],
   citedIndices: Iterable<number>,
   readAt: string,
-  readBudgetUnit: 'call' | 'run',
 ): Promise<RetainedCitedPages> {
   const rejected: string[] = []
   const pageKeys = new Set<string>()
@@ -73,13 +75,13 @@ export async function retainCitedPages(
     const sourceUrl = sources[index]?.sourceUrl
     // An index past the end of sources has no page to read; the binders reject the citation.
     if (sourceUrl === undefined) continue
-    const key = recommendationLinkKey(sourceUrl)
+    const key = citedPageKey(sourceUrl)
     if (key === undefined) rejected.push(`source ${index}: not a readable https page address`)
     else pageKeys.add(key)
   }
   if (pageKeys.size > MAX_RESEARCH_PAGE_READS) {
     return {
-      rejected: [`cites ${pageKeys.size} pages; at most ${MAX_RESEARCH_PAGE_READS} are read in one ${readBudgetUnit}`],
+      rejected: [`cites ${pageKeys.size} pages; at most ${MAX_RESEARCH_PAGE_READS} are read in one call`],
       retained: new Map(),
     }
   }

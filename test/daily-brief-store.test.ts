@@ -43,8 +43,8 @@ describe('daily brief store', () => {
   it('fails visibly on a stored row that no longer fits the contract', async () => {
     const store = await migrationStore()
     store.sqlite.prepare(
-      'INSERT INTO daily_briefs (id, market_date, published_at, payload_json) VALUES (?, ?, ?, ?)',
-    ).run('brief-2026-08-13', '2026-08-13', '2026-08-13T13:35:00.000Z', JSON.stringify({ id: 'brief-2026-08-13', ideas: [] }))
+      'INSERT INTO daily_briefs (id, published_at, payload_json) VALUES (?, ?, ?)',
+    ).run('brief-2026-08-13', '2026-08-13T13:35:00.000Z', JSON.stringify({ id: 'brief-2026-08-13', ideas: [] }))
     await expect(readLatestDailyBrief(store.database)).rejects.toThrow()
     store.close()
   })

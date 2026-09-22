@@ -16,7 +16,7 @@ import {
   TableRow,
 } from '#/components/ui/table'
 import { equitySymbolFromModelText } from '../domain/instrument'
-import { RecommendationCard } from './brief-screen'
+import { RecommendationCard } from './brief-card'
 import { cn } from '#/lib/utils'
 import { type DailyBrief } from '../domain/brief'
 import { latestSessionCandles, REGULAR_SESSION_MS, type CandlePoint } from '../domain/candle'

@@ -4,7 +4,7 @@ import {
   bindCatalystCandidates,
   type ResearchCatalystCandidate,
 } from '../src/server/research-catalyst-output'
-import { type RetainedPage } from '../src/server/research-agent-tools'
+import { type RetainedPage } from '../src/server/research-page-retention'
 
 const NOW = new Date('2026-08-31T18:00:00.000Z')
 const PAGE_URL = 'https://investors.example.com/events'
@@ -32,9 +32,7 @@ describe('structured catalyst output binding', () => {
     const result = bindCatalystCandidates(
       [candidate()],
       SOURCES,
-      retained('NVIDIA will hold an investor day on September 15, 2026.'),
-      NOW,
-    )
+      retained('NVIDIA will hold an investor day on September 15, 2026.'), NOW, 'member-research')
 
     expect(result.rejected).toEqual([])
     expect(result.catalysts).toEqual([{
@@ -53,30 +51,24 @@ describe('structured catalyst output binding', () => {
   })
 
   it('refuses an unread source or a date absent from the retained page', () => {
-    expect(bindCatalystCandidates([candidate()], SOURCES, new Map(), NOW).rejected)
+    expect(bindCatalystCandidates([candidate()], SOURCES, new Map(), NOW, 'member-research').rejected)
       .toEqual(['catalyst 1: source was not read this run'])
     expect(bindCatalystCandidates(
       [candidate()],
       SOURCES,
-      retained('NVIDIA will hold an investor day next quarter.'),
-      NOW,
-    ).rejected).toEqual(['catalyst 1: 2026-09-15 does not appear on its source page'])
+      retained('NVIDIA will hold an investor day next quarter.'), NOW, 'member-research').rejected).toEqual(['catalyst 1: 2026-09-15 does not appear on its source page'])
   })
 
   it('refuses out-of-horizon and duplicate updates instead of silently collapsing them', () => {
     expect(bindCatalystCandidates(
       [candidate({ date: '2027-09-15' })],
       SOURCES,
-      retained('The investor day is September 15, 2027.'),
-      NOW,
-    ).rejected[0]).toContain('180-day horizon')
+      retained('The investor day is September 15, 2027.'), NOW, 'member-research').rejected[0]).toContain('180-day horizon')
 
     expect(bindCatalystCandidates(
       [candidate(), candidate()],
       SOURCES,
-      retained('The investor day is September 15, 2026.'),
-      NOW,
-    ).rejected).toEqual([
+      retained('The investor day is September 15, 2026.'), NOW, 'member-research').rejected).toEqual([
       'catalyst 2: duplicates member-research:NVDA:investor-event:2026-09-15',
     ])
   })

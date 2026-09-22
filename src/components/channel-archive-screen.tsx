@@ -6,10 +6,7 @@ import { Button } from '#/components/ui/button'
 import { Spinner } from '#/components/ui/spinner'
 import { loadChannelArchivePage } from '../data/channel-archive'
 import { type ChannelPost } from '../domain/channel-post'
-
-const issueDate = new Intl.DateTimeFormat('en-US', {
-  day: 'numeric', hour: 'numeric', minute: '2-digit', month: 'short', timeZone: 'America/New_York', timeZoneName: 'short', year: 'numeric',
-})
+import { issueDate } from './brief-card'
 
 /**
  * What survives of the Telegram channel this site replaced. Telegram deleted the channel's

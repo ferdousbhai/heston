@@ -1,13 +1,8 @@
 import { z } from 'zod'
 
 import { EquitySymbolSchema } from './instrument'
-import { HttpsSourceUrlSchema } from './https-url'
-import {
-  MAX_CITED_SOURCE_TITLE_LENGTH,
-  MAX_CITED_SOURCE_URL_LENGTH,
-  MAX_RESEARCH_BYLINE_LENGTH,
-  MAX_RESEARCH_EVIDENCE_QUOTE_LENGTH,
-} from './market'
+import { HttpsSourceUrlSchema, MAX_CITED_SOURCE_TITLE_LENGTH, MAX_CITED_SOURCE_URL_LENGTH } from './https-url'
+import { MAX_RESEARCH_BYLINE_LENGTH, MAX_RESEARCH_EVIDENCE_QUOTE_LENGTH } from './market'
 
 /*
  * An evidence card is one quoted passage from a page, attached to a symbol by a member's own

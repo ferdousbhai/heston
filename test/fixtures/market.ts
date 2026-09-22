@@ -52,7 +52,6 @@ export const dailyBriefFixture: DailyBrief = {
     symbol: 'NVDA',
     direction: 'bullish',
     trade: 'Buy NVDA 205c 10/16/26',
-    legs: [{ action: 'BUY_TO_OPEN', optionType: 'C', strike: 205, expiry: '2026-10-16' }],
     thesis: '**Catalyst:** demand checks keep the AI capex case alive.\n\n- IV rank 22, options are cheap.\n- Risk: a guide-down or capex pause would break the demand case.',
   }],
 }

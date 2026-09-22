@@ -332,7 +332,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
 .bottom-nav { border-radius: 0; position: fixed; z-index: 20; left: 50%; bottom: 0; transform: translateX(-50%); width: 100%; height: calc(71px + env(safe-area-inset-bottom)); padding: 6px 18px env(safe-area-inset-bottom); background: rgba(9, 9, 11, .94); backdrop-filter: blur(28px) saturate(150%); border-top: 1px solid var(--hairline); display: grid; grid-template-columns: repeat(3, 1fr); }
 
-.channel-archive-error { margin: 16px 20px 0; }
+.channel-archive-error, .brief-archive-error { margin: 16px 20px 0; }
 /* A grid item's minimum width is its content, so the ask block's one long line widened the
    column past the panel; the line is prose to read, not a command to keep intact, so it wraps. */
 
@@ -381,10 +381,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   .top-bar { padding-inline: 24px; }
 
   .bottom-nav { top: 11px; bottom: auto; width: auto; height: auto; padding: 0; border: 1px solid var(--hairline); background: var(--bg); display: flex; }
-  /* The tab bar floats over the top of the page here, so a scroll to the run panel lands its
-     heading beneath it: its 11px offset, a 34px trigger inside 1px borders, and the same 11px
-     of air below. On a phone the bar sits at the bottom and the panel needs no margin. */
-    .bottom-nav [data-slot="tabs-trigger"] { min-height: 34px; flex-direction: row; gap: 7px; padding: 0 18px; border-right: 1px solid var(--hairline); font-size: 13px; }
+  .bottom-nav [data-slot="tabs-trigger"] { min-height: 34px; flex-direction: row; gap: 7px; padding: 0 18px; border-right: 1px solid var(--hairline); font-size: 13px; }
   .bottom-nav [data-slot="tabs-trigger"]:last-child { border-right: 0; }
   .bottom-nav [data-slot="tabs-trigger"][data-active] { background: var(--accent); color: #09090b; }
   .bottom-nav [data-slot="tabs-trigger"][data-active] svg { color: #09090b; }
