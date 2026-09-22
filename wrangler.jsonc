@@ -44,16 +44,6 @@
       "secret_name": "exa"
     },
     {
-      "binding": "REDDIT_CLIENT_ID",
-      "store_id": "a436a6cefedc4acd8bb920cdbc202c1c",
-      "secret_name": "reddit-client-id"
-    },
-    {
-      "binding": "REDDIT_CLIENT_SECRET",
-      "store_id": "a436a6cefedc4acd8bb920cdbc202c1c",
-      "secret_name": "reddit-client-secret"
-    },
-    {
       // Store-backed rather than a per-Worker secret: a Secrets Store entry binds to any
       // Worker by name, so renaming or recreating this Worker never asks a human to retype
       // the credential. `GOOGLE_CLIENT_ID` stays a plain secret because it is not one.
