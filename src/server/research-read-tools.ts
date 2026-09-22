@@ -1,12 +1,13 @@
 import { type AgentTool } from '../domain/agent-tool'
 import { Type } from 'typebox'
 
-import { CatalystSchema, marketDate, type Catalyst } from '../domain/catalyst'
+import { CatalystSchema, distinctCatalysts, marketDate, type Catalyst } from '../domain/catalyst'
 import { equitySymbolsFromModelText, EquitySymbolSchema, ModelTextEquitySymbolType } from '../domain/instrument'
 import { type DailyBrief } from '../domain/brief'
 import { type AppEnv } from './env'
 import { textResult } from './agent-tool-result'
 import { MAX_MARKET_SYMBOLS } from './brokerage-read-contracts'
+import { CURRENT_CATALYSTS } from './catalysts'
 import { readLatestDailyBrief } from './daily-brief-store'
 
 // A catalyst call shares the normal market-read batch budget. The row ceiling is a model-context
@@ -103,7 +104,7 @@ export async function readCatalysts(
   const result = await env.DB.prepare(
     `SELECT id, symbol, kind, title, description, event_date AS date, timing, confidence,
       source_label AS source, source_url AS "sourceUrl", updated_at AS "updatedAt"
-     FROM upcoming_catalysts
+     FROM ${CURRENT_CATALYSTS}
      WHERE symbol IN (${symbols.map(() => '?').join(', ')})
        AND event_date BETWEEN ? AND ?
      ORDER BY event_date ASC, symbol ASC
@@ -111,14 +112,18 @@ export async function readCatalysts(
   ).bind(...symbols, start, endDate(start, boundedHorizon), MAX_CATALYSTS + 1).all()
   if (!Array.isArray(result.results)) throw new Error('Catalyst data returned an invalid response.')
   const allCatalysts = CatalystSchema.array().parse(result.results)
-  const catalysts = allCatalysts.slice(0, MAX_CATALYSTS).map(agentCatalyst)
+  // Truncation is judged on the rows the query returned, before one event's several sightings
+  // fold into one: folding says nothing about what the ceiling left behind, and a reader told
+  // it has the whole calendar when it does not is the one wrong answer here.
+  const truncated = allCatalysts.length > MAX_CATALYSTS
+  const catalysts = distinctCatalysts(allCatalysts).slice(0, MAX_CATALYSTS).map(agentCatalyst)
   return {
     catalysts,
     fetchedAt: now.toISOString(),
     horizonDays: boundedHorizon,
     source: 'heston-catalyst-store',
     symbols,
-    truncated: allCatalysts.length > catalysts.length,
+    truncated,
   }
 }
 

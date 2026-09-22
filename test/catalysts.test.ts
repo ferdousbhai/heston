@@ -6,6 +6,7 @@ import {
   hasNearTermCatalyst,
   MAX_CATALYSTS_PER_SYMBOL,
   nextCatalystsBySymbol,
+  upcomingCatalystsForSymbol,
   type Catalyst,
 } from '../src/domain/catalyst'
 import {
@@ -15,9 +16,10 @@ import {
   persistAndLoadCatalysts,
   persistResearchCatalysts,
   readUpcomingCatalysts,
+  readUpcomingCatalystsForSymbol,
 } from '../src/server/catalysts'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
-import { migrationStore } from './sqlite-d1'
+import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 
 const NOW = new Date('2026-08-13T16:00:00.000Z')
 
@@ -280,5 +282,162 @@ describe('catalyst ordering', () => {
     expect(nextCatalystsBySymbol(catalysts, NOW).get('NVDA')?.date).toBe('2026-08-26')
     expect(catalystLabel(catalysts[1]!, NOW)).toBe('EARN 13D')
     expect(nextCatalystsBySymbol([catalyst('NVDA', '2026-08-12')], NOW).has('NVDA')).toBe(false)
+  })
+})
+
+describe('one event that several producers saw', () => {
+  // The pair the live surface showed: tastytrade's confirmed earnings row for INTC, and the
+  // Exa search a reader spent on the same symbol binding the very same date from a page that
+  // calls it projected. Two rows, one event, and the runway drew both.
+  const broker: Catalyst = {
+    confidence: 'confirmed',
+    date: '2026-10-22',
+    id: 'tastytrade:INTC:earnings',
+    kind: 'earnings',
+    source: 'tastytrade market metrics',
+    sourceUrl: 'https://developer.tastytrade.com/open-api-spec/market-metrics/',
+    symbol: 'INTC',
+    timing: 'unknown',
+    title: 'INTC earnings',
+    updatedAt: '2026-08-28T02:15:52.966Z',
+  }
+  const searched: Catalyst = {
+    confidence: 'estimated',
+    date: '2026-10-22',
+    description: 'Projected date for Q3 2026 earnings report.',
+    id: 'exa:INTC:earnings:2026-10-22',
+    kind: 'earnings',
+    source: 'Exa search · nextearningsdate.com',
+    sourceUrl: 'https://www.nextearningsdate.com/intc.html',
+    symbol: 'INTC',
+    timing: 'after-hours',
+    title: 'Q3 2026 Earnings Report',
+    updatedAt: '2026-09-21T17:54:02.486Z',
+  }
+  const NOW = new Date('2026-09-21T18:00:00.000Z')
+
+  it('draws the runway once, on the row that can say the date is confirmed', () => {
+    expect(upcomingCatalystsForSymbol('INTC', [searched, broker], NOW)).toEqual([broker])
+    // Whole rows, never a splice: the search's after-hours timing does not reappear beside a
+    // confidence that came from the broker, under a link to a page that calls the date
+    // projected.
+    expect(upcomingCatalystsForSymbol('INTC', [broker, searched], NOW)).toEqual([broker])
+  })
+
+  it('shows the list the same row the runway opens with', () => {
+    expect(nextCatalystsBySymbol([searched, broker], NOW).get('INTC')).toEqual(broker)
+  })
+
+  it('prefers the more recent sighting when neither producer can confirm', () => {
+    const stale: Catalyst = {
+      ...searched,
+      id: 'member-research:INTC:earnings:2026-10-22',
+      source: 'Member research · example.com',
+      sourceUrl: 'https://example.com/ir',
+      title: 'Intel Q3 results',
+      updatedAt: '2026-09-02T09:00:00.000Z',
+    }
+    expect(upcomingCatalystsForSymbol('INTC', [stale, searched], NOW)).toEqual([searched])
+  })
+
+  it('keeps two producers that disagree on the date as the two claims they are', () => {
+    const moved: Catalyst = { ...searched, date: '2026-10-23', id: 'exa:INTC:earnings:2026-10-23' }
+    expect(upcomingCatalystsForSymbol('INTC', [moved, broker], NOW).map((row) => row.date))
+      .toEqual(['2026-10-22', '2026-10-23'])
+  })
+})
+
+describe('a producer that looked again', () => {
+  const NOW = new Date('2026-09-21T18:00:00.000Z')
+  const FIRST_RUN = new Date('2026-08-21T18:00:00.000Z')
+
+  /** What `claimRun` leaves behind: the receipt that says this producer answers for this name. */
+  function seedRun(store: SqliteD1Store, symbol: string, provider: string): void {
+    store.sqlite.prepare(
+      `INSERT INTO catalyst_runs (symbol, source_provider, ran_at, catalyst_count, status)
+       VALUES (?, ?, ?, 0, 'complete')`,
+    ).run(symbol, provider, FIRST_RUN.toISOString())
+  }
+
+  const searched = (kind: Catalyst['kind'], date: string, title: string): Catalyst => ({
+    confidence: 'estimated',
+    date,
+    id: `exa:INTC:${kind}:${date}`,
+    kind,
+    source: 'Exa search · example.com',
+    sourceUrl: 'https://example.com/events',
+    symbol: 'INTC',
+    timing: 'unknown',
+    title,
+    updatedAt: NOW.toISOString(),
+  })
+
+  it('retires its own moved date without touching what it did not answer again', async () => {
+    const store = await migrationStore()
+    try {
+      const env = { DB: store.database }
+      seedRun(store, 'INTC', 'exa')
+      // A first search finds the earnings date and two conferences.
+      await persistResearchCatalysts(env, 'exa', [
+        searched('earnings', '2026-10-22', 'Q3 2026 earnings'),
+        searched('conference', '2026-11-05', 'Citi TMT'),
+        searched('conference', '2026-11-06', 'UBS Tech'),
+      ], FIRST_RUN)
+      // A month later it searches again and reports the earnings a day later. It says nothing
+      // about the conferences, which is silence rather than a retraction.
+      await persistResearchCatalysts(env, 'exa', [searched('earnings', '2026-10-23', 'Q3 2026 earnings')], NOW)
+
+      const upcoming = await readUpcomingCatalystsForSymbol(env, 'INTC', NOW)
+
+      expect(upcoming.map((row) => row.date)).toEqual(['2026-10-23', '2026-11-05', '2026-11-06'])
+      // The row is retired from the read, not deleted: it stays answerable to its producer.
+      expect(store.sqlite.prepare('SELECT COUNT(*) AS rows FROM catalysts WHERE symbol = ?').get('INTC'))
+        .toEqual({ rows: 4 })
+    } finally {
+      store.close()
+    }
+  })
+
+  it('leaves what another producer reports standing, and says it to every reader', async () => {
+    const store = await migrationStore()
+    try {
+      const env = { DB: store.database }
+      seedRun(store, 'INTC', 'exa')
+      await persistResearchCatalysts(env, 'exa', [searched('earnings', '2026-10-22', 'Q3 2026 earnings')], FIRST_RUN)
+      await persistResearchCatalysts(env, 'member-research', [{
+        ...searched('earnings', '2026-10-22', 'Intel Q3 results'),
+        id: 'member-research:INTC:earnings:2026-10-22',
+      }], FIRST_RUN)
+      await persistResearchCatalysts(env, 'exa', [searched('earnings', '2026-10-23', 'Q3 2026 earnings')], NOW)
+
+      // One producer moving its own estimate says nothing about what another producer reports.
+      expect((await readUpcomingCatalystsForSymbol(env, 'INTC', NOW)).map((row) => row.id))
+        .toEqual(['member-research:INTC:earnings:2026-10-22', 'exa:INTC:earnings:2026-10-23'])
+      expect((await readUpcomingCatalysts(env, NOW)).map((row) => row.id))
+        .toEqual(['member-research:INTC:earnings:2026-10-22', 'exa:INTC:earnings:2026-10-23'])
+    } finally {
+      store.close()
+    }
+  })
+
+  it('never lets one member retire what another member recorded', async () => {
+    // `member-research` is not one voice: every member's agent writes under it. A second member
+    // recording a conference is not the first one looking again, so nothing of theirs is
+    // superseded -- which is why this is gated on a run receipt rather than on the label.
+    const store = await migrationStore()
+    try {
+      const env = { DB: store.database }
+      const recorded = (date: string, title: string): Catalyst => ({
+        ...searched('conference', date, title),
+        id: `member-research:INTC:conference:${date}`,
+      })
+      await persistResearchCatalysts(env, 'member-research', [recorded('2026-11-05', 'Citi TMT')], FIRST_RUN)
+      await persistResearchCatalysts(env, 'member-research', [recorded('2026-11-06', 'UBS Tech')], NOW)
+
+      expect((await readUpcomingCatalystsForSymbol(env, 'INTC', NOW)).map((row) => row.date))
+        .toEqual(['2026-11-05', '2026-11-06'])
+    } finally {
+      store.close()
+    }
   })
 })

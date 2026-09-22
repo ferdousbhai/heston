@@ -130,6 +130,46 @@ export function earningsDateFromMetric(metric: JsonObject | undefined, now = new
   return upcomingEarningsDate(earnings, marketDate(now)) ?? null
 }
 
+/**
+ * Every row its producer still reports, which is the source every reader selects from.
+ *
+ * Research rows are additive on purpose: a source going quiet is not proof that an event it
+ * once observed was cancelled, so nothing is deleted when a run stops mentioning it. But a
+ * producer that searched the same symbol again and wrote a row for the same kind of event has
+ * not gone quiet — it answered that question a second time, and the earlier row that later
+ * write did not refresh is a date the producer no longer reports. Left in, one producer's two
+ * answers reach a reader as two events, which is the same duplicate a second producer makes
+ * and the one `distinctCatalysts` cannot fold, because a moved date is not the same date.
+ *
+ * `last_seen_at` is stamped on every row a write touches, so "this producer looked again and
+ * did not see this" is a fact the store already holds; migration 0020 kept the column for
+ * exactly this and nothing had ever read it. Partitioned by kind, so a run that reported
+ * earnings says nothing about a conference an earlier one found, and two events of one kind
+ * written by one run share a stamp and both stand.
+ *
+ * Only for a producer that answers for the whole symbol, which is what a `catalyst_runs`
+ * receipt records: a search buys coverage of one name, so its later answer supersedes its
+ * earlier one. A producer with no receipt is not one voice — `member-research` and
+ * `daily-research` are whichever member's agent wrote that row — so a second member recording
+ * a date is not the first one looking again, and nothing there retires anything. A later
+ * producer earns this by writing a receipt, not by being named here.
+ *
+ * Retired from the read and never deleted: the row stays answerable to the producer that wrote
+ * it, and a producer that reports that date again refreshes it back into view.
+ */
+export const CURRENT_CATALYSTS =
+  `(SELECT c.id, c.source_provider, c.symbol, c.kind, c.title, c.description, c.event_date,
+        c.timing, c.confidence, c.source_label, c.source_url, c.updated_at
+      FROM (
+        SELECT *, max(last_seen_at) OVER (PARTITION BY source_provider, symbol, kind) AS latest_sighting
+          FROM upcoming_catalysts
+      ) c
+     WHERE c.last_seen_at = c.latest_sighting
+        OR NOT EXISTS (
+          SELECT 1 FROM catalyst_runs r
+           WHERE r.source_provider = c.source_provider AND r.symbol = c.symbol
+        ))`
+
 /*
  * Every producer's upcoming rows, nearest first, and at most `MAX_CATALYSTS_PER_SYMBOL` of them
  * per symbol. The window ranks each symbol's own events by date before the cap applies, so a
@@ -143,7 +183,7 @@ const UPCOMING_CATALYSTS_QUERY =
        SELECT id, symbol, kind, title, description, event_date AS date, timing, confidence,
            source_label AS source, source_url AS "sourceUrl", updated_at AS "updatedAt",
            ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY event_date ASC, id ASC) AS nearest
-         FROM upcoming_catalysts
+         FROM ${CURRENT_CATALYSTS}
          WHERE event_date >= ?
      )
      WHERE nearest <= ?
@@ -160,7 +200,7 @@ export async function readUpcomingCatalysts(env: AppEnv, now = new Date()): Prom
 const SYMBOL_CATALYSTS_QUERY =
   `SELECT id, symbol, kind, title, description, event_date AS date, timing, confidence,
       source_label AS source, source_url AS "sourceUrl", updated_at AS "updatedAt"
-     FROM upcoming_catalysts
+     FROM ${CURRENT_CATALYSTS}
      WHERE event_date >= ? AND symbol = ?
      ORDER BY event_date ASC, id ASC
      LIMIT ?`

@@ -231,6 +231,18 @@ describe('MCP tool tiers', () => {
     store.close()
   })
 
+  it('offers every name once, at the tier that carries the most of them', async () => {
+    // Quotes and metrics exist at both tiers under one name and are registered by branch, so a
+    // name offered twice would not show twice -- `registerTool` would keep one and the caller
+    // would silently lose the other tool entirely. Nothing but that branch enforces it, and the
+    // owner surface is where the most arms of it are live at once.
+    const { OWNER_EMAIL } = await import('../src/server/auth')
+    const { store, token } = await harness(OWNER_EMAIL)
+    const names = await toolNames(token, store.database)
+    expect(names).toEqual([...new Set(names)])
+    store.close()
+  })
+
   it('refuses a revoked token', async () => {
     const { listMcpTokens, revokeMcpToken } = await import('../src/server/mcp-tokens')
     const { env, store, token } = await harness('member@example.com')

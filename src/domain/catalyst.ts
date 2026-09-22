@@ -1,12 +1,13 @@
 import { z } from 'zod'
 
 import { EquitySymbolSchema } from './instrument'
+import { HttpsSourceUrlSchema } from './https-url'
 import { addDays, IsoDateSchema } from './iso-date'
 
 /**
  * How far ahead a catalyst may be scheduled and still be worth carrying. The write
- * boundary refuses a finding dated past it, and the unified research run reads and asks
- * for nothing beyond it; each boundary reads this rather than restating the number.
+ * boundary refuses a finding dated past it, and every read asks for nothing beyond it; each
+ * boundary reads this rather than restating the number.
  */
 export const CATALYST_HORIZON_DAYS = 180
 /**
@@ -40,7 +41,7 @@ export const CatalystSchema = z.object({
   timing: CatalystTimingSchema,
   confidence: CatalystConfidenceSchema,
   source: z.string().min(1).optional(),
-  sourceUrl: z.string().url().refine((url) => new URL(url).protocol === 'https:', 'Use an HTTPS source URL').optional(),
+  sourceUrl: HttpsSourceUrlSchema.optional(),
   updatedAt: z.string(),
 })
 
@@ -103,13 +104,53 @@ function epochDay(date: string): number {
   return Math.floor(Date.UTC(year, month - 1, day) / 86_400_000)
 }
 
+const CONFIDENCE_PRIORITY = {
+  confirmed: 0,
+  estimated: 1,
+} satisfies Record<Catalyst['confidence'], number>
+
 /** Soonest date first, then by kind priority; each caller adds its own final tiebreak. */
 function compareCatalystSchedule(left: Catalyst, right: Catalyst): number {
   return left.date.localeCompare(right.date) || KIND_PRIORITY[left.kind] - KIND_PRIORITY[right.kind]
 }
 
+/**
+ * Which of two sightings of the same event a reader is shown. The broker's own calendar
+ * outranks a search, because only it can say a date is confirmed; then the more recent
+ * sighting, because a producer that looked again is answering for what is scheduled now;
+ * then the id, so the choice is stable. Every `updatedAt` a producer writes is an ISO
+ * instant, which compares lexically.
+ */
+function compareCatalystStanding(left: Catalyst, right: Catalyst): number {
+  return CONFIDENCE_PRIORITY[left.confidence] - CONFIDENCE_PRIORITY[right.confidence]
+    || right.updatedAt.localeCompare(left.updatedAt)
+    || left.id.localeCompare(right.id)
+}
+
 function compareCatalystOrder(left: Catalyst, right: Catalyst): number {
-  return compareCatalystSchedule(left, right) || left.id.localeCompare(right.id)
+  return compareCatalystSchedule(left, right) || compareCatalystStanding(left, right)
+}
+
+/**
+ * Two producers that saw one event wrote two rows, and both are kept: each is answerable for
+ * what it observed, and a search going quiet is not proof an event moved. A reader is looking
+ * at a calendar rather than at our producers, so a display shows one row per event and lets
+ * `compareCatalystStanding` say which, nearest first. Symbol, kind and date are that event's
+ * identity here because they already are one to every research producer, each of which
+ * refuses its own second sighting of them.
+ *
+ * Never a merge of the group: a timing or a link shown beside another producer's confidence
+ * would be a claim no producer made, under a citation that does not support it. A row drops
+ * whole, with whatever it alone carried.
+ */
+export function distinctCatalysts(catalysts: readonly Catalyst[]): Catalyst[] {
+  const seen = new Set<string>()
+  return [...catalysts].sort(compareCatalystOrder).filter((catalyst) => {
+    const event = `${catalyst.symbol}:${catalyst.kind}:${catalyst.date}`
+    if (seen.has(event)) return false
+    seen.add(event)
+    return true
+  })
 }
 
 /** One pass that indexes the next dated event for every symbol at once. */
@@ -137,9 +178,9 @@ export function upcomingCatalystsForSymbol(
   now = new Date(),
 ): Catalyst[] {
   const today = marketDate(now)
-  return catalysts
-    .filter((catalyst) => catalyst.symbol === symbol && catalyst.date >= today)
-    .sort(compareCatalystOrder)
+  return distinctCatalysts(catalysts.filter(
+    (catalyst) => catalyst.symbol === symbol && catalyst.date >= today,
+  ))
 }
 
 /**

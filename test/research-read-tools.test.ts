@@ -4,7 +4,9 @@ import { readUpcomingCatalysts } from '../src/server/catalysts'
 import {
   readCatalysts,
 } from '../src/server/research-read-tools'
+import { persistResearchCatalysts } from '../src/server/catalysts'
 import { unsupportedDatabase, unsupportedStatement } from './fake-d1'
+import { migrationStore } from './sqlite-d1'
 
 function d1WithResults(results: unknown[]) {
   const all = vi.fn().mockResolvedValue({ results })
@@ -37,6 +39,58 @@ describe('Dan research read tools', () => {
     const site = d1WithResults([catalyst])
     await expect(readUpcomingCatalysts(site.env, new Date('2026-08-13T12:00:00.000Z')))
       .resolves.toEqual([catalyst])
+  })
+
+  it('hands the agent one row per event, and still reports a ceiling it hit', async () => {
+    // Every sighting of an event costs the agent context and reads as another thing on the
+    // calendar. What the ceiling left behind is a separate fact from what folded, so it is
+    // still judged on the rows the query returned.
+    const base = {
+      symbol: 'INTC', kind: 'earnings', date: '2026-10-22', timing: 'unknown',
+      description: null, source: 'tastytrade market metrics',
+      sourceUrl: 'https://developer.tastytrade.com/open-api-spec/market-metrics/',
+    }
+    const db = d1WithResults([
+      { ...base, id: 'exa:INTC:earnings:2026-10-22', confidence: 'estimated', title: 'Q3 2026 Earnings Report', updatedAt: '2026-09-21T17:54:02.486Z' },
+      { ...base, id: 'tastytrade:INTC:earnings', confidence: 'confirmed', title: 'INTC earnings', updatedAt: '2026-08-28T02:15:52.966Z' },
+    ])
+    const result = await readCatalysts(db.env, ['INTC'], 60, new Date('2026-09-21T18:00:00.000Z'))
+
+    expect(result.catalysts).toEqual([expect.objectContaining({ confidence: 'confirmed', title: 'INTC earnings' })])
+    expect(result.truncated).toBe(false)
+  })
+
+  it('runs its own query against the real schema, and skips a superseded sighting', async () => {
+    // The agent reads through the same source the site does, so a date one producer has since
+    // moved is not handed to a model as a second event beside the one it moved to.
+    const store = await migrationStore()
+    try {
+      const env = { DB: store.database }
+      // The receipt a search leaves: it is what makes exa's later answer supersede its earlier.
+      store.sqlite.prepare(
+        `INSERT INTO catalyst_runs (symbol, source_provider, ran_at, catalyst_count, status)
+         VALUES ('INTC', 'exa', '2026-08-21T18:00:00.000Z', 1, 'complete')`,
+      ).run()
+      const row = (date: string) => ({
+        confidence: 'estimated' as const,
+        date,
+        id: `exa:INTC:earnings:${date}`,
+        kind: 'earnings' as const,
+        source: 'Exa search · example.com',
+        sourceUrl: 'https://example.com/events',
+        symbol: 'INTC',
+        timing: 'unknown' as const,
+        title: 'Q3 2026 earnings',
+        updatedAt: '2026-09-21T17:54:02.486Z',
+      })
+      await persistResearchCatalysts(env, 'exa', [row('2026-10-22')], new Date('2026-08-21T18:00:00.000Z'))
+      await persistResearchCatalysts(env, 'exa', [row('2026-10-23')], new Date('2026-09-21T18:00:00.000Z'))
+
+      const result = await readCatalysts(env, ['INTC'], 60, new Date('2026-09-21T18:00:00.000Z'))
+      expect(result.catalysts.map((catalyst) => catalyst.date)).toEqual(['2026-10-23'])
+    } finally {
+      store.close()
+    }
   })
 
   it('rejects unbounded or malformed catalyst requests before D1', async () => {

@@ -7,6 +7,7 @@ import {
   type CatalystRefresh,
 } from '../domain/catalyst'
 import { EquitySymbolSchema } from '../domain/instrument'
+import { forgetPublicCatalysts } from './public-catalysts'
 
 /**
  * Catalyst coverage is seeded by attention: favoriting a symbol asks for a search, and so
@@ -56,6 +57,10 @@ function subscribe(listener: () => void): () => void {
 
 function record(symbol: string, refresh: CatalystRefresh): void {
   answers.set(symbol, refresh.catalysts)
+  // A search that ran may have moved a date this browser already holds a copy of, and the copy
+  // has no expiry. Only what the search bound comes back here, so the rest of the symbol's
+  // calendar is re-read rather than patched: the server is what knows which sighting is current.
+  if (refresh.ran) forgetPublicCatalysts(symbol)
   // Only a search that actually ran can say the calendar is empty. A refusal leaves the
   // question open, so the reader is not told nothing is coming on the strength of a receipt.
   if (refresh.ran) searched.add(symbol)

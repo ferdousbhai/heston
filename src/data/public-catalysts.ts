@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { z } from 'zod'
 
 import { CatalystSchema, type Catalyst } from '../domain/catalyst'
@@ -9,6 +9,31 @@ const PublicCatalystsResponseSchema = z.object({ catalysts: z.array(CatalystSche
 const NO_CATALYSTS: readonly Catalyst[] = []
 const inflight = new Map<string, Promise<readonly Catalyst[]>>()
 const cache = new Map<string, readonly Catalyst[]>()
+const listeners = new Set<() => void>()
+/** Moves whenever a symbol's rows are dropped, so a card already on screen goes and asks again. */
+let revision = 0
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => { listeners.delete(listener) }
+}
+
+/**
+ * Drop what this browser holds for a symbol, because a search just changed what the server
+ * reports for it. The cache has no expiry -- a symbol's rows are read once per session -- so a
+ * date the producer has since moved would otherwise sit on the runway beside the date it moved
+ * to for as long as the reader stayed on the page, which is the duplicate a reader clicked the
+ * button to resolve. The server decides which sighting is current; this only stops the browser
+ * from answering from a copy taken before it did.
+ */
+export function forgetPublicCatalysts(symbol: string): void {
+  const parsed = EquitySymbolSchema.safeParse(symbol)
+  if (!parsed.success) return
+  cache.delete(parsed.data)
+  inflight.delete(parsed.data)
+  revision += 1
+  for (const listener of listeners) listener()
+}
 
 /**
  * Full catalyst rows for the focused symbol. The snapshot's calendar is enough for stories;
@@ -45,6 +70,7 @@ export function loadPublicCatalysts(symbol: string): Promise<readonly Catalyst[]
 
 export function usePublicCatalysts(symbol: string): readonly Catalyst[] {
   const [catalysts, setCatalysts] = useState<readonly Catalyst[]>(() => cache.get(symbol) ?? NO_CATALYSTS)
+  const dropped = useSyncExternalStore(subscribe, () => revision, () => 0)
 
   useEffect(() => {
     let cancelled = false
@@ -52,7 +78,7 @@ export function usePublicCatalysts(symbol: string): readonly Catalyst[] {
       if (!cancelled) setCatalysts(loaded)
     })
     return () => { cancelled = true }
-  }, [symbol])
+  }, [dropped, symbol])
 
   return catalysts
 }
