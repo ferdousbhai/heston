@@ -9,7 +9,6 @@ import {
   readInternalWatchlist,
   readInternalWatchlistCatalogCandidates,
   readInternalWatchlistFocus,
-  readInternalWatchlistSeedAudit,
   readInternalWatchlistSymbolDetails,
   removeInternalWatchlistSymbols,
 } from '../src/server/internal-watchlist'
@@ -27,6 +26,27 @@ let store: SqliteD1Store
 beforeEach(async () => {
   store = await migrationStore()
 })
+
+/** The seed's state as D1 holds it, read directly rather than through a test-only reader. */
+function seedRows() {
+  // SAFETY: the SELECT names exactly these columns, and the seed row's migration makes status
+  // NOT NULL; an absent row is the `undefined` arm.
+  const seed = store.sqlite.prepare(
+    `SELECT status, seeded_at AS seededAt, finalized_at AS finalizedAt
+       FROM internal_watchlist_seed WHERE id = 'primary'`,
+  ).get() as { finalizedAt: string | null; seededAt: string | null; status: string } | undefined
+  // SAFETY: every caller passes a `SELECT count(*) AS count`, which always returns one row.
+  const count = (sql: string) => (store.sqlite.prepare(sql).get() as { count: number }).count
+  return {
+    entryCount: count('SELECT count(*) AS count FROM internal_watchlist_seed_entries'),
+    finalizedAt: seed?.finalizedAt ?? null,
+    itemCount: count('SELECT count(*) AS count FROM internal_watchlist_items'),
+    privateSourceCount: count("SELECT count(*) AS count FROM internal_watchlist_seed_sources WHERE source_kind = 'private'"),
+    publicSourceCount: count("SELECT count(*) AS count FROM internal_watchlist_seed_sources WHERE source_kind = 'public'"),
+    seededAt: seed?.seededAt ?? null,
+    status: seed?.status ?? 'missing',
+  }
+}
 
 afterEach(() => store.close())
 
@@ -81,7 +101,7 @@ describe('one-time tastytrade watchlist seed', () => {
     await ensureInternalWatchlistSeeded(env, loader, new Date('2026-08-26T11:00:00.000Z'))
 
     expect(loader).toHaveBeenCalledTimes(1)
-    expect(await readInternalWatchlistSeedAudit(env)).toEqual({
+    expect(seedRows()).toEqual({
       entryCount: 4,
       finalizedAt: null,
       itemCount: 0,
@@ -109,12 +129,12 @@ describe('one-time tastytrade watchlist seed', () => {
 
     await expect(ensureInternalWatchlistSeeded(env, async () => invalid))
       .rejects.toThrow('incomplete-response')
-    await expect(readInternalWatchlistSeedAudit(env)).resolves.toMatchObject({ status: 'failed', itemCount: 0 })
+    expect(seedRows()).toMatchObject({ status: 'failed', itemCount: 0 })
 
     await ensureInternalWatchlistSeeded(env, async () => payloads())
-    await expect(readInternalWatchlistSeedAudit(env)).resolves.toMatchObject({ status: 'ready', itemCount: 0 })
+    expect(seedRows()).toMatchObject({ status: 'ready', itemCount: 0 })
     await finalizeInternalWatchlist(env, [])
-    await expect(readInternalWatchlistSeedAudit(env)).resolves.toMatchObject({ status: 'ready', itemCount: 2 })
+    expect(seedRows()).toMatchObject({ status: 'ready', itemCount: 2 })
   })
 
   it('imports more than 1,000 provenance entries within one D1 invocation budget', async () => {
@@ -159,7 +179,7 @@ describe('one-time tastytrade watchlist seed', () => {
     await expiredFailure
     await finalizeInternalWatchlist(env, [], new Date('2026-08-26T10:11:00.000Z'))
     expect((await readInternalWatchlist(env)).map((item) => item.symbol)).toEqual(['AAPL', 'MSFT'])
-    await expect(readInternalWatchlistSeedAudit(env)).resolves.toMatchObject({
+    expect(seedRows()).toMatchObject({
       itemCount: 2,
       seededAt: '2026-08-26T10:10:00.001Z',
       status: 'ready',

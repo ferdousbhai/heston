@@ -164,16 +164,6 @@ type InternalWatchlistSeed = {
   sources: SeedSource[]
 }
 
-export type InternalWatchlistSeedAudit = {
-  entryCount: number
-  finalizedAt: string | null
-  itemCount: number
-  privateSourceCount: number
-  publicSourceCount: number
-  seededAt: string | null
-  status: 'missing' | 'seeding' | 'ready' | 'failed'
-}
-
 function requiredDatabase(env: AppEnv): D1Database {
   if (!env.DB) throw new CallerVisibleError('InternalWatchlist:store-unavailable')
   return env.DB
@@ -773,38 +763,6 @@ export async function readInternalWatchlistSymbolDetails(
     }
   })
   return { ...item, seedMemberships }
-}
-
-/** Bounded operational summary; raw tastytrade provenance remains private in D1. */
-export async function readInternalWatchlistSeedAudit(env: AppEnv): Promise<InternalWatchlistSeedAudit> {
-  const row = await requiredDatabase(env).prepare(
-    `SELECT
-       (SELECT status FROM internal_watchlist_seed WHERE id = 'primary') AS status,
-       (SELECT seeded_at FROM internal_watchlist_seed WHERE id = 'primary') AS seeded_at,
-       (SELECT finalized_at FROM internal_watchlist_seed WHERE id = 'primary') AS finalized_at,
-       (SELECT count(*) FROM internal_watchlist_seed_sources WHERE source_kind = 'private') AS private_source_count,
-       (SELECT count(*) FROM internal_watchlist_seed_sources WHERE source_kind = 'public') AS public_source_count,
-       (SELECT count(*) FROM internal_watchlist_seed_entries) AS entry_count,
-       (SELECT count(*) FROM internal_watchlist_items) AS item_count`,
-  ).first<{
-    entry_count: number
-    finalized_at: string | null
-    item_count: number
-    private_source_count: number
-    public_source_count: number
-    seeded_at: string | null
-    status: string | null
-  }>()
-  const status = z.enum(['seeding', 'ready', 'failed']).nullable().parse(row?.status ?? null) ?? 'missing'
-  return {
-    entryCount: z.number().int().nonnegative().parse(row?.entry_count ?? 0),
-    finalizedAt: z.string().nullable().parse(row?.finalized_at ?? null),
-    itemCount: z.number().int().nonnegative().parse(row?.item_count ?? 0),
-    privateSourceCount: z.number().int().nonnegative().parse(row?.private_source_count ?? 0),
-    publicSourceCount: z.number().int().nonnegative().parse(row?.public_source_count ?? 0),
-    seededAt: z.string().nullable().parse(row?.seeded_at ?? null),
-    status,
-  }
 }
 
 const internalWatchlistWriterSeam = defineSeam(() => ({ ensureSymbols: ensureInternalWatchlistSymbols }))
