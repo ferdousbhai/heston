@@ -8,16 +8,12 @@ import {
   McpTokenLimitError,
   revokeMcpToken,
 } from '../src/server/mcp-tokens'
-import { migrationStore, type SqliteD1Store } from './sqlite-d1'
+import { migrationStore, seedMember, type SqliteD1Store } from './sqlite-d1'
 
 async function storeWithMembers(): Promise<SqliteD1Store> {
   const store = await migrationStore()
-  for (const [id, email] of [['user-a', 'a@example.com'], ['user-b', 'b@example.com']]) {
-    store.sqlite.prepare(
-      `INSERT INTO "user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
-       VALUES (?, ?, ?, 1, ?, ?)`,
-    ).run(id!, 'Member', email!, 'now', 'now')
-  }
+  seedMember(store, 'user-a')
+  seedMember(store, 'user-b')
   return store
 }
 

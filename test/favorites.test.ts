@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { stagedFavoriteSymbols } from '../src/data/favorites'
 import { mergeFavoriteSymbols, readFavoriteSymbols, removeFavoriteSymbols } from '../src/server/favorites'
-import { migrationStore } from './sqlite-d1'
+import { migrationStore, seedMember } from './sqlite-d1'
 
 const preference = {
   id: 'primary' as const,
@@ -27,14 +27,8 @@ describe('anonymous favorite staging', () => {
 describe('D1 favorite synchronization', () => {
   it('converges additive device bootstraps on the per-user union and supports later removal', async () => {
     const store = await migrationStore()
-    store.sqlite.prepare(
-      `INSERT INTO "user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
-       VALUES (?, ?, ?, 1, ?, ?)`,
-    ).run('user-a', 'Member A', 'a@example.com', 'now', 'now')
-    store.sqlite.prepare(
-      `INSERT INTO "user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
-       VALUES (?, ?, ?, 1, ?, ?)`,
-    ).run('user-b', 'Member B', 'b@example.com', 'now', 'now')
+    seedMember(store, 'user-a')
+    seedMember(store, 'user-b')
 
     expect(await mergeFavoriteSymbols(store.database, 'user-a', ['nvda', 'META']))
       .toEqual(['META', 'NVDA'])

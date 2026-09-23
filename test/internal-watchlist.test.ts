@@ -53,7 +53,7 @@ const LISTS: SeededWatchlistSource[] = [
   },
 ]
 
-/** The finalized list those lists produced: each equity, carrying the ids of its lists. */
+/** The maintained items those lists produced: each equity, carrying the ids of its lists. */
 function seedLists(): void {
   seedWatchlist(store, [
     { symbol: 'NVDA', metadata: { seedSourceIds: ['tastytrade-private-0', 'tastytrade-public-0'] } },

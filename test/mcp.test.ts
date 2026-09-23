@@ -17,8 +17,8 @@ import { unsupportedDatabase } from './fake-d1'
 
 /**
  * Every caller is now a row in `user_mcp_tokens`, so a test that reaches `/mcp` needs a real
- * store and a real issued token. `ownerHarness` seeds the owner; `memberHarness` seeds someone
- * else, which is what separates the two tool tiers.
+ * store and a real issued token. `ownerHarness` seeds the owner; `harness('member@example.com')`
+ * seeds someone else, which is what separates the two tool tiers.
  */
 async function harness(email: string) {
   const { migrationStore } = await import('./sqlite-d1')

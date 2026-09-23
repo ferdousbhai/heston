@@ -6,7 +6,7 @@ import { handleMcpRequest, type McpExecutionContext } from '../src/server/mcp'
 import { issueMcpToken, revokeMcpToken } from '../src/server/mcp-tokens'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
-import { migrationStore, type SqliteD1Store } from './sqlite-d1'
+import { migrationStore, seedMember, type SqliteD1Store } from './sqlite-d1'
 
 /*
  * The OAuth way in, end to end: the real auth runtime over the migration schema, and an access
@@ -37,13 +37,6 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function addMember(id: string): void {
-  store.sqlite.prepare(
-    `INSERT INTO "user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
-     VALUES (?, ?, ?, 1, ?, ?)`,
-  ).run(id, 'Member', `${id}@example.com`, 'now', 'now')
-}
-
 async function accessTokenFor(sub: string): Promise<string> {
   const { auth } = await getAuthRuntime(env)
   const { token } = await auth.api.signJWT({
@@ -66,14 +59,14 @@ function toolsList(authorization: string): Request {
 
 describe('MCP OAuth callers', () => {
   it('serves a verified subject who is a member', async () => {
-    addMember('oauth-member')
+    seedMember(store, 'oauth-member')
     setBrokerApi(stubBroker())
     const response = await handleMcpRequest(toolsList(`Bearer ${await accessTokenFor('oauth-member')}`), env, executionContext)
     expect(response.status).toBe(200)
   })
 
   it('refuses a validly signed token whose user has been deleted', async () => {
-    addMember('deleted-member')
+    seedMember(store, 'deleted-member')
     // Signed while the account existed; the signature, issuer, audience and expiry all still hold.
     const token = await accessTokenFor('deleted-member')
     store.sqlite.prepare('DELETE FROM "user" WHERE id = ?').run('deleted-member')
@@ -88,7 +81,7 @@ describe('MCP OAuth callers', () => {
   })
 
   it('answers a failing member lookup with a challenge and a named log, never an escaped throw', async () => {
-    addMember('lookup-member')
+    seedMember(store, 'lookup-member')
     const token = await accessTokenFor('lookup-member')
     const prepare = store.database.prepare.bind(store.database)
     vi.spyOn(store.database, 'prepare').mockImplementation((sql: string) => {
@@ -108,7 +101,7 @@ describe('MCP OAuth callers', () => {
   })
 
   it('decides a minted token by its own table, whatever case the scheme is in, and never as a JWT', async () => {
-    addMember('minted-member')
+    seedMember(store, 'minted-member')
     setBrokerApi(stubBroker())
     const issued = await issueMcpToken(store.database, 'minted-member', 'laptop')
     const live = await handleMcpRequest(toolsList(`bearer ${issued.token}`), env, executionContext)
