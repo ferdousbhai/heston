@@ -15,10 +15,10 @@ const FOUND_RETENTION_SECONDS = 60
 const MISSING_RETENTION_SECONDS = 300
 // One lookup per symbol may reach the provider at a time. The edge copy only dedupes readers
 // that land in the same location, so the claim is what stops the same search in twenty places
-// from becoming twenty provider calls. The lease bounds a holder that dies mid-lookup; one that
-// finishes gives its claim back, because a search that matched nothing is kept only in the
-// holder's own location, and a reader elsewhere must be able to ask rather than be told "busy"
-// for the rest of a lease that guards nothing.
+// from becoming twenty provider calls. The lease bounds a holder that dies mid-lookup. A holder
+// whose lookup found a symbol keeps its claim until it expires, because the answer is in the
+// shared store; one that missed or failed gives it back, because a miss is kept only in the
+// holder's own location, and a reader elsewhere must be able to ask rather than be told "busy".
 const LOOKUP_LEASE_MS = 30 * 1_000
 
 function cacheKeyFor(request: Request, query: string): Request {

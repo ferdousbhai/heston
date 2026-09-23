@@ -10,7 +10,7 @@ import { addDays } from '../domain/iso-date'
 import { type AppEnv } from './env'
 import { textResult } from './agent-tool-result'
 import { MAX_MARKET_SYMBOLS } from './brokerage-read-contracts'
-import { CATALYST_RUN_BUDGET_MS } from './catalyst-refresh'
+import { CATALYST_PROVIDER, CATALYST_RUN_BUDGET_MS } from './catalyst-refresh'
 import { CURRENT_CATALYSTS } from './catalysts'
 import { readLatestDailyBrief } from './daily-brief-store'
 import { CallerVisibleError } from './caller-visible-error'
@@ -145,8 +145,8 @@ export async function readCatalysts(
   const runs = await env.DB.prepare(
     `SELECT symbol, status AS state, ran_at AS "ranAt"
      FROM catalyst_runs
-     WHERE source_provider = 'exa' AND symbol IN (${symbols.map(() => '?').join(', ')})`,
-  ).bind(...symbols).all()
+     WHERE source_provider = ? AND symbol IN (${symbols.map(() => '?').join(', ')})`,
+  ).bind(CATALYST_PROVIDER, ...symbols).all()
   if (!Array.isArray(runs.results)) throw new CallerVisibleError('Catalyst data returned an invalid response.')
   const receipts = new Map(CatalystRunRowSchema.array().parse(runs.results).map((run) => [run.symbol, run]))
   const abandonedBefore = new Date(now.getTime() - CATALYST_RUN_BUDGET_MS).toISOString()

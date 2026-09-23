@@ -38,9 +38,9 @@ const UPSTREAM = process.env.HESTON_MCP_URL ?? 'https://heston.io/mcp'
 const TASTYTRADE_API_BASE = process.env.TASTYTRADE_API_BASE ?? 'https://api.tastyworks.com'
 // UPSTREAM_TIMEOUT_MS lives in token-refresh.mjs because importing this file starts the proxy
 // (`await main()`), so the retirement test takes the constant from there instead.
-// Minting the broker token runs inside the forwarded call's UPSTREAM_TIMEOUT_MS budget, before the
-// upstream fetch starts, so it gets a third of it: the same budget the Worker gives one tastytrade
-// request, leaving the rest for the call it was minted for.
+// Minting the broker token is one tastytrade request, so it gets the budget the Worker gives one
+// (TASTYTRADE_REQUEST_TIMEOUT_MS). It runs before, and in addition to, the forwarded call's own
+// UPSTREAM_TIMEOUT_MS, so a call that also mints can take up to the sum of the two.
 const TOKEN_REQUEST_TIMEOUT_MS = 20_000
 
 /**

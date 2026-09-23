@@ -24,7 +24,7 @@ import { CallerVisibleError } from './caller-visible-error'
  * and already costs an owner credential.
  */
 export const CATALYST_REFRESH_INTERVAL_DAYS = 30
-const CATALYST_PROVIDER: CatalystProvider = 'exa'
+export const CATALYST_PROVIDER: CatalystProvider = 'exa'
 /** The `catalyst_runs.detail` CHECK in migration 0024 admits at most this many characters. */
 const MAX_RUN_DETAIL_LENGTH = 500
 
