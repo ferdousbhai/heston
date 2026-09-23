@@ -79,8 +79,14 @@ export function useLiveMarket(symbols: readonly string[], audience: SnapshotAudi
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
       const url = new URL('/api/stream', `${protocol}//${window.location.host}`)
       url.searchParams.set('symbols', key)
-      socket = new WebSocket(url)
-      socket.addEventListener('message', (event) => {
+      // Each listener answers only for the socket this call opened. A socket that was replaced
+      // -- by cleanup, by going idle, or by a reconnect after idling -- can still deliver a queued
+      // frame or a late close, and neither may speak for the socket that replaced it: a late
+      // close used to flip a live indicator back to Snapshot and schedule a second socket.
+      const current = new WebSocket(url)
+      socket = current
+      current.addEventListener('message', (event) => {
+        if (stopped || socket !== current) return
         try {
           const frame = RelayFrameSchema.parse(event.data)
           const payload: JsonValue = JSON.parse(frame)
@@ -97,17 +103,19 @@ export function useLiveMarket(symbols: readonly string[], audience: SnapshotAudi
           // A frame this bundle cannot read is dropped; the data on screen keeps its own age.
         }
       })
-      socket.addEventListener('open', () => {
+      current.addEventListener('open', () => {
+        if (stopped || socket !== current) return
         if (heartbeat) clearInterval(heartbeat)
         heartbeat = setInterval(() => {
           if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'heartbeat' }))
         }, HEARTBEAT_MS)
       })
-      socket.addEventListener('close', () => {
+      current.addEventListener('close', () => {
+        // Cleanup and goIdle already cleared the heartbeat and published Snapshot themselves.
+        if (stopped || idle || socket !== current) return
         if (heartbeat) clearInterval(heartbeat)
         heartbeat = undefined
         publishLiveFeedIndicator('snapshot')
-        if (stopped || idle) return
         // Cap browser reconnect backoff so a recovered live feed resumes without user action.
         const delay = Math.min(RECONNECT_MAX_DELAY_MS, RECONNECT_BASE_DELAY_MS * 2 ** attempts++)
         reconnectTimer = setTimeout(connect, delay)
