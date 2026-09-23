@@ -5,8 +5,11 @@ import { type AppEnv } from '../src/server/env'
 import {
   instrumentCatalogFromPayload,
   loadInstrumentCatalog,
+  missingInstrumentCatalogSymbols,
   persistInstrumentCatalog,
   readInstrumentCatalog,
+  sweepStaleUnresolvedInstruments,
+  UNRESOLVED_INSTRUMENT_RETRY_MS,
   unresolvedInstrumentCatalogItem,
 } from '../src/server/instrument-catalog'
 import { BROKER_SYMBOL_CHUNK_SIZE } from '../src/server/tastytrade'
@@ -175,5 +178,52 @@ describe('typed tastytrade instrument catalog', () => {
       additionalSymbols.map((symbol) => unresolvedInstrumentCatalogItem(symbol)),
     )).resolves.toBeUndefined()
     expect((await readInstrumentCatalog(env, additionalSymbols)).size).toBe(101)
+  })
+
+  it('puts an unresolved symbol to the broker again once its retry interval lapses', async () => {
+    // A ticker searched before it lists must not stay unresolved forever, but a junk ticker must
+    // not buy a broker lookup on every search either.
+    const env = { DB: store.database }
+    const missedAt = new Date('2026-08-26T12:00:00.000Z')
+    await persistInstrumentCatalog(env, [unresolvedInstrumentCatalogItem('SPCX', missedAt)])
+
+    const withinInterval = new Date(missedAt.getTime() + UNRESOLVED_INSTRUMENT_RETRY_MS - 1)
+    expect(await missingInstrumentCatalogSymbols(env, ['SPCX', 'NEW'], withinInterval)).toEqual(['NEW'])
+
+    const lapsed = new Date(missedAt.getTime() + UNRESOLVED_INSTRUMENT_RETRY_MS)
+    expect(await missingInstrumentCatalogSymbols(env, ['SPCX'], lapsed)).toEqual(['SPCX'])
+
+    // Still unlisted: the retry restamps the placeholder, which starts a new interval.
+    await persistInstrumentCatalog(env, [unresolvedInstrumentCatalogItem('SPCX', lapsed)])
+    expect(await missingInstrumentCatalogSymbols(env, ['SPCX'], lapsed)).toEqual([])
+
+    // Listed: the resolved row overwrites the placeholder and is never missing again.
+    const listedAt = new Date(lapsed.getTime() + UNRESOLVED_INSTRUMENT_RETRY_MS)
+    await refreshCatalog(env, ['SPCX'], [providerRow()], listedAt)
+    expect((await readInstrumentCatalog(env, ['SPCX'])).get('SPCX')).toMatchObject({
+      description: 'SpaceX Corporation',
+      resolutionStatus: 'resolved',
+    })
+    const muchLater = new Date(listedAt.getTime() + 10 * UNRESOLVED_INSTRUMENT_RETRY_MS)
+    expect(await missingInstrumentCatalogSymbols(env, ['SPCX'], muchLater)).toEqual([])
+  })
+
+  it('sweeps only unresolved placeholders whose retry interval has lapsed', async () => {
+    const env = { DB: store.database }
+    const earlier = new Date('2026-08-26T12:00:00.000Z')
+    const now = new Date(earlier.getTime() + UNRESOLVED_INSTRUMENT_RETRY_MS)
+    await refreshCatalog(env, ['SPCX'], [providerRow()], earlier)
+    await persistInstrumentCatalog(env, [
+      unresolvedInstrumentCatalogItem('JUNK', earlier),
+      unresolvedInstrumentCatalogItem('FRESH', new Date(now.getTime() - 1)),
+    ])
+
+    expect(await sweepStaleUnresolvedInstruments(env, now)).toBe(1)
+    expect([...(await readInstrumentCatalog(env, ['SPCX', 'JUNK', 'FRESH'])).keys()].sort())
+      .toEqual(['FRESH', 'SPCX'])
+  })
+
+  it('names a missing store binding instead of sweeping nothing', async () => {
+    await expect(sweepStaleUnresolvedInstruments({})).rejects.toMatchObject({ name: 'BindingMissing' })
   })
 })

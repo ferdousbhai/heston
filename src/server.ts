@@ -71,5 +71,18 @@ export default {
         'SymbolRefreshLeaseSweepFailed',
         cause instanceof Error ? cause.name : 'UnknownError',
       )))
+    // Every distinct valid-pattern ticker a reader searches leaves an unresolved catalog
+    // placeholder; one whose retry interval has lapsed already reads as missing, so the tick
+    // deletes it rather than letting the table grow with every junk query ever typed.
+    context.waitUntil(import('./server/instrument-catalog')
+      .then(({ sweepStaleUnresolvedInstruments }) => sweepStaleUnresolvedInstruments(env, scheduledAt))
+      .then((instrumentCount) => console.info(JSON.stringify({
+        event: 'UnresolvedInstrumentsSwept',
+        instrumentCount,
+      })))
+      .catch((cause: unknown) => console.error(
+        'UnresolvedInstrumentSweepFailed',
+        cause instanceof Error ? cause.name : 'UnknownError',
+      )))
   },
 }

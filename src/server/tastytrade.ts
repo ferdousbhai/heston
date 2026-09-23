@@ -488,7 +488,7 @@ async function refreshMissingTastytradeInstruments(
   symbols: readonly string[],
   now = new Date(),
 ): Promise<void> {
-  const missing = await missingInstrumentCatalogSymbols(env, symbols)
+  const missing = await missingInstrumentCatalogSymbols(env, symbols, now)
   if (missing.length) await refreshTastytradeInstrumentCatalog(env, missing, now)
 }
 
@@ -506,8 +506,8 @@ async function loadMarketSnapshot(env: AppEnv): Promise<MarketSnapshot> {
     symbols,
   }
   const watchlists = [privateWatchlist]
-  // New owner and agent symbols get an authoritative name immediately; a later market-open
-  // snapshot retries the honest unresolved rows.
+  // New owner and agent symbols get an authoritative name immediately; an unresolved row is put
+  // to the broker again by the first snapshot after `UNRESOLVED_INSTRUMENT_RETRY_MS` lapses.
   await refreshMissingTastytradeInstruments(env, symbols)
   const { catalysts, tickers } = await loadMarketFacts(env, symbols)
   const session = await cacheProviderSession(env, sessionPayload)
