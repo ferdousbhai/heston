@@ -21,6 +21,32 @@ export type OrderMarket = {
   tickSize: number
 }
 
+/**
+ * How far a provider timestamp may sit ahead of this Worker's clock before it is treated as
+ * invalid rather than as clock skew. No provider figure or written policy sets it; it is named
+ * once so every broker-timestamp check shares it.
+ */
+export const BROKER_CLOCK_SKEW_MS = 60_000
+/**
+ * The oldest quote a limit price may be checked against. No provider constraint or written
+ * risk policy fixes this figure yet; it is named here so that reason has one place to live.
+ */
+const QUOTE_MAX_AGE_MS = 15 * 60_000
+
+/** A two-sided quote that is present, ordered, and fresh at `now`; anything else is refused. */
+function validatedQuote(quote: JsonObject | undefined, now: Date) {
+  const bid = jsonNumber(quote?.bid)
+  const ask = jsonNumber(quote?.ask)
+  const observed = Date.parse(jsonText(quote?.['updated-at'] ?? quote?.updatedAt) ?? '')
+  if (bid === undefined || ask === undefined || bid < 0 || ask <= 0 || bid > ask
+    || !Number.isFinite(observed)
+    || observed > now.getTime() + BROKER_CLOCK_SKEW_MS
+    || now.getTime() - observed > QUOTE_MAX_AGE_MS) {
+    throw new Error('OrderMarketQuote:invalid-or-stale')
+  }
+  return { ask, bid, observed }
+}
+
 /** Market-data endpoints may also answer with a single `data` object rather than a collection. */
 function quoteRows(payload: JsonValue): JsonValue[] | undefined {
   const rows = envelopeRows(payload)
@@ -98,16 +124,10 @@ export function orderMarketFromPayloads(
   const quote = exactlyOneRecord(quotePayload, 'OrderMarketQuote')
   const responseSymbol = jsonText(quote.symbol)
   const responseType = jsonText(quote['instrument-type'] ?? quote.instrumentType)
-  const bid = jsonNumber(quote.bid)
-  const ask = jsonNumber(quote.ask)
-  const rawObservedAt = jsonText(quote['updated-at'] ?? quote.updatedAt)
-  const observedTime = Date.parse(rawObservedAt ?? '')
-  if (responseSymbol !== expectedSymbol || responseType !== expectedType
-    || bid === undefined || ask === undefined || bid < 0 || ask <= 0 || bid > ask
-    || !Number.isFinite(observedTime) || observedTime > now.getTime() + 60_000
-    || now.getTime() - observedTime > 15 * 60_000) {
+  if (responseSymbol !== expectedSymbol || responseType !== expectedType) {
     throw new Error('OrderMarketQuote:invalid-or-stale')
   }
+  const { ask, bid, observed: observedTime } = validatedQuote(quote, now)
 
   const instrument = exactlyOneRecord(instrumentPayload, 'OrderMarketInstrument')
   if (jsonText(instrument.symbol)?.toUpperCase() !== (action.kind === 'place_option_order' ? action.underlying : action.symbol)) {
@@ -138,16 +158,10 @@ export function spreadOrderMarketFromPayloads(
   const bySymbol = new Map(quotes.map((quote) => [jsonText(quote.symbol), quote]))
   const parsed = resolvedOptions.map((contract) => {
     const quote = bySymbol.get(contract.symbol)
-    const bid = jsonNumber(quote?.bid)
-    const ask = jsonNumber(quote?.ask)
-    const observed = Date.parse(jsonText(quote?.['updated-at'] ?? quote?.updatedAt) ?? '')
-    if (!quote
-      || jsonText(quote['instrument-type'] ?? quote.instrumentType) !== 'Equity Option'
-      || bid === undefined || ask === undefined || bid < 0 || ask <= 0 || bid > ask
-      || !Number.isFinite(observed) || observed > now.getTime() + 60_000
-      || now.getTime() - observed > 15 * 60_000) {
+    if (jsonText(quote?.['instrument-type'] ?? quote?.instrumentType) !== 'Equity Option') {
       throw new Error('OrderMarketQuote:invalid-or-stale')
     }
+    const { ask, bid, observed } = validatedQuote(quote, now)
     return { ask, bid, observed }
   })
   const bid = Math.round(Math.max(0, parsed[0]!.bid - parsed[1]!.ask) * 1e8) / 1e8

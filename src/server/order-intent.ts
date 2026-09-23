@@ -9,7 +9,7 @@ import { type AppEnv } from './env'
 import { type JsonValue } from '../domain/json-payload'
 import { type BrokerOrderRecord } from '../domain/broker'
 import { brokerAdapterFor } from './brokers'
-import { buildOrderPayload, type OrderPayload } from './order-payload'
+import { buildOrderPayload, echoesOrderPayload, type OrderPayload } from './order-payload'
 import {
   resolveEquityOptionContract,
   resolveEquityOptionTuples,
@@ -55,27 +55,11 @@ async function resolveFreshOrder(
 
 const TERMINAL_ORDER_STATUSES = ['cancelled', 'expired', 'filled', 'rejected', 'removed']
 
-/**
- * Field-for-field the same echo check as before; it reads the adapter's neutral order record
- * instead of the broker's own JSON. Every comparison still treats an unreadable field as
- * "not the order we placed" rather than repairing or defaulting it.
- */
+/** The shared echo, plus: nothing on it has filled, so the whole order is still working. */
 function sameOrderEcho(order: BrokerOrderRecord, intended: OrderPayload): boolean {
-  const legs = order.legs
-  if (order.orderType !== intended['order-type']
-    || order.timeInForce !== intended['time-in-force']
-    || order.priceEffect !== intended['price-effect']
-    || order.price !== Number(intended.price)
-    || legs?.length !== intended.legs.length) return false
-  return intended.legs.every((leg, index) => {
-    const actual = legs[index]
-    if (!actual || actual.action !== leg.action
-      || actual.instrumentType !== leg['instrument-type']
-      || actual.symbol !== leg.symbol
-      || actual.quantity !== leg.quantity
-      || actual.remainingQuantity !== leg.quantity) return false
-    return actual.fillCount === undefined || actual.fillCount === 0
-  })
+  return echoesOrderPayload(order, intended)
+    && (order.legs ?? []).every((leg) => leg?.remainingQuantity === leg?.quantity
+      && (leg?.fillCount === undefined || leg.fillCount === 0))
 }
 
 export function assertReplaceableOrder(order: BrokerOrderRecord, orderId: string, intended: OrderPayload): void {

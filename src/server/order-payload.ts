@@ -1,4 +1,5 @@
 import { type FreshOrderPlacement } from './agent-contracts'
+import { type BrokerOrderRecord } from '../domain/broker'
 
 export type OrderPayload = {
   'advanced-instructions'?: { 'strict-position-effect-validation': true }
@@ -48,4 +49,31 @@ export function buildOrderPayload(
 export function replacementOrderPayload(payload: OrderPayload): Omit<OrderPayload, 'legs'> {
   const { legs: _legs, ...replacement } = payload
   return replacement
+}
+
+/**
+ * Whether a broker's own record of an order states exactly the order Heston built: type, time in
+ * force, price effect, price, and every leg in order. The dry-run and placement receipts, the
+ * replacement receipt, the replaceable-order check and the reconciliation match all start here
+ * and add only what is specific to them, so the rule cannot drift between them. An unreadable
+ * field is "not this order", never repaired.
+ *
+ * Prices compare exactly. `price` is built with `toFixed(2)` and the broker echoes a decimal;
+ * the same decimal parses to the same double, so equality holds for the same price, and any
+ * tolerance could only ever admit a price that was not the one submitted.
+ */
+export function echoesOrderPayload(record: BrokerOrderRecord, intended: OrderPayload): boolean {
+  const legs = record.legs
+  return record.orderType === intended['order-type']
+    && record.timeInForce === intended['time-in-force']
+    && record.priceEffect === intended['price-effect']
+    && record.price === Number(intended.price)
+    && legs?.length === intended.legs.length
+    && intended.legs.every((leg, index) => {
+      const actual = legs[index]
+      return actual?.action === leg.action
+        && actual.instrumentType === leg['instrument-type']
+        && actual.symbol === leg.symbol
+        && actual.quantity === leg.quantity
+    })
 }

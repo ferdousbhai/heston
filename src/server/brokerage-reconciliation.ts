@@ -1,9 +1,10 @@
 import { type AgentTool } from '../domain/agent-tool'
 import { Type } from 'typebox'
 
-import { type OrderPayload } from './order-payload'
+import { echoesOrderPayload, type OrderPayload } from './order-payload'
+import { BROKER_CLOCK_SKEW_MS } from './order-market'
 import { type AppEnv } from './env'
-import { type BrokerOrderRecord, type BrokerOrderRecordLeg } from '../domain/broker'
+import { type BrokerOrderRecord } from '../domain/broker'
 import { type JsonValue } from '../domain/json-payload'
 import { resolveStoredOrderFingerprint } from './order-intent'
 import { brokerAdapterFor } from './brokers'
@@ -126,13 +127,21 @@ const ReconcileParameters = Type.Object({}, { additionalProperties: false })
 // failure before sending is still treated as ambiguous) is covered the same way: it stays
 // quarantined until this window passes with a complete history and no match.
 const FINAL_ABSENCE_DELAY_MS = 15 * 60_000
-function sameLeg(actual: BrokerOrderRecordLeg | undefined, intended: OrderPayload['legs'][number]): boolean {
-  if (!actual) return false
-  return actual.action === intended.action
-    && actual.instrumentType === intended['instrument-type']
-    && actual.quantity === intended.quantity
-    && actual.symbol === intended.symbol
-}
+/**
+ * How far before `submitted_at` a matching order may have been received. A claimed row is
+ * written before its request leaves, so for it only clock skew applies. Rows the earlier
+ * quarantine path wrote recorded `submitted_at` after the request had returned -- up to its
+ * transport timeout plus the post-lease write -- and must still match, or an absent-looking
+ * order would later be settled as never placed. This is a margin over that lag, not a figure
+ * derived from one.
+ */
+const SUBMISSION_RECORD_LAG_MS = 2 * 60_000
+/**
+ * Order history is asked for by calendar date, which the broker reads in its own zone. Starting
+ * one full day before the submission instant puts that instant on or after the start date in
+ * any zone, since no zone offset reaches 24 hours.
+ */
+const ORDER_HISTORY_DATE_MARGIN_MS = 24 * 60 * 60_000
 
 /** Exact order fingerprint match; timestamps keep unrelated duplicate orders from clearing quarantine. */
 export function matchesSubmittedOrder(
@@ -142,18 +151,12 @@ export function matchesSubmittedOrder(
   now = new Date(),
   replacedOrderId?: string,
 ): boolean {
-  const legs = row.legs
-  if (legs?.length !== intended.legs.length) return false
   const receivedAt = Date.parse(row.receivedAt ?? row.updatedAt ?? '')
   if (!Number.isFinite(receivedAt)
-    || receivedAt < submittedAt.getTime() - 2 * 60_000
-    || receivedAt > now.getTime() + 60_000) return false
+    || receivedAt < submittedAt.getTime() - SUBMISSION_RECORD_LAG_MS
+    || receivedAt > now.getTime() + BROKER_CLOCK_SKEW_MS) return false
   return (!replacedOrderId || row.replacesOrderId === replacedOrderId)
-    && row.orderType === intended['order-type']
-    && row.timeInForce === intended['time-in-force']
-    && row.priceEffect === intended['price-effect']
-    && row.price === Number(intended.price)
-    && legs.every((leg, index) => sameLeg(leg, intended.legs[index]!))
+    && echoesOrderPayload(row, intended)
 }
 
 export async function reconcileUnknownBrokerageAction(
@@ -177,7 +180,7 @@ export async function reconcileUnknownBrokerageAction(
   const fingerprint = await resolveStoredOrderFingerprint(env, JSON.parse(stored.payload_json))
   const intended = fingerprint.payload
   const replacedOrderId = fingerprint.action.kind === 'replace_order' ? fingerprint.action.orderId : undefined
-  const startDate = new Date(submittedAt.getTime() - 24 * 60 * 60_000).toISOString().slice(0, 10)
+  const startDate = new Date(submittedAt.getTime() - ORDER_HISTORY_DATE_MARGIN_MS).toISOString().slice(0, 10)
   const history = await adapter.readOrderHistory(env, ref, { startDate }, credential)
   const matches = history.orders.filter((row) => matchesSubmittedOrder(row, intended, submittedAt, now, replacedOrderId))
   if (matches.length !== 1) {

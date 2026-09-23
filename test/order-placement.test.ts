@@ -8,6 +8,8 @@ import { PortfolioRiskError } from '../src/server/portfolio-risk'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { resetInternalWatchlistWriter, setInternalWatchlistWriter } from '../src/server/internal-watchlist'
 import { resetTradeGuards, setTradeGuards } from '../src/server/trade-guards'
+import { type JsonValue } from '../src/domain/json-payload'
+import { type AppEnv } from '../src/server/env'
 import { unsupportedDatabase, unsupportedStatement } from './fake-d1'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 import { brokerCredential, stubAdapter, stubBroker, STUB_BROKER_ID, stubBrokerCredential } from './broker-stub'
@@ -53,10 +55,10 @@ function allowingGuards() {
 }
 
 /** A broker whose dry-run is clean and whose submission is whatever the test says. */
-function brokerSubmitting(submit: () => Promise<unknown>, account = 'TEST123') {
+function brokerSubmitting(submit: () => Promise<JsonValue>, account = 'TEST123') {
   const brokerage = stubBroker()
   brokerage.resolveAccountNumber.mockResolvedValue(account)
-  brokerage.tastyRequest.mockImplementation(async (_env: unknown, path: string) => (
+  brokerage.tastyRequest.mockImplementation(async (_env: AppEnv, path: string) => (
     path.endsWith('/dry-run') ? ACCEPTED_ORDER_RESPONSE : submit()
   ))
   setBrokerApi(brokerage)

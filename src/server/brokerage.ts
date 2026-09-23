@@ -1,7 +1,5 @@
 import { type AppEnv } from './env'
 import {
-  JsonArraySchema,
-  jsonObject,
   JsonObjectArraySchema,
   jsonObjectOrEmpty,
   jsonText,
@@ -11,7 +9,8 @@ import {
 import { type OrderPlacement } from './agent-contracts'
 import { claimSubmission, settleSubmission } from './brokerage-reconciliation'
 import { resolveOrderIntent, type ResolvedOrderIntent } from './order-intent'
-import { replacementOrderPayload, type OrderPayload } from './order-payload'
+import { echoesOrderPayload, replacementOrderPayload, type OrderPayload } from './order-payload'
+import { tastytradeOrderRecord } from './brokers/tastytrade'
 import { brokerApi } from './tastytrade'
 import { tradeGuards } from './trade-guards'
 import { OwnerVisibleError } from './owner-visible-error'
@@ -25,16 +24,6 @@ export type ReplacementReceipt = { id: string }
 // allowing a rejection body to dominate logs, stored errors, or the agent response.
 const MAX_BROKER_MESSAGE_LENGTH = 160
 const MAX_BROKER_MESSAGES_PER_KIND = 5
-
-function rows(value: JsonValue): JsonObject[] {
-  const items = JsonArraySchema.safeParse(value).data
-  if (!items) throw new Error('TastytradeOrderResponse:invalid-order-legs')
-  return items.map((row) => {
-    const parsed = jsonObject(row)
-    if (!parsed) throw new Error('TastytradeOrderResponse:invalid-order-leg')
-    return parsed
-  })
-}
 
 function messageRows(value: JsonValue): JsonObject[] {
   if (value === undefined || value === null) return []
@@ -71,23 +60,12 @@ export function validateOrderResponse(payload: JsonValue, intended: OrderPayload
   if (!Object.keys(order).length || !Object.keys(buyingPower).length) {
     throw new Error('TastytradeOrderResponse:missing-order-or-buying-power')
   }
-  const echoedLegs = rows(order.legs)
-  const echoedPrice = Number(order.price)
-  const buyingPowerEffect = String(buyingPower.effect ?? '')
-  const echoesIntent = order['order-type'] === intended['order-type']
-    && order['time-in-force'] === intended['time-in-force']
-    && Number.isFinite(echoedPrice)
-    && Math.abs(echoedPrice - Number(intended.price)) < 1e-9
-    && buyingPowerEffect === intended['price-effect']
-    && echoedLegs.length === intended.legs.length
-    && intended.legs.every((leg, index) => {
-      const echoed = echoedLegs[index]
-      return echoed?.action === leg.action
-        && echoed?.['instrument-type'] === leg['instrument-type']
-        && echoed?.symbol === leg.symbol
-        && Number(echoed?.quantity) === leg.quantity
-    })
-  if (!echoesIntent) throw new Error('TastytradeOrderResponse:echo-mismatch')
+  // Only the presence of a buying-power effect is required: it is a different fact from the
+  // order's price effect. A Buy to Close debit on a short frees margin, so its buying-power
+  // effect is a Credit, and requiring the two to agree refused exactly the risk-reducing orders.
+  if (!echoesOrderPayload(tastytradeOrderRecord(order), intended)) {
+    throw new Error('TastytradeOrderResponse:echo-mismatch')
+  }
   const id = order.id === undefined || order.id === null ? undefined : String(order.id)
   return { id: id && /^\d{1,40}$/.test(id) ? id : undefined, warnings }
 }
@@ -126,21 +104,10 @@ export function validateReplacementReceipt(
     const body = jsonObjectOrEmpty(payload)
     const order = jsonObjectOrEmpty(body.data ?? body)
     const id = String(order.id ?? '')
-    const legs = rows(order.legs)
+    const record = tastytradeOrderRecord(order)
     const exact = /^\d{1,40}$/.test(id)
-      && String(order['replaces-order-id'] ?? '') === replacedOrderId
-      && order['order-type'] === intended['order-type']
-      && order['time-in-force'] === intended['time-in-force']
-      && order['price-effect'] === intended['price-effect']
-      && Number(order.price) === Number(intended.price)
-      && legs.length === intended.legs.length
-      && intended.legs.every((leg, index) => {
-        const actual = legs[index]
-        return actual?.action === leg.action
-          && actual?.['instrument-type'] === leg['instrument-type']
-          && actual?.symbol === leg.symbol
-          && Number(actual?.quantity) === leg.quantity
-      })
+      && record.replacesOrderId === replacedOrderId
+      && echoesOrderPayload(record, intended)
     if (!exact) throw new Error('TastytradeReplacementResponse:echo-mismatch')
     return { id }
   } catch {
@@ -162,12 +129,9 @@ export function validatePlacedOrderResponse(payload: JsonValue, intended: OrderP
   return { id: receipt.id, warnings: receipt.warnings }
 }
 
-export type PlacementOutcome = { detail: string; intent: ResolvedOrderIntent; orderId: string }
+type SubmissionReceipt = { detail: string; orderId: string }
 
-/** A provider 4xx: the broker positively refused the request, so nothing was placed. */
-function definiteRejection(error: unknown): boolean {
-  return error instanceof Error && error.name === 'TastytradeApiError'
-}
+export type PlacementOutcome = SubmissionReceipt & { intent: ResolvedOrderIntent }
 
 /**
  * Resolve, guard, dry-run, and submit one order under the account's mutation lease.
@@ -216,14 +180,15 @@ export async function executeOrderPlacement(
         body,
       }, credential)
     } catch (error) {
-      if (definiteRejection(error)) {
+      // A provider 4xx: the broker positively refused the request, so nothing was placed.
+      if (error instanceof Error && error.name === 'TastytradeApiError') {
         await settleSubmission(env, submissionId, { errorCode: 'TastytradeApiError', status: 'failed' })
         throw error
       }
       // Ambiguous: the claimed row stays `unresolved`, which is the quarantine.
       throw new BrokerageSubmissionUnknownError()
     }
-    let receipt: { detail: string; orderId: string }
+    let receipt: SubmissionReceipt
     try {
       if (intent.replaceOrderId) {
         const replaced = validateReplacementReceipt(placed, intent.replaceOrderId, intent.payload)

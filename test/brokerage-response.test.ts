@@ -20,7 +20,7 @@ const intended = {
   }],
 }
 const brokerOrder = {
-  'order-type': 'Limit', 'time-in-force': 'Day', price: '5.05', id: 123,
+  'order-type': 'Limit', 'time-in-force': 'Day', price: '5.05', 'price-effect': 'Debit', id: 123,
   legs: intended.legs,
 }
 
@@ -81,6 +81,26 @@ describe('broker order response boundary', () => {
     expect(() => validateOrderResponse({ data: {
       order: { ...brokerOrder, price: '6.00' }, 'buying-power-effect': { effect: 'Debit' },
     } }, intended)).toThrow('echo-mismatch')
+  })
+
+  it('accepts a risk-reducing close whose buying-power effect is the opposite of its price effect', () => {
+    // Buying back a short option is a debit that frees margin: the broker reports its
+    // buying-power effect as a Credit. That is a different fact from the price effect, and it
+    // must not read as an echo mismatch.
+    const buyToClose = buildOrderPayload({
+      action: 'Buy to Close', expiry: '2026-09-18', kind: 'place_option_order', limitPrice: 1.2,
+      optionType: 'P', priceEffect: 'Debit', quantity: 1, strike: 600, underlying: 'SPY',
+    }, ['SPY   260918P00600000'])
+    const echoed = {
+      id: 789, legs: buyToClose.legs, 'order-type': 'Limit', price: '1.20', 'price-effect': 'Debit', 'time-in-force': 'Day',
+    }
+    expect(validateOrderResponse({ data: {
+      order: echoed, 'buying-power-effect': { effect: 'Credit', 'change-in-buying-power': '880' },
+    } }, buyToClose)).toEqual({ id: '789', warnings: [] })
+    // The order's own price effect is still compared.
+    expect(() => validateOrderResponse({ data: {
+      order: { ...echoed, 'price-effect': 'Credit' }, 'buying-power-effect': { effect: 'Credit' },
+    } }, buyToClose)).toThrow('echo-mismatch')
   })
 
   it('fails closed on a dry-run warning before placement', () => {
