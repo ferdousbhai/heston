@@ -376,3 +376,32 @@ describe('live market subscriptions', () => {
     expect(tickerCollection.get(original.symbol)?.updatedAt).toBe(refreshedAt)
   })
 })
+
+describe('a refresh that no longer carries a reading', () => {
+  it('drops a field the incoming row lacks, whether the refresh merges or replaces', async () => {
+    const snapshot = marketSnapshotFixture()
+    const original = snapshot.tickers.find((ticker) => ticker.symbol === 'NVDA')!
+    await hydrateCollections({ ...snapshot, tickers: [original] }, 'public')
+    expect(tickerCollection.get('NVDA')).toMatchObject({ ivRank: 72, marketCap: original.marketCap })
+
+    // A newer live tick makes the merge keep the live quote; the retired readings still go.
+    const tickAt = new Date(Date.parse(original.updatedAt) + 60_000).toISOString()
+    applyLiveMarketEvent({ type: 'market', symbol: 'NVDA', price: original.price + 5, timestamp: tickAt }, 'public')
+    const { ivRank: _ivRank, ivTermStructure: _term, marketCap: _cap, ...thinner } = original
+    await hydrateCollections({ ...snapshot, tickers: [thinner] }, 'public')
+    const merged = tickerCollection.get('NVDA')!
+    expect(merged.ivRank).toBeUndefined()
+    expect(merged.ivTermStructure).toBeUndefined()
+    expect(merged.marketCap).toBeUndefined()
+    expect(merged).toMatchObject({ price: original.price + 5, updatedAt: tickAt })
+
+    // A merge whose snapshot is the newer quote, and a replacement across audiences, alike.
+    const { volume: _volume, ...thinnest } = thinner
+    await hydrateCollections({ ...snapshot, tickers: [{ ...thinnest, updatedAt: new Date(Date.parse(tickAt) + 60_000).toISOString() }] }, 'public')
+    expect(tickerCollection.get('NVDA')?.volume).toBeUndefined()
+    const { yearHigh: _yearHigh, ...owned } = thinnest
+    await hydrateCollections({ ...snapshot, tickers: [owned] }, 'owner')
+    expect(tickerCollection.get('NVDA')?.yearHigh).toBeUndefined()
+    expect(tickerCollection.get('NVDA')).toMatchObject({ price: original.price })
+  })
+})

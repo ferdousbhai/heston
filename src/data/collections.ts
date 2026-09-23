@@ -143,6 +143,22 @@ export function selectLiveMarketSymbols(
     .slice(0, MAX_LIVE_STREAM_SYMBOLS)
 }
 
+/**
+ * A refresh row is the whole of what the provider now reports for its symbol, so an optional
+ * reading it no longer carries -- IV rank the metrics feed dropped, a market cap gone from the
+ * catalog -- is gone, not unchanged. `Object.assign` alone only adds, which kept the retired
+ * reading on screen beside a fresh quote until the page reloaded. The retired key is set to
+ * undefined rather than deleted: TanStack merges an update's changes over the original row, so
+ * a delete on the draft is not a change it can carry, while an explicit undefined is.
+ */
+function assignTickerRow(draft: Ticker, next: Ticker): void {
+  const retired: Partial<Ticker> = draft
+  for (const key of Object.keys(draft) as (keyof Ticker)[]) {
+    if (!(key in next)) retired[key] = undefined
+  }
+  Object.assign(draft, next)
+}
+
 async function replaceLiveTickers(
   rows: readonly Ticker[],
   replaceExisting = false,
@@ -166,16 +182,16 @@ async function replaceLiveTickers(
       drafts.forEach((draft, index) => {
         const ticker = updatedRows[index]!
         if (replaceExisting) {
-          Object.assign(draft, ticker)
+          assignTickerRow(draft, ticker)
           return
         }
         const sparkline = reconcileCandleSeries(draft.sparkline, ticker.sparkline)
         if (Date.parse(draft.updatedAt) > Date.parse(ticker.updatedAt)) {
           const { change, changePercent, price, updatedAt } = draft
-          Object.assign(draft, ticker, { change, changePercent, price, sparkline, updatedAt })
+          assignTickerRow(draft, { ...ticker, change, changePercent, price, sparkline, updatedAt })
           return
         }
-        Object.assign(draft, ticker, { sparkline })
+        assignTickerRow(draft, { ...ticker, sparkline })
       })
     }))
   }
@@ -258,8 +274,10 @@ async function updateSnapshotPreference(snapshot: MarketSnapshot): Promise<void>
  * fields, but not the same rows: each snapshot contract publishes its own watchlist, and the
  * owner's names a provenance the public one must not. Rows therefore cross audiences only by
  * wholesale replacement, never by merge, so the overlay always matches one snapshot's rows.
- * Within one audience a refresh merges, so a live tick newer than the snapshot is kept rather
- * than pulled back to the snapshot's price on every poll.
+ * Within one audience a refresh merges only the live quote -- price, change, and their instant
+ * when a tick is newer than the snapshot, and the richer candle series -- so a live tick is not
+ * pulled back to the snapshot's price on every poll. Every other field, in either case, is the
+ * incoming row's, including a field it no longer carries.
  */
 let liveOverlayAudience: SnapshotAudience | undefined
 
