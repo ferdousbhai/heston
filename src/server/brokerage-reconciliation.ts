@@ -4,10 +4,11 @@ import { Type } from 'typebox'
 import { echoesOrderPayload, type OrderPayload } from './order-payload'
 import { BROKER_CLOCK_SKEW_MS } from './order-market'
 import { type AppEnv } from './env'
-import { type BrokerOrderRecord } from '../domain/broker'
+import { type BrokerAccountRef, type BrokerOrderRecord } from '../domain/broker'
 import { type JsonValue } from '../domain/json-payload'
 import { resolveStoredOrderFingerprint } from './order-intent'
-import { brokerAdapterFor } from './brokers'
+import { brokerAdapterFor, type BrokerAdapter } from './brokers'
+import { brokerApi } from './tastytrade'
 import { textResult } from './agent-tool-result'
 import { BrokerCredentialMissingError, type BrokerCredential } from './broker-credential'
 import { PortfolioRiskError } from './portfolio-risk'
@@ -96,10 +97,16 @@ export type SubmissionOutcome =
   | { errorCode: 'TastytradeApiError' | 'TastytradeOrderRejected'; status: 'failed' }
 
 /**
- * Settle a claimed submission once the broker's answer is definite. Returns whether the row
- * moved. A write that fails leaves the row `unresolved`, which is the safe direction: the
- * account stays quarantined until reconciliation settles it from broker order history, rather
- * than being released on a result nothing recorded. An ambiguous answer is never settled here.
+ * Settle a claimed submission once the broker's answer is definite. Returns whether the row is
+ * now settled as this outcome. A write that fails leaves the row `unresolved`, which is the safe
+ * direction: the account stays quarantined until reconciliation settles it from broker order
+ * history, rather than being released on a result nothing recorded. An ambiguous answer is never
+ * settled here.
+ *
+ * A conditional update that changed nothing is read back rather than assumed lost: a reconcile
+ * that reached the row first (the lease normally prevents that, but it can lapse) may already
+ * have recorded this same outcome, and telling the agent the account stays quarantined would
+ * then be false.
  */
 export async function settleSubmission(env: AppEnv, id: string, outcome: SubmissionOutcome): Promise<boolean> {
   try {
@@ -113,6 +120,11 @@ export async function settleSubmission(env: AppEnv, id: string, outcome: Submiss
       ).bind(outcome.errorCode, id)
     const update = await statement.run()
     if (update.meta.changes === 1) return true
+    const row = await env.DB.prepare(
+      'SELECT status, provider_order_id FROM broker_submissions WHERE id = ?',
+    ).bind(id).first<{ provider_order_id: string | null; status: string }>()
+    if (row && row.status === outcome.status
+      && (outcome.status !== 'executed' || row.provider_order_id === outcome.providerOrderId)) return true
   } catch {
     // Fall through to the fixed marker below.
   }
@@ -194,11 +206,30 @@ export async function reconcileUnknownBrokerageAction(
   now = new Date(),
 ): Promise<ReconciliationResult> {
   if (!credential) throw new BrokerCredentialMissingError()
-  if (!env.DB) throw new CallerVisibleError('TastytradeReconciliation:store-unavailable')
+  const db = env.DB
+  if (!db) throw new CallerVisibleError('TastytradeReconciliation:store-unavailable')
   // Scoped to the account the presented credential resolves to: a member may only reconcile
   // their own quarantine, and possession of a row id is never authority to touch it.
   const adapter = brokerAdapterFor(credential)
   const ref = await adapter.resolveAccountRef(env, credential)
+  // Under the account's mutation lease, the one a placement holds from its dry-run through its
+  // settle. Without it a reconcile run beside an in-flight placement could match the order after
+  // the broker accepted it and settle the row first, and the placement would then tell its agent
+  // the account stays quarantined. The lease waits rather than refuses, so a reconcile queued
+  // behind a placement runs once that placement has settled or quarantined its own row.
+  return brokerApi().withBrokerMutationLease(env, ref.accountNumber, () => (
+    reconcileUnderLease(env, db, credential, adapter, ref, now)
+  ))
+}
+
+async function reconcileUnderLease(
+  env: AppEnv,
+  db: D1Database,
+  credential: BrokerCredential,
+  adapter: BrokerAdapter,
+  ref: BrokerAccountRef,
+  now: Date,
+): Promise<ReconciliationResult> {
   const stored = await unresolvedSubmission(env, credential.broker, ref.accountNumber)
   if (!stored) return { detail: 'No brokerage submission needs reconciliation.', status: 'none' }
 
@@ -218,13 +249,13 @@ export async function reconcileUnknownBrokerageAction(
   const matches = history.orders.filter((row) => matchesSubmittedOrder(row, intended, submittedAt, now, replacedOrderId))
   if (matches.length !== 1) {
     if (matches.length === 0 && history.complete && now.getTime() - submittedAt.getTime() >= FINAL_ABSENCE_DELAY_MS) {
-      const update = await env.DB.prepare(
+      const update = await db.prepare(
         "UPDATE broker_submissions SET status = 'failed', error_code = 'BrokerageSubmissionNotFound' WHERE id = ? AND status = 'unresolved'",
       ).bind(stored.id).run()
       if (update.meta.changes === 1) {
         return { actionId: stored.id, detail: 'No matching broker order appeared after the reconciliation window.', status: 'failed' }
       }
-      return settledElsewhere(env.DB, stored.id)
+      return settledElsewhere(db, stored.id)
     }
     const reason = matches.length > 1 ? 'More than one exact broker match was found.' : 'No exact broker match is visible yet.'
     return { actionId: stored.id, detail: `${reason} The quarantine remains in place.`, status: 'unresolved' }
@@ -238,14 +269,14 @@ export async function reconcileUnknownBrokerageAction(
   // price-only replacement can resolve the order's shape from, exactly as if the placement had
   // settled it directly.
   const update = await (rejected
-    ? env.DB.prepare(
+    ? db.prepare(
       "UPDATE broker_submissions SET status = 'failed', error_code = 'TastytradeOrderRejected' WHERE id = ? AND status = 'unresolved'",
     ).bind(stored.id)
-    : env.DB.prepare(
+    : db.prepare(
       "UPDATE broker_submissions SET status = 'executed', error_code = NULL, provider_order_id = ? WHERE id = ? AND status = 'unresolved'",
     ).bind(providerOrderId, stored.id)
   ).run()
-  if (update.meta.changes !== 1) return settledElsewhere(env.DB, stored.id)
+  if (update.meta.changes !== 1) return settledElsewhere(db, stored.id)
   return {
     actionId: stored.id,
     detail: rejected ? `Broker order #${providerOrderId} was rejected.` : `Broker order #${providerOrderId} was found and recorded.`,

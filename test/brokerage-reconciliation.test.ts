@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { matchesSubmittedOrder, reconcileUnknownBrokerageAction } from '../src/server/brokerage-reconciliation'
 import { BrokerageSubmissionUnknownError } from '../src/server/brokerage'
@@ -162,6 +162,7 @@ describe('brokerage submission reconciliation', () => {
     }
 
     function historyWith(orders: BrokerOrderRecord[]) {
+      setBrokerApi(stubBroker())
       setBrokerAdapters({
         tastytrade: {
           ...tastytradeAdapter,
@@ -219,6 +220,7 @@ describe('brokerage submission reconciliation', () => {
       JSON.stringify({ ...intended, price: '2.55' }),
       new Date().toISOString(),
     )
+    setBrokerApi(stubBroker())
     setBrokerAdapters({
       tastytrade: {
         ...tastytradeAdapter,
@@ -270,5 +272,99 @@ describe('brokerage submission reconciliation', () => {
 
     await expect(reconcileUnknownBrokerageAction({ DB: store.database }, brokerCredential))
       .resolves.toMatchObject({ providerOrderId: '43', status: 'executed' })
+  })
+
+  describe('beside an in-flight placement', () => {
+    const equityOrder = {
+      action: 'Buy to Open' as const, kind: 'place_equity_order' as const, limitPrice: 700,
+      priceEffect: 'Debit' as const, quantity: 1, symbol: 'SPY',
+    }
+    const echoed = {
+      id: 123,
+      legs: [{ action: 'Buy to Open', 'instrument-type': 'Equity', quantity: 1, symbol: 'SPY' }],
+      'order-type': 'Limit', price: '700.00', 'price-effect': 'Debit', 'time-in-force': 'Day',
+    }
+    const accepted = { data: { 'buying-power-effect': { effect: 'Debit' }, order: echoed, warnings: [] } }
+
+    /** A placement whose submission is held open until the test answers it. */
+    function heldPlacement() {
+      let answer: (value: JsonValue) => void = () => undefined
+      const brokerage = stubBroker()
+      brokerage.resolveAccountNumber.mockResolvedValue('TEST123')
+      brokerage.tastyRequest.mockImplementation(async (_env: AppEnv, path: string): Promise<JsonValue> => (
+        path.endsWith('/dry-run') ? accepted : new Promise((resolve) => { answer = resolve })
+      ))
+      setBrokerApi(brokerage)
+      setInternalWatchlistWriter({ ensureSymbols: async () => [] })
+      setTradeGuards({
+        assertOrderMarketSafe: async () => ({ ask: 700, bid: 699, observedAt: new Date().toISOString(), tickSize: 0.01 }),
+        assertPortfolioActionAllowed: async () => undefined,
+      })
+      const historyReads: number[] = []
+      setBrokerAdapters({
+        tastytrade: {
+          ...tastytradeAdapter,
+          readOrderHistory: async () => {
+            historyReads.push(Date.now())
+            return {
+              complete: true,
+              orders: [tastytradeOrderRecord({ ...echoed, 'received-at': new Date().toISOString(), status: 'Live' })],
+            }
+          },
+          resolveAccountRef: async () => ({ accountNumber: 'TEST123', broker: 'tastytrade' }),
+        },
+      })
+      return { answer: (value: JsonValue) => answer(value), brokerage, historyReads }
+    }
+
+    function submitted(brokerage: ReturnType<typeof stubBroker>) {
+      return brokerage.tastyRequest.mock.calls.filter(([, path]) => !String(path).endsWith('/dry-run'))
+    }
+
+    it('waits for the placement to settle under the account lease instead of settling its row', async () => {
+      const { answer, brokerage, historyReads } = heldPlacement()
+      // A lease that serializes, as the Durable Object's does: the next holder waits.
+      let tail: Promise<unknown> = Promise.resolve()
+      brokerage.withBrokerMutationLease.mockImplementation(async (_env, _account, operation) => {
+        const run = tail.then(() => operation({ renew: brokerage.renewBrokerMutationLease }))
+        tail = run.catch(() => undefined)
+        return run
+      })
+      store = await migrationStore()
+      const env = { DB: store.database }
+
+      const placement = placeBrokerageOrder(env, equityOrder, brokerCredential)
+      await vi.waitFor(() => expect(submitted(brokerage)).toHaveLength(1))
+      const reconcile = reconcileUnknownBrokerageAction(env, brokerCredential)
+      // The broker has the order, the placement has not settled it: reconciliation must not
+      // have read history yet, or it could settle the row out from under the placement.
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      expect(historyReads).toEqual([])
+
+      answer(accepted)
+      await expect(placement).resolves.toEqual({ detail: 'Order #123 accepted by tastytrade.', orderId: '123' })
+      await expect(reconcile).resolves.toEqual({ detail: 'No brokerage submission needs reconciliation.', status: 'none' })
+      expect(store.sqlite.prepare('SELECT status, provider_order_id FROM broker_submissions').all())
+        .toEqual([{ provider_order_id: '123', status: 'executed' }])
+    })
+
+    it('reports the placement settled when a reconcile already recorded the same order', async () => {
+      // The stub lease does not serialize: the lapsed-lease case, where only the read-back
+      // keeps the placement from telling its agent a settled account is still quarantined.
+      const { answer, brokerage } = heldPlacement()
+      store = await migrationStore()
+      const env = { DB: store.database }
+
+      const placement = placeBrokerageOrder(env, equityOrder, brokerCredential)
+      await vi.waitFor(() => expect(submitted(brokerage)).toHaveLength(1))
+      await expect(reconcileUnknownBrokerageAction(env, brokerCredential))
+        .resolves.toMatchObject({ providerOrderId: '123', status: 'executed' })
+
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      answer(accepted)
+      await expect(placement).resolves.toEqual({ detail: 'Order #123 accepted by tastytrade.', orderId: '123' })
+      expect(logged).not.toHaveBeenCalledWith('BrokerageSubmissionSettleFailed')
+      logged.mockRestore()
+    })
   })
 })
