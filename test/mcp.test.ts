@@ -133,6 +133,9 @@ describe('MCP bearer authentication', () => {
     const challenge = response.headers.get('WWW-Authenticate') ?? ''
     expect(challenge).toMatch(/^Bearer\b/)
     expect(challenge).toContain('invalid_token')
+    // RFC 9728: the discovery document a client starts the OAuth flow from, at the path
+    // `handleWellKnownDiscovery` serves.
+    expect(challenge).toContain('resource_metadata="https://heston.io/.well-known/oauth-protected-resource/mcp"')
   })
 })
 

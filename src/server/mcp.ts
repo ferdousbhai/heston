@@ -329,11 +329,25 @@ function serveMcp(
  * nothing downstream can tell them apart, which is the point.
  *
  * A minted token is recognised by its shape alone, so it is decided by one indexed read and never
- * reaches the JWT verifier, whether it authenticates or not. Anything else is handed to the provider, which verifies the signature, issuer, audience and
- * expiry against the published JWKS and answers an unauthenticated caller with the RFC 9728
- * challenge naming the discovery document. That challenge is what makes the flow self-starting,
- * and it is why this no longer hand-writes one.
+ * reaches the JWT verifier, whether it authenticates or not. Anything else is verified here, in
+ * process (`verifyMcpAccessToken`): signature against this server's own signing keys, then issuer,
+ * audience and expiry. Every refusal is written here too, and each carries the RFC 9728
+ * `resource_metadata` parameter naming the discovery document. That parameter is what makes the
+ * OAuth flow self-starting: a client holding a stale or foreign token learns where to begin.
  */
+/**
+ * RFC 9728 §3.1: the metadata for resource `<origin>/mcp` is published at the well-known name with
+ * the resource path appended. `handleWellKnownDiscovery` serves it at exactly this path.
+ */
+const PROTECTED_RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource/mcp'
+
+/** A 401 `invalid_token` challenge that names the discovery document, for every refusal below. */
+function authChallenge(request: Request, description: string): Response {
+  return bearerAuthChallengeResponse(new OAuthError('invalid_token', description), {
+    resourceMetadataUrl: new URL(PROTECTED_RESOURCE_METADATA_PATH, request.url).toString(),
+  })
+}
+
 export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpExecutionContext): Promise<Response> {
   // No credential at all is a caller, not a refusal. The public market surface has always been
   // readable without an account through the website, and an agent asking the same question should
@@ -344,7 +358,7 @@ export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpEx
 
   const presented = presentedBearer(request)
   if (!presented) {
-    return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'Send the token as a bearer credential.'))
+    return authChallenge(request, 'Send the token as a bearer credential.')
   }
 
   // A string shaped like a minted token is only ever that. A revoked or mistyped one is refused
@@ -354,7 +368,7 @@ export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpEx
     const minted = await resolveMcpCaller(request, env)
     if (minted) return serveMcp(request, env, ctx, minted)
     console.error('McpTokenRejected')
-    return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'This agent token is not live. Issue a new one from the Connect tab.'))
+    return authChallenge(request, 'This agent token is not live. Issue a new one from the Connect tab.')
   }
 
   let runtime
@@ -367,7 +381,7 @@ export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpEx
     // would be the one shape that risks opening the surface. The outage is observable in this log
     // line rather than in the status code.
     console.error('McpAuthUnavailable', error instanceof Error ? error.name : 'UnknownError')
-    return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'Heston could not verify this request.'))
+    return authChallenge(request, 'Heston could not verify this request.')
   }
 
   let claims
@@ -381,14 +395,14 @@ export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpEx
     // loses the challenge that would let them authenticate; it also reads as a broken endpoint
     // rather than a bad token, which is how a whole broken flow stayed invisible.
     console.error('McpOAuthVerificationFailed', error instanceof Error ? error.name : 'UnknownError')
-    return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'Heston could not verify this token.'))
+    return authChallenge(request, 'Heston could not verify this token.')
   }
 
   const caller = await callerForUser(runtime.database, claims.sub)
   // A token whose subject is not a user this server knows authenticates nothing.
   if (!caller) {
     console.error('McpAuthRejected')
-    return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'This token does not identify a Heston member.'))
+    return authChallenge(request, 'This token does not identify a Heston member.')
   }
   return serveMcp(request, env, ctx, caller)
 }

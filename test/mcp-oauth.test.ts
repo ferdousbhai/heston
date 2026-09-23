@@ -82,6 +82,8 @@ describe('MCP OAuth callers', () => {
     const response = await handleMcpRequest(toolsList(`Bearer ${token}`), env, executionContext)
     expect(response.status).toBe(401)
     expect(response.headers.get('WWW-Authenticate')).toContain('invalid_token')
+    expect(response.headers.get('WWW-Authenticate'))
+      .toContain(`resource_metadata="${BASE_URL}/.well-known/oauth-protected-resource/mcp"`)
     expect(logged).toHaveBeenCalledWith('McpAuthRejected')
   })
 

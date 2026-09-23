@@ -23,7 +23,6 @@ const ClaimsSchema = z.object({
    * half of a sender-constrained token is weaker than the constraint promised.
    */
   cnf: z.unknown().optional(),
-  jti: z.string().min(1).optional(),
   sub: z.string().min(1),
 })
 
