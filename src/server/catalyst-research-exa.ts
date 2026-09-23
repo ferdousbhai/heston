@@ -3,6 +3,7 @@ import { z } from 'zod'
 import {
   CATALYST_HORIZON_DAYS,
   CatalystKindSchema,
+  CatalystTimingSchema,
   marketDate,
   MAX_CATALYST_DESCRIPTION_LENGTH,
   MAX_CATALYST_TITLE_LENGTH,
@@ -39,9 +40,6 @@ const MAX_RESULT_CHARACTERS = 4_000
 const MAX_EXA_EVENTS = 50
 const EXA_REQUEST_TIMEOUT_MS = 30_000
 
-/** The timings a catalyst carries, asked for and read back through one list. */
-const EXA_TIMINGS = ['pre-market', 'intraday', 'after-hours', 'unknown'] as const
-
 const EXA_OUTPUT_SCHEMA = {
   additionalProperties: false,
   properties: {
@@ -53,7 +51,7 @@ const EXA_OUTPUT_SCHEMA = {
           description: { type: 'string' },
           kind: { enum: CatalystKindSchema.options, type: 'string' },
           sourceUrl: { description: 'The result URL this event was read from', type: 'string' },
-          timing: { enum: EXA_TIMINGS, type: 'string' },
+          timing: { enum: CatalystTimingSchema.options, type: 'string' },
           title: { type: 'string' },
         },
         required: ['date', 'kind', 'title', 'sourceUrl'],
@@ -84,7 +82,7 @@ const ExaEventSchema = z.object({
   description: z.string().min(1).max(MAX_CATALYST_DESCRIPTION_LENGTH).optional(),
   kind: CatalystKindSchema,
   sourceUrl: z.string().url(),
-  timing: z.enum(EXA_TIMINGS).optional(),
+  timing: CatalystTimingSchema.optional(),
   title: z.string().min(1).max(MAX_CATALYST_TITLE_LENGTH),
 })
 

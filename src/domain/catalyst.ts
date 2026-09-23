@@ -31,7 +31,7 @@ export const CatalystKindSchema = z.enum([
   'conference', 'shareholder',
 ])
 const CatalystConfidenceSchema = z.enum(['confirmed', 'estimated'])
-const CatalystTimingSchema = z.enum(['pre-market', 'intraday', 'after-hours', 'unknown'])
+export const CatalystTimingSchema = z.enum(['pre-market', 'intraday', 'after-hours', 'unknown'])
 
 export const CatalystSchema = z.object({
   id: z.string(),

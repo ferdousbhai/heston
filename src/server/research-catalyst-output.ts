@@ -3,6 +3,7 @@ import { z } from 'zod'
 import {
   CATALYST_HORIZON_DAYS,
   CatalystKindSchema,
+  CatalystTimingSchema,
   marketDate,
   MAX_CATALYST_DESCRIPTION_LENGTH,
   MAX_CATALYST_TITLE_LENGTH,
@@ -21,7 +22,7 @@ export const ResearchCatalystCandidateSchema = z.strictObject({
   kind: CatalystKindSchema,
   sourceIndex: z.number().int().nonnegative(),
   symbol: EquitySymbolSchema,
-  timing: z.enum(['pre-market', 'intraday', 'after-hours', 'unknown']),
+  timing: CatalystTimingSchema,
   title: z.string().min(1).max(MAX_CATALYST_TITLE_LENGTH),
 })
 
