@@ -14,7 +14,7 @@ export type BrokerageContext = BrokerAccountSnapshot & {
 
 export async function loadBrokerageContext(
   env: AppEnv,
-  credential?: BrokerCredential,
+  credential: BrokerCredential | undefined,
 ): Promise<BrokerageContext> {
   const adapter = brokerAdapterFor(credential)
   const ref = await adapter.resolveAccountRef(env, credential)

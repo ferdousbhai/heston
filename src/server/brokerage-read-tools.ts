@@ -621,7 +621,7 @@ export function createInstrumentQuoteReadTool(
   }
 }
 
-export function createBrokerageReadTools(env: AppEnv, credential?: BrokerCredential) {
+export function createBrokerageReadTools(env: AppEnv, credential: BrokerCredential | undefined) {
   return [
     createAccountSnapshotReadTool(env, credential),
     createAccountHistoryReadTool(env, credential),

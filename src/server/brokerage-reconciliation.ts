@@ -257,7 +257,12 @@ async function reconcileUnderLease(
       }
       return settledElsewhere(db, stored.id)
     }
-    const reason = matches.length > 1 ? 'More than one exact broker match was found.' : 'No exact broker match is visible yet.'
+    // An order the broker refused never reaches its history, so absence is the only way it
+    // settles; say when that can be concluded rather than leave the caller polling blind.
+    const absenceFinalAt = new Date(submittedAt.getTime() + FINAL_ABSENCE_DELAY_MS).toISOString()
+    const reason = matches.length > 1
+      ? 'More than one exact broker match was found.'
+      : `No exact broker match is visible yet; if none appears, absence can be concluded from ${absenceFinalAt}.`
     return { actionId: stored.id, detail: `${reason} The quarantine remains in place.`, status: 'unresolved' }
   }
 
