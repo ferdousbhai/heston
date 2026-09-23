@@ -1,4 +1,4 @@
-import { type ReadPage, TRUNCATED_READ_MISS } from './research-page-retention'
+import { type ReadPage, truncatedReadMiss } from './research-page-retention'
 
 /*
  * A quote is bound to what this Worker actually read. Native web search runs inside the
@@ -60,6 +60,6 @@ export function quoteBindingRefusal(page: ReadPage, quote: string): string | und
   if (withoutWords) return withoutWords
   if (normalizedCitationText(page.markdown).includes(normalizedCitationText(quote))) return undefined
   return page.truncated
-    ? `quote ${TRUNCATED_READ_MISS} its source: "${quote.slice(0, REJECTED_QUOTE_EXCERPT_CHARS)}"`
+    ? `quote ${truncatedReadMiss(page)} its source: "${quote.slice(0, REJECTED_QUOTE_EXCERPT_CHARS)}"`
     : quoteAbsentFromSourceReason(quote)
 }

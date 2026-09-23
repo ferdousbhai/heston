@@ -24,7 +24,7 @@ function candidate(overrides: Partial<ResearchCatalystCandidate> = {}): Research
 }
 
 function retained(markdown: string, truncated = false): Map<string, RetainedPage> {
-  return new Map([[PAGE_URL, { markdown, readAt: NOW.toISOString(), truncated }]])
+  return new Map([[PAGE_URL, { markdown, readAt: NOW.toISOString(), readCharacters: MAX_PAGE_MARKDOWN_CHARS, truncated }]])
 }
 
 describe('structured catalyst output binding', () => {
@@ -66,7 +66,7 @@ describe('structured catalyst output binding', () => {
       [candidate()],
       SOURCES,
       retained('NVIDIA will hold an investor day next quarter.', true), NOW, 'member-research').rejected)
-      .toEqual([`catalyst 1: 2026-09-15 not found in the first ${MAX_PAGE_MARKDOWN_CHARS} characters read of its source page`])
+      .toEqual([`catalyst 1: 2026-09-15 not found in a read cut at ${MAX_PAGE_MARKDOWN_CHARS} characters of its source page`])
   })
 
   it('refuses out-of-horizon and duplicate updates instead of silently collapsing them', () => {

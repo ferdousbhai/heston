@@ -156,8 +156,8 @@ export async function runExaCatalystSearch(
     const truncated = text.length >= MAX_RESULT_CHARACTERS
     const read = pages.get(key)
     pages.set(key, read === undefined
-      ? { markdown: text, readAt, truncated }
-      : { markdown: `${read.markdown}\n${text}`, readAt, truncated: read.truncated || truncated })
+      ? { markdown: text, readAt, readCharacters: MAX_RESULT_CHARACTERS, truncated }
+      : { ...read, markdown: `${read.markdown}\n${text}`, truncated: read.truncated || truncated })
   }
   const events = payload.output?.content?.events
   if (!events) return { catalysts: [], rejected: ['Exa returned no structured events'] }

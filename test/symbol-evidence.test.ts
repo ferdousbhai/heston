@@ -148,7 +148,7 @@ describe('recording a quoted passage under a symbol', () => {
     await expect(recordSymbolEvidence(recordingEnv(markdownBrowser(longPage)), RECORDER, evidence(), { now: NOW }))
       .resolves.toEqual({
         rejected: [
-          `quote not found in the first ${MAX_PAGE_MARKDOWN_CHARS} characters read of its source: "signed a multi-year supply agreement"`,
+          `quote not found in a read cut at ${MAX_PAGE_MARKDOWN_CHARS} characters of its source: "signed a multi-year supply agreement"`,
         ],
         status: 'rejected',
       })
@@ -161,8 +161,8 @@ describe('recording a quoted passage under a symbol', () => {
   })
 
   it('binds no page to a quote with no words, whoever asks the binder', () => {
-    expect(quoteBindingRefusal({ markdown: PAGE_MARKDOWN, truncated: false }, '  **  ')).toBe('quote has no words to find on its source')
-    expect(quoteBindingRefusal({ markdown: PAGE_MARKDOWN, truncated: false }, 'signed a multi-year')).toBeUndefined()
+    expect(quoteBindingRefusal({ markdown: PAGE_MARKDOWN, readCharacters: MAX_PAGE_MARKDOWN_CHARS, truncated: false }, '  **  ')).toBe('quote has no words to find on its source')
+    expect(quoteBindingRefusal({ markdown: PAGE_MARKDOWN, readCharacters: MAX_PAGE_MARKDOWN_CHARS, truncated: false }, 'signed a multi-year')).toBeUndefined()
   })
 
   it('drops a member\'s cards with their account', async () => {

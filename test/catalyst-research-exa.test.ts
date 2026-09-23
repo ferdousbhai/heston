@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { CATALYST_HORIZON_DAYS } from '../src/domain/catalyst'
 import { MAX_RESULT_CHARACTERS, runExaCatalystSearch } from '../src/server/catalyst-research-exa'
-import { TRUNCATED_READ_MISS } from '../src/server/research-page-retention'
 
 const NOW = new Date('2026-09-01T13:00:00.000Z')
 const exaKey: SecretsStoreSecret = { get: async () => 'exa-key' }
@@ -190,7 +189,7 @@ describe('exa catalyst search', () => {
     const run = await runExaCatalystSearch(env, 'BE', 'Bloom Energy', NOW)
 
     expect(run.catalysts).toEqual([])
-    expect(run.rejected).toEqual([`catalyst 1: 2026-10-14 ${TRUNCATED_READ_MISS} its source page`])
+    expect(run.rejected).toEqual([`catalyst 1: 2026-10-14 not found in a read cut at ${MAX_RESULT_CHARACTERS} characters of its source page`])
   })
 
   it('reports a search that synthesized nothing instead of inventing an event', async () => {
