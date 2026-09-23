@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { tickerFromStoredRecords } from '../src/server/tastytrade-market-normalization'
+import { normalizeTastytradeMarketTicker, tickerFromStoredRecords } from '../src/server/tastytrade-market-normalization'
 import {
   claimMarketRefresh,
   persistMarketSession,
@@ -94,6 +94,36 @@ describe('stored market read model', () => {
     // A row written before the conversion rounded keeps its digits until its symbol next
     // reaches the provider, which outside market hours is a long time, so the read rounds too.
     expect(ticker.ivRank).toBe(18.3712)
+  })
+
+  it('reads back exactly the ticker the live build published', async () => {
+    // A figure stored as the provider reported it must come back with the provider's digits;
+    // rounding it on the way out made the stored read publish a number the live read did not.
+    const env = { DB: store.database }
+    const instrument = { description: 'Apple', 'is-etf': false, 'is-index': false, lendability: 'Easy To Borrow' }
+    const live = normalizeTastytradeMarketTicker('AAPL', {
+      'historical-volatility-30-day': '23.456789',
+      'implied-volatility-index': '0.274567891',
+      'implied-volatility-index-5-day-change': '0.0123456',
+      'implied-volatility-index-rank': '0.183711532',
+      'implied-volatility-percentile': '0.61',
+      'iv-hv-30-day-difference': '4.001234567',
+      'liquidity-rating': '3.123456',
+      'updated-at': '2026-08-28T09:05:00.000Z',
+    }, {
+      mark: '236.41', 'previous-close': '238.25', 'updated-at': '2026-08-28T13:31:00.000Z',
+    }, instrument)
+    await persistTastytradeMarketSnapshot(env, { metrics: [live.metricRecord], quotes: [live.quoteRecord] })
+
+    const records = await readStoredMarketRecords(env, ['AAPL'])
+    const stored = tickerFromStoredRecords(
+      'AAPL', records.metrics.get('AAPL'), records.quotes.get('AAPL')!, instrument, undefined,
+      new Date('2026-08-28T13:31:00.000Z'),
+    )
+    expect(stored).toEqual(live.ticker)
+    expect(stored.historicalVolatility30Day).toBe(23.456789)
+    expect(stored.ivHistoricalVolatility30DayDifference).toBe(4.001234567)
+    expect(stored.liquidity).toBe(3.123456)
   })
 
   it('reports both the oldest and the newest reading, and counts rows it could not read', async () => {
