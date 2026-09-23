@@ -25,7 +25,7 @@ async function requestCatalystRefresh(symbol: string, force = false): Promise<Ca
 }
 
 /**
- * One request per symbol per browsing session, shared by everything that asks: the server
+ * One answered request per symbol per browsing session, shared by everything that asks: the server
  * would refuse the rest inside its own window anyway, and a reader flipping between two
  * symbols should not send one on every switch. A later look joins the same answer.
  *
@@ -68,8 +68,13 @@ function record(symbol: string, refresh: CatalystRefresh): void {
   // question open, so the reader is not told nothing is coming on the strength of a receipt.
   if (refresh.ran) searched.add(symbol)
   else searched.delete(symbol)
-  if (refresh.reason === 'failed') failed.add(symbol)
-  else failed.delete(symbol)
+  // A failed search releases the symbol's one request for this session, so the next ask -- the
+  // window regaining focus, or another look -- tries again rather than leaving the calendar
+  // unknown until reload. The server's receipt window still refuses a second paid search.
+  if (refresh.reason === 'failed') {
+    failed.add(symbol)
+    searches.delete(symbol)
+  } else failed.delete(symbol)
   notify()
 }
 
@@ -134,11 +139,21 @@ export function useCatalystSearch(
     if (!covered) seedCatalystSearch(symbol)
   }, [covered, symbol])
 
+  // A search that never answered is asked again when the window regains focus, as the public
+  // calendar and year series are; a mounted view otherwise kept its failure all session.
+  const isFailed = failed.has(symbol)
+  useEffect(() => {
+    if (!isFailed) return
+    const retry = () => seedCatalystSearch(symbol)
+    window.addEventListener('focus', retry)
+    return () => window.removeEventListener('focus', retry)
+  }, [isFailed, symbol])
+
   const answer = answers.get(symbol)
   return {
     catalysts: answer ?? NO_CATALYSTS,
     confirmedEmpty: searched.has(symbol) && (answer?.length ?? 0) === 0,
-    failed: failed.has(symbol),
+    failed: isFailed,
     refresh: () => void forceCatalystSearch(symbol),
     searching: (answer === undefined && searches.has(symbol)) || forcing.has(symbol),
   }

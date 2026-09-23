@@ -193,3 +193,31 @@ describe('a calendar read that fails', () => {
     expect(screen.getByText('SPY analyst day')).toBeTruthy()
   })
 })
+
+describe('a calendar search that fails', () => {
+  it('searches again when the window regains focus, for a reader who cannot force one', async () => {
+    const requested: string[] = []
+    let searchOk = false
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (!String(input).startsWith('/api/public-catalyst-refresh')) {
+        return Response.json({ catalysts: [], evidence: [], series: [] })
+      }
+      requested.push(String(JSON.parse(String(init?.body)).symbol))
+      return searchOk
+        ? Response.json({ catalysts: [catalyst('SPY', 30)], ran: true })
+        : Response.json({ catalysts: [], ran: false, reason: 'failed' })
+    }))
+
+    // SPY's other cases here carry a date this month, so no search has spent it yet.
+    renderMarket('SPY', [])
+
+    expect(await screen.findByText('The calendar search didn’t finish.')).toBeTruthy()
+    expect(requested).toEqual(['SPY'])
+
+    searchOk = true
+    window.dispatchEvent(new Event('focus'))
+    expect(await screen.findByText('SPY analyst day')).toBeTruthy()
+    expect(requested).toEqual(['SPY', 'SPY'])
+    expect(screen.queryByText('The calendar search didn’t finish.')).toBeNull()
+  })
+})
