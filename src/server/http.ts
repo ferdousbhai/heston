@@ -9,7 +9,6 @@ import {
   type AuthenticatedIdentity,
 } from './auth'
 import { type AppEnv } from './env'
-import { OwnerVisibleError } from './owner-visible-error'
 
 const CANONICAL_ORIGIN = 'https://heston.io'
 /**
@@ -128,8 +127,11 @@ export async function authenticateRequest(
   return { identity }
 }
 
-/** Account, agent, operations, and trading routes stay exact-owner only. The live stream is
- *  same-origin for any visitor so one Durable Object can hold the only dxLink socket. */
+/**
+ * The owner-only gate for a cookie-authenticated route: a signed-in identity whose email is the
+ * owner's, and for a `write` the request's own origin as well. Today it guards the owner's forced
+ * catalyst refresh, which spends a paid search the reader-attention window would have refused.
+ */
 export async function authorizePersonalRequest(
   request: Request,
   env: AppEnv,
@@ -142,33 +144,4 @@ export async function authorizePersonalRequest(
     return jsonNoStore({ error: 'Owner access required' }, { status: 403 })
   }
   return undefined
-}
-
-type OwnerHttpFailureStatus = 409 | 502
-
-export type OwnerHttpFailure = {
-  message: string
-  status: OwnerHttpFailureStatus
-}
-
-const SAFE_OWNER_ERROR_MESSAGES = new Map([
-  ['InternalWatchlist:not-seeded', 'The internal watchlist has not been initialized'],
-  ['InternalWatchlist:not-finalized', 'The internal watchlist is still being initialized'],
-])
-
-/** Map private route failures through an explicit display allowlist and redact everything else. */
-export function ownerHttpFailure(
-  error: Error | undefined,
-  fallbackStatus: OwnerHttpFailureStatus,
-): OwnerHttpFailure {
-  if (!error) return { message: 'The request could not be completed', status: fallbackStatus }
-  if (error instanceof OwnerVisibleError) {
-    return {
-      message: error.message,
-      status: error.kind === 'ambiguous-brokerage' ? 502 : fallbackStatus,
-    }
-  }
-  const safeMessage = SAFE_OWNER_ERROR_MESSAGES.get(error.message)
-  if (safeMessage) return { message: safeMessage, status: fallbackStatus }
-  return { message: 'The request could not be completed', status: fallbackStatus }
 }

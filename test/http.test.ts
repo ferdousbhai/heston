@@ -7,10 +7,7 @@ import {
   finalizeDocumentResponse,
   jsonPrivateRevalidate,
   jsonPublic,
-  ownerHttpFailure,
 } from '../src/server/http'
-import { BrokerageSubmissionUnknownError, TastytradeOrderWarningError } from '../src/server/brokerage'
-import { OptionContractUnavailableError } from '../src/server/option-contract'
 import { HESTON_DEPLOYMENT_ID_HEADER } from '../src/domain/deployment'
 import { STORAGE_PURGE_COOKIE } from '../src/domain/storage-purge'
 
@@ -122,6 +119,20 @@ describe('personal API authorization', () => {
     expect(response).toBeUndefined()
   })
 
+  it('holds an owner write to the request\'s own origin', async () => {
+    const owner = async () => ({ email: 'ferdousbd@gmail.com', id: 'owner-1', name: 'Owner' })
+    const crossOrigin = await authorizePersonalRequest(new Request('https://heston.test/api/public-catalyst-refresh', {
+      method: 'POST',
+      headers: { Origin: 'https://attacker.test' },
+    }), {}, true, owner)
+    expect(crossOrigin?.status).toBe(403)
+    const sameOrigin = await authorizePersonalRequest(new Request('https://heston.test/api/public-catalyst-refresh', {
+      method: 'POST',
+      headers: { Origin: 'https://heston.test' },
+    }), {}, true, owner)
+    expect(sameOrigin).toBeUndefined()
+  })
+
   it('allows a signed-in member only through the same-origin authenticated boundary', async () => {
     const identity = async () => ({ email: 'member@example.com', id: 'member-1', name: 'Member' })
     const accepted = await authenticateRequest(new Request('https://heston.test/api/favorites', {
@@ -135,33 +146,6 @@ describe('personal API authorization', () => {
       headers: { Origin: 'https://attacker.test' },
     }), {}, true, identity)
     expect('response' in rejected ? rejected.response.status : undefined).toBe(403)
-  })
-})
-
-describe('owner route errors', () => {
-  it('allows only typed or exact private failures through the boundary', () => {
-    const error = new TastytradeOrderWarningError(['Review position effect'])
-    expect(ownerHttpFailure(error, 409)).toEqual({ message: error.message, status: 409 })
-    expect(ownerHttpFailure(new OptionContractUnavailableError('No matching expiry.'), 409)).toEqual({
-      message: 'Requested option contract is not available. No matching expiry.',
-      status: 409,
-    })
-    expect(ownerHttpFailure(new Error('InternalWatchlist:not-seeded'), 409)).toEqual({
-      message: 'The internal watchlist has not been initialized',
-      status: 409,
-    })
-    expect(ownerHttpFailure(new Error('provider body: account 123'), 502)).toEqual({
-      message: 'The request could not be completed',
-      status: 502,
-    })
-    const nameOnlyImpostor = new Error('private detail')
-    nameOnlyImpostor.name = 'PortfolioRiskError'
-    expect(ownerHttpFailure(nameOnlyImpostor, 409).message).toBe('The request could not be completed')
-  })
-
-  it('preserves ambiguous brokerage mutation handling regardless of route fallback', () => {
-    const error = new BrokerageSubmissionUnknownError()
-    expect(ownerHttpFailure(error, 409)).toEqual({ message: error.message, status: 502 })
   })
 })
 

@@ -3,7 +3,7 @@ import { betterAuth } from 'better-auth'
 import { jwt } from 'better-auth/plugins/jwt'
 
 import { type AppEnv } from './env'
-import { readBoundSecret, readStoredSecret } from './secrets'
+import { ConfigurationError, readBoundSecret, readStoredSecret } from './secrets'
 
 export const OWNER_EMAIL = 'ferdousbd@gmail.com'
 
@@ -23,10 +23,10 @@ export function isOwnerEmail(email: string): boolean {
 export type AuthenticatedIdentity = { email: string; id: string; name: string }
 
 function requireProductionOrigin(value: string | undefined): string {
-  if (!value) throw new Error('AuthBaseUrlMissing')
+  if (!value) throw new ConfigurationError('AuthBaseUrlMissing')
   const url = new URL(value)
   if (url.protocol !== 'https:' || url.pathname !== '/' || url.search || url.hash) {
-    throw new Error('AuthBaseUrlInvalid')
+    throw new ConfigurationError('AuthBaseUrlInvalid')
   }
   return url.origin
 }
@@ -102,6 +102,13 @@ export function authIssuerFor(baseURL: string): string {
   return `${baseURL}/api/auth`
 }
 
+/**
+ * better-auth's own floor for BETTER_AUTH_SECRET: below 32 characters it warns that the secret is
+ * too short "for adequate security" (`context/create-context.mjs`) and then carries on. A warning
+ * nobody reads is not a floor, so this refuses to build the runtime instead.
+ */
+const MIN_AUTH_SECRET_LENGTH = 32
+
 type AuthRuntime = {
   auth: ReturnType<typeof configureAuth>
   authIssuer: string
@@ -111,11 +118,11 @@ type AuthRuntime = {
 let cachedRuntime: Promise<AuthRuntime> | undefined
 
 async function createAuthRuntime(env: AppEnv): Promise<AuthRuntime> {
-  if (!env.DB) throw new Error('AuthDatabaseMissing')
+  if (!env.DB) throw new ConfigurationError('AuthDatabaseMissing')
   const secret = readBoundSecret(env.BETTER_AUTH_SECRET, 'BETTER_AUTH_SECRET')
   const googleClientId = readBoundSecret(env.GOOGLE_CLIENT_ID, 'GOOGLE_CLIENT_ID')
   const googleClientSecret = await readStoredSecret(env.GOOGLE_CLIENT_SECRET, 'GOOGLE_CLIENT_SECRET')
-  if (secret.length < 32) throw new Error('AuthSecretTooShort')
+  if (secret.length < MIN_AUTH_SECRET_LENGTH) throw new ConfigurationError('AuthSecretTooShort')
   const baseURL = requireProductionOrigin(env.AUTH_BASE_URL)
 
   const auth = configureAuth(env.DB, baseURL, secret, googleClientId, googleClientSecret)

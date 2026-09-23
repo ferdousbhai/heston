@@ -18,7 +18,7 @@ export const Route = createFileRoute('/api/viewer')({
             } : null,
           })
         } catch (error) {
-          console.error('ViewerAuthUnavailable', error instanceof Error ? error.message : 'UnknownError')
+          console.error('ViewerAuthUnavailable', error instanceof Error ? error.name : 'UnknownError')
           return jsonNoStore({ error: 'Authentication is temporarily unavailable' }, { status: 503 })
         }
       },

@@ -34,6 +34,12 @@ describe('authorized app identity', () => {
       headers: { cookie: '__Secure-better-auth.session_token=abc' },
     }), {})).rejects.toThrow('AuthDatabaseMissing')
   })
+
+  it('names a configuration failure by its code, which is all a failure log records', async () => {
+    await expect(getAuthenticatedIdentity(new Request('https://heston.io/api/viewer', {
+      headers: { cookie: '__Secure-better-auth.session_token=abc' },
+    }), {})).rejects.toMatchObject({ name: 'AuthDatabaseMissing' })
+  })
 })
 
 describe('MCP authorization server', () => {

@@ -3,24 +3,37 @@
 // `.get()`. Which binding is which is fixed by configuration and recorded in `AppEnv`,
 // so each kind gets its own reader rather than a runtime shape probe.
 
+/**
+ * A deployment misconfiguration, named by its code. Failure logs record only an error's name,
+ * never its message, so a plain `Error` would log as `Error` and say nothing; the code is the
+ * name so the log line says which check failed. The message may add the binding it concerns --
+ * a binding's name, never its value.
+ */
+export class ConfigurationError extends Error {
+  constructor(code: string, binding?: string) {
+    super(binding ? `${code}:${binding}` : code)
+    this.name = code
+  }
+}
+
 function requireValue(value: string, name: string): string {
   const trimmed = value.trim()
-  if (!trimmed) throw new Error(`SecretValueMissing:${name}`)
+  if (!trimmed) throw new ConfigurationError('SecretValueMissing', name)
   return trimmed
 }
 
 export function readBoundSecret(binding: string | undefined, name: string): string {
-  if (!binding) throw new Error(`SecretBindingMissing:${name}`)
+  if (!binding) throw new ConfigurationError('SecretBindingMissing', name)
   return requireValue(binding, name)
 }
 
 export async function readStoredSecret(binding: SecretsStoreSecret | undefined, name: string): Promise<string> {
-  if (!binding) throw new Error(`SecretBindingMissing:${name}`)
+  if (!binding) throw new ConfigurationError('SecretBindingMissing', name)
   let value: string
   try {
     value = await binding.get()
   } catch {
-    throw new Error(`SecretReadFailed:${name}`)
+    throw new ConfigurationError('SecretReadFailed', name)
   }
   return requireValue(value, name)
 }

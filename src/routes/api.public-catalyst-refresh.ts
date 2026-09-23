@@ -28,7 +28,7 @@ export const Route = createFileRoute('/api/public-catalyst-refresh')({
         if (!parsed.success) return jsonNoStore({ error: 'Name one symbol' }, { status: 400 })
         if (!appEnv.DB) return jsonNoStore({ error: 'Catalyst research is unavailable' }, { status: 503 })
         if (parsed.data.force) {
-          const unauthorized = await authorizePersonalRequest(request, appEnv)
+          const unauthorized = await authorizePersonalRequest(request, appEnv, true)
           if (unauthorized) return unauthorized
         }
         try {

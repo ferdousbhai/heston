@@ -10,7 +10,7 @@ async function handleAuth(request: Request) {
     // left, so a rejection from the handler would miss this catch and its 503 entirely.
     return await auth.handler(request)
   } catch (error) {
-    console.error('AuthUnavailable', error instanceof Error ? error.message : 'UnknownError')
+    console.error('AuthUnavailable', error instanceof Error ? error.name : 'UnknownError')
     return Response.json({ error: 'Authentication is temporarily unavailable' }, {
       status: 503,
       headers: { 'Cache-Control': 'no-store' },
