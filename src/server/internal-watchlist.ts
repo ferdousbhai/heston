@@ -14,7 +14,7 @@ import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 import { type AppEnv } from './env'
 import { MAX_INSTRUMENT_CATALOG_ITEMS } from './instrument-catalog'
 import { publishInternalWatchlistUniverse } from './public-market-universe'
-import { defineSeam, type SeamValue } from './seam'
+import { defineSeam } from './seam'
 import { CallerVisibleError } from './caller-visible-error'
 
 // The seed import is a one-time parse of untrusted provider collections. These ceilings are
@@ -808,8 +808,6 @@ export async function readInternalWatchlistSeedAudit(env: AppEnv): Promise<Inter
 }
 
 const internalWatchlistWriterSeam = defineSeam(() => ({ ensureSymbols: ensureInternalWatchlistSymbols }))
-
-export type InternalWatchlistWriter = SeamValue<typeof internalWatchlistWriterSeam>
 
 export const internalWatchlistWriter = internalWatchlistWriterSeam.current
 
