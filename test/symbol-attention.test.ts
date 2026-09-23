@@ -4,26 +4,56 @@ import {
   MAX_ATTENTION_SYMBOLS,
   noteSymbolAttention,
   readsSymbols,
-  symbolsFromToolCall,
+  type SymbolNamingCall,
 } from '../src/server/symbol-attention'
 import { migrationStore } from './sqlite-d1'
+
+/**
+ * The symbols `noteSymbolAttention` tries to buy a search for, in order. Each attempt starts with
+ * one catalog read for exactly that symbol, and an empty catalog ends it there, so the reads are
+ * the attempts and no search is ever bought.
+ */
+async function attemptedSymbols(call: SymbolNamingCall): Promise<unknown[]> {
+  const store = await migrationStore()
+  const attempted: unknown[] = []
+  const prepare = store.database.prepare.bind(store.database)
+  const database = Object.assign(store.database, {
+    prepare: (query: string) => {
+      const statement = prepare(query)
+      if (!query.includes('FROM instrument_catalog')) return statement
+      const bind = statement.bind.bind(statement)
+      return Object.assign(statement, {
+        bind: (...values: unknown[]) => {
+          attempted.push(...values)
+          return bind(...values)
+        },
+      })
+    },
+  })
+  try {
+    await noteSymbolAttention({ DB: database }, call)
+  } finally {
+    store.close()
+  }
+  return attempted
+}
 
 afterEach(() => {
   vi.restoreAllMocks()
 })
 
 describe('symbol attention', () => {
-  it('reads the symbols a caller chose to look at', () => {
-    expect(symbolsFromToolCall({ symbols: ['nvda', '$hood'] })).toEqual(['NVDA', 'HOOD'])
-    expect(symbolsFromToolCall({ symbol: 'AAPL' })).toEqual(['AAPL'])
+  it('reads the symbols a caller chose to look at', async () => {
+    expect(await attemptedSymbols({ symbols: ['nvda', '$hood'] })).toEqual(['NVDA', 'HOOD'])
+    expect(await attemptedSymbols({ symbol: 'AAPL' })).toEqual(['AAPL'])
     // A call that names no instrument is not attention on one.
-    expect(symbolsFromToolCall({})).toEqual([])
-    expect(symbolsFromToolCall({ symbols: ['not a ticker at all'] })).toEqual([])
+    expect(await attemptedSymbols({})).toEqual([])
+    expect(await attemptedSymbols({ symbols: ['not a ticker at all'] })).toEqual([])
   })
 
-  it('reads the underlying an option tool names', () => {
-    expect(symbolsFromToolCall({ underlying: 'nvda' })).toEqual(['NVDA'])
-    expect(symbolsFromToolCall({
+  it('reads the underlying an option tool names', async () => {
+    expect(await attemptedSymbols({ underlying: 'nvda' })).toEqual(['NVDA'])
+    expect(await attemptedSymbols({
       contracts: [
         { underlying: 'AAPL' },
         { underlying: '$aapl' },
@@ -40,9 +70,10 @@ describe('symbol attention', () => {
     expect(readsSymbols('read_option_greeks')).toBe(true)
   })
 
-  it('bounds one call so it cannot sweep the universe', () => {
+  it('bounds one call so it cannot sweep the universe', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const many = Array.from({ length: 40 }, (_, index) => `SYM${index}`)
-    expect(symbolsFromToolCall({ symbols: many }).length).toBeLessThanOrEqual(5)
+    expect(await attemptedSymbols({ symbols: many })).toEqual(many.slice(0, MAX_ATTENTION_SYMBOLS))
   })
 
   it('counts the names a call named past the search budget instead of dropping them silently', async () => {

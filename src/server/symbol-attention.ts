@@ -63,11 +63,12 @@ export function readsSymbols(toolName: string): boolean {
  * How many paid searches one tool call may buy: a spend policy, not a platform limit. Each name
  * can cost one Exa search, and they run one after another inside the call's `waitUntil`, which
  * the runtime ends about 30 seconds after the response -- less than one search's own worst case
- * (`CATALYST_RUN_BUDGET_MS`), so no count is derivable from it; a name the invocation does not
- * reach keeps a `running` receipt only for that run budget. Five is the product's choice of how
- * many names one agent call may put searches behind, so one call cannot fan out into a sweep of
- * the universe. The names past it are counted in the log, not searched, and buy their search the
- * next time a call names them.
+ * (`CATALYST_RUN_BUDGET_MS`), so no count is derivable from it. Only the name in flight when the
+ * runtime cuts the work keeps a `running` receipt, and only for that run budget; a name the
+ * invocation never reaches was never claimed and has no receipt at all. Five is the product's
+ * choice of how many names one agent call may put searches behind, so one call cannot fan out
+ * into a sweep of the universe. The names past it are counted in the log, not searched, and buy
+ * their search the next time a call names them.
  */
 export const MAX_ATTENTION_SYMBOLS = 5
 
@@ -93,10 +94,6 @@ function namedSymbols(call: SymbolNamingCall): string[] {
     .map((symbol) => equitySymbolFromModelText(symbol))
     .filter((symbol) => symbol !== undefined)
   return [...new Set(resolved)]
-}
-
-export function symbolsFromToolCall(call: SymbolNamingCall): string[] {
-  return namedSymbols(call).slice(0, MAX_ATTENTION_SYMBOLS)
 }
 
 export async function noteSymbolAttention(env: AppEnv, call: SymbolNamingCall): Promise<void> {
