@@ -60,7 +60,12 @@ async function claimLookup(env: AppEnv, leaseId: string): Promise<Date | undefin
   return await brokerApi().claimMarketRefresh(env, LOOKUP_LEASE_MS, claimedAt, leaseId) ? claimedAt : undefined
 }
 
-/** The provider lookup, made only while holding the claim, which is released however it ends. */
+/**
+ * The provider lookup, made only while holding the claim. A found answer is in the shared store,
+ * so the claim is kept until it expires: every other location reads that answer rather than
+ * buying its own lookup within the lease. A miss or a failure reaches no shared store, so the
+ * claim is released at once and a waiting location can answer for itself instead of "busy".
+ */
 async function lookupHoldingClaim(
   env: AppEnv,
   edgeCache: PublicSnapshotCache,
@@ -69,20 +74,27 @@ async function lookupHoldingClaim(
   leaseId: string,
   claimedAt: Date,
 ): Promise<Response> {
+  const release = () => brokerApi().releaseMarketRefresh(env, LOOKUP_LEASE_MS, claimedAt, leaseId)
+  let lookup
   try {
-    const lookup = await brokerApi().lookupPublicMarketSymbol(env, query)
-    if (!lookup) {
-      return await store(
-        edgeCache,
-        cacheKey,
-        jsonPublic({ error: 'No tradable symbol matches that search' }, { status: 404 }),
-        MISSING_RETENTION_SECONDS,
-      )
-    }
-    return await store(edgeCache, cacheKey, jsonPublic(lookup), FOUND_RETENTION_SECONDS)
-  } finally {
-    await brokerApi().releaseMarketRefresh(env, LOOKUP_LEASE_MS, claimedAt, leaseId)
+    lookup = await brokerApi().lookupPublicMarketSymbol(env, query)
+  } catch (error) {
+    await release()
+    throw error
   }
+  if (!lookup) {
+    // Released after the edge copy lands, so a waiter in this location reads it rather than
+    // claiming a second lookup in between.
+    const missed = await store(
+      edgeCache,
+      cacheKey,
+      jsonPublic({ error: 'No tradable symbol matches that search' }, { status: 404 }),
+      MISSING_RETENTION_SECONDS,
+    )
+    await release()
+    return missed
+  }
+  return await store(edgeCache, cacheKey, jsonPublic(lookup), FOUND_RETENTION_SECONDS)
 }
 
 /**

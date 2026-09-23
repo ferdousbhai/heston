@@ -142,6 +142,21 @@ describe('public symbol search route', () => {
     expect(broker.lookupPublicMarketSymbol).not.toHaveBeenCalled()
   })
 
+  it('keeps the claim after a found answer, so other locations read the store instead of the broker', async () => {
+    const held = sharedLease()
+    broker.lookupPublicMarketSymbol.mockResolvedValue(lookup())
+
+    const here = await serve('tqqq', new MemoryCache())
+    expect(here.status).toBe(200)
+    expect(held.size).toBe(1)
+
+    // The found answer is in the shared store; a location that loses the still-held claim reads it.
+    broker.lookupStoredMarketSymbol.mockResolvedValue(lookup())
+    const elsewhere = await serve('tqqq', new MemoryCache())
+    expect(elsewhere.status).toBe(200)
+    expect(broker.lookupPublicMarketSymbol).toHaveBeenCalledTimes(1)
+  })
+
   it('gives the claim back once its lookup finishes, so another location can ask at once', async () => {
     const held = sharedLease()
     broker.lookupPublicMarketSymbol.mockResolvedValue(undefined)
