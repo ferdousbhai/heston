@@ -192,6 +192,19 @@ describe('the maintained watchlist', () => {
     await expect(readInternalWatchlistCatalogCandidates(env)).resolves.toEqual(['1810', 'AAPL', 'BRK/A', 'BRK/B'])
   })
 
+  it('reads the largest item metadata the importer could write, and refuses anything larger', async () => {
+    const env = { DB: store.database }
+    // Every list of both kinds at the importer's per-kind ceiling of 100 names the symbol.
+    const seedSourceIds = (['private', 'public'] as const)
+      .flatMap((kind) => Array.from({ length: 100 }, (_, index) => `tastytrade-${kind}-${index}`))
+    seedWatchlist(store, [{ symbol: 'NVDA', metadata: { seedSourceIds } }])
+    await expect(readInternalWatchlist(env)).resolves.toMatchObject([{ metadata: { seedSourceIds } }])
+
+    store.sqlite.prepare('UPDATE internal_watchlist_items SET metadata_json = ?')
+      .run(JSON.stringify({ seedSourceIds, extra: 'x' }))
+    await expect(readInternalWatchlist(env)).rejects.toThrow()
+  })
+
   it('promotes an existing public-seed member without losing retained seed provenance', async () => {
     const env = { DB: store.database }
     seedLists()

@@ -71,8 +71,24 @@ const RANKED_ITEMS_CTE = `WITH priority AS (
      )`
 const RANK_ORDER = 'tier ASC, coalesce(volume_rank, 9223372036854775807) ASC, updated_at DESC, symbol ASC'
 const MAX_CATALOG_CANDIDATES = MAX_INSTRUMENT_CATALOG_ITEMS
-const MAX_SOURCE_METADATA_BYTES = 256_000
-const MAX_ENTRY_METADATA_BYTES = 64_000
+/*
+ * Nothing writes the seed tables any more: every row is what the retired importer wrote, and it
+ * refused to serialize a source's metadata past 256,000 UTF-8 bytes or an entry's past 64,000. A
+ * string's length in UTF-16 units never exceeds its UTF-8 byte length, so a character bound of the
+ * same number admits every value it wrote, and a longer one is not a row it wrote. Why the
+ * importer chose those two numbers was never recorded.
+ */
+const MAX_SEED_SOURCE_METADATA_CHARS = 256_000
+const MAX_SEED_ENTRY_METADATA_CHARS = 64_000
+/**
+ * A live item's metadata is always `{}`; the only writer of anything more was the retired importer,
+ * which stored the ids of the seed lists naming the symbol -- at most every list of both kinds. The
+ * longest value it could have written is therefore the bound, derived rather than guessed.
+ */
+const MAX_ITEM_METADATA_CHARS = JSON.stringify({
+  seedSourceIds: (['private', 'public'] as const).flatMap((kind) =>
+    Array.from({ length: MAX_SOURCE_LISTS_PER_KIND }, (_, index) => `tastytrade-${kind}-${index}`)),
+}).length
 const MAX_SEED_MEMBERSHIPS_PER_SYMBOL = 2 * MAX_SOURCE_LISTS_PER_KIND
 
 const SymbolSchema = EquitySymbolSchema
@@ -265,7 +281,7 @@ export async function removeInternalWatchlistSymbols(env: AppEnv, symbols: reado
 const StoredItemSchema = z.object({
   created_at: z.string().datetime(),
   instrument_type: z.string().min(1).max(128),
-  metadata_json: z.string().max(MAX_SOURCE_METADATA_BYTES),
+  metadata_json: z.string().max(MAX_ITEM_METADATA_CHARS),
   origin: InternalWatchlistOriginSchema,
   symbol: SymbolSchema,
   updated_at: z.string().datetime(),
@@ -335,10 +351,10 @@ export async function readInternalWatchlistSymbolDetails(
   }
   const seedMemberships = result.results.map((row) => {
     const parsed = z.object({
-      entry_metadata_json: z.string().max(MAX_ENTRY_METADATA_BYTES),
+      entry_metadata_json: z.string().max(MAX_SEED_ENTRY_METADATA_CHARS),
       name: z.string().min(1).max(256),
       source_kind: z.enum(['private', 'public']),
-      source_metadata_json: z.string().max(MAX_SOURCE_METADATA_BYTES),
+      source_metadata_json: z.string().max(MAX_SEED_SOURCE_METADATA_CHARS),
     }).parse(row)
     const entryMetadata = jsonObject(JSON.parse(parsed.entry_metadata_json))
     const sourceMetadata = jsonObject(JSON.parse(parsed.source_metadata_json))
