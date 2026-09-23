@@ -127,7 +127,8 @@ test('a newer deployment reloads a tab whose unchanged data only ever answers 30
       notModifiedResponses += 1
       return route.fulfill({
         status: 304,
-        headers: { ETag: etag, [HESTON_DEPLOYMENT_ID_HEADER]: 'next-deployment' },
+        // The reloaded document is the newer build, so from then on the ids agree.
+        headers: { ETag: etag, [HESTON_DEPLOYMENT_ID_HEADER]: documentRequests === 1 ? 'next-deployment' : 'development' },
       })
     }
     return route.fulfill({
@@ -146,7 +147,9 @@ test('a newer deployment reloads a tab whose unchanged data only ever answers 30
   await page.evaluate(() => window.dispatchEvent(new Event('visibilitychange')))
   await expect.poll(() => notModifiedResponses).toBeGreaterThanOrEqual(1)
   await expect.poll(() => documentRequests).toBe(2)
+  await page.waitForLoadState()
   await expect(page.getByRole('region', { name: 'Options Watch' })).toBeVisible()
+  expect(documentRequests).toBe(2)
 })
 
 test('unauthenticated visitors can read market data but connecting an agent needs Google sign-in', async ({ page }) => {
