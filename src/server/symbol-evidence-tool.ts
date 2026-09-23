@@ -13,7 +13,7 @@ import { MAX_CITED_SOURCE_TITLE_LENGTH, MAX_CITED_SOURCE_URL_LENGTH } from '../d
 import { textResult } from './agent-tool-result'
 import { type AppEnv } from './env'
 import { readResearchPageMarkdown } from './research-page-retention'
-import { normalizedCitationText, quoteAbsentFromSourceReason } from './research-citation-binding'
+import { quoteBindingRefusal, quoteWithoutWordsReason } from './research-citation-binding'
 import { citedPageKey } from './research-url'
 import { upsertSymbolEvidence } from './symbol-evidence'
 
@@ -88,14 +88,16 @@ export async function recordSymbolEvidence(
   if (sourceUrl === undefined) {
     return { rejected: ['sourceUrl: not a readable https page address'], status: 'rejected' }
   }
+  // Refused before a page read is spent on it: nothing on any page could bind it.
+  const withoutWords = quoteWithoutWordsReason(evidence.quote)
+  if (withoutWords) return { rejected: [withoutWords], status: 'rejected' }
 
   const markdown = await readResearchPageMarkdown(browser, sourceUrl)
   if (markdown === undefined) return { rejected: [`page did not open: ${sourceUrl}`], status: 'rejected' }
   // The same normalization every citation here is bound by: markdown renders one sentence
   // many ways, and only its words decide whether the page contains the quote.
-  if (!normalizedCitationText(markdown).includes(normalizedCitationText(evidence.quote))) {
-    return { rejected: [quoteAbsentFromSourceReason(evidence.quote)], status: 'rejected' }
-  }
+  const refusal = quoteBindingRefusal(markdown, evidence.quote)
+  if (refusal) return { rejected: [refusal], status: 'rejected' }
 
   const id = await upsertSymbolEvidence(db, {
     byline: evidence.byline ?? null,

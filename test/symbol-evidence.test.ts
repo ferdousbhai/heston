@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
+import { quoteBindingRefusal } from '../src/server/research-citation-binding'
 import { readSymbolEvidence } from '../src/server/symbol-evidence'
 import { recordSymbolEvidence } from '../src/server/symbol-evidence-tool'
 import { markdownBrowser, unreadableBrowser } from './fake-browser'
@@ -114,6 +115,18 @@ describe('recording a quoted passage under a symbol', () => {
     expect(store.sqlite.prepare('SELECT COUNT(*) AS rows FROM symbol_evidence').get()).toEqual({ rows: 0 })
   })
 
+  it('refuses a quote that is only markup, which every page would otherwise contain', async () => {
+    const result = await recordSymbolEvidence(
+      recordingEnv(),
+      RECORDER,
+      { ...evidence(), quote: '** _ `> # |' },
+      { now: NOW },
+    )
+
+    expect(result).toEqual({ rejected: ['quote has no words to find on its source'], status: 'rejected' })
+    expect(store.sqlite.prepare('SELECT COUNT(*) AS rows FROM symbol_evidence').get()).toEqual({ rows: 0 })
+  })
+
   it('refuses an address that is not a readable https page, and a page that will not open', async () => {
     await expect(recordSymbolEvidence(
       recordingEnv(),
@@ -132,6 +145,11 @@ describe('recording a quoted passage under a symbol', () => {
   it('fails closed when the Worker cannot read a page at all', async () => {
     await expect(recordSymbolEvidence({ DB: store.database }, RECORDER, evidence(), { now: NOW }))
       .rejects.toThrow('SymbolEvidence:page-reading-unavailable')
+  })
+
+  it('binds no page to a quote with no words, whoever asks the binder', () => {
+    expect(quoteBindingRefusal(PAGE_MARKDOWN, '  **  ')).toBe('quote has no words to find on its source')
+    expect(quoteBindingRefusal(PAGE_MARKDOWN, 'signed a multi-year')).toBeUndefined()
   })
 
   it('drops a member\'s cards with their account', async () => {

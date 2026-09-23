@@ -37,3 +37,22 @@ const REJECTED_QUOTE_EXCERPT_CHARS = 80
 export function quoteAbsentFromSourceReason(quote: string): string {
   return `quote absent from its source: "${quote.slice(0, REJECTED_QUOTE_EXCERPT_CHARS)}"`
 }
+
+/**
+ * A quote made only of markup or whitespace normalizes to nothing, and every page "contains"
+ * nothing: left to `includes`, it would bind any page it named. So a quote has to carry words
+ * before it can be matched at all, and that refusal is part of the one binding rule rather than
+ * something each binder has to remember.
+ */
+export function quoteWithoutWordsReason(quote: string): string | undefined {
+  return normalizedCitationText(quote) === '' ? 'quote has no words to find on its source' : undefined
+}
+
+/** Why `quote` does not bind to `pageText`, or undefined when it does. */
+export function quoteBindingRefusal(pageText: string, quote: string): string | undefined {
+  const withoutWords = quoteWithoutWordsReason(quote)
+  if (withoutWords) return withoutWords
+  return normalizedCitationText(pageText).includes(normalizedCitationText(quote))
+    ? undefined
+    : quoteAbsentFromSourceReason(quote)
+}
