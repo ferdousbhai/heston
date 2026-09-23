@@ -109,7 +109,7 @@ export function createHestonMcpServer(
         // Placement and cancellation need a broker credential, which needs a member. Advertising
         // them to a caller who presented nothing would offer a destructive tool that can only
         // ever refuse -- the same reason the owner tools are absent from a member's list.
-        ...createOrderTools(env, credential),
+        ...createOrderTools(env, credential, waitUntil),
       ]
       : createPublicMarketReadTools(env, waitUntil)),
     // Removing a name from the shared watchlist is an owner act. A member is not shown a surface
@@ -200,7 +200,11 @@ export function createHestonMcpServer(
 
 
 /** The guarded mutations. Offered only to a caller who could hold a broker credential. */
-function createOrderTools(env: AppEnv, credential: BrokerCredential | undefined): AgentTool<TSchema>[] {
+function createOrderTools(
+  env: AppEnv,
+  credential: BrokerCredential | undefined,
+  waitUntil: (task: Promise<unknown>) => void,
+): AgentTool<TSchema>[] {
   return [
     {
       description: PLACE_BROKERAGE_ORDER_DESCRIPTION,
@@ -211,7 +215,7 @@ function createOrderTools(env: AppEnv, credential: BrokerCredential | undefined)
       execute: async (params) => {
         // SAFETY: `placeBrokerageOrder` re-parses its input with `parseOrderPlacement` at the
         // trust boundary regardless of what the transport already checked.
-        return textResult(await placeBrokerageOrder(env, params as never, credential))
+        return textResult(await placeBrokerageOrder(env, params as never, credential, waitUntil))
       },
       name: 'place_brokerage_order',
       parameters: OrderPlacementParameters,

@@ -110,7 +110,7 @@ describe('brokerage submission reconciliation', () => {
     store = await migrationStore()
     const env = { DB: store.database }
 
-    await expect(placeBrokerageOrder(env, optionOrder, brokerCredential))
+    await expect(placeBrokerageOrder(env, optionOrder, brokerCredential, () => undefined))
       .rejects.toBeInstanceOf(BrokerageSubmissionUnknownError)
     const [claimed] = store.sqlite.prepare('SELECT submitted_at, resolved_payload_json FROM broker_submissions').all()
     expect(JSON.parse(String(claimed?.resolved_payload_json))).toEqual(intended)
@@ -333,7 +333,7 @@ describe('brokerage submission reconciliation', () => {
       store = await migrationStore()
       const env = { DB: store.database }
 
-      const placement = placeBrokerageOrder(env, equityOrder, brokerCredential)
+      const placement = placeBrokerageOrder(env, equityOrder, brokerCredential, () => undefined)
       await vi.waitFor(() => expect(submitted(brokerage)).toHaveLength(1))
       const reconcile = reconcileUnknownBrokerageAction(env, brokerCredential)
       // The broker has the order, the placement has not settled it: reconciliation must not
@@ -355,7 +355,7 @@ describe('brokerage submission reconciliation', () => {
       store = await migrationStore()
       const env = { DB: store.database }
 
-      const placement = placeBrokerageOrder(env, equityOrder, brokerCredential)
+      const placement = placeBrokerageOrder(env, equityOrder, brokerCredential, () => undefined)
       await vi.waitFor(() => expect(submitted(brokerage)).toHaveLength(1))
       await expect(reconcileUnknownBrokerageAction(env, brokerCredential))
         .resolves.toMatchObject({ providerOrderId: '123', status: 'executed' })

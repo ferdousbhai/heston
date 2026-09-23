@@ -170,23 +170,30 @@ export function validatePlacedOrderResponse(payload: JsonValue, intended: OrderP
  */
 export type SubmissionReceipt = { detail: string; orderId: string; untrustedBrokerWarnings?: string[] }
 
+/** Bookkeeping for an accepted order, and the platform hook that keeps it alive past the reply. */
+export type AcceptedOrderFollowUp = {
+  run: (intent: ResolvedOrderIntent) => Promise<void>
+  waitUntil: (task: Promise<unknown>) => void
+}
+
 /**
  * Resolve, guard, dry-run, and submit one order under the account's mutation lease.
  *
  * The account number and the intent are resolved once, by the caller and inside the lease
- * respectively. `onAccepted` runs only once the broker has accepted the order, after the lease
- * is released, and it can never change the outcome: a failure there is logged under a fixed
- * event name and the accepted receipt is returned regardless. Running it any earlier let a
+ * respectively. `onAccepted` starts only once the broker has accepted the order, after the lease
+ * is released, and it can never change the outcome: it is scheduled with `waitUntil` rather than
+ * awaited, and a failure there is logged under a fixed event name. Running it any earlier let a
  * refused order earn the provenance it records, let a store hiccup refuse an order (a
  * risk-reducing close included), and held the lease across writes that have nothing to do
- * with the submission.
+ * with the submission. Awaiting it let its latency push the reply past the local proxy's
+ * budget after the broker had accepted, losing the receipt and inviting a duplicate retry.
  */
 export async function executeOrderPlacement(
   env: AppEnv,
   action: OrderPlacement,
   credential: BrokerCredential | undefined,
   accountNumber: string,
-  onAccepted: (intent: ResolvedOrderIntent) => Promise<void> = async () => undefined,
+  onAccepted?: AcceptedOrderFollowUp,
 ): Promise<SubmissionReceipt> {
   if (!credential) throw new BrokerCredentialMissingError()
   const broker = credential.broker
@@ -263,11 +270,16 @@ export async function executeOrderPlacement(
       : `${receipt.detail} Heston could not record this result, so this account stays quarantined until reconcile_brokerage_action confirms it.`
     return { intent, receipt: { ...receipt, detail } }
   })
-  try {
-    await onAccepted(intent)
-  } catch (error) {
-    // The order is already at the broker; bookkeeping after it must not read as a refusal.
-    console.error('TradeIntentRememberFailed', error instanceof Error ? error.name : 'UnknownError')
+  if (onAccepted) {
+    const followUp = async () => {
+      try {
+        await onAccepted.run(intent)
+      } catch (error) {
+        // The order is already at the broker; bookkeeping after it must not read as a refusal.
+        console.error('TradeIntentRememberFailed', error instanceof Error ? error.name : 'UnknownError')
+      }
+    }
+    onAccepted.waitUntil(followUp())
   }
   return receipt
 }

@@ -38,6 +38,7 @@ export async function placeBrokerageOrder(
   env: AppEnv,
   untrustedAction: JsonValue,
   credential: BrokerCredential | undefined,
+  waitUntil: (task: Promise<unknown>) => void,
 ): Promise<SubmissionReceipt> {
   if (!credential) throw new BrokerCredentialMissingError()
   if (!env.DB) throw new PortfolioRiskError('The brokerage submission store is unavailable.')
@@ -61,7 +62,8 @@ export async function placeBrokerageOrder(
     // An order the broker accepted is the deterministic point where a discussed trade becomes a
     // trusted ticker, including a price-only replacement. A refused order earns no provenance,
     // and a failed write here is logged by `executeOrderPlacement` rather than refusing the order.
-    (intent) => rememberTradeIntentSymbol(env, intent.effectiveAction),
+    // Scheduled, never awaited: the receipt must not wait on a watchlist write.
+    { run: (intent) => rememberTradeIntentSymbol(env, intent.effectiveAction), waitUntil },
   )
 }
 

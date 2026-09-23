@@ -92,7 +92,14 @@ function apiError(status: number): Error {
 
 let store: SqliteD1Store | undefined
 
-afterEach(() => {
+/** What a placement scheduled past its reply, as the platform's `waitUntil` would keep alive. */
+let scheduled: Array<Promise<unknown>> = []
+const waitUntil = (task: Promise<unknown>) => { scheduled.push(task) }
+const settleScheduled = () => Promise.all(scheduled)
+
+afterEach(async () => {
+  await settleScheduled()
+  scheduled = []
   store?.close()
   store = undefined
 })
@@ -108,7 +115,7 @@ describe('brokerage order placement', () => {
     setBrokerApi(brokerage)
     const { database } = await freshStore()
 
-    await expect(placeBrokerageOrder({ DB: database }, EQUITY_ORDER, undefined))
+    await expect(placeBrokerageOrder({ DB: database }, EQUITY_ORDER, undefined, waitUntil))
       .rejects.toBeInstanceOf(BrokerCredentialMissingError)
     expect(brokerage.resolveAccountNumber).not.toHaveBeenCalled()
     expect(brokerage.tastyRequest).not.toHaveBeenCalled()
@@ -119,7 +126,7 @@ describe('brokerage order placement', () => {
     const db = await freshStore()
     quarantine(db, 'TEST123')
 
-    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential))
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential, waitUntil))
       .rejects.toThrow(/still unresolved/)
     // Nothing may be submitted while the earlier submission is unaccounted for.
     expect(submissions(brokerage)).toHaveLength(0)
@@ -133,9 +140,9 @@ describe('brokerage order placement', () => {
 
     // The stub lease does not serialize, which is the lost-lease case: only the write-ahead
     // claim stands between the second placement and a second order.
-    const first = placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential)
+    const first = placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential, waitUntil)
     await vi.waitFor(() => expect(submissions(brokerage)).toHaveLength(1))
-    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential))
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential, waitUntil))
       .rejects.toThrow(/still unresolved/)
     failFirst(new TypeError('fetch failed'))
     await expect(first).rejects.toBeInstanceOf(BrokerageSubmissionUnknownError)
@@ -149,7 +156,7 @@ describe('brokerage order placement', () => {
     const db = await freshStore()
     quarantine(db, 'TEST123')
 
-    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential))
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential, waitUntil))
       .resolves.toEqual({ detail: 'Order #123 accepted by tastytrade.', orderId: '123' })
   })
 
@@ -157,7 +164,7 @@ describe('brokerage order placement', () => {
     brokerSubmitting(async () => ACCEPTED_ORDER_RESPONSE)
     const db = await freshStore()
 
-    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential))
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential, waitUntil))
       .resolves.toMatchObject({ orderId: '123' })
     // A later price-only replacement resolves the original order's shape from this row.
     const [row] = rows(db)
@@ -169,7 +176,7 @@ describe('brokerage order placement', () => {
     brokerSubmitting(async () => { throw new TypeError('fetch failed') })
     const db = await freshStore()
 
-    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential))
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential, waitUntil))
       .rejects.toBeInstanceOf(BrokerageSubmissionUnknownError)
     const [row] = rows(db)
     expect(row).toMatchObject({ account_number: 'TEST123', broker_id: 'tastytrade', status: 'unresolved' })
@@ -186,7 +193,7 @@ describe('brokerage order placement', () => {
     brokerSubmitting(async () => { throw apiError(503) })
     const db = await freshStore()
 
-    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential))
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential, waitUntil))
       .rejects.toBeInstanceOf(BrokerageSubmissionUnknownError)
     expect(rows(db)).toMatchObject([{ status: 'unresolved' }])
   })
@@ -195,7 +202,7 @@ describe('brokerage order placement', () => {
     brokerSubmitting(async () => { throw apiError(422) })
     const db = await freshStore()
 
-    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential))
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential, waitUntil))
       .rejects.toThrow('TastytradeApi:422')
     expect(rows(db)).toMatchObject([{ error_code: 'TastytradeApiError', status: 'failed' }])
   })
@@ -205,7 +212,7 @@ describe('brokerage order placement', () => {
     brokerSubmitting(async () => rejected)
     const db = await freshStore()
 
-    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential))
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential, waitUntil))
       .rejects.toThrow('Tastytrade rejected this order')
     expect(rows(db)).toMatchObject([{ error_code: 'TastytradeOrderRejected', status: 'failed' }])
   })
@@ -218,7 +225,7 @@ describe('brokerage order placement', () => {
     ))
     const db = await freshStore()
 
-    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential))
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential, waitUntil))
       .rejects.toThrow('Tastytrade rejected this order')
     expect(submissions(brokerage)).toHaveLength(0)
     expect(rows(db)).toHaveLength(0)
@@ -242,7 +249,7 @@ describe('brokerage order placement', () => {
     }
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    await expect(placeBrokerageOrder({ DB: db }, EQUITY_ORDER, brokerCredential))
+    await expect(placeBrokerageOrder({ DB: db }, EQUITY_ORDER, brokerCredential, waitUntil))
       .rejects.toThrow('nothing was submitted')
     expect(submissions(brokerage)).toHaveLength(0)
     expect(errorLog).toHaveBeenCalledWith('BrokerageSubmissionClaimFailed')
@@ -260,7 +267,7 @@ describe('brokerage order placement', () => {
     }
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    await expect(placeBrokerageOrder({ DB: database }, EQUITY_ORDER, brokerCredential))
+    await expect(placeBrokerageOrder({ DB: database }, EQUITY_ORDER, brokerCredential, waitUntil))
       .resolves.toMatchObject({ detail: expect.stringContaining('stays quarantined'), orderId: '123' })
     expect(rows(db)).toMatchObject([{ status: 'unresolved' }])
   })
@@ -273,7 +280,7 @@ describe('brokerage order placement', () => {
     })
     const db = await freshStore()
 
-    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential))
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential, waitUntil))
       .rejects.toThrow('larger than the verified')
     expect(brokerage.tastyRequest).not.toHaveBeenCalled()
     expect(rows(db)).toHaveLength(0)
@@ -297,8 +304,9 @@ describe('trade-intent provenance', () => {
     const remembered = recordingWatchlist()
     const db = await freshStore()
 
-    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential))
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential, waitUntil))
       .resolves.toMatchObject({ orderId: '123' })
+    await settleScheduled()
     expect(remembered).toEqual([{ origin: 'trade-intent', symbols: ['SPY'] }])
   })
 
@@ -310,8 +318,9 @@ describe('trade-intent provenance', () => {
       assertPortfolioActionAllowed: async () => { throw new PortfolioRiskError('This account will not open a naked or unbounded short position.') },
     })
 
-    await expect(placeBrokerageOrder({ DB: (await freshStore()).database }, EQUITY_ORDER, brokerCredential))
+    await expect(placeBrokerageOrder({ DB: (await freshStore()).database }, EQUITY_ORDER, brokerCredential, waitUntil))
       .rejects.toBeInstanceOf(PortfolioRiskError)
+    await settleScheduled()
     expect(remembered).toEqual([])
   })
 
@@ -319,8 +328,9 @@ describe('trade-intent provenance', () => {
     brokerSubmitting(async () => { throw apiError(422) })
     const remembered = recordingWatchlist()
 
-    await expect(placeBrokerageOrder({ DB: (await freshStore()).database }, EQUITY_ORDER, brokerCredential))
+    await expect(placeBrokerageOrder({ DB: (await freshStore()).database }, EQUITY_ORDER, brokerCredential, waitUntil))
       .rejects.toThrow('TastytradeApi:422')
+    await settleScheduled()
     expect(remembered).toEqual([])
   })
 
@@ -332,11 +342,30 @@ describe('trade-intent provenance', () => {
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const db = await freshStore()
 
-    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential))
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential, waitUntil))
       .resolves.toEqual({ detail: 'Order #123 accepted by tastytrade.', orderId: '123' })
     expect(submissions(brokerage)).toHaveLength(1)
     expect(rows(db)).toMatchObject([{ status: 'executed' }])
+    await settleScheduled()
     expect(errorLog).toHaveBeenCalledWith('TradeIntentRememberFailed', 'D1Error')
+  })
+
+  it('returns the accepted receipt without waiting on the watchlist write', async () => {
+    brokerSubmitting(async () => ACCEPTED_ORDER_RESPONSE)
+    let finishWrite: () => void = () => undefined
+    const remembered = recordingWatchlist(() => new Promise((resolve) => { finishWrite = () => resolve([]) }))
+    const db = await freshStore()
+
+    // A write that never finishes on its own: an awaited one would hold the receipt hostage.
+    const receipt = await Promise.race([
+      placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential, waitUntil),
+      new Promise((resolve) => { setTimeout(() => resolve('receipt withheld'), 200) }),
+    ])
+    expect(receipt).toEqual({ detail: 'Order #123 accepted by tastytrade.', orderId: '123' })
+    // The write was started and handed to waitUntil, which keeps it alive past the reply.
+    await vi.waitFor(() => expect(remembered).toHaveLength(1))
+    expect(scheduled).toHaveLength(1)
+    finishWrite()
   })
 
   it('writes the watchlist only after the mutation lease is released', async () => {
@@ -356,8 +385,9 @@ describe('trade-intent provenance', () => {
       return []
     })
 
-    await expect(placeBrokerageOrder({ DB: (await freshStore()).database }, EQUITY_ORDER, brokerCredential))
+    await expect(placeBrokerageOrder({ DB: (await freshStore()).database }, EQUITY_ORDER, brokerCredential, waitUntil))
       .resolves.toMatchObject({ orderId: '123' })
+    await settleScheduled()
     expect(heldDuringWrite).toEqual([false])
   })
 })
@@ -401,7 +431,7 @@ describe('brokers without placement', () => {
     setBrokerAdapters({ [STUB_BROKER_ID]: stubAdapter() })
     // Reads work for this credential, so "connect a brokerage" would be a lie; the refusal has
     // to say that placement specifically is missing for this broker.
-    await expect(placeBrokerageOrder({ DB: (await freshStore()).database }, EQUITY_ORDER, stubBrokerCredential))
+    await expect(placeBrokerageOrder({ DB: (await freshStore()).database }, EQUITY_ORDER, stubBrokerCredential, waitUntil))
       .rejects.toThrow(/not implemented for/)
   })
 })
