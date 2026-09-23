@@ -1,7 +1,14 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { PublicMarketSnapshotSchema } from '../src/domain/market'
-import { selectPublicQuoteRows } from '../src/server/public-market-tools'
+import {
+  createPublicMarketReadTools,
+  PublicSymbolSearchError,
+  selectPublicQuoteRows,
+} from '../src/server/public-market-tools'
+import { MAX_QUERY_LENGTH } from '../src/server/symbol-search'
+import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
+import { stubBroker } from './broker-stub'
 
 describe('anonymous public quote projection', () => {
   it('reads requested rows without parsing the rest of the website book', () => {
@@ -46,5 +53,51 @@ describe('anonymous public quote projection', () => {
     }, ['NVDA'])
     expect(projected.rows).toHaveLength(1)
     expect(projected.rows[0]?.symbol).toBe('NVDA')
+  })
+})
+
+describe('anonymous symbol search', () => {
+  // The real search route behind the tool, over a stub broker and an edge cache that holds
+  // nothing, so each call reaches the route's own answer.
+  const broker = stubBroker()
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    setBrokerApi(broker)
+    vi.stubGlobal('caches', { default: { match: async () => undefined, put: async () => undefined } })
+  })
+
+  afterEach(() => {
+    resetBrokerApi()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  function searchTool() {
+    const tool = createPublicMarketReadTools({ AUTH_BASE_URL: 'https://heston.test' }, () => undefined)
+      .find((candidate) => candidate.name === 'search_symbols')
+    if (!tool) throw new Error('search_symbols is missing')
+    return tool
+  }
+
+  it('advertises the search route\'s own query bound', () => {
+    expect(searchTool().parameters).toMatchObject({ properties: { query: { maxLength: MAX_QUERY_LENGTH } } })
+  })
+
+  it('reports a clean miss as a result', async () => {
+    broker.lookupPublicMarketSymbol.mockResolvedValue(undefined)
+    const result = await searchTool().execute('call', { query: 'ZZZZ' })
+    expect(result.details).toEqual({ error: 'No tradable symbol matches that search' })
+  })
+
+  it('fails visibly rather than returning a refused query as a search result', async () => {
+    // Only wildcards: the route refuses it with a 400 before any lookup.
+    await expect(searchTool().execute('call', { query: '%%' })).rejects.toBeInstanceOf(PublicSymbolSearchError)
+  })
+
+  it('fails visibly rather than returning an outage as a search result', async () => {
+    broker.lookupPublicMarketSymbol.mockRejectedValue(new Error('ProviderDown'))
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    await expect(searchTool().execute('call', { query: 'NVDA' })).rejects.toBeInstanceOf(PublicSymbolSearchError)
   })
 })

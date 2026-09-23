@@ -9,6 +9,8 @@ import { textResult } from './agent-tool-result'
 import { type AppEnv } from './env'
 import { type BackgroundScheduler, servePublicSnapshot } from './public-snapshot-cache'
 import { servePublicSymbolSearch } from './public-symbol-search'
+import { MAX_MARKET_SYMBOLS } from './brokerage-read-contracts'
+import { MAX_QUERY_LENGTH } from './symbol-search'
 
 /**
  * The market reads an unauthenticated caller gets.
@@ -25,18 +27,26 @@ import { servePublicSymbolSearch } from './public-symbol-search'
  *
  * The trade is honest and stated on each tool: the tracked universe only, priced as of the last
  * refresh rather than this instant.
+ *
+ * The symbol bound is the signed-in tools' own model-context budget: these share their names and
+ * answer the same question, so an agent must not find the anonymous tier accepts a different size.
  */
-const MAX_PUBLIC_SYMBOLS = 25
-
 const PublicQuoteParameters = Type.Object({
-  symbols: Type.Array(EquitySymbolType, { maxItems: MAX_PUBLIC_SYMBOLS, minItems: 1 }),
+  symbols: Type.Array(EquitySymbolType, { maxItems: MAX_MARKET_SYMBOLS, minItems: 1 }),
 }, { additionalProperties: false })
 
-const MAX_SEARCH_QUERY_LENGTH = 64
-
+/** The search route's own bound, advertised so an agent is never offered a query it would refuse. */
 const PublicSearchParameters = Type.Object({
-  query: Type.String({ description: 'Ticker or company name.', maxLength: MAX_SEARCH_QUERY_LENGTH, minLength: 1 }),
+  query: Type.String({ description: 'Ticker or company name.', maxLength: MAX_QUERY_LENGTH, minLength: 1 }),
 }, { additionalProperties: false })
+
+/** The public search route answered something other than a match or a clean miss. */
+export class PublicSymbolSearchError extends Error {
+  constructor(status: number) {
+    super(`Symbol search is unavailable (HTTP ${status}).`)
+    this.name = 'PublicSymbolSearchError'
+  }
+}
 
 /** Quote and metric fields the anonymous tools actually return. The website book also carries
  *  recommendations, catalysts and unused ticker columns; those stay unread here. */
@@ -185,6 +195,10 @@ export function createPublicMarketReadTools(env: AppEnv, schedule: BackgroundSch
           env,
           edgeCache(),
         )
+        // A 404 is the route's answer that nothing matches, which is a result. Anything else not
+        // ok -- a refused query, the lookup being down -- is a failure, and returning its body as
+        // an ordinary result would read to the model as a successful search.
+        if (!response.ok && response.status !== 404) throw new PublicSymbolSearchError(response.status)
         return textResult(SearchResultSchema.parse(await response.json()))
       },
       label: 'Searching symbols',

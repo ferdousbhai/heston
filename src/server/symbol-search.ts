@@ -18,7 +18,7 @@ export type SymbolSearchMatch = {
 }
 
 /** Long enough for a company name, short enough that no reader typed it by accident. */
-const MAX_QUERY_LENGTH = 48
+export const MAX_QUERY_LENGTH = 48
 const MAX_MATCHES = 5
 
 const MatchRowSchema = z.object({
