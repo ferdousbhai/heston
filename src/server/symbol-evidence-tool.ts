@@ -116,7 +116,7 @@ export async function recordSymbolEvidence(
 export function createSymbolEvidenceTool(
   env: AppEnv,
   recordedByUserId: string,
-): AgentTool<typeof EvidenceParameters, EvidenceRecording> {
+): AgentTool<typeof EvidenceParameters> {
   return {
     description: 'Attach a quoted passage from a page to a symbol, for every reader of this '
       + 'site. The server reads the page itself and refuses a quote it cannot find word for '

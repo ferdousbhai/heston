@@ -540,7 +540,7 @@ export async function findOptionContracts(
 function createAccountSnapshotReadTool(
   env: AppEnv,
   credential: BrokerCredential | undefined,
-): AgentTool<typeof AccountSnapshotReadParameters, AccountSnapshotReadResult> {
+): AgentTool<typeof AccountSnapshotReadParameters> {
   return {
     description: 'Current balances, positions, and working orders. Omit include for all three.',
     execute: async (params) => textResult(await readAccountSnapshot(env, params, credential)),
@@ -552,7 +552,7 @@ function createAccountSnapshotReadTool(
 function createAccountHistoryReadTool(
   env: AppEnv,
   credential: BrokerCredential | undefined,
-): AgentTool<typeof AccountHistoryReadParameters, AccountHistoryReadResult> {
+): AgentTool<typeof AccountHistoryReadParameters> {
   return {
     description: 'Broker trades, cash movements, or orders.',
     execute: async (params) => textResult(await readAccountHistory(env, params, credential)),
@@ -563,7 +563,7 @@ function createAccountHistoryReadTool(
 
 export function createMarketMetricsReadTool(
   env: AppEnv,
-): AgentTool<typeof MarketMetricsReadParameters, MarketMetricsReadResult> {
+): AgentTool<typeof MarketMetricsReadParameters> {
   return {
     description: 'IV, liquidity, beta, valuation, and earnings metrics; IV is percentage points.',
     execute: async (params) => textResult(await readMarketMetrics(env, tickerSymbolsArgument(params.symbols))),
@@ -574,7 +574,7 @@ export function createMarketMetricsReadTool(
 
 export function createSymbolSearchTool(
   env: AppEnv,
-): AgentTool<typeof SymbolSearchParameters, SymbolSearchResult> {
+): AgentTool<typeof SymbolSearchParameters> {
   return {
     description: 'Broker ticker or company-name lookup.',
     execute: async (params) => textResult(await searchSymbols(env, params.query, params.limit)),
@@ -585,7 +585,7 @@ export function createSymbolSearchTool(
 
 export function createOptionContractFindTool(
   env: AppEnv,
-): AgentTool<typeof OptionContractFindParameters, OptionContractFindResult> {
+): AgentTool<typeof OptionContractFindParameters> {
   return {
     description: 'Without expiry, lists expirations; with expiry, returns active standard contracts '
       + 'with open interest and volume. Default order is open interest then volume; nearStrike is '
@@ -602,7 +602,7 @@ export function createOptionContractFindTool(
 
 export function createInstrumentQuoteReadTool(
   env: AppEnv,
-): AgentTool<typeof InstrumentQuoteReadParameters, InstrumentQuoteReadResult> {
+): AgentTool<typeof InstrumentQuoteReadParameters> {
   return {
     description: 'Current broker bid/ask/mid for equities or option tuples.',
     execute: async (params) => {

@@ -110,7 +110,7 @@ export async function recordResearchCatalysts(
   }
 }
 
-export function createCatalystRecordTool(env: AppEnv): AgentTool<typeof CatalystRecordParameters, CatalystRecording> {
+export function createCatalystRecordTool(env: AppEnv): AgentTool<typeof CatalystRecordParameters> {
   return {
     description: 'Record dated catalysts you researched, for every reader of this site. The '
       + 'server reads each cited page itself and refuses any event whose date it cannot find in '

@@ -127,7 +127,7 @@ export async function readCatalysts(
 
 /** Each call reads the clock itself: a tool list is built once and answers for many calls. */
 export function createResearchReadTools(env: AppEnv) {
-  const catalysts: AgentTool<typeof CatalystReadParameters, CatalystReadResult> = {
+  const catalysts: AgentTool<typeof CatalystReadParameters> = {
     description: 'Stored upcoming catalysts; excludes dividends.',
     execute: async (params) => textResult(
       await readCatalysts(env, tickerSymbolsArgument(params.symbols), params.horizonDays, new Date()),
@@ -135,7 +135,7 @@ export function createResearchReadTools(env: AppEnv) {
     name: 'read_catalysts',
     parameters: CatalystReadParameters,
   }
-  const brief: AgentTool<typeof BriefReadParameters, DailyBriefReadResult> = {
+  const brief: AgentTool<typeof BriefReadParameters> = {
     description: 'The standing daily brief: trade lines, theses and the day\'s links, as the site shows them.',
     execute: async () => textResult(await readLatestDailyBriefState(env, new Date())),
     name: 'read_daily_brief',

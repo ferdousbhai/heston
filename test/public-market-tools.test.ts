@@ -87,7 +87,7 @@ describe('anonymous symbol search', () => {
   it('reports a clean miss as a result', async () => {
     broker.lookupPublicMarketSymbol.mockResolvedValue(undefined)
     const result = await searchTool().execute({ query: 'ZZZZ' })
-    expect(result.details).toEqual({ error: 'No tradable symbol matches that search' })
+    expect(JSON.parse(result.content[0]!.text)).toEqual({ error: 'No tradable symbol matches that search' })
   })
 
   it('fails visibly rather than returning a refused query as a search result', async () => {

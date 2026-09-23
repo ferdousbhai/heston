@@ -67,7 +67,7 @@ async function readWatchlist(env: AppEnv, symbol?: string): Promise<WatchlistRea
  * The owner's read: the index, or one symbol's retained provenance -- its origin and the provider
  * watchlists that seeded it, which are the owner's own account data.
  */
-export function createWatchlistReadTool(env: AppEnv): AgentTool<typeof WatchlistReadParameters, WatchlistReadResult> {
+export function createWatchlistReadTool(env: AppEnv): AgentTool<typeof WatchlistReadParameters> {
   return {
     description: 'Private watchlist; optional symbol returns retained provenance.',
     execute: async (params) => textResult(await readWatchlist(env, params.symbol)),
@@ -81,7 +81,7 @@ export function createWatchlistReadTool(env: AppEnv): AgentTool<typeof Watchlist
  * is not a member's either -- it names the owner's brokerage watchlists -- so this tier is
  * offered no `symbol` parameter at all rather than one that is refused.
  */
-export function createWatchlistIndexTool(env: AppEnv): AgentTool<typeof WatchlistIndexParameters, WatchlistReadResult> {
+export function createWatchlistIndexTool(env: AppEnv): AgentTool<typeof WatchlistIndexParameters> {
   return {
     description: 'Every symbol Heston keeps loaded, alphabetized.',
     execute: async () => textResult(await readWatchlistIndex(env)),
@@ -102,7 +102,7 @@ const RememberSymbolsParameters = Type.Object({
  */
 export function createRememberSymbolsTool(
   env: AppEnv,
-): AgentTool<typeof RememberSymbolsParameters, { remembered: string[] }> {
+): AgentTool<typeof RememberSymbolsParameters> {
   return {
     description: 'Add substantively discussed tickers to the shared watchlist so they stay loaded. '
       + 'Only names a conversation actually developed; an incidental mention does not count.',
@@ -121,7 +121,7 @@ export function createRememberSymbolsTool(
  */
 export function createWatchlistManageTool(
   env: AppEnv,
-): AgentTool<typeof WatchlistActionParameters, unknown> {
+): AgentTool<typeof WatchlistActionParameters> {
   return {
     description: 'Add or remove symbols on the shared internal watchlist.',
     execute: async (params) => textResult(

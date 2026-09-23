@@ -17,14 +17,12 @@ import { type Static, type TSchema } from 'typebox'
 /** Text a tool returns to the model: the only content kind MCP is ever handed. */
 export type AgentToolContent = { type: 'text'; text: string }
 
-export interface AgentToolResult<TDetails = unknown> {
+/**
+ * What a tool answers. Text only: the MCP surface forwards `content` and nothing else, so a
+ * structured side channel would be read by no caller.
+ */
+export interface AgentToolResult {
   content: AgentToolContent[]
-  /**
-   * Structured detail for a caller that wants more than the text. Kept untyped at this
-   * boundary on purpose: every reader parses it with its own schema rather than trusting a
-   * shared shape, which is what lets one tool's detail change without touching another's.
-   */
-  details: TDetails
 }
 
 /**
@@ -32,7 +30,7 @@ export interface AgentToolResult<TDetails = unknown> {
  * serialise one caller's calls against another's, so such a flag would promise what nothing
  * enforces: a write that must not interleave is made safe in its own store statement instead.
  */
-export interface AgentTool<TParameters extends TSchema = TSchema, TDetails = unknown> {
+export interface AgentTool<TParameters extends TSchema = TSchema> {
   description: string
   name: string
   parameters: TParameters
@@ -41,5 +39,5 @@ export interface AgentTool<TParameters extends TSchema = TSchema, TDetails = unk
    * of a throw the caller sees (`toolErrorResult`): a `CallerVisibleError` passes its message,
    * anything else reaches the caller as its error name alone.
    */
-  execute: (params: Static<TParameters>) => Promise<AgentToolResult<TDetails>>
+  execute: (params: Static<TParameters>) => Promise<AgentToolResult>
 }

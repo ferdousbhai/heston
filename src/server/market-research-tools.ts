@@ -285,10 +285,7 @@ export async function readPriceHistory(
 
 function createPriceHistoryReadTool(
   provider: PriceHistoryProvider,
-): AgentTool<
-  typeof PriceHistoryReadParameters,
-  PriceHistoryReadResult
-> {
+): AgentTool<typeof PriceHistoryReadParameters> {
   return {
     // The alignment sentence is the one thing a model cannot infer from the payload and must not
     // guess at: a study read one row out is worse than no study at all.

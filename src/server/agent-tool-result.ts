@@ -1,8 +1,9 @@
+import { type AgentToolResult } from '../domain/agent-tool'
 import { errorName } from '../domain/failure'
 import { BrokerRefusalError, CallerVisibleError } from './caller-visible-error'
 
-export function textResult<T>(result: T) {
-  return { content: [{ text: JSON.stringify(result), type: 'text' as const }], details: result }
+export function textResult<T>(result: T): AgentToolResult {
+  return { content: [{ text: JSON.stringify(result), type: 'text' as const }] }
 }
 
 /**

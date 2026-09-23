@@ -58,7 +58,7 @@ describe('watchlist context boundary', () => {
     // Symbols only. The index answers "what is loaded" across up to 500 names; provenance and
     // instrument type are what the per-symbol mode returns, and shipping them here cost far
     // more than it told anyone.
-    expect(result.details).toMatchObject({
+    expect(JSON.parse(result.content[0]!.text)).toMatchObject({
       mode: 'index',
       source: 'heston',
       status: 'ok',
@@ -70,7 +70,7 @@ describe('watchlist context boundary', () => {
   it('returns retained raw seed provenance for one exact symbol only', async () => {
     const result = await createWatchlistReadTool({ DB: store.database }).execute({ symbol: 'NVDA' })
 
-    expect(result.details).toMatchObject({
+    expect(JSON.parse(result.content[0]!.text)).toMatchObject({
       mode: 'detail',
       source: 'heston',
       status: 'ok',
@@ -82,14 +82,14 @@ describe('watchlist context boundary', () => {
         ],
       },
     })
-    expect(JSON.stringify(result.details)).not.toContain('SPY')
+    expect(result.content[0]!.text).not.toContain('SPY')
     expect(tastytrade.tastyRequest).not.toHaveBeenCalled()
   })
 
   it('reports an exact symbol miss without consulting the broker', async () => {
     const result = await createWatchlistReadTool({ DB: store.database }).execute({ symbol: 'META' })
 
-    expect(result.details).toEqual(expect.objectContaining({
+    expect(JSON.parse(result.content[0]!.text)).toEqual(expect.objectContaining({
       mode: 'detail', source: 'heston', status: 'not_found', symbol: 'META',
     }))
     expect(tastytrade.tastyRequest).not.toHaveBeenCalled()
