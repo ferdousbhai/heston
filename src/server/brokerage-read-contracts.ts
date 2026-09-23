@@ -45,10 +45,11 @@ export const MAX_CHAIN_ROWS = 50_000
 export const EQUITY_SYMBOL = EQUITY_SYMBOL_REGEX
 /**
  * Deliberately wider than an equity symbol: broker history may be filtered by a futures
- * underlying, which tastytrade writes with a leading `/` (`/ES`). Equity-only inputs use
+ * underlying, which tastytrade writes with a leading `/` (`/ES`), or by a share class, which it
+ * writes with an inner `/` (`BRK/B`) as the equity grammar does. Equity-only inputs use
  * `EQUITY_SYMBOL_PATTERN`.
  */
-export const UNDERLYING_SYMBOL = /^\/?[A-Z0-9.]{1,31}$/
+export const UNDERLYING_SYMBOL = /^\/?[A-Z0-9.][A-Z0-9./]{0,30}$/
 
 /** The three reader-facing parts of the brokerage snapshot. */
 export const ACCOUNT_SNAPSHOT_PARTS = ['balances', 'positions', 'orders'] as const

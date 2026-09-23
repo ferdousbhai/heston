@@ -22,6 +22,7 @@ import {
   DEFAULT_SEARCH_RESULTS,
   DEFAULT_TRANSACTION_HISTORY_DAYS,
   MAX_HISTORY_ORDER_LEGS,
+  UNDERLYING_SYMBOL,
 } from '../src/server/brokerage-read-contracts'
 
 const tastytrade = stubBroker()
@@ -726,5 +727,12 @@ describe('brokerage read tools', () => {
       updatedAt: '2026-08-13T11:59:59.000Z',
     }] } })
     await expect(readInstrumentQuotes({}, { symbols: ['AAPL'] }, now)).rejects.toThrow('invalid response')
+  })
+})
+
+describe('account history underlying filter', () => {
+  it('admits a share class and a futures root as tastytrade writes them', () => {
+    for (const symbol of ['AAPL', 'BRK/B', '/ES', 'BF.B']) expect(UNDERLYING_SYMBOL.test(symbol)).toBe(true)
+    for (const symbol of ['', '/', '//ES', 'brk/b']) expect(UNDERLYING_SYMBOL.test(symbol)).toBe(false)
   })
 })
