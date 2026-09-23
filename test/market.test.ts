@@ -101,7 +101,7 @@ describe('snapshot contract', () => {
     expect(() => MarketSnapshotSchema.parse({ ...marketSnapshotFixture(), watchlists: [] })).toThrow()
   })
 
-  it('keeps position membership impossible on the public wire and restores the browser default', () => {
+  it('admits only the public watchlist kind on the public wire and rejects unknown fields; marketSnapshotFromPublic round-trips tickers', () => {
     const owner = marketSnapshotFixture()
     const publicValue = {
       ...owner,
