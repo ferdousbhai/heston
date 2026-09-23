@@ -16,10 +16,15 @@ export type OwnerMarketSyncSummary = {
  */
 export async function summarizeOwnerMarketSync(env: AppEnv): Promise<OwnerMarketSyncSummary> {
   const snapshot = await brokerApi().loadMarketSnapshot(env)
+  const [watchlist] = snapshot.watchlists
+  // MarketSnapshotSchema pins this array to exactly one entry; an owner sync reads the
+  // brokerage's private list, so a public one here is a broken assumption to surface,
+  // never a 0 that looks like an empty watchlist.
+  if (watchlist.kind !== 'private') throw new Error('OwnerMarketSync:watchlist-not-private')
   return {
     catalystCount: snapshot.catalysts.length,
     syncedAt: snapshot.syncedAt,
     tickerCount: snapshot.tickers.length,
-    watchlistItemCount: snapshot.watchlists.find((watchlist) => watchlist.kind === 'private')?.symbols.length ?? 0,
+    watchlistItemCount: watchlist.symbols.length,
   }
 }
