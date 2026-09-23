@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { type PublicSymbolLookup } from '../src/domain/market'
-import { type PublicSnapshotCache } from '../src/server/public-snapshot-cache'
+import { COLD_STORE_RETRY_DELAYS_MS, type PublicSnapshotCache } from '../src/server/public-snapshot-cache'
 import { servePublicSymbolSearch } from '../src/server/public-symbol-search'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
@@ -43,8 +43,13 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
+  broker.claimMarketRefresh.mockResolvedValue(true)
+  broker.lookupStoredMarketSymbol.mockResolvedValue(undefined)
   resetBrokerApi()
 })
+
+const WAIT_MS = COLD_STORE_RETRY_DELAYS_MS.reduce((total, delay) => total + delay, 0)
 
 describe('public symbol search route', () => {
   it('answers one lookup and replays it for the same search', async () => {
@@ -86,6 +91,39 @@ describe('public symbol search route', () => {
 
     expect(failed.status).toBe(503)
     expect(failed.headers.get('Cache-Control')).toContain('no-store')
+    expect(cache.putCalls).toBe(0)
+  })
+  it('waits for the claim holder instead of calling the provider on a lost first-time claim', async () => {
+    vi.useFakeTimers()
+    broker.claimMarketRefresh.mockResolvedValue(false)
+    // Nothing stored when this caller looks; the winner's write lands while it waits.
+    broker.lookupStoredMarketSymbol
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(lookup())
+    const cache = new MemoryCache()
+
+    const pending = serve('tqqq', cache)
+    await vi.advanceTimersByTimeAsync(WAIT_MS)
+    const answered = await pending
+
+    expect(answered.status).toBe(200)
+    expect(broker.lookupPublicMarketSymbol).not.toHaveBeenCalled()
+  })
+
+  it('answers try-again rather than a provider call when the claim holder never lands', async () => {
+    vi.useFakeTimers()
+    broker.claimMarketRefresh.mockResolvedValue(false)
+    broker.lookupStoredMarketSymbol.mockResolvedValue(undefined)
+    const cache = new MemoryCache()
+
+    const pending = serve('tqqq', cache)
+    await vi.advanceTimersByTimeAsync(WAIT_MS)
+    const busy = await pending
+
+    expect(busy.status).toBe(503)
+    expect(busy.headers.get('Cache-Control')).toContain('no-store')
+    expect(broker.lookupPublicMarketSymbol).not.toHaveBeenCalled()
+    expect(broker.lookupStoredMarketSymbol).toHaveBeenCalledTimes(1 + COLD_STORE_RETRY_DELAYS_MS.length)
     expect(cache.putCalls).toBe(0)
   })
 })

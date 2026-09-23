@@ -1,7 +1,7 @@
 import { type PublicSymbolLookup } from '../domain/market'
 import { type AppEnv } from './env'
 import { jsonNoStore, jsonPublic } from './http'
-import { type PublicSnapshotCache } from './public-snapshot-cache'
+import { COLD_STORE_RETRY_DELAYS_MS, type PublicSnapshotCache } from './public-snapshot-cache'
 import { searchableQuery } from './symbol-search'
 import { SYMBOL_REFRESH_LEASE_PREFIX } from './tastytrade-market-store'
 import { brokerApi } from './tastytrade'
@@ -42,6 +42,40 @@ async function store(
   return response
 }
 
+async function readStored(env: AppEnv, query: string): Promise<PublicSymbolLookup | undefined> {
+  try {
+    return await brokerApi().lookupStoredMarketSymbol(env, query)
+  } catch (error) {
+    console.error('PublicSymbolSearchStoreReadFailed', error instanceof Error ? error.name : 'UnknownError')
+    return undefined
+  }
+}
+
+/**
+ * Give the one caller that won the claim time to land its answer, then read it: the edge copy
+ * first, which also carries a search that matched nothing, then the store, which a winner in
+ * another location writes.
+ */
+async function awaitClaimWinner(
+  env: AppEnv,
+  edgeCache: PublicSnapshotCache,
+  cacheKey: Request,
+  query: string,
+): Promise<Response | undefined> {
+  for (const delay of COLD_STORE_RETRY_DELAYS_MS) {
+    await new Promise((resolve) => setTimeout(resolve, delay))
+    try {
+      const cached = await edgeCache.match(cacheKey)
+      if (cached) return cached
+    } catch (error) {
+      console.error('PublicSymbolSearchCacheReadFailed', error instanceof Error ? error.name : 'UnknownError')
+    }
+    const stored = await readStored(env, query)
+    if (stored) return await store(edgeCache, cacheKey, jsonPublic(stored), FOUND_RETENTION_SECONDS)
+  }
+  return undefined
+}
+
 export async function servePublicSymbolSearch(
   request: Request,
   env: AppEnv,
@@ -59,15 +93,17 @@ export async function servePublicSymbolSearch(
 
   // A symbol anyone has already searched is in the store, so losing the claim still answers, and
   // so does a live lookup that fails. Read once: the failure path reuses this answer.
-  let stored: PublicSymbolLookup | undefined
-  try {
-    stored = await brokerApi().lookupStoredMarketSymbol(env, query)
-  } catch (error) {
-    console.error('PublicSymbolSearchStoreReadFailed', error instanceof Error ? error.name : 'UnknownError')
-  }
+  const stored = await readStored(env, query)
   try {
     const claimed = await brokerApi().claimMarketRefresh(env, LOOKUP_LEASE_MS, new Date(), `${SYMBOL_REFRESH_LEASE_PREFIX}${query}`)
-    if (!claimed && stored) return await store(edgeCache, cacheKey, jsonPublic(stored), FOUND_RETENTION_SECONDS)
+    if (!claimed) {
+      if (stored) return await store(edgeCache, cacheKey, jsonPublic(stored), FOUND_RETENTION_SECONDS)
+      // A first-time search whose claim another caller holds waits for that caller's answer
+      // rather than making its own provider call, which is the fan-out the claim exists to stop.
+      const awaited = await awaitClaimWinner(env, edgeCache, cacheKey, query)
+      if (awaited) return awaited
+      return jsonNoStore({ error: 'Symbol search is busy; try again' }, { status: 503 })
+    }
     const lookup = await brokerApi().lookupPublicMarketSymbol(env, query)
     if (!lookup) {
       return await store(

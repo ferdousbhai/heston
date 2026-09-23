@@ -18,8 +18,9 @@ const SNAPSHOT_FRESH_MS = 60 * 1_000
 // enough to cover a slow provider, short enough that a crashed refresh unblocks quickly.
 const REFRESH_LEASE_MS = 30 * 1_000
 // Only reached on a cold store, where the alternative is every concurrent visitor rebuilding
-// from the provider at once. Two short waits, then honest unavailability.
-const COLD_STORE_RETRY_DELAYS_MS = [1_000, 2_000]
+// from the provider at once. Two short waits, then honest unavailability. The symbol search's
+// lost claim waits on the same schedule for the same reason.
+export const COLD_STORE_RETRY_DELAYS_MS = [1_000, 2_000]
 // A stale copy is served while the refresh behind it runs, so the copy must outlive its own
 // fresh window by the time one refresh may take. Anything older is rebuilt in the reader's
 // path from the store, which is cheap; only the provider is ever kept off that path.
