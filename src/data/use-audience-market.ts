@@ -93,6 +93,9 @@ export function useAudienceMarket(audience: SnapshotAudience | undefined) {
   const preferenceQuery = useLiveQuery((query) => query.from({ preference: preferenceCollection }))
   const [bootstrappedAudience, setBootstrappedAudience] = useState<SnapshotAudience>()
   const [warning, setWarning] = useState<string>()
+  // A selection that could not be saved is not stale market data, and a later selection that
+  // succeeds settles it; it keeps its own state rather than borrowing the snapshot warning.
+  const [selectionError, setSelectionError] = useState<string>()
   const { snapshot, tickers } = audienceMarketView(
     audience ?? 'public',
     snapshotQuery.data ?? [],
@@ -146,10 +149,11 @@ export function useAudienceMarket(audience: SnapshotAudience | undefined) {
   }, [audience])
 
   const chooseSymbol = useCallback(async (symbol: string, lookup?: PublicSymbolLookup): Promise<void> => {
+    setSelectionError(undefined)
     try {
       await selectTicker(symbol, lookup)
     } catch (cause: unknown) {
-      setWarning(toError(cause)?.message ?? 'The market selection could not be saved')
+      setSelectionError(toError(cause)?.message ?? 'The market selection could not be saved')
     }
   }, [])
 
@@ -160,6 +164,7 @@ export function useAudienceMarket(audience: SnapshotAudience | undefined) {
     chooseSymbol,
     collectionFailed: tickerQuery.isError || snapshotQuery.isError || preferenceQuery.isError,
     preference,
+    selectionError,
     snapshot,
     tickers,
     warning,

@@ -68,9 +68,14 @@ function HestonWorkspace({
   const selected = tickers.find((ticker) => ticker.symbol === preference?.selectedSymbol)
     ?? tickers.find((ticker) => ticker.symbol === fallbackSymbol)
   const loadedSymbols = new Set(tickers.map((ticker) => ticker.symbol))
+  // Favorites stream in the table's default order (volume, busiest first), so when there are more
+  // of them than one socket carries, the ones that stream are the ones on top of the list.
+  const volumeOf = new Map(tickers.map((ticker) => [ticker.symbol, ticker.volume ?? 0]))
+  const pinnedByVolume = [...favorites.pinnedSymbols]
+    .sort((left, right) => (volumeOf.get(right) ?? 0) - (volumeOf.get(left) ?? 0) || left.localeCompare(right))
   const streamSymbols = selectLiveMarketSymbols(
     selected?.symbol,
-    favorites.pinnedSymbols,
+    pinnedByVolume,
     activeWatchlist?.symbols ?? [],
     loadedSymbols,
   )
@@ -123,6 +128,12 @@ function HestonWorkspace({
               <Alert>
                 <AlertTitle>Market data may be stale</AlertTitle>
                 <AlertDescription>{visibleSnapshotWarning}</AlertDescription>
+              </Alert>
+            )}
+            {tab === 'market' && market.selectionError && (
+              <Alert variant="destructive">
+                <AlertTitle>Selection failed</AlertTitle>
+                <AlertDescription>{market.selectionError}</AlertDescription>
               </Alert>
             )}
             {tab === 'market' && visibleFavoriteError && (
