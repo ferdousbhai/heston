@@ -64,6 +64,7 @@ import {
 import { loadBrokerageContext } from './brokerage-context'
 import { BrokerCredentialMissingError, type BrokerCredential } from './broker-credential'
 import { CallerVisibleError } from './caller-visible-error'
+import { MAX_QUERY_LENGTH } from './symbol-search'
 
 function dateDaysAgo(now: Date, days: number): string {
   const result = new Date(now)
@@ -337,7 +338,7 @@ export async function searchSymbols(
   now = new Date(),
 ): Promise<SymbolSearchResult> {
   const query = requestedQuery.trim()
-  if (!query || query.length > 64 || !/^[\x20-\x7E]+$/.test(query)) throw new CallerVisibleError('Symbol search query is invalid.')
+  if (!query || query.length > MAX_QUERY_LENGTH || !/^[\x20-\x7E]+$/.test(query)) throw new CallerVisibleError('Symbol search query is invalid.')
   const limit = assertInteger(requestedLimit, 1, MAX_SEARCH_RESULTS, 'Symbol search limit')
   const envelope = itemEnvelope(
     await brokerApi().tastyRequest(env, `/symbols/search/${encodeURIComponent(query)}`),

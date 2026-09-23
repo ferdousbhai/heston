@@ -9,7 +9,10 @@ import {
   readMarketMetrics,
   readInstrumentQuotes,
   searchSymbols,
+  createSymbolSearchTool,
 } from '../src/server/brokerage-read-tools'
+import { createPublicMarketReadTools } from '../src/server/public-market-tools'
+import { MAX_QUERY_LENGTH } from '../src/server/symbol-search'
 
 const tastytrade = stubBroker()
 
@@ -357,6 +360,17 @@ describe('brokerage read tools', () => {
       listedMarket: 'NASDAQ',
       symbol: 'AAPL',
     }])
+  })
+
+  it('bounds the query exactly as the anonymous search_symbols does', async () => {
+    // Same tool name at both tiers, so the same size must be admitted at both.
+    const anonymous = createPublicMarketReadTools({}, () => undefined).find((tool) => tool.name === 'search_symbols')
+    expect(anonymous?.parameters).toMatchObject({ properties: { query: { maxLength: MAX_QUERY_LENGTH } } })
+    expect(createSymbolSearchTool({}).parameters)
+      .toMatchObject({ properties: { query: { maxLength: MAX_QUERY_LENGTH } } })
+    await expect(searchSymbols({}, 'A'.repeat(MAX_QUERY_LENGTH + 1), 1, now))
+      .rejects.toThrow('Symbol search query is invalid.')
+    expect(tastytrade.tastyRequest).not.toHaveBeenCalled()
   })
 
   it('finds only exact active Standard option contracts, and returns nothing a caller cannot act on', async () => {

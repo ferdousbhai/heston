@@ -12,6 +12,7 @@ import {
 } from '../domain/broker'
 import { IsoDateType } from '../domain/iso-date'
 import { StringEnum } from '../domain/string-enum'
+import { MAX_QUERY_LENGTH } from './symbol-search'
 
 // These are model-context budgets, not brokerage or trading policy. Read tools expose
 // pagination/truncation so the agent can make another narrow call instead of receiving
@@ -90,11 +91,15 @@ export const MarketMetricsReadParameters = Type.Object({
   }),
 }, { additionalProperties: false })
 
+/**
+ * The query bound is the anonymous search's own: the two tools share the name `search_symbols`, so
+ * an agent must not find one tier accepts a query the other refuses.
+ */
 export const SymbolSearchParameters = Type.Object({
   limit: Type.Optional(Type.Integer({ maximum: MAX_SEARCH_RESULTS, minimum: 1 })),
   query: Type.String({
     description: 'Ticker or company-name fragment.',
-    maxLength: 64,
+    maxLength: MAX_QUERY_LENGTH,
     minLength: 1,
     pattern: '^(?=.*\\S)[\\x20-\\x7E]+$',
   }),
