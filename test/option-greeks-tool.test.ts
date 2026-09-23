@@ -60,7 +60,7 @@ function environment(greeks: ReturnType<typeof observation>[]) {
     source: 'tastytrade-dxlink',
   })
   const getByName = vi.fn(() => ({ fetch: vi.fn(), readDailyCandles: vi.fn(), readOptionGreeks }))
-  const env: AppEnv = { MARKET_FEED: { get: vi.fn(), getByName, idFromName: vi.fn() } }
+  const env: AppEnv = { MARKET_FEED: { getByName } }
   return { env, getByName, readOptionGreeks }
 }
 

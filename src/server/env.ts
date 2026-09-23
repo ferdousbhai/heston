@@ -19,9 +19,7 @@ interface MarketFeedRpcStub {
 }
 
 interface MarketFeedNamespace {
-  get(id: DurableObjectId): MarketFeedRpcStub
   getByName(name: string): MarketFeedRpcStub
-  idFromName(name: string): DurableObjectId
 }
 
 export interface AppEnv {

@@ -453,15 +453,3 @@ export function marketClosesAtFromTastytradeSession(payload: JsonValue, now = ne
   if (!Number.isFinite(close) || close <= now.getTime()) return undefined
   return new Date(close).toISOString()
 }
-
-export function activeEquityPositionSymbols(positions: readonly JsonObject[]): string[] {
-  const symbols = positions.flatMap((position) => {
-    const quantity = numeric(position.quantity, 'position-quantity')
-    if (quantity === 0) return []
-    const rawSymbol = jsonText(position['underlying-symbol']) ?? jsonText(position.symbol)
-    const parsed = EquitySymbolSchema.safeParse(rawSymbol)
-    if (!parsed.success) throw new Error('TastytradePositions:invalid-symbol')
-    return [parsed.data]
-  })
-  return [...new Set(symbols)]
-}

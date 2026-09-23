@@ -2,7 +2,6 @@ import { z } from 'zod'
 
 import { EquitySymbolSchema } from './instrument'
 import { CitedSourceUrlSchema, MAX_CITED_SOURCE_TITLE_LENGTH } from './https-url'
-import { MAX_RESEARCH_BYLINE_LENGTH, MAX_RESEARCH_EVIDENCE_QUOTE_LENGTH } from './market'
 
 /*
  * An evidence card is one quoted passage from a page, attached to a symbol by a member's own
@@ -16,18 +15,19 @@ import { MAX_RESEARCH_BYLINE_LENGTH, MAX_RESEARCH_EVIDENCE_QUOTE_LENGTH } from '
  */
 
 /**
- * A card's quote is one passage the binder matched
- * -- so it is held to that one bound rather than a second number for the same envelope.
+ * A quote is one sentence of a page, not a page. The evidence binder holds a submission to
+ * this bound, so the quote a card stores is the quote the binder matched.
  */
-export const MAX_EVIDENCE_QUOTE_LENGTH = MAX_RESEARCH_EVIDENCE_QUOTE_LENGTH
+export const MAX_EVIDENCE_QUOTE_LENGTH = 300
 /** The member's own one-line reading of the quote. One line at the card's measure, no more. */
 export const MAX_EVIDENCE_NOTE_LENGTH = 240
 /**
  * A handle the member chose, never a name an identity provider gave us: this is a public
- * surface and the account behind it stays private. The same envelope any recorded byline gets,
- * for the same reason -- wide enough for a handle, too narrow for a sentence or an address.
+ * surface and the account behind it stays private. One line at a card's measure -- a handle
+ * that does not fit beside the symbol on a phone is a sentence, and a card is not where a
+ * sentence goes. Nothing account-derived ever fills it: the member types it or leaves it out.
  */
-export const MAX_EVIDENCE_BYLINE_LENGTH = MAX_RESEARCH_BYLINE_LENGTH
+export const MAX_EVIDENCE_BYLINE_LENGTH = 40
 
 /**
  * How many cards a public read returns for one symbol. The section sits under the runway in the

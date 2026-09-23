@@ -45,9 +45,7 @@ describe('year candle refresh', () => {
     const env: AppEnv = {
       DB: store.database,
       MARKET_FEED: {
-        get: vi.fn(),
         getByName: vi.fn(() => ({ fetch: vi.fn(), readDailyCandles, readOptionGreeks: vi.fn() })),
-        idFromName: vi.fn(),
       },
     }
 
@@ -73,9 +71,7 @@ describe('year candle refresh', () => {
     const env: AppEnv = {
       DB: store.database,
       MARKET_FEED: {
-        get: vi.fn(),
         getByName: vi.fn(() => ({ fetch: vi.fn(), readDailyCandles, readOptionGreeks: vi.fn() })),
-        idFromName: vi.fn(),
       },
     }
 
@@ -90,9 +86,7 @@ describe('year candle refresh', () => {
     const env: AppEnv = {
       DB: store.database,
       MARKET_FEED: {
-        get: vi.fn(),
         getByName: vi.fn(() => ({ fetch: vi.fn(), readDailyCandles, readOptionGreeks: vi.fn() })),
-        idFromName: vi.fn(),
       },
     }
 

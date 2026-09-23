@@ -79,20 +79,6 @@ export const PublicTickerSchema = TickerSchema.omit({ earningsDate: true, sparkl
 }).strict()
 
 /**
- * A quote is one sentence of a page, not a page. The evidence binder holds a submission to
- * this bound, so the quote a card stores is the quote the binder matched.
- */
-export const MAX_RESEARCH_EVIDENCE_QUOTE_LENGTH = 300
-
-/**
- * How a member wants to be credited on what their agent recorded, in their own words: a handle,
- * not a name we hold. One line at a card's measure -- a handle that does not fit beside the
- * symbol on a phone is a sentence, and a card is not where a sentence goes. Nothing
- * account-derived ever fills it: the member types it into the submission or leaves it out.
- */
-export const MAX_RESEARCH_BYLINE_LENGTH = 40
-
-/**
  * A year of daily closes, oldest first. Only the closes travel: the year chart spaces points
  * by index because a daily grid is near-uniform, so the instants would be sent and never read.
  */

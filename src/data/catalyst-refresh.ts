@@ -14,7 +14,7 @@ import { forgetPublicCatalysts } from './public-catalysts'
  * does looking at one whose next month is empty. The server owns the window that decides
  * whether a search is actually bought, so asking is cheap and asking twice costs nothing.
  */
-export async function requestCatalystRefresh(symbol: string, force = false): Promise<CatalystRefresh> {
+async function requestCatalystRefresh(symbol: string, force = false): Promise<CatalystRefresh> {
   const response = await fetch('/api/public-catalyst-refresh', {
     body: JSON.stringify({ force, symbol: EquitySymbolSchema.parse(symbol) }),
     headers: { 'content-type': 'application/json' },
@@ -73,6 +73,14 @@ function record(symbol: string, refresh: CatalystRefresh): void {
   notify()
 }
 
+/**
+ * Ask once for a symbol's calendar, through the same per-session store a reader's look uses, so
+ * a favorite's search and a later look at the symbol are one request and one answer.
+ */
+export function seedCatalystSearch(symbol: string): void {
+  searchOnce(symbol)
+}
+
 function searchOnce(symbol: string): void {
   if (searches.has(symbol)) return
   searches.add(symbol)
@@ -88,7 +96,7 @@ function searchOnce(symbol: string): void {
  * Spend a search the window would have refused. The owner asked for this one on purpose, so
  * it runs whatever the receipt says, and a second click while one is in flight is ignored.
  */
-export async function forceCatalystSearch(symbol: string): Promise<void> {
+async function forceCatalystSearch(symbol: string): Promise<void> {
   if (forcing.has(symbol)) return
   forcing.add(symbol)
   notify()
@@ -108,7 +116,6 @@ export type CatalystSearchState = {
   confirmedEmpty: boolean
   /** True when the last search for this symbol never answered, so its calendar is unknown. */
   failed: boolean
-  forcing: boolean
   refresh: () => void
   searching: boolean
 }
@@ -136,7 +143,6 @@ export function useCatalystSearch(
     catalysts: answer ?? NO_CATALYSTS,
     confirmedEmpty: searched.has(symbol) && (answer?.length ?? 0) === 0,
     failed: failed.has(symbol),
-    forcing: forcing.has(symbol),
     refresh: () => void forceCatalystSearch(symbol),
     searching: (answer === undefined && searches.has(symbol)) || forcing.has(symbol),
   }
