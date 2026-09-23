@@ -36,8 +36,12 @@ const LISTEN_HOST = '127.0.0.1'
 const DEFAULT_PORT = 8787
 const UPSTREAM = process.env.HESTON_MCP_URL ?? 'https://heston.io/mcp'
 const TASTYTRADE_API_BASE = process.env.TASTYTRADE_API_BASE ?? 'https://api.tastyworks.com'
-// The Worker's own bound. A forwarded request that has not answered by then is not going to.
-// It is also how long a broker token must outlive the moment it is attached; see token-refresh.mjs.
+// This proxy's budget for one forwarded MCP call, headers through the last streamed byte. Nothing
+// on the Worker bounds a request's wall time (Workers limit CPU, not wall-clock, and each broker
+// call there carries its own timeout), so this is not a mirror of a Worker bound: it is meant to
+// cover a single call's worst case, a placement's sequential broker round trips being the longest,
+// and it is a judgment of that case rather than a figure derived from one. It is also how long a
+// broker token must outlive the moment it is attached; see token-refresh.mjs.
 const UPSTREAM_TIMEOUT_MS = 60_000
 const TOKEN_REQUEST_TIMEOUT_MS = 20_000
 
@@ -186,7 +190,15 @@ async function main() {
           ? ` ${String(error.cause.code)}`
           : ''
         process.stderr.write(`HestonAgentProxy: ${request.method} ${name}${cause}\n`)
-        if (!response.headersSent) response.writeHead(502, { 'content-type': 'application/json' })
+        // Once the upstream status and headers are relayed -- an event stream already under way,
+        // then the timeout or a dropped connection -- a JSON error written now would arrive as the
+        // tail of that stream and end it cleanly, reading as a complete reply. Cutting the
+        // connection is the only signal left that the reply is incomplete.
+        if (response.headersSent) {
+          response.destroy()
+          return
+        }
+        response.writeHead(502, { 'content-type': 'application/json' })
         response.end(JSON.stringify({ error: 'The Heston proxy could not complete this request' }))
       }
     })()

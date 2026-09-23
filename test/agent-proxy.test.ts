@@ -259,6 +259,45 @@ describe('local agent proxy', () => {
     expect(captured).toHaveLength(2)
   }, 30_000)
 
+  it('cuts a stream that fails mid-way instead of appending an error to it', async () => {
+    const port = await listen((request, response) => {
+      request.resume()
+      request.on('end', () => {
+        response.writeHead(200, { 'content-type': 'text/event-stream' })
+        response.write('event: message\ndata: {"partial":true}\n\n')
+        // The Worker's connection drops with the event stream under way.
+        setTimeout(() => response.destroy(), 50)
+      })
+    })
+    const keyring = await fakeKeyring({ 'heston/mcp-token': HESTON_TOKEN })
+    const proxyPort = 18_792
+    await startProxy({
+      PATH: `${keyring}:${process.env.PATH ?? ''}`,
+      HESTON_MCP_URL: `http://127.0.0.1:${port}/mcp`,
+      TASTYTRADE_API_BASE: `http://127.0.0.1:${port}`,
+    }, proxyPort)
+
+    const outcome = await new Promise<{ body: string; complete: boolean; contentType?: string }>((resolve, reject) => {
+      const outgoing = httpRequest({
+        headers: { 'content-type': 'application/json', host: `127.0.0.1:${proxyPort}` },
+        host: '127.0.0.1', method: 'POST', path: '/mcp', port: proxyPort,
+      }, (reply) => {
+        let body = ''
+        reply.on('data', (chunk: Buffer) => { body += chunk.toString() })
+        reply.on('end', () => resolve({ body, complete: reply.complete, contentType: reply.headers['content-type'] }))
+        reply.on('aborted', () => resolve({ body, complete: false, contentType: reply.headers['content-type'] }))
+        reply.on('error', () => resolve({ body, complete: false, contentType: reply.headers['content-type'] }))
+      })
+      outgoing.on('error', reject)
+      outgoing.end(JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'tools/call' }))
+    })
+    expect(outcome.contentType).toBe('text/event-stream')
+    expect(outcome.body).toContain('"partial":true')
+    // A clean end, or the proxy's JSON error inside the event stream, would read as a whole reply.
+    expect(outcome.body).not.toContain('could not complete')
+    expect(outcome.complete).toBe(false)
+  }, 30_000)
+
   it('exits non-zero when the keyring cannot be read rather than starting market-only', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'heston-keyring-'))
     keyrings.push(directory)
