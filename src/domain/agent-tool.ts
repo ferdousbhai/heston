@@ -14,10 +14,8 @@ import { type Static, type TSchema } from 'typebox'
  * repository builds and reads. Anything a future caller needs is added here on purpose.
  */
 
-/** Text or image a tool returns to the model. Only text reaches the MCP wire. */
-export type AgentToolContent =
-  | { type: 'text'; text: string }
-  | { type: 'image'; data: string; mimeType: string }
+/** Text a tool returns to the model: the only content kind MCP is ever handed. */
+export type AgentToolContent = { type: 'text'; text: string }
 
 export interface AgentToolResult<TDetails = unknown> {
   content: AgentToolContent[]
@@ -30,28 +28,14 @@ export interface AgentToolResult<TDetails = unknown> {
 }
 
 /**
- * Streams partial results while `execute` runs. Scoped to that invocation; calls after the
- * promise settles are ignored. Heston tools do not stream today, but the parameter is part of
- * the shape a wrapping tool must pass through.
+ * No tool declares that it must run alone. The MCP surface is stateless per call and cannot
+ * serialise one caller's calls against another's, so such a flag would promise what nothing
+ * enforces: a write that must not interleave is made safe in its own store statement instead.
  */
-export type AgentToolUpdateCallback<TDetails = unknown> = (partial: AgentToolResult<TDetails>) => void
-
 export interface AgentTool<TParameters extends TSchema = TSchema, TDetails = unknown> {
   description: string
-  /**
-   * A tool that must not run concurrently with another says so. Everything else may be
-   * batched by whatever agent is driving.
-   */
-  executionMode?: 'sequential' | 'parallel'
-  /** Human-readable label for display. */
-  label: string
   name: string
   parameters: TParameters
   /** Throw on failure rather than encoding an error in `content`. */
-  execute: (
-    toolCallId: string,
-    params: Static<TParameters>,
-    signal?: AbortSignal,
-    onUpdate?: AgentToolUpdateCallback<TDetails>,
-  ) => Promise<AgentToolResult<TDetails>>
+  execute: (params: Static<TParameters>) => Promise<AgentToolResult<TDetails>>
 }

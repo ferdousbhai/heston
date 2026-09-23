@@ -127,19 +127,17 @@ export async function readCatalysts(
 export function createResearchReadTools(env: AppEnv) {
   const catalysts: AgentTool<typeof CatalystReadParameters, CatalystReadResult | { error: string }> = {
     description: 'Stored upcoming catalysts; excludes dividends.',
-    execute: async (_toolCallId, params) => {
+    execute: async (params) => {
       const parsed = equitySymbolsFromModelText(params.symbols)
       if ('unreadable' in parsed) return textResult({ error: `not a ticker symbol: ${parsed.unreadable.slice(0, 12)}` })
       return textResult(await readCatalysts(env, parsed.symbols, params.horizonDays, new Date()))
     },
-    label: 'Reading catalysts',
     name: 'read_catalysts',
     parameters: CatalystReadParameters,
   }
   const brief: AgentTool<typeof BriefReadParameters, DailyBriefReadResult> = {
     description: 'The standing daily brief: trade lines, theses and the day\'s links, as the site shows them.',
     execute: async () => textResult(await readLatestDailyBriefState(env, new Date())),
-    label: 'Reading the daily brief',
     name: 'read_daily_brief',
     parameters: BriefReadParameters,
   }

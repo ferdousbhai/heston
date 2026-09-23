@@ -70,8 +70,7 @@ async function readWatchlist(env: AppEnv, symbol?: string): Promise<WatchlistRea
 export function createWatchlistReadTool(env: AppEnv): AgentTool<typeof WatchlistReadParameters, WatchlistReadResult> {
   return {
     description: 'Private watchlist; optional symbol returns retained provenance.',
-    execute: async (_toolCallId, params) => textResult(await readWatchlist(env, params.symbol)),
-    label: 'Reading watchlist',
+    execute: async (params) => textResult(await readWatchlist(env, params.symbol)),
     name: 'read_watchlist',
     parameters: WatchlistReadParameters,
   }
@@ -86,7 +85,6 @@ export function createWatchlistIndexTool(env: AppEnv): AgentTool<typeof Watchlis
   return {
     description: 'Every symbol Heston keeps loaded, alphabetized.',
     execute: async () => textResult(await readWatchlistIndex(env)),
-    label: 'Reading watchlist',
     name: 'read_watchlist',
     parameters: WatchlistIndexParameters,
   }
@@ -108,12 +106,10 @@ export function createRememberSymbolsTool(
   return {
     description: 'Add substantively discussed tickers to the shared watchlist so they stay loaded. '
       + 'Only names a conversation actually developed; an incidental mention does not count.',
-    execute: async (_toolCallId, params) => {
+    execute: async (params) => {
       const remembered = await internalWatchlistWriter().ensureSymbols(env, params.symbols, 'agent-discussion')
       return textResult({ remembered })
     },
-    executionMode: 'sequential',
-    label: 'Remembering symbols',
     name: 'remember_symbols',
     parameters: RememberSymbolsParameters,
   }
@@ -128,11 +124,9 @@ export function createWatchlistManageTool(
 ): AgentTool<typeof WatchlistActionParameters, unknown> {
   return {
     description: 'Add or remove symbols on the shared internal watchlist.',
-    execute: async (_toolCallId, params) => textResult(
+    execute: async (params) => textResult(
       await executeWatchlistAction(env, WatchlistActionSchema.parse(params)),
     ),
-    executionMode: 'sequential',
-    label: 'Updating watchlist',
     name: 'manage_watchlist',
     parameters: WatchlistActionParameters,
   }

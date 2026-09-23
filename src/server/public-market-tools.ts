@@ -134,7 +134,7 @@ export function createPublicMarketReadTools(env: AppEnv, schedule: BackgroundSch
     {
       description: 'Price and daily move for tracked symbols, from the public snapshot refreshed '
         + 'about once a minute. Not a live quote and carries no bid/ask: sign in for those.',
-      execute: async (_toolCallId, params) => {
+      execute: async (params) => {
         // SAFETY: the MCP server validates every call against this tool's own JSON Schema before
         // dispatch, and `PublicQuoteParameters` requires `symbols` as a non-empty string array.
         const { symbols } = params as { symbols: string[] }
@@ -151,14 +151,13 @@ export function createPublicMarketReadTools(env: AppEnv, schedule: BackgroundSch
           source: 'heston-public-snapshot',
         })
       },
-      label: 'Reading public quotes',
       name: 'read_instrument_quotes',
       parameters: PublicQuoteParameters,
     },
     {
       description: 'Implied volatility rank, percentile and index for tracked symbols, from the '
         + 'public snapshot refreshed about once a minute. Sign in for the full broker metrics.',
-      execute: async (_toolCallId, params) => {
+      execute: async (params) => {
         // SAFETY: the MCP server validates every call against this tool's own JSON Schema before
         // dispatch, and `PublicQuoteParameters` requires `symbols` as a non-empty string array.
         const { symbols } = params as { symbols: string[] }
@@ -176,7 +175,6 @@ export function createPublicMarketReadTools(env: AppEnv, schedule: BackgroundSch
           source: 'heston-public-snapshot',
         })
       },
-      label: 'Reading public market metrics',
       name: 'read_market_metrics',
       parameters: PublicQuoteParameters,
     },
@@ -186,7 +184,7 @@ export function createPublicMarketReadTools(env: AppEnv, schedule: BackgroundSch
       // knowing about it -- the visitor who never runs an agent sees the same row afterwards.
       description: 'Resolve a ticker or company name. A name that resolves joins the tracked '
         + 'universe and is quoted for everyone from then on.',
-      execute: async (_toolCallId, params) => {
+      execute: async (params) => {
         // SAFETY: the MCP server validates every call against this tool's own JSON Schema before
         // dispatch, and `PublicSearchParameters` requires `query` as a non-empty string.
         const { query } = params as { query: string }
@@ -201,7 +199,6 @@ export function createPublicMarketReadTools(env: AppEnv, schedule: BackgroundSch
         if (!response.ok && response.status !== 404) throw new PublicSymbolSearchError(response.status)
         return textResult(SearchResultSchema.parse(await response.json()))
       },
-      label: 'Searching symbols',
       name: 'search_symbols',
       parameters: PublicSearchParameters,
     },

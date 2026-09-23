@@ -292,8 +292,7 @@ function createPriceHistoryReadTool(
     // The alignment sentence is the one thing a model cannot infer from the payload and must not
     // guess at: a study read one row out is worse than no study at all.
     description: 'Dividend-adjusted Yahoo history with optional local SMA, EMA, RSI, MACD, or Bollinger studies; not a current quote. A study series carries only the values it has: values[i] is for prices[firstPriceIndex + i].',
-    execute: async (_toolCallId, params) => textResult(await readPriceHistory(params, provider)),
-    label: 'Reading price history',
+    execute: async (params) => textResult(await readPriceHistory(params, provider)),
     name: 'read_price_history',
     parameters: PriceHistoryReadParameters,
   }

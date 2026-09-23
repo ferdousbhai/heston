@@ -541,8 +541,7 @@ function createAccountSnapshotReadTool(
 ): AgentTool<typeof AccountSnapshotReadParameters, AccountSnapshotReadResult> {
   return {
     description: 'Current balances, positions, and working orders. Omit include for all three.',
-    execute: async (_toolCallId, params) => textResult(await readAccountSnapshot(env, params, credential)),
-    label: 'Reading account snapshot',
+    execute: async (params) => textResult(await readAccountSnapshot(env, params, credential)),
     name: 'read_account_snapshot',
     parameters: AccountSnapshotReadParameters,
   }
@@ -554,8 +553,7 @@ function createAccountHistoryReadTool(
 ): AgentTool<typeof AccountHistoryReadParameters, AccountHistoryReadResult> {
   return {
     description: 'Broker trades, cash movements, or orders.',
-    execute: async (_toolCallId, params) => textResult(await readAccountHistory(env, params, credential)),
-    label: 'Reading account history',
+    execute: async (params) => textResult(await readAccountHistory(env, params, credential)),
     name: 'read_account_history',
     parameters: AccountHistoryReadParameters,
   }
@@ -566,12 +564,11 @@ export function createMarketMetricsReadTool(
 ): AgentTool<typeof MarketMetricsReadParameters, MarketMetricsReadResult | { error: string }> {
   return {
     description: 'IV, liquidity, beta, valuation, and earnings metrics; IV is percentage points.',
-    execute: async (_toolCallId, params) => {
+    execute: async (params) => {
       const parsed = equitySymbolsFromModelText(params.symbols)
       if ('unreadable' in parsed) return textResult({ error: `not a ticker symbol: ${parsed.unreadable.slice(0, 12)}` })
       return textResult(await readMarketMetrics(env, parsed.symbols))
     },
-    label: 'Reading market metrics',
     name: 'read_market_metrics',
     parameters: MarketMetricsReadParameters,
   }
@@ -582,8 +579,7 @@ export function createSymbolSearchTool(
 ): AgentTool<typeof SymbolSearchParameters, SymbolSearchResult> {
   return {
     description: 'Broker ticker or company-name lookup.',
-    execute: async (_toolCallId, params) => textResult(await searchSymbols(env, params.query, params.limit)),
-    label: 'Searching symbols',
+    execute: async (params) => textResult(await searchSymbols(env, params.query, params.limit)),
     name: 'search_symbols',
     parameters: SymbolSearchParameters,
   }
@@ -597,14 +593,13 @@ export function createOptionContractFindTool(
       + 'with open interest and volume. Default order is open interest then volume; nearStrike is '
       + 'nearest listed, strike is exact. Only contracts this tool returns exist; never name one '
       + 'it did not list.',
-    execute: async (_toolCallId, params) => {
+    execute: async (params) => {
       const underlying = equitySymbolFromModelText(params.underlying)
       if (underlying === undefined) {
         return textResult({ error: `not a ticker symbol: ${params.underlying.slice(0, 12)}` })
       }
       return textResult(await findOptionContracts(env, { ...params, underlying }))
     },
-    label: 'Finding option contracts',
     name: 'find_option_contracts',
     parameters: OptionContractFindParameters,
   }
@@ -615,7 +610,7 @@ export function createInstrumentQuoteReadTool(
 ): AgentTool<typeof InstrumentQuoteReadParameters, InstrumentQuoteReadResult | { error: string }> {
   return {
     description: 'Current broker bid/ask/mid for equities or option tuples.',
-    execute: async (_toolCallId, params) => {
+    execute: async (params) => {
       if (params.symbols === undefined) return textResult(await readInstrumentQuotes(env, params))
       const parsed = equitySymbolsFromModelText(params.symbols)
       if ('unreadable' in parsed) {
@@ -623,7 +618,6 @@ export function createInstrumentQuoteReadTool(
       }
       return textResult(await readInstrumentQuotes(env, { ...params, symbols: parsed.symbols }))
     },
-    label: 'Reading instrument quotes',
     name: 'read_instrument_quotes',
     parameters: InstrumentQuoteReadParameters,
   }

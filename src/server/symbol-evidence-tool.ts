@@ -124,10 +124,9 @@ export function createSymbolEvidenceTool(
       + 'quote; `byline` is a handle you choose, and is public.',
     // SAFETY: `recordSymbolEvidence` re-parses its input with this same schema at the trust
     // boundary regardless of what the transport already checked.
-    execute: async (_toolCallId, params) => textResult(
+    execute: async (params) => textResult(
       await recordSymbolEvidence(env, recordedByUserId, params as never),
     ),
-    label: 'Recording evidence',
     name: 'record_evidence',
     parameters: EvidenceParameters,
   }

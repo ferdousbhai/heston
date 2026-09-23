@@ -231,8 +231,6 @@ export function createBrokerageReconciliationTool(
     description: 'Resolve one quarantined submission against broker order history. Use this after '
       + 'an ambiguous submission; never automatically retry an ambiguous broker mutation.',
     execute: async () => textResult(await reconcileUnknownBrokerageAction(env, credential)),
-    executionMode: 'sequential',
-    label: 'Reconciling order',
     name: 'reconcile_brokerage_action',
     parameters: ReconcileParameters,
   }

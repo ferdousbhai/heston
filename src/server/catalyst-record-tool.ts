@@ -118,8 +118,7 @@ export function createCatalystRecordTool(env: AppEnv): AgentTool<typeof Catalyst
       + 'and never cancel another producer\'s.',
     // SAFETY: `recordResearchCatalysts` re-parses its input with this same schema at the trust
     // boundary regardless of what the transport already checked.
-    execute: async (_toolCallId, params) => textResult(await recordResearchCatalysts(env, params as never)),
-    label: 'Recording catalysts',
+    execute: async (params) => textResult(await recordResearchCatalysts(env, params as never)),
     name: 'record_catalysts',
     parameters: CatalystRecordParameters,
   }

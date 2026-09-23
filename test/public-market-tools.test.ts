@@ -86,18 +86,18 @@ describe('anonymous symbol search', () => {
 
   it('reports a clean miss as a result', async () => {
     broker.lookupPublicMarketSymbol.mockResolvedValue(undefined)
-    const result = await searchTool().execute('call', { query: 'ZZZZ' })
+    const result = await searchTool().execute({ query: 'ZZZZ' })
     expect(result.details).toEqual({ error: 'No tradable symbol matches that search' })
   })
 
   it('fails visibly rather than returning a refused query as a search result', async () => {
     // Only wildcards: the route refuses it with a 400 before any lookup.
-    await expect(searchTool().execute('call', { query: '%%' })).rejects.toBeInstanceOf(PublicSymbolSearchError)
+    await expect(searchTool().execute({ query: '%%' })).rejects.toBeInstanceOf(PublicSymbolSearchError)
   })
 
   it('fails visibly rather than returning an outage as a search result', async () => {
     broker.lookupPublicMarketSymbol.mockRejectedValue(new Error('ProviderDown'))
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    await expect(searchTool().execute('call', { query: 'NVDA' })).rejects.toBeInstanceOf(PublicSymbolSearchError)
+    await expect(searchTool().execute({ query: 'NVDA' })).rejects.toBeInstanceOf(PublicSymbolSearchError)
   })
 })

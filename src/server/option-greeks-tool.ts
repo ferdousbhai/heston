@@ -106,8 +106,7 @@ export function createExactOptionGreeksReadTool(
 ): AgentTool<typeof ExactOptionGreeksReadParameters, ExactOptionGreeksReadResult> {
   return {
     description: 'Live broker IV and Greeks for exact option tuples.',
-    execute: async (_toolCallId, params) => textResult(await readExactOptionGreeks(env, params)),
-    label: 'Reading option Greeks',
+    execute: async (params) => textResult(await readExactOptionGreeks(env, params)),
     name: 'read_option_greeks',
     parameters: ExactOptionGreeksReadParameters,
   }

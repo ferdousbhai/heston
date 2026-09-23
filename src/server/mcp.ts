@@ -130,7 +130,7 @@ export function createHestonMcpServer(
       async (params) => {
         // SAFETY: the SDK validated `params` against this very tool's own JSON Schema before
         // dispatch, which is exactly the contract `execute` states for its parameters.
-        const result = await tool.execute(crypto.randomUUID(), params as never)
+        const result = await tool.execute(params as never)
         // Reading a symbol is the same signal a reader opening it on the site is, and buys the
         // same bounded catalyst search for everyone. Scheduled after the answer, never blocking
         // it; `symbol-attention.ts` carries the reasoning and the bound.
@@ -139,8 +139,8 @@ export function createHestonMcpServer(
           // that names no symbol, so a shape it does not expect costs nothing.
           waitUntil(noteSymbolAttention(env, params as SymbolNamingCall))
         }
-        // AgentToolResult content is already MCP CallToolResult content for text parts.
-        return { content: result.content.filter((part) => part.type === 'text') }
+        // AgentToolResult content is text only, which is already MCP CallToolResult content.
+        return { content: result.content }
       },
     )
   }
@@ -202,12 +202,11 @@ function createOrderTools(env: AppEnv, credential: BrokerCredential | undefined)
       // that calling this twice places two orders. Annotations are hints a client may ignore,
       // and the spec says to treat them as untrusted anyway -- they inform a confirmation
       // prompt, they are not one. What bounds the damage is the guard chain it runs.
-      execute: async (_toolCallId, params) => {
+      execute: async (params) => {
         // SAFETY: `placeBrokerageOrder` re-parses its input with OrderPlacementSchema at the
         // trust boundary regardless of what the transport already checked.
         return textResult(await placeBrokerageOrder(env, params as never, credential))
       },
-      label: 'Placing order',
       name: 'place_brokerage_order',
       parameters: OrderPlacementParameters,
     },
@@ -217,12 +216,11 @@ function createOrderTools(env: AppEnv, credential: BrokerCredential | undefined)
         + 'find out what happened before doing anything else.',
       // Destructive but idempotent: cancelling an order already cancelled changes nothing
       // further, which is the useful thing for a client to know after an ambiguous result.
-      execute: async (_toolCallId, params) => {
+      execute: async (params) => {
         // Re-parsed here at the trust boundary regardless of what the transport checked.
         const { orderId } = CancelOrderSchema.parse(params)
         return textResult(await cancelBrokerageOrder(env, orderId, credential))
       },
-      label: 'Cancelling order',
       name: 'cancel_brokerage_order',
       parameters: CancelOrderParameters,
     },

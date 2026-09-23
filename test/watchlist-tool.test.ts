@@ -53,7 +53,7 @@ describe('watchlist context boundary', () => {
   })
 
   it('reads the consolidated Heston list without touching tastytrade watchlist endpoints', async () => {
-    const result = await createWatchlistReadTool({ DB: store.database }).execute('tool-1', {})
+    const result = await createWatchlistReadTool({ DB: store.database }).execute({})
 
     // Symbols only. The index answers "what is loaded" across up to 500 names; provenance and
     // instrument type are what the per-symbol mode returns, and shipping them here cost far
@@ -68,7 +68,7 @@ describe('watchlist context boundary', () => {
   })
 
   it('returns retained raw seed provenance for one exact symbol only', async () => {
-    const result = await createWatchlistReadTool({ DB: store.database }).execute('tool-2', { symbol: 'NVDA' })
+    const result = await createWatchlistReadTool({ DB: store.database }).execute({ symbol: 'NVDA' })
 
     expect(result.details).toMatchObject({
       mode: 'detail',
@@ -87,7 +87,7 @@ describe('watchlist context boundary', () => {
   })
 
   it('reports an exact symbol miss without consulting the broker', async () => {
-    const result = await createWatchlistReadTool({ DB: store.database }).execute('tool-3', { symbol: 'META' })
+    const result = await createWatchlistReadTool({ DB: store.database }).execute({ symbol: 'META' })
 
     expect(result.details).toEqual(expect.objectContaining({
       mode: 'detail', source: 'heston', status: 'not_found', symbol: 'META',
