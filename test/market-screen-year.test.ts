@@ -37,7 +37,13 @@ it('reports a failed year read rather than an empty year, and reads again on foc
   expect(document.querySelector('.watch-row .year-sparkline')).toBeNull()
 
   yearOk = true
-  window.dispatchEvent(new Event('focus'))
-  await waitFor(() => expect(document.querySelector('.watch-row .year-sparkline')).not.toBeNull())
+  // The failure text renders before React runs the passive effect that attaches the retry's
+  // focus listener, so one focus dispatched right after it can land on no listener at all (it
+  // did, under a loaded parallel run). Focus again on every poll, as a reader returning to the
+  // tab would, until the retry lands.
+  await waitFor(() => {
+    window.dispatchEvent(new Event('focus'))
+    expect(document.querySelector('.watch-row .year-sparkline')).not.toBeNull()
+  })
   expect(screen.queryByText('Year charts are unavailable just now.')).toBeNull()
 })
