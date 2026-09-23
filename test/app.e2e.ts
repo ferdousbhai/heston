@@ -66,6 +66,42 @@ test('a newer deployment reloads once before restoring the local snapshot', asyn
   await expect.poll(() => page.evaluate(() => sessionStorage.getItem('heston.deployment-reload.v1'))).toBeNull()
 })
 
+test('a signed-in member sees an amber avatar whose menu signs them out', async ({ page }) => {
+  const snapshot = marketSnapshotFixture()
+  let signedIn = true
+  let signOutRequests = 0
+  await page.route('**/api/viewer', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ user: signedIn ? { id: 'member-1', name: 'Dana Member', role: 'member' } : null }),
+  }))
+  await page.route('**/api/favorites', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ symbols: [] }),
+  }))
+  await page.route('**/api/public-snapshot*', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify(snapshot),
+  }))
+  await page.route('**/api/auth/sign-out', (route) => {
+    signOutRequests += 1
+    signedIn = false
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ success: true }) })
+  })
+
+  await page.goto('/')
+  const trigger = page.getByRole('button', { name: 'Account menu for Dana Member' })
+  await expect(trigger).toBeVisible()
+  // The brand amber, not the shadcn theme's grey hover surface that once shadowed it.
+  await expect(trigger.locator('[data-slot="avatar-fallback"]')).toHaveCSS('background-color', 'rgb(255, 171, 74)')
+
+  await trigger.click()
+  await expect(page.getByRole('menu')).toContainText('Dana Member')
+  await page.getByRole('menuitem', { name: 'Sign out' }).click()
+
+  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible()
+  expect(signOutRequests).toBe(1)
+})
+
 test('unauthenticated visitors can read market data but connecting an agent needs Google sign-in', async ({ page }) => {
   const publicSnapshot = marketSnapshotFixture()
   publicSnapshot.catalysts = publicSnapshot.catalysts.map((catalyst) => (

@@ -1,11 +1,23 @@
 import { useEffect, useState } from 'react'
 import { Link } from '@tanstack/react-router'
+import { LogOut } from 'lucide-react'
+
+import { authClient } from '../data/auth-client'
 
 import { useLiveFeedIndicator } from '../data/live-market'
 import { type MarketState } from '../domain/market'
 
 import { Avatar, AvatarFallback } from '#/components/ui/avatar'
 import { Button } from '#/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '#/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#/components/ui/tooltip'
 import { GoogleSignInButton } from './auth-gate'
 
@@ -137,6 +149,45 @@ export function liveFeedSourceLabel(source: 'live' | 'snapshot'): LiveFeedSource
   return { label: 'Snapshot', title: 'Last stored print; live feed is off' }
 }
 
+/**
+ * A full document load after sign-out, not a state reset: signed-in rows (favorites, agent
+ * tokens, owner surfaces) live in per-viewer clients and component state, and a fresh load is
+ * the one path that provably drops all of them. A failed sign-out stays in the menu and says
+ * so, since leaving the reader believing they are signed out is the worse outcome.
+ */
+function ViewerMenu({ viewerName }: { viewerName: string }) {
+  const [phase, setPhase] = useState<'idle' | 'signing-out' | 'failed'>('idle')
+  const signOut = async () => {
+    setPhase('signing-out')
+    try {
+      const result = await authClient.signOut()
+      if (result.error) throw new Error('sign-out refused')
+      window.location.assign('/')
+    } catch {
+      setPhase('failed')
+    }
+  }
+  return (
+    <DropdownMenu onOpenChange={(open) => { if (open && phase === 'failed') setPhase('idle') }}>
+      <DropdownMenuTrigger aria-label={`Account menu for ${viewerName}`} className="viewer-menu-trigger" title={viewerName}>
+        <Avatar className="viewer-avatar">
+          <AvatarFallback>{viewerName.trim().charAt(0).toUpperCase()}</AvatarFallback>
+        </Avatar>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent>
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Signed in as <strong className="viewer-menu-name">{viewerName}</strong></DropdownMenuLabel>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem closeOnClick={false} disabled={phase === 'signing-out'} onClick={() => void signOut()}>
+          <LogOut aria-hidden="true" size={14} />
+          {phase === 'signing-out' ? 'Signing out…' : phase === 'failed' ? 'Sign-out failed — try again' : 'Sign out'}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 export function TopBar({
   lastUpdatedAt,
   marketClosesAt,
@@ -196,11 +247,7 @@ export function TopBar({
           </span>
         )}
         <Button nativeButton={false} render={<Link className="top-link" to="/support" />} size="sm" variant="link">Support</Button>
-        {viewerName && (
-          <Avatar aria-label={`Signed in as ${viewerName}`} className="viewer-avatar" title={viewerName}>
-            <AvatarFallback>{viewerName.trim().charAt(0).toUpperCase()}</AvatarFallback>
-          </Avatar>
-        )}
+        {viewerName && <ViewerMenu viewerName={viewerName} />}
         {!viewerName && <GoogleSignInButton compact />}
       </div>
     </header>
