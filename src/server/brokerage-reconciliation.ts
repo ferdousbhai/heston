@@ -167,6 +167,27 @@ export function matchesSubmittedOrder(
     && echoesOrderPayload(row, intended)
 }
 
+/**
+ * What a row says after a conditional settle changed nothing. Another request -- a concurrent
+ * reconcile, or the placement's own settle landing late -- already moved it, so the answer is
+ * whatever it moved it to, read back rather than assumed: reporting `unresolved` would tell the
+ * agent an account is still quarantined when it is not.
+ */
+async function settledElsewhere(db: D1Database, id: string): Promise<ReconciliationResult> {
+  const row = await db.prepare(
+    'SELECT status, provider_order_id FROM broker_submissions WHERE id = ?',
+  ).bind(id).first<{ provider_order_id: string | null; status: string }>()
+  const already = 'The action was already reconciled by another request.'
+  if (!row) return { detail: already, status: 'none' }
+  if (row.status === 'executed') {
+    const result: ReconciliationResult = { actionId: id, detail: already, status: 'executed' }
+    if (row.provider_order_id) result.providerOrderId = row.provider_order_id
+    return result
+  }
+  if (row.status === 'failed') return { actionId: id, detail: already, status: 'failed' }
+  return { actionId: id, detail: 'The action could not be settled; the quarantine remains in place.', status: 'unresolved' }
+}
+
 export async function reconcileUnknownBrokerageAction(
   env: AppEnv,
   credential: BrokerCredential | undefined,
@@ -203,6 +224,7 @@ export async function reconcileUnknownBrokerageAction(
       if (update.meta.changes === 1) {
         return { actionId: stored.id, detail: 'No matching broker order appeared after the reconciliation window.', status: 'failed' }
       }
+      return settledElsewhere(env.DB, stored.id)
     }
     const reason = matches.length > 1 ? 'More than one exact broker match was found.' : 'No exact broker match is visible yet.'
     return { actionId: stored.id, detail: `${reason} The quarantine remains in place.`, status: 'unresolved' }
@@ -223,9 +245,7 @@ export async function reconcileUnknownBrokerageAction(
       "UPDATE broker_submissions SET status = 'executed', error_code = NULL, provider_order_id = ? WHERE id = ? AND status = 'unresolved'",
     ).bind(providerOrderId, stored.id)
   ).run()
-  if (update.meta.changes !== 1) {
-    return { actionId: stored.id, detail: 'The action was already reconciled by another request.', status: 'unresolved' }
-  }
+  if (update.meta.changes !== 1) return settledElsewhere(env.DB, stored.id)
   return {
     actionId: stored.id,
     detail: rejected ? `Broker order #${providerOrderId} was rejected.` : `Broker order #${providerOrderId} was found and recorded.`,

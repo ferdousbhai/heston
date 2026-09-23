@@ -13,6 +13,7 @@ import { resetTradeGuards, setTradeGuards } from '../src/server/trade-guards'
 import { type BrokerOrderRecord } from '../src/domain/broker'
 import { type JsonObject, type JsonValue } from '../src/domain/json-payload'
 import { type AppEnv } from '../src/server/env'
+import { unsupportedDatabase } from './fake-d1'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 
 let store: SqliteD1Store | undefined
@@ -134,6 +135,75 @@ describe('brokerage submission reconciliation', () => {
     expect(brokerage.tastyRequest.mock.calls.length).toBe(chainReadsBefore)
     expect(store.sqlite.prepare('SELECT status, provider_order_id FROM broker_submissions').all())
       .toEqual([stored])
+  })
+
+  describe('when another request settles the row first', () => {
+    const optionAction = {
+      action: 'Buy to Open', expiry: '2026-09-18', kind: 'place_option_order', limitPrice: 2.5,
+      optionType: 'C', priceEffect: 'Debit', quantity: 2, strike: 600, underlying: 'SPY',
+    }
+
+    /** The row is claimed, then settled by a racing request just before this one's UPDATE runs. */
+    async function racedStore(submittedAt: string, racingSettle: string) {
+      const raced = await migrationStore()
+      store = raced
+      raced.sqlite.prepare(
+        `INSERT INTO broker_submissions (id, broker_id, account_number, payload_json, resolved_payload_json, submitted_at, status)
+         VALUES ('row-1', 'tastytrade', 'TEST123', ?, ?, ?, 'unresolved')`,
+      ).run(JSON.stringify(optionAction), JSON.stringify(intended), submittedAt)
+      const database: D1Database = {
+        ...unsupportedDatabase(),
+        prepare: (sql: string) => {
+          if (sql.startsWith('UPDATE broker_submissions')) raced.sqlite.prepare(racingSettle).run()
+          return raced.database.prepare(sql)
+        },
+      }
+      return database
+    }
+
+    function historyWith(orders: BrokerOrderRecord[]) {
+      setBrokerAdapters({
+        tastytrade: {
+          ...tastytradeAdapter,
+          readOrderHistory: async () => ({ complete: true, orders }),
+          resolveAccountRef: async () => ({ accountNumber: 'TEST123', broker: 'tastytrade' }),
+        },
+      })
+    }
+
+    it('reports the executed settlement it lost to, not a standing quarantine', async () => {
+      const submittedAt = new Date().toISOString()
+      const DB = await racedStore(
+        submittedAt,
+        "UPDATE broker_submissions SET status = 'executed', error_code = NULL, provider_order_id = '42' WHERE id = 'row-1'",
+      )
+      historyWith([tastytradeOrderRecord({
+        id: '42', legs: intended.legs, 'order-type': 'Limit', price: '2.50', 'price-effect': 'Debit',
+        'received-at': submittedAt, status: 'Filled', 'time-in-force': 'Day',
+      })])
+
+      await expect(reconcileUnknownBrokerageAction({ DB }, brokerCredential)).resolves.toEqual({
+        actionId: 'row-1',
+        detail: 'The action was already reconciled by another request.',
+        providerOrderId: '42',
+        status: 'executed',
+      })
+    })
+
+    it('reports a settlement it lost to on the absence path too', async () => {
+      const submittedAt = new Date(Date.now() - 60 * 60_000).toISOString()
+      const DB = await racedStore(
+        submittedAt,
+        "UPDATE broker_submissions SET status = 'failed', error_code = 'TastytradeApiError' WHERE id = 'row-1'",
+      )
+      historyWith([])
+
+      await expect(reconcileUnknownBrokerageAction({ DB }, brokerCredential)).resolves.toEqual({
+        actionId: 'row-1',
+        detail: 'The action was already reconciled by another request.',
+        status: 'failed',
+      })
+    })
   })
 
   it('refuses a stored order that disagrees with its stored action rather than trusting either', async () => {
