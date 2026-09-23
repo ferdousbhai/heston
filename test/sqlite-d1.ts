@@ -45,7 +45,7 @@ function prepared(statement: StatementSync, onExecute: () => void, values: unkno
   }
 }
 
-export function sqliteD1(sql: readonly string[]) {
+function sqliteD1(sql: readonly string[]) {
   const sqlite = new DatabaseSync(':memory:')
   let executedQueries = 0
   sqlite.exec('PRAGMA foreign_keys = ON')
@@ -82,7 +82,7 @@ let migrationSql: Promise<string[]> | undefined
 // Tests read the whole migrations directory in numeric filename order instead of naming files, so a
 // new migration is exercised everywhere the moment it lands. `test/migrations.test.ts` deliberately
 // stays on explicit per-file reads: it proves each migration applies over its real prior state.
-export function loadMigrations(): Promise<string[]> {
+function loadMigrations(): Promise<string[]> {
   migrationSql ??= (async () => {
     const names = (await readdir(migrationsDirectory)).filter((name) => name.endsWith('.sql')).sort()
     return await Promise.all(names.map((name) => readFile(new URL(name, migrationsDirectory), 'utf8')))
@@ -106,10 +106,10 @@ export function seedMember(store: SqliteD1Store, userId: string): string {
   return userId
 }
 
-/** When a seeded fixture's rows were written; tests that order by recency pass their own. */
-export const SEEDED_AT = '2026-08-26T10:00:00.000Z'
+/** The default row timestamp `seedFinalizedWatchlist` writes when an item doesn't pass its own. */
+const SEEDED_AT = '2026-08-26T10:00:00.000Z'
 
-export type SeededWatchlistItem = {
+type SeededWatchlistItem = {
   metadata?: JsonObject
   origin?: InternalWatchlistOrigin
   symbol: string

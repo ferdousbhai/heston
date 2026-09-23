@@ -29,7 +29,7 @@ export const marketTickersFixture: Ticker[] = [
   { symbol: 'META', name: 'Meta Platforms', assetType: 'stock', lendability: 'Easy To Borrow', price: 782.17, yearLow: 479.8, yearHigh: 796.25, change: 8.31, changePercent: 1.07, sparkline: spark(767, [0, 1.3, 3.2, 2.7, 6.1, 5.4, 8, 10.2, 12.6, 15.17]), ivRank: 35, ivPercentile: 44, ivIndex: 32.8, ivIndex5DayChange: 1.1, historicalVolatility30Day: 29.2, ivHistoricalVolatility30DayDifference: 3.6, ivTermStructure: { frontExpiration: '2026-09-04', frontIv: 34.5, backExpiration: '2026-09-11', backIv: 31.9 }, liquidity: 4, earningsDate: '2026-10-28', updatedAt: UPDATED_AT },
 ]
 
-export const marketWatchlistsFixture: Watchlist[] = [
+const marketWatchlistsFixture: Watchlist[] = [
   {
     id: 'watchlist', kind: 'private', name: 'Watchlist',
     symbols: ['NVDA', 'SPCX', 'META', 'BE', 'INTC', 'SPY', 'QQQ', 'IWM', 'TSLA', 'AAPL', 'AMD'],
