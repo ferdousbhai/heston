@@ -118,22 +118,29 @@ async function isTracked(db: D1Database, symbol: string): Promise<boolean> {
   return row !== null
 }
 
+/**
+ * Close the receipt this run claimed, and only that one. A run that outlived its budget may find
+ * its symbol already reclaimed by a newer run; the claim's own `ran_at` identifies it, so the late
+ * run's outcome lands nowhere rather than overwriting the newer run's receipt.
+ */
 async function recordRun(
   db: D1Database,
   symbol: string,
+  claimedAt: Date,
   status: 'complete' | 'failed',
   catalystCount: number,
   detail: string | undefined,
 ): Promise<void> {
   await db.prepare(
     `UPDATE catalyst_runs SET status = ?, catalyst_count = ?, detail = ?
-     WHERE symbol = ? AND source_provider = ?`,
+     WHERE symbol = ? AND source_provider = ? AND ran_at = ? AND status = 'running'`,
   ).bind(
     status,
     catalystCount,
     detail?.slice(0, MAX_RUN_DETAIL_LENGTH) ?? null,
     symbol,
     CATALYST_PROVIDER,
+    claimedAt.toISOString(),
   ).run()
 }
 
@@ -180,13 +187,13 @@ export async function refreshCatalystsForSymbol(
       now,
     )
     await persistResearchCatalysts(env, CATALYST_PROVIDER, run.catalysts, now)
-    await recordRun(db, symbol, 'complete', run.catalysts.length, run.rejected.join('; ') || undefined)
+    await recordRun(db, symbol, now, 'complete', run.catalysts.length, run.rejected.join('; ') || undefined)
     return { catalysts: run.catalysts, ran: true }
   } catch (error) {
     // The log line carries the error's name only; the private receipt keeps the message, which
     // is where an owner reconciling a failed run looks.
     console.error('CatalystRefreshFailed', error instanceof Error ? error.name : 'UnknownError')
-    await recordRun(db, symbol, 'failed', 0, error instanceof Error ? error.message : 'UnknownError')
+    await recordRun(db, symbol, now, 'failed', 0, error instanceof Error ? error.message : 'UnknownError')
     return { catalysts: [], ran: false, reason: 'failed' }
   }
 }

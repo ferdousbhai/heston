@@ -40,7 +40,7 @@ async function storeWithCatalog(): Promise<SqliteD1Store> {
   return store
 }
 
-function stubExa(): ReturnType<typeof vi.fn> {
+function stubExa() {
   const fetchMock = vi.fn(async () => Response.json({
     output: {
       content: {
@@ -197,6 +197,23 @@ describe('catalyst coverage seeded by favorites', () => {
     expect(store.sqlite.prepare('SELECT status FROM catalyst_runs').get()).toEqual({ status: 'complete' })
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(retryFetch).toHaveBeenCalledTimes(1)
+    store.close()
+  })
+
+  it('lets a run that outlived its budget close only its own receipt, not a newer claim', async () => {
+    const store = await storeWithCatalog()
+    const reclaimedAt = new Date(NOW.getTime() + CATALYST_RUN_BUDGET_MS).toISOString()
+    const answer = stubExa()
+    // While this run's search is still out, its budget lapses and a newer look claims the symbol.
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      store.sqlite.prepare("UPDATE catalyst_runs SET ran_at = ?, status = 'running'").run(reclaimedAt)
+      return answer()
+    }))
+
+    await expect(refreshCatalystsForSymbol(env(store), 'BE', NOW)).resolves.toMatchObject({ ran: true })
+
+    expect(store.sqlite.prepare('SELECT ran_at, status FROM catalyst_runs').get())
+      .toEqual({ ran_at: reclaimedAt, status: 'running' })
     store.close()
   })
 
