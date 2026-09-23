@@ -10,6 +10,7 @@ import { addDays } from '../domain/iso-date'
 import { type AppEnv } from './env'
 import { textResult } from './agent-tool-result'
 import { MAX_MARKET_SYMBOLS } from './brokerage-read-contracts'
+import { CATALYST_RUN_BUDGET_MS } from './catalyst-refresh'
 import { CURRENT_CATALYSTS } from './catalysts'
 import { readLatestDailyBrief } from './daily-brief-store'
 import { CallerVisibleError } from './caller-visible-error'
@@ -59,7 +60,8 @@ function agentCatalyst(catalyst: Catalyst): AgentCatalyst {
  * `catalyst_runs`. An empty calendar means nothing on its own: a name nobody has looked at has no
  * receipt (`unsearched`), and a name whose search came back empty has a `complete` one. `failed`
  * is a search that bound nothing, so its calendar is still unknown; `running` is a claimed search
- * that has not reported, and one whose `ranAt` is past the run budget died mid-flight.
+ * still inside its run budget. A `running` receipt past that budget is a run that died mid-flight,
+ * and only a new claim rewrites it, so it reads as `failed` here rather than as a search in flight.
  *
  * Only the state and the instant cross this boundary. The receipt's `detail` is a failure note
  * written for the owner's eyes and never leaves the server, and nothing here is per-caller, so the
@@ -147,9 +149,12 @@ export async function readCatalysts(
   ).bind(...symbols).all()
   if (!Array.isArray(runs.results)) throw new CallerVisibleError('Catalyst data returned an invalid response.')
   const receipts = new Map(CatalystRunRowSchema.array().parse(runs.results).map((run) => [run.symbol, run]))
+  const abandonedBefore = new Date(now.getTime() - CATALYST_RUN_BUDGET_MS).toISOString()
   const searches = symbols.map((symbol): CatalystSearchState => {
     const run = receipts.get(symbol)
-    return run ? { ranAt: run.ranAt, state: run.state, symbol } : { state: 'unsearched', symbol }
+    if (!run) return { state: 'unsearched', symbol }
+    const state = run.state === 'running' && run.ranAt <= abandonedBefore ? 'failed' : run.state
+    return { ranAt: run.ranAt, state, symbol }
   })
   return {
     catalysts,

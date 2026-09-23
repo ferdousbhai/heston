@@ -164,10 +164,10 @@ function normalizedSymbols(symbols: readonly string[]): string[] {
 export async function readInternalWatchlistCatalogCandidates(env: AppEnv): Promise<string[]> {
   const db = requiredDatabase(env)
   const result = await db.prepare(
-    `SELECT DISTINCT upper(trim(broker_symbol)) AS symbol
+    `SELECT DISTINCT upper(broker_symbol) AS symbol
      FROM internal_watchlist_seed_entries
      WHERE instrument_type = 'Equity'
-       AND (${EQUITY_SYMBOL_GLOBS.map(() => 'upper(trim(broker_symbol)) GLOB ?').join(' OR ')})
+       AND (${EQUITY_SYMBOL_GLOBS.map(() => 'upper(broker_symbol) GLOB ?').join(' OR ')})
      ORDER BY symbol ASC LIMIT ${MAX_CATALOG_CANDIDATES + 1}`,
   ).bind(...EQUITY_SYMBOL_GLOBS).all<{ symbol: string }>()
   const symbols = z.array(z.object({ symbol: SymbolSchema })).max(MAX_CATALOG_CANDIDATES).parse(result.results)

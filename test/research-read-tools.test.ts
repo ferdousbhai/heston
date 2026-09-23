@@ -106,15 +106,18 @@ describe('research read tools', () => {
       )
       receipt.run('AMD', '2026-09-20T10:00:00.000Z', 'complete', null)
       receipt.run('MU', '2026-09-21T11:00:00.000Z', 'failed', 'provider said: secret note')
-      receipt.run('ARM', '2026-09-21T17:59:00.000Z', 'running', null)
+      receipt.run('ARM', '2026-09-21T17:59:30.000Z', 'running', null)
+      // A claim that never reported, long past its run budget: a run that died, not one in flight.
+      receipt.run('QCOM', '2026-09-21T12:00:00.000Z', 'running', null)
 
-      const result = await readCatalysts(env, ['NVDA', 'AMD', 'MU', 'ARM'], 60, new Date('2026-09-21T18:00:00.000Z'))
+      const result = await readCatalysts(env, ['NVDA', 'AMD', 'MU', 'ARM', 'QCOM'], 60, new Date('2026-09-21T18:00:00.000Z'))
       expect(result.catalysts).toEqual([])
       expect(result.searches).toEqual([
         { state: 'unsearched', symbol: 'NVDA' },
         { ranAt: '2026-09-20T10:00:00.000Z', state: 'complete', symbol: 'AMD' },
         { ranAt: '2026-09-21T11:00:00.000Z', state: 'failed', symbol: 'MU' },
-        { ranAt: '2026-09-21T17:59:00.000Z', state: 'running', symbol: 'ARM' },
+        { ranAt: '2026-09-21T17:59:30.000Z', state: 'running', symbol: 'ARM' },
+        { ranAt: '2026-09-21T12:00:00.000Z', state: 'failed', symbol: 'QCOM' },
       ])
       // The receipt's failure note is the owner's; it never reaches a caller of any tier.
       expect(JSON.stringify(result)).not.toContain('secret note')
