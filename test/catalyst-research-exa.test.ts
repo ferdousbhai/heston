@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { CATALYST_HORIZON_DAYS } from '../src/domain/catalyst'
-import { runExaCatalystSearch } from '../src/server/catalyst-research-exa'
+import { MAX_RESULT_CHARACTERS, runExaCatalystSearch } from '../src/server/catalyst-research-exa'
+import { TRUNCATED_READ_MISS } from '../src/server/research-page-retention'
 
 const NOW = new Date('2026-09-01T13:00:00.000Z')
 const exaKey: SecretsStoreSecret = { get: async () => 'exa-key' }
@@ -102,7 +103,7 @@ describe('exa catalyst search', () => {
     const run = await runExaCatalystSearch(env, 'BE', 'Bloom Energy', NOW)
 
     expect(run.catalysts).toEqual([])
-    expect(run.rejected).toEqual(['event 1: 2026-11-20 is not bound to its source page'])
+    expect(run.rejected).toEqual(['catalyst 1: 2026-11-20 does not appear on its source page'])
   })
 
   it('never lets the grounding Exa returns bind a date its page text does not state', async () => {
@@ -121,7 +122,7 @@ describe('exa catalyst search', () => {
 
     await expect(runExaCatalystSearch(env, 'BE', 'Bloom Energy', NOW)).resolves.toEqual({
       catalysts: [],
-      rejected: ['event 1: 2026-11-20 is not bound to its source page'],
+      rejected: ['catalyst 1: 2026-11-20 does not appear on its source page'],
     })
   })
 
@@ -137,11 +138,13 @@ describe('exa catalyst search', () => {
     const run = await runExaCatalystSearch(env, 'BE', 'Bloom Energy', NOW)
 
     expect(run.catalysts.map((catalyst) => catalyst.id)).toEqual(['exa:BE:investor-event:2026-10-14'])
+    // Exa's own malformed shape is refused before binding; the binder reports the rest under
+    // the same event numbers.
     expect(run.rejected).toEqual([
-      'event 1: source was not read this run',
-      'event 2: date is outside the 180-day horizon',
-      'event 4: duplicates exa:BE:investor-event:2026-10-14',
-      expect.stringContaining('event 5:'),
+      expect.stringContaining('catalyst 5:'),
+      'catalyst 1: source was not read this run',
+      'catalyst 2: date is outside the 180-day horizon',
+      'catalyst 4: duplicates exa:BE:investor-event:2026-10-14',
     ])
   })
 
@@ -151,7 +154,7 @@ describe('exa catalyst search', () => {
     const run = await runExaCatalystSearch(env, 'BE', 'Bloom Energy', NOW)
 
     expect(run.catalysts).toEqual([])
-    expect(run.rejected).toEqual(['event 1: date is outside the 180-day horizon'])
+    expect(run.rejected).toEqual(['catalyst 1: date is outside the 180-day horizon'])
   })
 
   it('binds and stores the canonical address, and refuses one no citation may carry', async () => {
@@ -172,9 +175,22 @@ describe('exa catalyst search', () => {
 
     expect(run.catalysts.map((catalyst) => catalyst.sourceUrl)).toEqual(['https://ir.bloomenergy.com/events'])
     expect(run.rejected).toEqual([
-      'event 2: source is not a citable https page address',
-      'event 3: source is not a citable https page address',
+      'catalyst 2: source is not a citable https page address',
+      'catalyst 3: source is not a citable https page address',
     ])
+  })
+
+  it('says a date may sit past a result Exa cut at its character limit', async () => {
+    const cut = 'Bloom Energy investor relations calendar. '.padEnd(MAX_RESULT_CHARACTERS, 'x')
+    stubExa(Response.json({
+      output: { content: { events: [investorDay] } },
+      results: [{ text: cut, url: 'https://ir.bloomenergy.com/events' }],
+    }))
+
+    const run = await runExaCatalystSearch(env, 'BE', 'Bloom Energy', NOW)
+
+    expect(run.catalysts).toEqual([])
+    expect(run.rejected).toEqual([`catalyst 1: 2026-10-14 ${TRUNCATED_READ_MISS} its source page`])
   })
 
   it('reports a search that synthesized nothing instead of inventing an event', async () => {

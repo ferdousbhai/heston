@@ -40,6 +40,7 @@ export interface CatalystCandidateBinding {
  * it says which surface produced the date, beside the host it was read from.
  */
 const BOUND_CATALYST_LABELS = {
+  exa: 'Exa search',
   'member-research': 'Member research',
 } satisfies Partial<Record<CatalystProvider, string>>
 
@@ -51,9 +52,12 @@ export type BoundCatalystProvider = keyof typeof BOUND_CATALYST_LABELS
  * as a month-day with no conflicting year printed beside it while the date is inside the horizon,
  * where a month-day can name only one date.
  *
- * The provider is a parameter so any producer of model-authored dates is bound under the same
- * rules. A member's recording is the one such producer today. A label only names rows as they
- * are written -- a stored row carries its own -- so a retired producer needs no entry here.
+ * The provider is a parameter so every producer of model-authored dates -- a member's recording
+ * and the Exa search -- is bound under the same rules. A label only names rows as they are
+ * written -- a stored row carries its own -- so a retired producer needs no entry here.
+ *
+ * A rejection names its candidate by position, or by `candidateNumbers` when the producer
+ * refused some of its own items before binding and reports under their original numbers.
  */
 export function bindCatalystCandidates(
   candidates: readonly ResearchCatalystCandidate[],
@@ -61,6 +65,7 @@ export function bindCatalystCandidates(
   retained: ReadonlyMap<string, RetainedPage>,
   now: Date,
   provider: BoundCatalystProvider,
+  candidateNumbers?: readonly number[],
 ): CatalystCandidateBinding {
   const catalysts: Catalyst[] = []
   const rejected: string[] = []
@@ -68,7 +73,8 @@ export function bindCatalystCandidates(
   const today = marketDate(now)
   const horizon = addDays(today, CATALYST_HORIZON_DAYS)
 
-  for (const [index, untrusted] of candidates.entries()) {
+  for (const [position, untrusted] of candidates.entries()) {
+    const index = (candidateNumbers?.[position] ?? position + 1) - 1
     const parsed = ResearchCatalystCandidateSchema.safeParse(untrusted)
     if (!parsed.success) {
       rejected.push(...parsed.error.issues.map((issue) => (

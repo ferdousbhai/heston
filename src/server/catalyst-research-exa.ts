@@ -4,17 +4,20 @@ import {
   CATALYST_HORIZON_DAYS,
   CatalystKindSchema,
   CatalystTimingSchema,
-  marketDate,
   MAX_CATALYST_DESCRIPTION_LENGTH,
   MAX_CATALYST_TITLE_LENGTH,
-  RecordedCatalystSchema,
-  type Catalyst,
 } from '../domain/catalyst'
 import { CitedSourceUrlSchema } from '../domain/https-url'
 import { EquitySymbolSchema } from '../domain/instrument'
-import { addDays, IsoDateSchema, textMentionsDateWithinHorizon } from '../domain/iso-date'
+import { IsoDateSchema } from '../domain/iso-date'
 import { readBoundedJson } from './bounded-response'
 import { type AppEnv } from './env'
+import {
+  bindCatalystCandidates,
+  type CatalystCandidateBinding,
+  type ResearchCatalystCandidate,
+} from './research-catalyst-output'
+import { type RetainedPage } from './research-page-retention'
 import { citedPageKey } from './research-url'
 import { readStoredSecret } from './secrets'
 
@@ -30,12 +33,13 @@ import { readStoredSecret } from './secrets'
  * and it is deliberately not read: it is the same model vouching for its own answer, and model
  * output never establishes a citation here. Reporting routinely writes "Sept. 1" where the
  * event says 2026-09-01, which is why the text is read the way every other catalyst binder
- * reads it -- a year-less month-day binds inside the horizon, where it can name only one date.
+ * reads it -- a year-less month-day binds inside the horizon, where it can name only one date --
+ * and by the same code: `bindCatalystCandidates`.
  */
 const EXA_SEARCH_URL = 'https://api.exa.ai/search'
 const MAX_EXA_RESPONSE_BYTES = 2 * 1024 * 1024
 const MAX_EXA_RESULTS = 8
-const MAX_RESULT_CHARACTERS = 4_000
+export const MAX_RESULT_CHARACTERS = 4_000
 /** An allocation bound on the untrusted events array; the response is already byte-bounded above. */
 const MAX_EXA_EVENTS = 50
 /**
@@ -90,10 +94,7 @@ const ExaEventSchema = z.object({
   title: z.string().min(1).max(MAX_CATALYST_TITLE_LENGTH),
 })
 
-export type ExaCatalystRun = {
-  catalysts: Catalyst[]
-  rejected: string[]
-}
+export type ExaCatalystRun = CatalystCandidateBinding
 
 // The window the query asks about is the one the binder enforces, so the search is not spent on
 // events the binder would refuse.
@@ -129,9 +130,10 @@ async function requestExaSearch(env: AppEnv, symbol: string, name: string): Prom
 }
 
 /**
- * One catalyst search for one symbol. Every event that survives names a page Exa read on
- * this run, carries a date that page states, and falls inside the same horizon the rest of
- * the product uses. Everything else is reported as rejected rather than stored.
+ * One catalyst search for one symbol, bound by the same rules as every other producer of
+ * model-authored dates: every event that survives names a page Exa read on this run, carries a
+ * date that page states, and falls inside the product's horizon. Everything else is reported as
+ * rejected rather than stored.
  */
 export async function runExaCatalystSearch(
   env: AppEnv,
@@ -144,68 +146,55 @@ export async function runExaCatalystSearch(
   // Keyed by the canonical address every citation here is bound by, so an event citing a page
   // with a tracking parameter or fragment Exa's result lacks still finds the text it was read
   // from, and what is stored is the one address a reader is given for that page. Two results
-  // that canonicalize to one page are both text this run read from it.
-  const pages = new Map<string, string>()
+  // that canonicalize to one page are both text this run read from it. Exa cuts each result at
+  // `MAX_RESULT_CHARACTERS`, so text that long is a partial read, and the binder then says a
+  // missing date may sit past what was read.
+  const readAt = now.toISOString()
+  const pages = new Map<string, RetainedPage>()
   for (const result of payload.results) {
     const key = citedPageKey(result.url)
     if (key === undefined) continue
+    const text = result.text ?? ''
+    const truncated = text.length >= MAX_RESULT_CHARACTERS
     const read = pages.get(key)
-    pages.set(key, read === undefined ? result.text ?? '' : `${read}\n${result.text ?? ''}`)
+    pages.set(key, read === undefined
+      ? { markdown: text, readAt, truncated }
+      : { markdown: `${read.markdown}\n${text}`, readAt, truncated: read.truncated || truncated })
   }
   const events = payload.output?.content?.events
   if (!events) return { catalysts: [], rejected: ['Exa returned no structured events'] }
 
-  const today = marketDate(now)
-  const horizon = addDays(today, CATALYST_HORIZON_DAYS)
-  const catalysts: Catalyst[] = []
-  const rejected: string[] = []
-  const ids = new Set<string>()
-
+  // Exa's own shape is refused here, under the event's number; everything the shared binder
+  // checks -- the page, the horizon, the date on the page, duplicates -- is left to it, reported
+  // under the same numbering.
+  const refused: string[] = []
+  const candidates: ResearchCatalystCandidate[] = []
+  const sources: { sourceUrl: string }[] = []
+  const candidateNumbers: number[] = []
   for (const [index, untrusted] of events.entries()) {
     const parsed = ExaEventSchema.safeParse(untrusted)
     if (!parsed.success) {
-      rejected.push(`event ${index + 1}: ${parsed.error.issues[0]?.message ?? 'malformed'}`)
+      refused.push(`catalyst ${index + 1}: ${parsed.error.issues[0]?.message ?? 'malformed'}`)
       continue
     }
     const event = parsed.data
     const sourceUrl = citedPageKey(event.sourceUrl)
     if (sourceUrl === undefined || !CitedSourceUrlSchema.safeParse(sourceUrl).success) {
-      rejected.push(`event ${index + 1}: source is not a citable https page address`)
+      refused.push(`catalyst ${index + 1}: source is not a citable https page address`)
       continue
     }
-    const page = pages.get(sourceUrl)
-    if (page === undefined) {
-      rejected.push(`event ${index + 1}: source was not read this run`)
-      continue
-    }
-    if (event.date < today || event.date > horizon) {
-      rejected.push(`event ${index + 1}: date is outside the ${CATALYST_HORIZON_DAYS}-day horizon`)
-      continue
-    }
-    if (!textMentionsDateWithinHorizon(page, event.date, today, horizon)) {
-      rejected.push(`event ${index + 1}: ${event.date} is not bound to its source page`)
-      continue
-    }
-    const id = `exa:${symbol}:${event.kind}:${event.date}`
-    if (ids.has(id)) {
-      rejected.push(`event ${index + 1}: duplicates ${id}`)
-      continue
-    }
-    ids.add(id)
-    catalysts.push(RecordedCatalystSchema.parse({
-      // A searched finding is never `confirmed`: only the broker's own calendar is.
-      confidence: 'estimated',
+    candidates.push({
       date: event.date,
       description: event.description ?? null,
-      id,
       kind: event.kind,
-      source: `Exa search · ${new URL(sourceUrl).hostname.replace(/^www\./, '')}`,
-      sourceUrl,
+      sourceIndex: sources.length,
       symbol,
       timing: event.timing ?? 'unknown',
       title: event.title,
-      updatedAt: now.toISOString(),
-    }))
+    })
+    sources.push({ sourceUrl })
+    candidateNumbers.push(index + 1)
   }
-  return { catalysts, rejected }
+  const binding = bindCatalystCandidates(candidates, sources, pages, now, 'exa', candidateNumbers)
+  return { catalysts: binding.catalysts, rejected: [...refused, ...binding.rejected] }
 }
