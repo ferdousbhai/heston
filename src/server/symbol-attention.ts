@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { equitySymbolFromModelText } from '../domain/instrument'
-import { refreshCatalystsForSymbol } from './catalyst-refresh'
+import { attemptCatalystRefresh } from './catalyst-refresh'
 import { type AppEnv } from './env'
 
 /**
@@ -12,7 +12,7 @@ import { type AppEnv } from './env'
  * way. Agent readers did not -- an agent could spend a whole session on a name and the site would
  * learn nothing from it, which inverted the premise for the surface that now sees the most use.
  *
- * The cost is unchanged. `refreshCatalystsForSymbol` claims a receipt before it searches and
+ * The cost is unchanged. `attemptCatalystRefresh` claims a receipt before it searches and
  * refuses inside its window, so this is at most one search per symbol per window no matter how
  * many agents ask, and none at all for a symbol the instrument catalog cannot name. What the run
  * binds is stored for everyone, so a visitor who never runs an agent reads a calendar somebody
@@ -60,15 +60,20 @@ export function readsSymbols(toolName: string): boolean {
 }
 
 /**
- * How many paid searches one tool call may buy: a spend policy, not a platform limit. Each name
- * can cost one Exa search, and they run one after another inside the call's `waitUntil`, which
+ * How many paid searches one tool call may buy: a spend policy, not a platform limit. Each claimed
+ * name costs one Exa search, and they run one after another inside the call's `waitUntil`, which
  * the runtime ends about 30 seconds after the response -- less than one search's own worst case
  * (`CATALYST_RUN_BUDGET_MS`), so no count is derivable from it. Only the name in flight when the
  * runtime cuts the work keeps a `running` receipt, and only for that run budget; a name the
  * invocation never reaches was never claimed and has no receipt at all. Five is the product's
- * choice of how many names one agent call may put searches behind, so one call cannot fan out
- * into a sweep of the universe. The names past it are counted in the log, not searched, and buy
- * their search the next time a call names them.
+ * choice of how many searches one agent call may put behind it, so one call cannot fan out into a
+ * sweep of the universe.
+ *
+ * The budget counts searches bought, not names named. Most names cost nothing -- searched this
+ * month, held by a failure's backoff, off the watchlist, unknown to the catalog -- and a cap on
+ * names spent the budget on those, so an agent that kept naming more than five symbols never had
+ * the sixth searched at all. The names past the budget are counted in the log, not visited, and
+ * buy their search the next time a call names them.
  */
 export const MAX_ATTENTION_SYMBOLS = 5
 
@@ -99,18 +104,23 @@ function namedSymbols(call: SymbolNamingCall): string[] {
 export async function noteSymbolAttention(env: AppEnv, call: SymbolNamingCall): Promise<void> {
   if (!env.DB) return
   const named = namedSymbols(call)
-  if (named.length > MAX_ATTENTION_SYMBOLS) {
-    console.warn('SymbolAttentionSymbolsDropped', named.length - MAX_ATTENTION_SYMBOLS)
-  }
-  for (const symbol of named.slice(0, MAX_ATTENTION_SYMBOLS)) {
+  let searches = 0
+  let visited = 0
+  while (visited < named.length && searches < MAX_ATTENTION_SYMBOLS) {
+    const symbol = named[visited]!
+    visited += 1
     try {
-      await refreshCatalystsForSymbol(env, symbol)
+      if ((await attemptCatalystRefresh(env, symbol)).claimed) searches += 1
     } catch (error) {
       // A search nobody asked for must never affect the answer that was asked for. A run cut off
       // here -- this work outlives the response only as long as the runtime allows -- leaves a
       // `running` receipt that holds for the run budget, not the refresh window, so the symbol is
-      // not stuck unsearched.
+      // not stuck unsearched. A throw may come after the claim, so it counts against the budget:
+      // spending one search too few is cheaper than one too many.
+      searches += 1
       console.error('SymbolAttentionRefreshFailed', error instanceof Error ? error.name : 'UnknownError')
     }
   }
+  const unvisited = named.length - visited
+  if (unvisited > 0) console.warn('SymbolAttentionSymbolsDropped', unvisited)
 }

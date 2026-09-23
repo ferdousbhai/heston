@@ -9,6 +9,7 @@ import {
   CATALYST_REFRESH_INTERVAL_DAYS,
   CATALYST_FAILED_RETRY_MS,
   CATALYST_RUN_BUDGET_MS,
+  attemptCatalystRefresh,
   refreshCatalystsForSymbol,
 } from '../src/server/catalyst-refresh'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
@@ -165,6 +166,21 @@ describe('catalyst coverage seeded by favorites', () => {
 
     expect(fetchMock).not.toHaveBeenCalled()
     expect(store.sqlite.prepare('SELECT count(*) AS count FROM catalyst_runs').get()).toEqual({ count: 0 })
+    store.close()
+  })
+
+  it('tells a caller budgeting searches a failed run from a failure\'s backoff', async () => {
+    // A reader sees both as `failed`; only the first bought a search.
+    const store = await storeWithCatalog()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 500 })))
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(attemptCatalystRefresh(env(store), 'BE', NOW)).resolves.toEqual({
+      claimed: true, refresh: { catalysts: [], ran: false, reason: 'failed' },
+    })
+    await expect(attemptCatalystRefresh(env(store), 'BE', new Date(NOW.getTime() + 1))).resolves.toEqual({
+      claimed: false, refresh: { catalysts: [], ran: false, reason: 'failed' },
+    })
     store.close()
   })
 

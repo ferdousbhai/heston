@@ -6,15 +6,21 @@ import {
   readsSymbols,
   type SymbolNamingCall,
 } from '../src/server/symbol-attention'
-import { migrationStore } from './sqlite-d1'
+import { CATALYST_FAILED_RETRY_MS } from '../src/server/catalyst-refresh'
+import { instrumentCatalogFromPayload, persistInstrumentCatalog } from '../src/server/instrument-catalog'
+import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 
 /**
  * The symbols `noteSymbolAttention` tries to buy a search for, in order. Each attempt starts with
  * one catalog read for exactly that symbol, and an empty catalog ends it there, so the reads are
  * the attempts and no search is ever bought.
  */
-async function attemptedSymbols(call: SymbolNamingCall): Promise<unknown[]> {
+async function attemptedSymbols(
+  call: SymbolNamingCall,
+  seed: (store: SqliteD1Store) => Promise<void> = async () => undefined,
+): Promise<unknown[]> {
   const store = await migrationStore()
+  await seed(store)
   const attempted: unknown[] = []
   const prepare = store.database.prepare.bind(store.database)
   const database = Object.assign(store.database, {
@@ -31,15 +37,41 @@ async function attemptedSymbols(call: SymbolNamingCall): Promise<unknown[]> {
     },
   })
   try {
-    await noteSymbolAttention({ DB: database }, call)
+    await noteSymbolAttention({ DB: database, EXA_API_KEY: { get: async () => 'exa-key' } }, call)
   } finally {
     store.close()
   }
   return attempted
 }
 
+/** Names the catalog resolves and the watchlist tracks, so naming one claims a paid search. */
+function trackedSymbols(symbols: readonly string[]) {
+  return async (store: SqliteD1Store) => {
+    await persistInstrumentCatalog({ DB: store.database }, instrumentCatalogFromPayload(
+      symbols.map((symbol) => ({ active: true, description: symbol, 'instrument-type': 'Equity', symbol })),
+      symbols,
+    ))
+    const now = new Date().toISOString()
+    for (const symbol of symbols) {
+      await store.database.prepare(
+        `INSERT INTO internal_watchlist_items (symbol, instrument_type, origin, created_at, updated_at)
+         VALUES (?, 'Equity', 'visitor-search', ?, ?)`,
+      ).bind(symbol, now, now).run()
+    }
+  }
+}
+
+/** Every search the provider is asked for fails, which still spends the claim that bought it. */
+function failingSearch() {
+  const fetchMock = vi.fn(async () => new Response('', { status: 500 }))
+  vi.stubGlobal('fetch', fetchMock)
+  vi.spyOn(console, 'error').mockImplementation(() => undefined)
+  return fetchMock
+}
+
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('symbol attention', () => {
@@ -70,22 +102,51 @@ describe('symbol attention', () => {
     expect(readsSymbols('read_option_greeks')).toBe(true)
   })
 
-  it('bounds one call so it cannot sweep the universe', async () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const many = Array.from({ length: 40 }, (_, index) => `SYM${index}`)
-    expect(await attemptedSymbols({ symbols: many })).toEqual(many.slice(0, MAX_ATTENTION_SYMBOLS))
-  })
-
-  it('counts the names a call named past the search budget instead of dropping them silently', async () => {
+  it('visits every name while none of them buys a search', async () => {
+    // Names the catalog cannot resolve cost nothing, so they do not spend the budget and the
+    // names after them are still reached.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const many = Array.from({ length: 40 }, (_, index) => `SYM${index}`)
+    expect(await attemptedSymbols({ symbols: many })).toEqual(many)
+    expect(warn).not.toHaveBeenCalled()
+  })
 
-    // An empty catalog names none of them, so no search is bought; only the count is observed.
-    const store = await migrationStore()
-    await noteSymbolAttention({ DB: store.database }, { symbols: many })
-    store.close()
+  it('bounds one call by the searches it buys, not the names it names', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const fetchMock = failingSearch()
+    const unknown = ['ZZA', 'ZZB', 'ZZC']
+    const tracked = ['TA', 'TB', 'TC', 'TD', 'TE', 'TF', 'TG', 'TH']
 
-    expect(warn).toHaveBeenCalledWith('SymbolAttentionSymbolsDropped', 40 - MAX_ATTENTION_SYMBOLS)
+    const attempted = await attemptedSymbols({ symbols: [...unknown, ...tracked] }, trackedSymbols(tracked))
+
+    // The unknown names are visited for free; the budget is spent only on the tracked names that
+    // claimed a run -- a search that failed was still bought -- and the rest are counted.
+    expect(attempted).toEqual([...unknown, ...tracked.slice(0, MAX_ATTENTION_SYMBOLS)])
+    expect(fetchMock).toHaveBeenCalledTimes(MAX_ATTENTION_SYMBOLS)
+    expect(warn).toHaveBeenCalledWith('SymbolAttentionSymbolsDropped', tracked.length - MAX_ATTENTION_SYMBOLS)
+  })
+
+  it('does not spend the budget on a name a recent failure is holding back', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const fetchMock = failingSearch()
+    const held = ['HA', 'HB', 'HC', 'HD', 'HE', 'HF']
+    const fresh = ['FA', 'FB']
+    const seedTracked = trackedSymbols([...held, ...fresh])
+
+    const attempted = await attemptedSymbols({ symbols: [...held, ...fresh] }, async (store) => {
+      await seedTracked(store)
+      // Each held name failed moments ago: its answer is still `failed`, but no claim is spent.
+      const failedAt = new Date(Date.now() - CATALYST_FAILED_RETRY_MS / 2).toISOString()
+      for (const symbol of held) {
+        store.sqlite.prepare(
+          `INSERT INTO catalyst_runs (symbol, source_provider, ran_at, catalyst_count, status)
+           VALUES (?, 'exa', ?, 0, 'failed')`,
+        ).run(symbol, failedAt)
+      }
+    })
+
+    expect(attempted).toEqual([...held, ...fresh])
+    expect(fetchMock).toHaveBeenCalledTimes(fresh.length)
   })
 
   it('logs nothing when a call stays inside the budget', async () => {

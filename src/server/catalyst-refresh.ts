@@ -148,6 +148,14 @@ async function recordRun(
 }
 
 /**
+ * What one refresh attempt answers, plus whether it spent a claim -- that is, bought a search.
+ * The reader's answer cannot say so: `reason: 'failed'` is both a search that was paid for and
+ * threw, and a refusal held back by an earlier failure's backoff, and a reader must see those
+ * the same. A caller budgeting searches must not, so this stays server-side and off the wire.
+ */
+export type CatalystRefreshAttempt = { claimed: boolean; refresh: CatalystRefresh }
+
+/**
  * Run a catalyst search for one symbol unless one was already run for it inside the refresh
  * window. The symbol must be a resolved instrument this Worker already knows, so attention
  * paid to something the catalog cannot name buys nothing.
@@ -166,6 +174,16 @@ export async function refreshCatalystsForSymbol(
   now = new Date(),
   forced = false,
 ): Promise<CatalystRefresh> {
+  return (await attemptCatalystRefresh(env, untrustedSymbol, now, forced)).refresh
+}
+
+/** `refreshCatalystsForSymbol`, also saying whether the attempt claimed a run and so bought a search. */
+export async function attemptCatalystRefresh(
+  env: AppEnv,
+  untrustedSymbol: string,
+  now = new Date(),
+  forced = false,
+): Promise<CatalystRefreshAttempt> {
   // Every receipt and every row lives in D1, so without it nothing here can be answered.
   const db = env.DB
   if (!db) throw new CallerVisibleError('CatalystRunStoreUnavailable')
@@ -174,13 +192,13 @@ export async function refreshCatalystsForSymbol(
   // A delisted name has no upcoming anything. Paying for a search on one is spending real money
   // to learn that a company acquired two years ago has no next earnings date.
   if (!instrument || !isTradeableInstrument(instrument)) {
-    return { catalysts: [], ran: false, reason: 'unknown-symbol' }
+    return { claimed: false, refresh: { catalysts: [], ran: false, reason: 'unknown-symbol' } }
   }
   if (!forced && !await isTracked(db, symbol)) {
-    return { catalysts: [], ran: false, reason: 'untracked' }
+    return { claimed: false, refresh: { catalysts: [], ran: false, reason: 'untracked' } }
   }
   const claim = await claimRun(db, symbol, now, forced)
-  if (claim !== 'claimed') return { catalysts: [], ran: false, reason: claim }
+  if (claim !== 'claimed') return { claimed: false, refresh: { catalysts: [], ran: false, reason: claim } }
 
   try {
     const run = await runExaCatalystSearch(
@@ -191,12 +209,12 @@ export async function refreshCatalystsForSymbol(
     )
     await persistResearchCatalysts(env, CATALYST_PROVIDER, run.catalysts, now)
     await recordRun(db, symbol, now, 'complete', run.catalysts.length, run.rejected.join('; ') || undefined)
-    return { catalysts: run.catalysts, ran: true }
+    return { claimed: true, refresh: { catalysts: run.catalysts, ran: true } }
   } catch (error) {
     // The log line carries the error's name only; the private receipt keeps the message, which
     // is where an owner reconciling a failed run looks.
     console.error('CatalystRefreshFailed', error instanceof Error ? error.name : 'UnknownError')
     await recordRun(db, symbol, now, 'failed', 0, error instanceof Error ? error.message : 'UnknownError')
-    return { catalysts: [], ran: false, reason: 'failed' }
+    return { claimed: true, refresh: { catalysts: [], ran: false, reason: 'failed' } }
   }
 }
