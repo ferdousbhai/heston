@@ -86,15 +86,17 @@ function ConsentPage() {
           <p>
             An agent is asking to connect to your Heston account, signed in as{' '}
             <strong>{viewer.user.name}</strong>. It will be able to read live market data, option
-            chains and Greeks, and the shared research, and to add symbols to the watchlist.
+            chains and Greeks, and the shared research, to add symbols to the watchlist, and to record
+            catalysts and evidence that every Heston reader sees.
           </p>
           <p>
             It cannot reach your brokerage this way. Balances, positions and order placement need a
             broker credential that stays on your own machine and is sent with each request.
           </p>
           <p>
-            Approve only if you started this from your own agent. You can revoke it later from the
-            Connect tab.
+            Approve only if you started this from your own agent. Removing Heston from that agent
+            ends its use of this connection; to revoke it on Heston&apos;s side, email{' '}
+            <a href="mailto:support@heston.io">support@heston.io</a>.
           </p>
           {failure && <p className="authorize-error">{failure}</p>}
           <div className="authorize-actions">

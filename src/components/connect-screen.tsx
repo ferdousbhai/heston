@@ -290,8 +290,8 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
           Orders run the same server-side guards regardless of what any agent recommends: the exact
           contract is resolved from the live chain, the portfolio and market checks
           run against fresh broker state, and the broker&apos;s own dry-run must come back clean. A
-          refusal is final. Your agent will ask you before placing anything, but that prompt belongs
-          to your agent, not to Heston — the guards are what actually bound the risk.
+          refusal is final. Heston has no confirmation step of its own: any prompt before an order
+          comes from your agent, and the server-side guards are what bound the risk.
         </p>
         {owner && (
           <p className="connect-owner-note">

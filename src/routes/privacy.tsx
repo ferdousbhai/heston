@@ -15,10 +15,10 @@ export const Route = createFileRoute('/privacy')({
 function PrivacyPage() {
   return (
     <SitePage intro="What Heston processes, why it is needed, and the choices available to you." title="Privacy policy">
-      <p className="site-effective">Effective <time dateTime="2026-08-27">August 27, 2026</time></p>
+      <p className="site-effective">Effective <time dateTime="2026-09-23">September 23, 2026</time></p>
       <section>
         <h2>Information processed</h2>
-        <p>Heston may process your Google account identity for sign-in; account, position, order, balance, transaction, and watchlist data from a connected brokerage; symbols, prompts, preferences, confirmations, and research you submit; market and research data requested on your behalf; and limited technical records needed to secure, operate, and diagnose the service.</p>
+        <p>Heston may process your Google account identity for sign-in; your ticker favorites; the labels of agent tokens you create (only a digest of each token is stored) and the agent clients you approve; symbols you or your agent look up, which join the shared watchlist; catalysts and evidence your agent records, which every reader sees; balance, position, order, trade, and cash-movement data read from your brokerage through your own credential, only on a request that presents it; records of orders placed through Heston, kept so an ambiguous submission can be reconciled; market and research data requested on your behalf; and limited technical records needed to secure, operate, and diagnose the service. Your brokerage credential is never stored by Heston, and your agent&apos;s prompts run on your own machine rather than here.</p>
       </section>
       <section>
         <h2>How information is used</h2>
@@ -34,7 +34,7 @@ function PrivacyPage() {
       </section>
       <section>
         <h2>Retention and security</h2>
-        <p>Records are kept only as long as reasonably needed for the service, security, legal obligations, and dispute resolution. Heston uses access controls and encrypted transport, but no system can guarantee absolute security. Do not include secrets or unnecessary personal information in prompts or support emails.</p>
+        <p>Records are kept only as long as reasonably needed for the service, security, legal obligations, and dispute resolution. Heston uses access controls and encrypted transport, but no system can guarantee absolute security. Do not include secrets or unnecessary personal information in research your agent records or in support emails.</p>
       </section>
       <section>
         <h2>Your choices</h2>
