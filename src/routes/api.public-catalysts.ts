@@ -5,6 +5,13 @@ import { jsonNoStore, jsonPublic } from '../server/http'
 import { readUpcomingCatalystsForSymbol } from '../server/catalysts'
 import { appEnv } from '../server/worker-env'
 
+// A staleness budget, not a provider figure. The rows change only when a research run lands,
+// and a reader who just bought one drops their in-page copy, but the browser's HTTP cache can
+// still answer that refetch: a minute bounds how long the reader waits to see their own search.
+// The edge copy is shared by every reader of the symbol, so it may hold twice that.
+const CATALYSTS_BROWSER_MAX_AGE_SECONDS = 60
+const CATALYSTS_EDGE_MAX_AGE_SECONDS = 2 * CATALYSTS_BROWSER_MAX_AGE_SECONDS
+
 /**
  * Full catalyst rows for one symbol — description and source — for the focused runway.
  * The snapshot only carries the calendar, the same split as year closes vs the year chart.
@@ -21,7 +28,10 @@ export const Route = createFileRoute('/api/public-catalysts')({
           const catalysts = await readUpcomingCatalystsForSymbol(appEnv, parsed.data)
           // Already parsed against `CatalystSchema` by the store read.
           const response = jsonPublic({ catalysts })
-          response.headers.set('Cache-Control', 'public, max-age=60, s-maxage=120')
+          response.headers.set(
+            'Cache-Control',
+            `public, max-age=${CATALYSTS_BROWSER_MAX_AGE_SECONDS}, s-maxage=${CATALYSTS_EDGE_MAX_AGE_SECONDS}`,
+          )
           return response
         } catch (error) {
           console.error('PublicCatalystsUnavailable', error instanceof Error ? error.name : 'UnknownError')

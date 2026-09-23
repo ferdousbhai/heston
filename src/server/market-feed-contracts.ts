@@ -70,6 +70,9 @@ export type MarketFeedStatus = z.infer<typeof MarketFeedStatusSchema>
 // bounding that fan-out keeps its timeout and returned model context predictable.
 export const MAX_OPTION_GREEKS_CONTRACTS = 10
 
+/** ECMAScript's maximum time value: the largest epoch-millisecond instant a `Date` can hold. */
+const MAX_DATE_MS = 8_640_000_000_000_000
+
 export const OptionStreamerSymbolSchema = z.string()
   .trim()
   .max(128)
@@ -128,7 +131,7 @@ export function optionGreeksFromRow(
     || eventTime === undefined
     || eventTime <= 0
     || !Number.isSafeInteger(eventTime)
-    || eventTime > 8_640_000_000_000_000
+    || eventTime > MAX_DATE_MS
     || optionPrice === undefined
     || optionPrice < 0
     || impliedVolatility === undefined

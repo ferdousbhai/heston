@@ -12,7 +12,6 @@ import { CallerVisibleError } from './caller-visible-error'
 const MAX_TICK_TIERS_PER_KIND = 50
 
 export type TastytradeTickSize = {
-  appliesToSymbol: string | null
   threshold: number | null
   value: number
 }
@@ -37,11 +36,8 @@ export function tastytradeTickSizes(value: JsonValue, label: string): Tastytrade
       throw new CallerVisibleError(`${label}:invalid-tick-threshold`)
     }
 
-    const rawSymbol = row.symbol
-    const symbol = rawSymbol === undefined || rawSymbol === null ? null : jsonText(rawSymbol)?.trim()
-    if (symbol === undefined || symbol !== null && (symbol.length === 0 || symbol.length > 128)) {
-      throw new CallerVisibleError(`${label}:invalid-tick-symbol`)
-    }
-    return { appliesToSymbol: symbol, threshold, value: tick }
+    // The row's `symbol` names the underlying the schedule belongs to, which the caller already
+    // chose; nothing reads it, so it is not carried and cannot refuse an order.
+    return { threshold, value: tick }
   })
 }
