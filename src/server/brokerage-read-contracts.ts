@@ -93,10 +93,8 @@ export const AccountHistoryReadParameters = Type.Object({
     { description: 'Transactions only: optionally restrict to trades or cash movements.' },
   )),
   type: StringEnum(['transactions', 'orders']),
-  underlyingSymbol: Type.Optional(Type.String({
-    maxLength: 32,
-    pattern: UNDERLYING_SYMBOL.source,
-  })),
+  // The pattern is the one bound; a separate maxLength would restate its width and could drift.
+  underlyingSymbol: Type.Optional(Type.String({ pattern: UNDERLYING_SYMBOL.source })),
 }, { additionalProperties: false })
 
 export const MarketMetricsReadParameters = Type.Object({
