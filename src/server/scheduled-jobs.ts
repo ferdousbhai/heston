@@ -1,5 +1,5 @@
 import { marketDate } from '../domain/catalyst'
-import { isRegularSessionOpen } from '../domain/market'
+import { isCashOpenMinute } from '../domain/market'
 import { type AppEnv } from './env'
 import { readInternalWatchlistFocus } from './internal-watchlist'
 import { MARKET_FEED_INSTANCE, MAX_DAILY_CANDLE_SYMBOLS } from './market-feed-contracts'
@@ -13,7 +13,7 @@ import { replaceYearCandles } from './year-candle-store'
  */
 export type YearCandleRefresh =
   | { status: 'refreshed'; symbolCount: number }
-  | { reason: 'session-closed'; status: 'skipped' }
+  | { reason: 'not-cash-open'; status: 'skipped' }
 
 /** The tick's log line for a refresh: an event name and a count, never symbols or content. */
 export function yearCandleRefreshEvent(refresh: YearCandleRefresh) {
@@ -29,8 +29,9 @@ export function yearCandleRefreshEvent(refresh: YearCandleRefresh) {
  */
 export async function refreshYearCandles(env: AppEnv, asOf = new Date()): Promise<YearCandleRefresh> {
   // The trigger fires at 13:30 and 14:30 UTC so one of them is 09:30 Eastern in either DST
-  // offset. The off-season fire is a no-op rather than a second DXLink subscription.
-  if (!isRegularSessionOpen(asOf)) return { reason: 'session-closed', status: 'skipped' }
+  // offset. The off-season fire is a no-op rather than a second DXLink subscription. Its skip
+  // reason names the minute, not the session: at 10:30 Eastern the market is open.
+  if (!isCashOpenMinute(asOf)) return { reason: 'not-cash-open', status: 'skipped' }
   // A missing binding is a misconfiguration, not a refresh of nothing: throw its name so the
   // tick's failure log says which one, rather than logging a count of zero that reads as success.
   if (!env.DB) throw new ConfigurationError('BindingMissing', 'DB')

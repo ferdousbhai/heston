@@ -97,7 +97,7 @@ export const MarketStateSchema = z.enum(['open', 'closed', 'pre', 'after', 'unkn
 
 export type MarketState = z.infer<typeof MarketStateSchema>
 
-const REGULAR_SESSION_OPEN_FORMATTER = new Intl.DateTimeFormat('en-US', {
+const CASH_OPEN_MINUTE_FORMATTER = new Intl.DateTimeFormat('en-US', {
   hour: '2-digit',
   hourCycle: 'h23',
   minute: '2-digit',
@@ -109,9 +109,9 @@ const REGULAR_SESSION_OPEN_FORMATTER = new Intl.DateTimeFormat('en-US', {
  * Cloudflare cron is UTC and cannot name "09:30 America/New_York", so the Worker fires both
  * DST offsets and this keeps the year-candle read on the fire that is actually the cash open.
  */
-export function isRegularSessionOpen(at: Date): boolean {
+export function isCashOpenMinute(at: Date): boolean {
   const parts = Object.fromEntries(
-    REGULAR_SESSION_OPEN_FORMATTER.formatToParts(at).map((part) => [part.type, part.value]),
+    CASH_OPEN_MINUTE_FORMATTER.formatToParts(at).map((part) => [part.type, part.value]),
   )
   if (parts.weekday === 'Sat' || parts.weekday === 'Sun') return false
   return parts.hour === '09' && parts.minute === '30'

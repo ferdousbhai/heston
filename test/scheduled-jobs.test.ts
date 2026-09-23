@@ -85,8 +85,8 @@ describe('year candle refresh', () => {
     const refresh = await refreshYearCandles(env, new Date('2026-09-16T14:30:00.000Z'))
     expect(readDailyCandles).not.toHaveBeenCalled()
     // A skip logs as a skip, never as a refresh that stored nothing.
-    expect(refresh).toEqual({ reason: 'session-closed', status: 'skipped' })
-    expect(yearCandleRefreshEvent(refresh)).toEqual({ event: 'YearCandlesRefreshSkipped', reason: 'session-closed' })
+    expect(refresh).toEqual({ reason: 'not-cash-open', status: 'skipped' })
+    expect(yearCandleRefreshEvent(refresh)).toEqual({ event: 'YearCandlesRefreshSkipped', reason: 'not-cash-open' })
   })
 
   it('names a missing binding instead of reporting an empty refresh', async () => {
@@ -98,6 +98,6 @@ describe('year candle refresh', () => {
       .rejects.toMatchObject({ name: 'BindingMissing', message: 'BindingMissing:MARKET_FEED' })
     // The off-season fire stays a deliberate no-op, binding or not.
     await expect(refreshYearCandles({}, new Date('2026-09-16T14:30:00.000Z')))
-      .resolves.toEqual({ reason: 'session-closed', status: 'skipped' })
+      .resolves.toEqual({ reason: 'not-cash-open', status: 'skipped' })
   })
 })
