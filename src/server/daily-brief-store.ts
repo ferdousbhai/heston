@@ -7,6 +7,7 @@ import {
   type DailyBrief,
   type DailyBriefSubmission,
 } from '../domain/brief'
+import { IsoDateSchema } from '../domain/iso-date'
 
 const StoredRowSchema = z.object({ payload_json: z.string() })
 
@@ -17,17 +18,24 @@ function parseStored(row: StoredRow): DailyBrief {
   return DailyBriefSchema.parse(JSON.parse(StoredRowSchema.parse(row).payload_json))
 }
 
-/** The store owns only persistence shape; callers keep their audience-specific absence policy. */
+/**
+ * Briefs are ordered by market date, never by publication instant: a retried Workflow step can
+ * republish an older date after a newer one, and that must neither become the standing brief nor
+ * put the archive out of order. The id is `brief-<YYYY-MM-DD>` (the table's CHECK enforces it),
+ * so its lexical order is market-date order and the primary key serves both reads.
+ *
+ * The store owns only persistence shape; callers keep their audience-specific absence policy.
+ */
 export async function readLatestDailyBrief(db: D1Database): Promise<DailyBrief | undefined> {
-  const row = await db.prepare('SELECT payload_json FROM daily_briefs ORDER BY published_at DESC LIMIT 1').first<StoredRow>()
+  const row = await db.prepare('SELECT payload_json FROM daily_briefs ORDER BY id DESC LIMIT 1').first<StoredRow>()
   return row ? parseStored(row) : undefined
 }
 
-/** One archive neighbour, so the site can walk history without an unbounded payload. */
-export async function readDailyBriefBefore(db: D1Database, publishedBefore: string): Promise<DailyBrief | undefined> {
+/** One archive neighbour, the brief for the latest market date before the given one. */
+export async function readDailyBriefBefore(db: D1Database, marketDateBefore: string): Promise<DailyBrief | undefined> {
   const row = await db.prepare(
-    'SELECT payload_json FROM daily_briefs WHERE published_at < ? ORDER BY published_at DESC LIMIT 1',
-  ).bind(publishedBefore).first<StoredRow>()
+    'SELECT payload_json FROM daily_briefs WHERE id < ? ORDER BY id DESC LIMIT 1',
+  ).bind(dailyBriefId(IsoDateSchema.parse(marketDateBefore))).first<StoredRow>()
   return row ? parseStored(row) : undefined
 }
 

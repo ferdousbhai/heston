@@ -30,13 +30,37 @@ describe('daily brief store', () => {
     store.close()
   })
 
-  it('walks the archive one issue at a time', async () => {
+  it('walks the archive one issue at a time, by market date', async () => {
     const store = await migrationStore()
+    await publishDailyBrief(store.database, { ...submission, marketDate: '2026-08-11' }, new Date('2026-08-11T13:35:00.000Z'))
     await publishDailyBrief(store.database, { ...submission, marketDate: '2026-08-12' }, new Date('2026-08-12T13:35:00.000Z'))
     const latest = await publishDailyBrief(store.database, submission, new Date('2026-08-13T13:35:00.000Z'))
-    const previous = await readDailyBriefBefore(store.database, latest.publishedAt)
-    expect(previous?.id).toBe('brief-2026-08-12')
-    await expect(readDailyBriefBefore(store.database, previous!.publishedAt)).resolves.toBeUndefined()
+    // A retried run republishes the oldest date last; its instant is now the newest of all.
+    await publishDailyBrief(store.database, { ...submission, marketDate: '2026-08-11' }, new Date('2026-08-13T15:00:00.000Z'))
+
+    const walked: string[] = []
+    for (let cursor: string | undefined = latest.marketDate; cursor;) {
+      const previous = await readDailyBriefBefore(store.database, cursor)
+      if (previous) walked.push(previous.id)
+      cursor = previous?.marketDate
+    }
+    expect(walked).toEqual(['brief-2026-08-12', 'brief-2026-08-11'])
+    store.close()
+  })
+
+  it('keeps the newest market date standing when an older date is republished later', async () => {
+    const store = await migrationStore()
+    const latest = await publishDailyBrief(store.database, submission, new Date('2026-08-13T13:35:00.000Z'))
+    await publishDailyBrief(store.database, { ...submission, marketDate: '2026-08-12' }, new Date('2026-08-13T15:00:00.000Z'))
+
+    await expect(readLatestDailyBrief(store.database)).resolves.toEqual(latest)
+    store.close()
+  })
+
+  it('refuses an archive cursor that is not a market date', async () => {
+    const store = await migrationStore()
+    await publishDailyBrief(store.database, submission, new Date('2026-08-13T13:35:00.000Z'))
+    await expect(readDailyBriefBefore(store.database, '2026-08-14T00:00:00.000Z')).rejects.toThrow()
     store.close()
   })
 

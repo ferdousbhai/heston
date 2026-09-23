@@ -5,7 +5,8 @@ import { loadPublicJson } from './public-json'
 
 const BriefArchiveResponseSchema = z.strictObject({ brief: DailyBriefSchema.nullable() })
 
-export async function loadPreviousDailyBrief(publishedBefore: string, signal?: AbortSignal): Promise<DailyBrief | undefined> {
-  const query = new URLSearchParams({ before: publishedBefore })
+/** The brief for the latest market date before `marketDateBefore`, the one the reader is on. */
+export async function loadPreviousDailyBrief(marketDateBefore: string, signal?: AbortSignal): Promise<DailyBrief | undefined> {
+  const query = new URLSearchParams({ before: marketDateBefore })
   return (await loadPublicJson(`/api/public-daily-briefs?${query}`, BriefArchiveResponseSchema, signal)).brief ?? undefined
 }

@@ -84,12 +84,12 @@ export function BriefScreen({ latest, onSymbol }: { latest?: DailyBrief; onSymbo
     setArchiveError(undefined)
     setLoading(true)
     try {
-      const previous = await loadPreviousDailyBrief(current.publishedAt)
+      const previous = await loadPreviousDailyBrief(current.marketDate)
       if (!previous) {
         setArchiveEnd(true)
         return
       }
-      if (previous.publishedAt >= current.publishedAt) throw new Error('Brief archive returned an out-of-order result')
+      if (previous.marketDate >= current.marketDate) throw new Error('Brief archive returned an out-of-order result')
       setHistory((loaded) => [...loaded, previous])
       setIndex(index + 1)
     } catch {

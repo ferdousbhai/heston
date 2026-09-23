@@ -1,12 +1,13 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { z } from 'zod'
-
 import { toError } from '../domain/failure'
+import { IsoDateSchema } from '../domain/iso-date'
 import { ARCHIVE_RESPONSE_CACHE_CONTROL, jsonNoStore, jsonPublic } from '../server/http'
 import { readDailyBriefBefore } from '../server/daily-brief-store'
 import { appEnv } from '../server/worker-env'
 
-const ArchiveCursorSchema = z.string().datetime()
+// The cursor is the market date of the brief the reader is on; the archive walks by market
+// date, so a late republish of an older date cannot reorder it.
+const ArchiveCursorSchema = IsoDateSchema
 
 export const Route = createFileRoute('/api/public-daily-briefs')({
   server: {
