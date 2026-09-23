@@ -82,7 +82,9 @@ const PreferenceSchema = z.object({
   pinnedSymbols: z.array(EquitySymbolSchema).max(MAX_FAVORITE_SYMBOLS),
   selectedByUser: z.boolean().optional(),
   selectedSymbol: z.string(),
-  selectedWatchlistId: z.string(),
+  // Each audience publishes exactly one watchlist, so there is no choice of list to remember.
+  // Read-compatible only for preferences stored before that; nothing writes or reads it now.
+  selectedWatchlistId: z.string().optional(),
 })
 
 export type Preference = z.infer<typeof PreferenceSchema>
@@ -237,14 +239,12 @@ async function updateSnapshotPreference(snapshot: MarketSnapshot): Promise<void>
       pinnedSymbols: [],
       selectedByUser: false,
       selectedSymbol: defaultSymbol,
-      selectedWatchlistId: defaultWatchlist.id,
     })
     await preference.isPersisted.promise
     return
   }
   if (!currentPreference || !defaultSymbol) return
 
-  const watchlistIds = new Set(snapshot.watchlists.map((watchlist) => watchlist.id))
   const tickerSymbols = new Set(snapshot.tickers.map((ticker) => ticker.symbol))
   // A watchlist whose identity changed says nothing about the symbol the reader picked, and
   // the two audiences publish different watchlist ids — so treating one unknown id as proof
@@ -253,16 +253,11 @@ async function updateSnapshotPreference(snapshot: MarketSnapshot): Promise<void>
   const keepsChoice = Boolean(currentPreference.selectedByUser)
     && tickerSymbols.has(currentPreference.selectedSymbol)
   const selectedSymbol = keepsChoice ? currentPreference.selectedSymbol : defaultSymbol
-  const selectedWatchlistId = watchlistIds.has(currentPreference.selectedWatchlistId)
-    ? currentPreference.selectedWatchlistId
-    : defaultWatchlist.id
   if (selectedSymbol !== currentPreference.selectedSymbol
-    || selectedWatchlistId !== currentPreference.selectedWatchlistId
     || keepsChoice !== Boolean(currentPreference.selectedByUser)) {
     const preference = preferenceCollection.update('primary', (draft) => {
       draft.selectedByUser = keepsChoice
       draft.selectedSymbol = selectedSymbol
-      draft.selectedWatchlistId = selectedWatchlistId
     })
     await preference.isPersisted.promise
   }

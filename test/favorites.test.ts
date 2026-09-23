@@ -8,7 +8,6 @@ const preference = {
   id: 'primary' as const,
   pinnedSymbols: ['NVDA', 'META'],
   selectedSymbol: 'NVDA',
-  selectedWatchlistId: 'public-options-watch',
 }
 
 describe('anonymous favorite staging', () => {

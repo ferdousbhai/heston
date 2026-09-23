@@ -63,10 +63,7 @@ function HestonWorkspace({
   const watchlists = snapshot?.watchlists ?? []
   const brief = snapshot?.brief
   const [tab, setTab] = useState<Tab>('market')
-  // One D1-backed watchlist reaches each audience; the preference only survives
-  // so a stale stored id cannot outrank the list the snapshot actually carries.
-  const activeWatchlist = watchlists.find((watchlist) => watchlist.id === preference?.selectedWatchlistId)
-    ?? watchlists[0]
+  const activeWatchlist = watchlists[0]
   const fallbackSymbol = mostActiveSymbol(tickers, activeWatchlist?.symbols)
   const selected = tickers.find((ticker) => ticker.symbol === preference?.selectedSymbol)
     ?? tickers.find((ticker) => ticker.symbol === fallbackSymbol)

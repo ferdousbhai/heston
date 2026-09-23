@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   applyLiveMarketEvent,
@@ -315,17 +315,25 @@ describe('live market subscriptions', () => {
       selectedByUser: true, selectedSymbol: 'INTC',
     })
 
-    // Signing in or out republishes the same tickers under a different watchlist id.
-    await hydrateCollections({
-      ...snapshot,
-      watchlists: [{ id: 'public-options-watch', kind: 'public', name: 'Options Watch', symbols: snapshot.watchlists[0]!.symbols }],
-    }, 'public')
+    // Signing in or out republishes the same tickers under a different watchlist id. Each
+    // audience carries exactly one list, so there is no list choice to rewrite, and the
+    // preference is left exactly as the reader stored it.
+    const rewrite = vi.spyOn(preferenceCollection, 'update')
+    try {
+      await hydrateCollections({
+        ...snapshot,
+        watchlists: [{ id: 'public-options-watch', kind: 'public', name: 'Options Watch', symbols: snapshot.watchlists[0]!.symbols }],
+      }, 'public')
+      expect(rewrite).not.toHaveBeenCalled()
+    } finally {
+      rewrite.mockRestore()
+    }
 
     expect(preferenceCollection.get('primary')).toMatchObject({
       selectedByUser: true,
       selectedSymbol: 'INTC',
-      selectedWatchlistId: 'public-options-watch',
     })
+    expect(preferenceCollection.get('primary')?.selectedWatchlistId).toBeUndefined()
   })
 
   it('falls back to the busiest symbol only when the chosen one is gone', async () => {
