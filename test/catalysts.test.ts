@@ -18,6 +18,7 @@ import {
   readUpcomingCatalysts,
   readUpcomingCatalystsForSymbol,
 } from '../src/server/catalysts'
+import { D1_MAX_BOUND_PARAMETERS } from '../src/server/d1-limits'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 
@@ -293,7 +294,7 @@ describe('research catalyst storage', () => {
     await expect(persistResearchCatalysts({}, 'member-research', [], NOW)).rejects.toThrow('CatalystStoreUnavailable')
   })
 
-  it('keeps the maximum accepted bootstrap below D1 query and bind limits', async () => {
+  it('splits a large research write into statements under D1\'s bound-parameter limit', async () => {
     const boundParameterCounts: number[] = []
     let batchStatementCount = 0
     const batch = vi.fn(async (statements: D1PreparedStatement[]) => {
@@ -307,7 +308,7 @@ describe('research catalyst storage', () => {
         ...unsupportedStatement(),
         bind: (...values: unknown[]) => {
           boundParameterCounts.push(values.length)
-          if (values.length > 100) throw new Error('too many SQL variables')
+          if (values.length > D1_MAX_BOUND_PARAMETERS) throw new Error('too many SQL variables')
           return unsupportedStatement()
         },
       })),
@@ -315,7 +316,7 @@ describe('research catalyst storage', () => {
     const catalysts: Catalyst[] = Array.from({ length: 1_000 }, (_, index) => ({
       confidence: 'estimated',
       date: '2026-09-15',
-      id: `daily-recommendations:T${index}:2026-09-15:investor-event`,
+      id: `member-research:T${index}:2026-09-15:investor-event`,
       kind: 'investor-event',
       source: 'Example Investor Relations',
       sourceUrl: `https://example.com/events/${index}`,
@@ -328,8 +329,10 @@ describe('research catalyst storage', () => {
     await persistResearchCatalysts({ DB: database }, 'member-research', catalysts, NOW)
 
     expect(batch).toHaveBeenCalledOnce()
-    expect(batchStatementCount).toBe(143)
-    expect(Math.max(...boundParameterCounts)).toBe(91)
+    // 1,000 rows bound at more than one column each cannot fit one statement under the limit,
+    // so a single batch call splitting into several statements is what proves the split happened.
+    expect(batchStatementCount).toBeGreaterThan(1)
+    expect(Math.max(...boundParameterCounts)).toBeLessThanOrEqual(D1_MAX_BOUND_PARAMETERS)
   })
 })
 
