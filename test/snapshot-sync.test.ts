@@ -78,16 +78,78 @@ describe('snapshot sync deployment check', () => {
     await expect(syncFromCloud('owner')).resolves.toEqual(snapshot)
   })
 
-  it('refuses a 304 for an audience this browser holds no record of', async () => {
+  it('stops claiming an ETag once the record it names is gone, and recovers', async () => {
     const snapshot = marketSnapshotFixture()
-    const { syncFromCloud } = await loadSync([
+    const { syncFromCloud, offlineSnapshotCollection, sent } = await loadSync([
       snapshotResponse(snapshot, { ETag: '"stored"' }),
-      notModified('next-deployment'),
+      snapshotResponse(snapshot, { ETag: '"refetched"' }),
+      notModified(),
     ])
     await syncFromCloud('owner')
-    // With no stored record a 304 has nothing to answer with, whatever the deployment says.
-    const { offlineSnapshotCollection } = await import('../src/data/collections')
+    // Another tab's newer bundle retiring the key, or the other audience replacing it, leaves
+    // this module holding a tag for a body the browser no longer has.
     await offlineSnapshotCollection.delete('snapshot').isPersisted.promise
-    await expect(syncFromCloud('owner')).rejects.toThrow('Snapshot sync failed (304)')
+    await expect(syncFromCloud('owner')).resolves.toEqual(snapshot)
+    expect(offlineSnapshotCollection.get('snapshot')?.audience).toBe('owner')
+    // Hydrated again, the fresh tag is claimed once more.
+    await expect(syncFromCloud('owner')).resolves.toEqual(snapshot)
+    expect(sent).toEqual([null, null, '"refetched"'])
+  })
+
+  it('refetches without the tag when the record vanishes under an in-flight 304', async () => {
+    const snapshot = marketSnapshotFixture()
+    const collections = await loadSync([
+      snapshotResponse(snapshot, { ETag: '"stored"' }),
+    ])
+    const { syncFromCloud, offlineSnapshotCollection, sent } = collections
+    await syncFromCloud('owner')
+    // The record is deleted between the conditional request leaving and its 304 arriving.
+    const responses = [notModified(), snapshotResponse(snapshot, { ETag: '"refetched"' })]
+    vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      sent.push(new Headers(init?.headers).get('If-None-Match'))
+      const next = responses.shift()
+      if (!next) throw new Error('unexpected snapshot request')
+      if (next.status === 304) await offlineSnapshotCollection.delete('snapshot').isPersisted.promise
+      return next
+    }))
+    await expect(syncFromCloud('owner')).resolves.toEqual(snapshot)
+    expect(sent).toEqual([null, '"stored"', null])
+    expect(offlineSnapshotCollection.get('snapshot')?.audience).toBe('owner')
+  })
+
+  it('reports a newer deployment on a 304 that has no record to answer with', async () => {
+    const snapshot = marketSnapshotFixture()
+    const { syncFromCloud, offlineSnapshotCollection, sent } = await loadSync([
+      snapshotResponse(snapshot, { ETag: '"stored"' }),
+    ])
+    await syncFromCloud('owner')
+    const responses = [notModified('next-deployment')]
+    vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      sent.push(new Headers(init?.headers).get('If-None-Match'))
+      const next = responses.shift()
+      if (!next) throw new Error('unexpected snapshot request')
+      await offlineSnapshotCollection.delete('snapshot').isPersisted.promise
+      return next
+    }))
+    // Nothing is on screen, so the reload notice is the whole answer; the tag is forgotten.
+    await expect(syncFromCloud('owner')).rejects.toMatchObject({
+      hydrated: false,
+      name: 'DeploymentMismatchError',
+      receivedDeploymentId: 'next-deployment',
+    })
+    expect(sent).toEqual([null, '"stored"'])
+  })
+
+  it('never sends one audience\'s ETag once the other audience holds the record', async () => {
+    const snapshot = marketSnapshotFixture()
+    const { syncFromCloud, restoreOfflineSnapshot, sent } = await loadSync([
+      snapshotResponse(snapshot, { ETag: '"stored"' }),
+      snapshotResponse(snapshot, { ETag: '"again"' }),
+    ])
+    await syncFromCloud('owner')
+    // Restoring the public audience deletes the owner record this tag names.
+    await restoreOfflineSnapshot('public')
+    await syncFromCloud('owner')
+    expect(sent).toEqual([null, null])
   })
 })

@@ -349,6 +349,22 @@ export function restoreOfflineSnapshot(audience: SnapshotAudience): Promise<void
 let cloudSnapshotEtag: string | undefined
 let cloudSnapshotEtagAudience: SnapshotAudience | undefined
 
+function requestSnapshot(
+  audience: SnapshotAudience,
+  etag: string | undefined,
+  signal: AbortSignal | undefined,
+): Promise<Response> {
+  // The root document preloads the public snapshot as a fetch. Any extra request header
+  // here would miss that preload and refetch it, so the first public read sends none.
+  // Later syncs send If-None-Match so an unchanged observation is a 304, not another body.
+  const headers = new Headers()
+  if (audience === 'owner') headers.set('Accept', 'application/json')
+  if (etag) headers.set('If-None-Match', etag)
+  return audience === 'owner'
+    ? fetch(OWNER_SNAPSHOT_URL, { headers, signal })
+    : fetch(PUBLIC_SNAPSHOT_URL, { headers, signal })
+}
+
 /**
  * The audience is required: a default would have to pick one, and the privileged audience is
  * the wrong thing for an omitted argument to request.
@@ -357,28 +373,35 @@ export async function syncFromCloud(
   audience: SnapshotAudience,
   signal?: AbortSignal,
 ): Promise<MarketSnapshot> {
-  // The root document preloads the public snapshot as a fetch. Any extra request header
-  // here would miss that preload and refetch it, so the first public read sends none.
-  // Later syncs send If-None-Match so an unchanged observation is a 304, not another body.
-  const headers = new Headers()
-  if (audience === 'owner') headers.set('Accept', 'application/json')
-  if (cloudSnapshotEtag && cloudSnapshotEtagAudience === audience) {
-    headers.set('If-None-Match', cloudSnapshotEtag)
-  }
-  const response = audience === 'owner'
-    ? await fetch(OWNER_SNAPSHOT_URL, { headers, signal })
-    : await fetch(PUBLIC_SNAPSHOT_URL, { headers, signal })
+  // The ETag is a claim that this browser holds the body it names, and that claim lapses
+  // whenever the stored record does: another tab's newer bundle retires its key, another tab
+  // signs in or out and stores the other audience, or a restore for the other audience
+  // deletes it. Sending the tag anyway bought a 304 with nothing to answer from, every poll.
+  const held = offlineSnapshotCollection.get('snapshot')
+  const heldEtag = cloudSnapshotEtagAudience === audience && held?.audience === audience
+    ? cloudSnapshotEtag
+    : undefined
+  let response = await requestSnapshot(audience, heldEtag, signal)
   if (response.status === 304) {
     const record = offlineSnapshotCollection.get('snapshot')
-    if (record?.audience !== audience) throw new Error('Snapshot sync failed (304)')
     // The ETag names the data, not the build that serves it, so an unchanged market answers
     // an old bundle with 304s for as long as it stays unchanged -- a whole weekend. The
     // deployment header still rides the 304, and it is the only chance this tab gets to learn
-    // it is running retired code. The record on screen stays: it is readable data.
+    // it is running retired code.
     const newerDeployment = newerResponseDeployment(response)
-    if (newerDeployment) throw new DeploymentMismatchError(newerDeployment, true)
-    clearDeploymentReload()
-    return record.snapshot
+    if (record?.audience === audience) {
+      // The record on screen stays: it is readable data.
+      if (newerDeployment) throw new DeploymentMismatchError(newerDeployment, true)
+      clearDeploymentReload()
+      return record.snapshot
+    }
+    // The record went away while the request was in flight. Forget the tag so no later poll
+    // repeats the claim, and ask once more for a body; a newer build is the better answer,
+    // and it has nothing on screen to keep.
+    cloudSnapshotEtag = undefined
+    cloudSnapshotEtagAudience = undefined
+    if (newerDeployment) throw new DeploymentMismatchError(newerDeployment, false)
+    response = await requestSnapshot(audience, undefined, signal)
   }
   // A failed request is a failed request; reading a deployment header off one only disguised
   // the status that actually explains it.
