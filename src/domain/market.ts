@@ -148,20 +148,15 @@ export const MarketSnapshotSchema = z.object({
 
 const PublicWatchlistSchema = WatchlistSchema.extend({ kind: z.literal('public') }).strict()
 
-export const PublicMarketSnapshotSchema = z.strictObject({
-  source: z.literal('tastytrade'),
-  syncedAt: z.string(),
-  marketState: MarketStateSchema,
-  // Present when the provider named an opening bell for the current session; a reader waiting
-  // through pre-market is counting down to this.
-  marketOpensAt: z.string().optional(),
-  marketClosesAt: z.string().optional(),
+/**
+ * The public snapshot is the owner snapshot with its watchlist and tickers narrowed to their
+ * public projections, derived rather than restated so the two cannot drift field by field.
+ * Strict: an owner-only field on the public wire is a refusal, not something to strip.
+ */
+export const PublicMarketSnapshotSchema = MarketSnapshotSchema.extend({
   watchlists: z.array(PublicWatchlistSchema).length(1),
   tickers: z.array(PublicTickerSchema),
-  catalysts: z.array(CatalystSchema),
-  /** The day's brief, when one has been published; absent is a fact, never an empty brief. */
-  brief: DailyBriefSchema.optional(),
-})
+}).strict()
 
 /**
  * One symbol the loaded watchlist did not carry, resolved on demand. It arrives with the
@@ -276,10 +271,21 @@ export function fiftyTwoWeekPosition(
   return Math.min(100, Math.max(0, ((ticker.price - ticker.yearLow) / (ticker.yearHigh - ticker.yearLow)) * 100))
 }
 
+/*
+ * Verdict thresholds on tastytrade's 0-100 IV rank and IV percentile. They arrived with the
+ * app's first commit and no stated rationale; none has been recorded since. The and/or
+ * asymmetry is likewise unexplained: `cheap` needs both measures at or under their bound,
+ * while `rich` needs only one at or over its bound, so a split reading is never called cheap.
+ */
+const CHEAP_MAX_IV_RANK = 30
+const CHEAP_MAX_IV_PERCENTILE = 35
+const RICH_MIN_IV_RANK = 70
+const RICH_MIN_IV_PERCENTILE = 80
+
 export function volatilityVerdict(ticker: Pick<Ticker, 'ivRank' | 'ivPercentile'>): VolatilityVerdict {
   if (ticker.ivRank === undefined || ticker.ivPercentile === undefined) return 'unavailable'
-  if (ticker.ivRank <= 30 && ticker.ivPercentile <= 35) return 'cheap'
-  if (ticker.ivRank >= 70 || ticker.ivPercentile >= 80) return 'rich'
+  if (ticker.ivRank <= CHEAP_MAX_IV_RANK && ticker.ivPercentile <= CHEAP_MAX_IV_PERCENTILE) return 'cheap'
+  if (ticker.ivRank >= RICH_MIN_IV_RANK || ticker.ivPercentile >= RICH_MIN_IV_PERCENTILE) return 'rich'
   return 'fair'
 }
 

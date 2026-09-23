@@ -112,6 +112,8 @@ describe('snapshot contract', () => {
     // the audiences is the watchlist, whose `kind` reveals provenance.
     expect(PublicMarketSnapshotSchema.parse(publicValue).tickers[0]).toEqual(owner.tickers[0])
     expect(() => PublicMarketSnapshotSchema.parse(owner)).toThrow()
+    // Derived from the owner schema, the public one still refuses a field it does not name.
+    expect(() => PublicMarketSnapshotSchema.parse({ ...publicValue, accountNumber: 'owner-only' })).toThrow()
     expect(marketSnapshotFromPublic(publicValue).tickers).toEqual(owner.tickers)
   })
 })
