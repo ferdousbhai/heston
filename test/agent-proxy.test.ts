@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { type AddressInfo } from 'node:net'
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -202,4 +202,81 @@ describe('local agent proxy', () => {
     expect(captured[0]?.headers['mcp-protocol-version']).toBe('2025-03-26')
     expect(captured[0]?.headers['last-event-id']).toBe('42')
   }, 30_000)
+
+  it('refuses a request that names another host or carries an Origin, before attaching anything', async () => {
+    const captured: Captured[] = []
+    let tokenRequests = 0
+    const port = await listen((request, response) => {
+      request.resume()
+      request.on('end', () => {
+        if (request.url?.endsWith('/oauth/token')) {
+          tokenRequests += 1
+          response.writeHead(200, { 'content-type': 'application/json' })
+          response.end(JSON.stringify({ access_token: MINTED, expires_in: 900 }))
+          return
+        }
+        captured.push({ body: '', headers: request.headers })
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ ok: true }))
+      })
+    })
+    const keyring = await fakeKeyring({
+      'heston/mcp-token': HESTON_TOKEN,
+      'tastytrade/client-secret': CLIENT_SECRET,
+      'tastytrade/refresh-token': REFRESH_TOKEN,
+    })
+    const proxyPort = 18_790
+    await startProxy({
+      PATH: `${keyring}:${process.env.PATH ?? ''}`,
+      HESTON_MCP_URL: `http://127.0.0.1:${port}/mcp`,
+      TASTYTRADE_API_BASE: `http://127.0.0.1:${port}`,
+    }, proxyPort)
+
+    // `fetch` will not let a caller set Host, so this speaks HTTP directly, the way a rebound
+    // browser request arrives: to 127.0.0.1, naming the attacker's host.
+    const status = (headers: Record<string, string>) => new Promise<number>((resolve, reject) => {
+      const outgoing = httpRequest({ headers, host: '127.0.0.1', method: 'POST', path: '/mcp', port: proxyPort }, (reply) => {
+        reply.resume()
+        resolve(reply.statusCode ?? 0)
+      })
+      outgoing.on('error', reject)
+      outgoing.end(JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'tools/list' }))
+    })
+    expect(await status({ 'content-type': 'application/json', host: `attacker.example:${proxyPort}` })).toBe(403)
+    expect(await status({
+      'content-type': 'application/json',
+      host: `127.0.0.1:${proxyPort}`,
+      origin: 'http://attacker.example',
+    })).toBe(403)
+    expect(captured).toHaveLength(0)
+    expect(tokenRequests).toBe(0)
+
+    // Both loopback spellings still work for a local client.
+    expect(await status({ 'content-type': 'application/json', host: `localhost:${proxyPort}` })).toBe(200)
+    expect(await status({ 'content-type': 'application/json', host: `127.0.0.1:${proxyPort}` })).toBe(200)
+    expect(captured).toHaveLength(2)
+  }, 30_000)
+
+  it('exits non-zero when the keyring cannot be read rather than starting market-only', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'heston-keyring-'))
+    keyrings.push(directory)
+    await writeFile(join(directory, 'secret-tool'), `#!/usr/bin/env bash
+case "$3/$5" in
+  heston/mcp-token) printf '%s' '${HESTON_TOKEN}' ;;
+  *) echo 'Cannot create an item in a locked collection' >&2; exit 1 ;;
+esac
+`)
+    await chmod(join(directory, 'secret-tool'), 0o755)
+    const child = spawn(process.execPath, ['ops/heston-agent/proxy.mjs'], {
+      env: { ...process.env, HESTON_AGENT_PORT: '18791', PATH: `${directory}:${process.env.PATH ?? ''}` },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    proxy = child
+    let stdout = ''
+    child.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
+    const code = await new Promise<number | null>((resolve) => child.on('exit', resolve))
+    expect(code).not.toBe(0)
+    expect(stdout).not.toContain('HestonAgentProxy: http://')
+  }, 30_000)
 })
+

@@ -49,16 +49,25 @@ const MAX_REFRESH_SKEW_MS = 30_000
  *
  * Credentials are filed under the service that issued them, not the app that spends them: the
  * agent token is Heston's, while a client secret and refresh token are tastytrade's and would be
- * Schwab's for a Schwab adapter. That keeps the keyring laid out the way `BROKER_ADAPTERS` is,
- * so adding a broker adds a service rather than more keys under this one.
+ * Schwab's for a Schwab adapter. That keeps the keyring laid out the way the Worker's adapter
+ * registry (`brokerAdaptersSeam` in `src/server/brokers/index.ts`) is, so adding a broker adds a
+ * service rather than more keys under this one.
+ *
+ * "Not stored" and "could not read the keyring" are different facts. `secret-tool lookup` exits 1
+ * and prints nothing when the entry is absent; anything else -- a missing binary, a locked or
+ * unreachable keyring, which it reports on stderr -- is a failure, and this exits rather than
+ * start in market-only mode on a credential that is in fact stored.
  */
 async function keyringSecret(service, key) {
   try {
     const { stdout } = await execFileAsync('secret-tool', ['lookup', 'service', service, 'key', key])
     const value = stdout.trim()
     return value || undefined
-  } catch {
-    return undefined
+  } catch (error) {
+    if (error?.code === 1 && !String(error.stderr ?? '').trim()) return undefined
+    // Fixed vocabulary only: secret-tool's stderr is not echoed.
+    process.stderr.write(`HestonAgentProxy: the keyring could not be read (${service}/${key})\n`)
+    process.exit(1)
   }
 }
 
@@ -122,7 +131,21 @@ async function main() {
     process.stderr.write('HestonAgentProxy: no brokerage credential in the keyring; forwarding market tools only\n')
   }
 
+  const port = Number(process.env.HESTON_AGENT_PORT ?? DEFAULT_PORT)
+  // DNS rebinding: a web page can resolve its own name to 127.0.0.1 and reach this port from the
+  // browser, and every request here leaves carrying the Heston token and a broker token. A
+  // browser always sends that page's name as Host, and sends Origin on a cross-origin request;
+  // an MCP client does neither, so a request naming any other host, or carrying an Origin at
+  // all, is refused before anything is attached.
+  const allowedHosts = new Set([`${LISTEN_HOST}:${port}`, `localhost:${port}`])
+
   const server = createServer((request, response) => {
+    if (!allowedHosts.has(request.headers.host ?? '') || request.headers.origin !== undefined) {
+      request.resume()
+      response.writeHead(403, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ error: 'The Heston proxy only answers local MCP clients' }))
+      return
+    }
     void (async () => {
       try {
         const headers = new Headers({ Authorization: `Bearer ${hestonToken}` })
@@ -174,7 +197,6 @@ async function main() {
     })()
   })
 
-  const port = Number(process.env.HESTON_AGENT_PORT ?? DEFAULT_PORT)
   // Loopback only. This process holds a credential that grants trading, so it must never be
   // reachable from the network, only from processes on this machine.
   server.listen(port, LISTEN_HOST, () => {
