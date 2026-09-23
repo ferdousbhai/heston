@@ -15,7 +15,10 @@ const FOUND_RETENTION_SECONDS = 60
 const MISSING_RETENTION_SECONDS = 300
 // One lookup per symbol may reach the provider at a time. The edge copy only dedupes readers
 // that land in the same location, so the claim is what stops the same search in twenty places
-// from becoming twenty provider calls.
+// from becoming twenty provider calls. The lease bounds a holder that dies mid-lookup; one that
+// finishes gives its claim back, because a search that matched nothing is kept only in the
+// holder's own location, and a reader elsewhere must be able to ask rather than be told "busy"
+// for the rest of a lease that guards nothing.
 const LOOKUP_LEASE_MS = 30 * 1_000
 
 function cacheKeyFor(request: Request, query: string): Request {
@@ -51,16 +54,50 @@ async function readStored(env: AppEnv, query: string): Promise<PublicSymbolLooku
   }
 }
 
+/** Claim the one provider lookup for this query, answering the claim's instant when it is ours. */
+async function claimLookup(env: AppEnv, leaseId: string): Promise<Date | undefined> {
+  const claimedAt = new Date()
+  return await brokerApi().claimMarketRefresh(env, LOOKUP_LEASE_MS, claimedAt, leaseId) ? claimedAt : undefined
+}
+
+/** The provider lookup, made only while holding the claim, which is released however it ends. */
+async function lookupHoldingClaim(
+  env: AppEnv,
+  edgeCache: PublicSnapshotCache,
+  cacheKey: Request,
+  query: string,
+  leaseId: string,
+  claimedAt: Date,
+): Promise<Response> {
+  try {
+    const lookup = await brokerApi().lookupPublicMarketSymbol(env, query)
+    if (!lookup) {
+      return await store(
+        edgeCache,
+        cacheKey,
+        jsonPublic({ error: 'No tradable symbol matches that search' }, { status: 404 }),
+        MISSING_RETENTION_SECONDS,
+      )
+    }
+    return await store(edgeCache, cacheKey, jsonPublic(lookup), FOUND_RETENTION_SECONDS)
+  } finally {
+    await brokerApi().releaseMarketRefresh(env, LOOKUP_LEASE_MS, claimedAt, leaseId)
+  }
+}
+
 /**
  * Give the one caller that won the claim time to land its answer, then read it: the edge copy
  * first, which also carries a search that matched nothing, then the store, which a winner in
- * another location writes.
+ * another location writes. A winner whose answer reached neither -- a search that matched
+ * nothing, answered in another location -- has released its claim by then, so claiming again
+ * takes over the lookup rather than reporting busy; the claim still admits one lookup at a time.
  */
 async function awaitClaimWinner(
   env: AppEnv,
   edgeCache: PublicSnapshotCache,
   cacheKey: Request,
   query: string,
+  leaseId: string,
 ): Promise<Response | undefined> {
   for (const delay of COLD_STORE_RETRY_DELAYS_MS) {
     await new Promise((resolve) => setTimeout(resolve, delay))
@@ -72,6 +109,8 @@ async function awaitClaimWinner(
     }
     const stored = await readStored(env, query)
     if (stored) return await store(edgeCache, cacheKey, jsonPublic(stored), FOUND_RETENTION_SECONDS)
+    const claimedAt = await claimLookup(env, leaseId)
+    if (claimedAt) return await lookupHoldingClaim(env, edgeCache, cacheKey, query, leaseId, claimedAt)
   }
   return undefined
 }
@@ -94,26 +133,16 @@ export async function servePublicSymbolSearch(
   // A symbol anyone has already searched is in the store, so losing the claim still answers, and
   // so does a live lookup that fails. Read once: the failure path reuses this answer.
   const stored = await readStored(env, query)
+  const leaseId = `${SYMBOL_REFRESH_LEASE_PREFIX}${query}`
   try {
-    const claimed = await brokerApi().claimMarketRefresh(env, LOOKUP_LEASE_MS, new Date(), `${SYMBOL_REFRESH_LEASE_PREFIX}${query}`)
-    if (!claimed) {
-      if (stored) return await store(edgeCache, cacheKey, jsonPublic(stored), FOUND_RETENTION_SECONDS)
-      // A first-time search whose claim another caller holds waits for that caller's answer
-      // rather than making its own provider call, which is the fan-out the claim exists to stop.
-      const awaited = await awaitClaimWinner(env, edgeCache, cacheKey, query)
-      if (awaited) return awaited
-      return jsonNoStore({ error: 'Symbol search is busy; try again' }, { status: 503 })
-    }
-    const lookup = await brokerApi().lookupPublicMarketSymbol(env, query)
-    if (!lookup) {
-      return await store(
-        edgeCache,
-        cacheKey,
-        jsonPublic({ error: 'No tradable symbol matches that search' }, { status: 404 }),
-        MISSING_RETENTION_SECONDS,
-      )
-    }
-    return await store(edgeCache, cacheKey, jsonPublic(lookup), FOUND_RETENTION_SECONDS)
+    const claimedAt = await claimLookup(env, leaseId)
+    if (claimedAt) return await lookupHoldingClaim(env, edgeCache, cacheKey, query, leaseId, claimedAt)
+    if (stored) return await store(edgeCache, cacheKey, jsonPublic(stored), FOUND_RETENTION_SECONDS)
+    // A first-time search whose claim another caller holds waits for that caller's answer
+    // rather than making its own provider call, which is the fan-out the claim exists to stop.
+    const awaited = await awaitClaimWinner(env, edgeCache, cacheKey, query, leaseId)
+    if (awaited) return awaited
+    return jsonNoStore({ error: 'Symbol search is busy; try again' }, { status: 503 })
   } catch (error) {
     console.error('PublicSymbolSearchUnavailable', error instanceof Error ? error.name : 'UnknownError')
     if (stored) return jsonPublic(stored)

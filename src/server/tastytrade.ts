@@ -65,6 +65,7 @@ import {
   persistMarketSession,
   readStoredMarketRecords,
   readStoredMarketSession,
+  releaseMarketRefresh,
   type TastytradeMarketQuoteRecord,
 } from './tastytrade-market-store'
 import { CallerVisibleError } from './caller-visible-error'
@@ -807,6 +808,7 @@ const brokerApiSeam = defineSeam(() => ({
   lookupStoredMarketSymbol,
   loadQuoteToken,
   refreshPublicMarketSession,
+  releaseMarketRefresh,
   resolveAccountNumber,
   tastyRequest,
   withBrokerMutationLease,

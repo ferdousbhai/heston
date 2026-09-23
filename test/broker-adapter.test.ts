@@ -39,6 +39,7 @@ const forbiddenBrokerApi = {
   loadStoredMarketSnapshot: forbidden,
   loadStoredPublicMarketSnapshot: forbidden,
   refreshPublicMarketSession: forbidden,
+  releaseMarketRefresh: forbidden,
   lookupPublicMarketSymbol: forbidden,
   lookupStoredMarketSymbol: forbidden,
   resolveAccountNumber: forbidden,

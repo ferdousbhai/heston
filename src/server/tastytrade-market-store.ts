@@ -314,6 +314,29 @@ export async function claimMarketRefresh(
   }
 }
 
+/**
+ * Give back a claim its holder has finished with, so the next caller need not wait out a lease
+ * that guards nothing any more. Only the claim this holder made: its own expiry identifies it, so
+ * a holder that outlived its lease and was superseded releases nothing of the newer holder's.
+ * Deleting is safe because a claim upserts and needs no seeded row. It fails open like the claim:
+ * a release that cannot land leaves a lease that still expires on its own.
+ */
+export async function releaseMarketRefresh(
+  env: AppEnv,
+  leaseMs: number,
+  claimedAt: Date,
+  id = 'public-snapshot',
+): Promise<void> {
+  if (!env.DB) return
+  const claimedUntil = new Date(claimedAt.getTime() + leaseMs).toISOString()
+  try {
+    await env.DB.prepare(
+      'DELETE FROM market_refresh_lease WHERE id = ? AND expires_at = ?',
+    ).bind(id, claimedUntil).run()
+  } catch (error) {
+    console.error('MarketRefreshLeaseReleaseFailed', error instanceof Error ? error.name : 'UnknownError')
+  }
+}
 
 const StoredSessionRowSchema = z.object({
   state: z.string(),

@@ -77,11 +77,12 @@ export function stubBroker() {
     resolveAccountNumber: vi.fn(),
     renewBrokerMutationLease,
     tastyRequest: vi.fn(),
-    claimMarketRefresh: vi.fn(async () => true),
+    claimMarketRefresh: vi.fn<BrokerApi['claimMarketRefresh']>(async () => true),
     lookupStoredMarketSymbol: vi.fn(async (): Promise<PublicSymbolLookup | undefined> => undefined),
     loadStoredMarketSnapshot: vi.fn(async (): Promise<MarketSnapshot | undefined> => undefined),
     loadStoredPublicMarketSnapshot: vi.fn(async (): Promise<StoredPublicMarketSnapshot | undefined> => undefined),
     refreshPublicMarketSession: vi.fn(async (_env: AppEnv, snapshot: PublicMarketSnapshot) => snapshot),
+    releaseMarketRefresh: vi.fn<BrokerApi['releaseMarketRefresh']>(async () => undefined),
     withBrokerMutationLease: vi.fn(async (_env, _accountNumber, operation) => operation({ renew: renewBrokerMutationLease })),
   } satisfies BrokerApi & { renewBrokerMutationLease: typeof renewBrokerMutationLease }
 }

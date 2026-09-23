@@ -7,6 +7,7 @@ import {
   persistTastytradeMarketSnapshot,
   readStoredMarketRecords,
   readStoredMarketSession,
+  releaseMarketRefresh,
   sweepExpiredSymbolRefreshLeases,
   SYMBOL_REFRESH_LEASE_PREFIX,
 } from '../src/server/tastytrade-market-store'
@@ -187,6 +188,21 @@ describe('stored market read model', () => {
     await expect(claimMarketRefresh(env, 30_000, now, 'symbol:AAPL')).resolves.toBe(false)
     // A different resource is unaffected, and needs no seeded row to be claimable.
     await expect(claimMarketRefresh(env, 30_000, now, 'symbol:NVDA')).resolves.toBe(true)
+  })
+
+  it('releases only the claim its holder made', async () => {
+    const env = { DB: store.database }
+    const now = new Date('2026-08-28T13:31:00.000Z')
+
+    await expect(claimMarketRefresh(env, 30_000, now, 'symbol:AAPL')).resolves.toBe(true)
+    await releaseMarketRefresh(env, 30_000, now, 'symbol:AAPL')
+    // A finished holder frees the resource before its lease would have expired.
+    const next = new Date(now.getTime() + 1_000)
+    await expect(claimMarketRefresh(env, 30_000, next, 'symbol:AAPL')).resolves.toBe(true)
+
+    // A holder that outlived its lease and was superseded releases nothing of the newer claim.
+    await releaseMarketRefresh(env, 30_000, now, 'symbol:AAPL')
+    await expect(claimMarketRefresh(env, 30_000, new Date(next.getTime() + 1_000), 'symbol:AAPL')).resolves.toBe(false)
   })
 
   it('sweeps lapsed per-symbol leases without touching the held or the public one', async () => {

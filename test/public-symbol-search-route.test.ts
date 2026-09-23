@@ -45,11 +45,43 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers()
   broker.claimMarketRefresh.mockResolvedValue(true)
+  broker.releaseMarketRefresh.mockResolvedValue(undefined)
   broker.lookupStoredMarketSymbol.mockResolvedValue(undefined)
   resetBrokerApi()
 })
 
 const WAIT_MS = COLD_STORE_RETRY_DELAYS_MS.reduce((total, delay) => total + delay, 0)
+
+/**
+ * The shared lease every location claims against, with the store's semantics: one holder per id
+ * until its expiry, and a release that frees only the holder's own claim.
+ */
+function sharedLease() {
+  const held = new Map<string, number>()
+  broker.claimMarketRefresh.mockImplementation(async (_env, leaseMs, now = new Date(), id = 'public-snapshot') => {
+    const expiry = held.get(id)
+    if (expiry !== undefined && expiry > now.getTime()) return false
+    held.set(id, now.getTime() + leaseMs)
+    return true
+  })
+  broker.releaseMarketRefresh.mockImplementation(async (_env, leaseMs, claimedAt, id = 'public-snapshot') => {
+    if (held.get(id) === claimedAt.getTime() + leaseMs) held.delete(id)
+  })
+  return held
+}
+
+/** A provider lookup that takes `ms` to say nothing matched, recording how many ran at once. */
+function slowMiss(ms: number) {
+  const concurrency = { inFlight: 0, peak: 0 }
+  broker.lookupPublicMarketSymbol.mockImplementation(async () => {
+    concurrency.inFlight += 1
+    concurrency.peak = Math.max(concurrency.peak, concurrency.inFlight)
+    await new Promise((resolve) => setTimeout(resolve, ms))
+    concurrency.inFlight -= 1
+    return undefined
+  })
+  return concurrency
+}
 
 describe('public symbol search route', () => {
   it('answers one lookup and replays it for the same search', async () => {
@@ -108,6 +140,63 @@ describe('public symbol search route', () => {
 
     expect(answered.status).toBe(200)
     expect(broker.lookupPublicMarketSymbol).not.toHaveBeenCalled()
+  })
+
+  it('gives the claim back once its lookup finishes, so another location can ask at once', async () => {
+    const held = sharedLease()
+    broker.lookupPublicMarketSymbol.mockResolvedValue(undefined)
+
+    // A search that matched nothing is kept only in the location that answered it.
+    const here = await serve('zzzz', new MemoryCache())
+    expect(here.status).toBe(404)
+    expect(held.size).toBe(0)
+
+    const elsewhere = await serve('zzzz', new MemoryCache())
+    expect(elsewhere.status).toBe(404)
+    expect(broker.lookupPublicMarketSymbol).toHaveBeenCalledTimes(2)
+  })
+
+  it('takes over a lookup whose holder finished while it waited, one lookup at a time', async () => {
+    vi.useFakeTimers()
+    sharedLease()
+    // The holder is slower than the first wait but done before the last one, and its miss
+    // landed only in its own location.
+    const concurrency = slowMiss(COLD_STORE_RETRY_DELAYS_MS[0]! + 500)
+
+    const holder = serve('zzzz', new MemoryCache())
+    const waiter = serve('zzzz', new MemoryCache())
+    await vi.advanceTimersByTimeAsync(WAIT_MS + COLD_STORE_RETRY_DELAYS_MS[0]! + 500)
+
+    expect((await holder).status).toBe(404)
+    expect((await waiter).status).toBe(404)
+    expect(broker.lookupPublicMarketSymbol).toHaveBeenCalledTimes(2)
+    expect(concurrency.peak).toBe(1)
+  })
+
+  it('still answers busy while a slow holder has not finished, without a second lookup', async () => {
+    vi.useFakeTimers()
+    const held = sharedLease()
+    const concurrency = slowMiss(WAIT_MS + 1_000)
+
+    const holder = serve('zzzz', new MemoryCache())
+    const waiter = serve('zzzz', new MemoryCache())
+    await vi.advanceTimersByTimeAsync(WAIT_MS)
+    expect((await waiter).status).toBe(503)
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect((await holder).status).toBe(404)
+    expect(concurrency.peak).toBe(1)
+    expect(broker.lookupPublicMarketSymbol).toHaveBeenCalledTimes(1)
+    expect(held.size).toBe(0)
+  })
+
+  it('releases the claim when the lookup it guarded fails', async () => {
+    const held = sharedLease()
+    broker.lookupPublicMarketSymbol.mockRejectedValue(new Error('TastytradeUnavailable'))
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    expect((await serve('tqqq', new MemoryCache())).status).toBe(503)
+    expect(held.size).toBe(0)
   })
 
   it('answers try-again rather than a provider call when the claim holder never lands', async () => {
