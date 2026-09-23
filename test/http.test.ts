@@ -98,7 +98,7 @@ describe('personal API authorization', () => {
     await expect(response?.json()).resolves.toEqual({ error: 'Authentication is temporarily unavailable' })
   })
 
-  it('rejects an authenticated non-owner from personal and trading routes', async () => {
+  it('rejects an authenticated non-owner from owner-only personal routes', async () => {
     const response = await authorizePersonalRequest(
       new Request('https://heston.test/api/snapshot'),
       {},

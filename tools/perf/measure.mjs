@@ -125,7 +125,7 @@ for (let i = 0; i < runs; i++) {
   }
   if (mockBody) {
     await mockJson(page, '**/api/viewer', 120, JSON.stringify({ user: null }))
-    await mockJson(page, '**/api/public-snapshot', 150, mockBody)
+    await mockJson(page, '**/api/public-snapshot*', 150, mockBody)
   }
   const requests = new Map()
   const t0 = Date.now()

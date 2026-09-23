@@ -14,7 +14,7 @@ const mockJson = (pattern, delayMs, payload) => page.route(pattern, async (route
   await route.fulfill({ contentType: 'application/json', body: payload })
 })
 await mockJson('**/api/viewer', 120, JSON.stringify({ user: null }))
-await mockJson('**/api/public-snapshot', 150, body)
+await mockJson('**/api/public-snapshot*', 150, body)
 await cdp.send('Profiler.enable')
 await cdp.send('Profiler.setSamplingInterval', { interval: 250 })
 await cdp.send('Profiler.start')

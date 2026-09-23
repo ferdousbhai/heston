@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 /** Each test names the migration files it applies; `test/sqlite-d1.ts` explains why. */
 const read = (name: string) => readFile(new URL(`../migrations/${name}`, import.meta.url), 'utf8')
 
-describe('brokerage action migrations', () => {
+describe('D1 migrations', () => {
   it('stores only constrained, per-user favorite symbols and cascades account deletion', async () => {
     const initial = await read('0001_spice.sql')
     const favorites = await read('0013_user_favorite_symbols.sql')
@@ -194,33 +194,10 @@ describe('brokerage action migrations', () => {
     db.close()
   })
 
-  it('carries the drawdown high-water mark forward and stops brokers sharing one', async () => {
-    const initial = await read('0001_spice.sql')
-    const migration = await read('0031_portfolio_risk_state_per_broker.sql')
+  it('drops the retired drawdown high-water table', async () => {
     const db = new DatabaseSync(':memory:')
-    db.exec(initial)
-    db.prepare(
-      `INSERT INTO portfolio_risk_state (account_number, high_water_nlv, activated_at, updated_at)
-       VALUES ('ACCOUNT-1', 125000.5, '2026-08-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z')`,
-    ).run()
-
-    db.exec(migration)
-
-    // The existing mark survives, attributed to the only broker that could have written it.
-    expect(db.prepare('SELECT broker_id, account_number, high_water_nlv FROM portfolio_risk_state').all())
-      .toEqual([{ account_number: 'ACCOUNT-1', broker_id: 'tastytrade', high_water_nlv: 125000.5 }])
-
-    const insert = db.prepare(
-      `INSERT INTO portfolio_risk_state (broker_id, account_number, high_water_nlv, activated_at, updated_at)
-       VALUES (?, ?, ?, '2026-09-04T00:00:00.000Z', '2026-09-04T00:00:00.000Z')`,
-    )
-    // The same account number at a different broker is a different portfolio, not the same one.
-    expect(() => insert.run('future-broker', 'ACCOUNT-1', 9000)).not.toThrow()
-    expect(() => insert.run('tastytrade', 'ACCOUNT-1', 9000)).toThrow(/UNIQUE constraint|PRIMARY KEY/)
-    expect(db.prepare(
-      "SELECT high_water_nlv FROM portfolio_risk_state WHERE broker_id = 'tastytrade' AND account_number = 'ACCOUNT-1'",
-    ).get()).toEqual({ high_water_nlv: 125000.5 })
-
+    db.exec(await read('0001_spice.sql'))
+    db.exec(await read('0031_portfolio_risk_state_per_broker.sql'))
     // Retired with the drawdown guard; nothing reads it any more.
     db.exec(await read('0046_drop_portfolio_risk_state.sql'))
     expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'portfolio_risk_state'").get()).toBeUndefined()
