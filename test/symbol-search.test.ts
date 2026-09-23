@@ -103,7 +103,8 @@ describe('public symbol lookup', () => {
     return store
   }
 
-  function marketFetch(): ReturnType<typeof vi.fn> {
+  /** `quoted: false` resolves every instrument but has the provider quote none of them. */
+  function marketFetch({ quoted = true } = {}): ReturnType<typeof vi.fn> {
     return vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input))
       if (url.pathname.endsWith('/oauth/token')) {
@@ -126,6 +127,7 @@ describe('public symbol lookup', () => {
         })) } })
       }
       if (url.pathname.endsWith('/market-data/by-type')) {
+        if (!quoted) return Response.json({ data: { items: [] } })
         return Response.json({ data: { items: url.searchParams.getAll('equity').map((symbol) => ({
           symbol, mark: '100', 'previous-close': '98', description: symbol,
           'updated-at': '2026-08-26T13:31:00.000Z',
@@ -205,6 +207,25 @@ describe('public symbol lookup', () => {
     await expect(brokerApi().lookupPublicMarketSymbol(env, 'NOPE')).resolves.toBeUndefined()
     await expect(brokerApi().lookupPublicMarketSymbol(env, 'not a ticker at all')).resolves.toBeUndefined()
     expect((await readInternalWatchlist(env)).some((item) => item.symbol === 'NOPE')).toBe(false)
+    store.close()
+  })
+
+  it('answers not found for a resolved symbol with no quote, and adds nothing', async () => {
+    const store = await seededStore()
+    // The instrument resolves, but the provider quotes nothing for it.
+    vi.stubGlobal('fetch', marketFetch({ quoted: false }))
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const { brokerApi } = await import('../src/server/tastytrade')
+    const secret: SecretsStoreSecret = { get: async () => 'secret' }
+    const env = {
+      BROKER_GATE: stubBrokerGate().namespace,
+      DB: store.database,
+      TASTYTRADE_CLIENT_SECRET: secret,
+      TASTYTRADE_REFRESH_TOKEN: secret,
+    }
+
+    await expect(brokerApi().lookupPublicMarketSymbol(env, 'TQQQ')).resolves.toBeUndefined()
+    expect((await readInternalWatchlist(env)).some((item) => item.symbol === 'TQQQ')).toBe(false)
     store.close()
   })
 })

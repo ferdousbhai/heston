@@ -355,10 +355,24 @@ async function readOptionalYearCandles(
   }
 }
 
-async function loadMarketFacts(
+type MarketFacts = Pick<MarketSnapshot, 'catalysts' | 'tickers'>
+
+/** A snapshot build with no symbol answered has nothing to serve, so it fails visibly. */
+async function loadMarketFacts(env: AppEnv, symbols: readonly string[]): Promise<MarketFacts> {
+  const facts = await loadAnsweredMarketFacts(env, symbols)
+  if (!facts) throw new CallerVisibleError('TastytradeSnapshot:empty')
+  return facts
+}
+
+/**
+ * The market facts for `symbols`, or undefined when the provider and catalog answered for none of
+ * them. Nothing is persisted in that case. A snapshot treats it as a failure; a single-symbol
+ * lookup treats it as "no quote", which is a different answer from "unavailable".
+ */
+async function loadAnsweredMarketFacts(
   env: AppEnv,
   symbols: readonly string[],
-): Promise<Pick<MarketSnapshot, 'catalysts' | 'tickers'>> {
+): Promise<MarketFacts | undefined> {
   const [{ metrics, quotes }, instrumentCatalog] = await Promise.all([
     loadMarketRows(env, symbols),
     readInstrumentCatalog(env, symbols),
@@ -378,7 +392,7 @@ async function loadMarketFacts(
   if (normalized.length < symbols.length) {
     console.warn('MarketSymbolsDropped', symbols.length - normalized.length)
   }
-  if (!normalized.length) throw new CallerVisibleError('TastytradeSnapshot:empty')
+  if (!normalized.length) return undefined
   // Read-only: the year series is refreshed on the schedule, so a symbol the refresh has not
   // reached yet simply carries no year chart rather than delaying the whole market read.
   const yearCandles = await readOptionalYearCandles(env, symbols)
@@ -534,9 +548,13 @@ async function loadMarketSnapshot(env: AppEnv): Promise<MarketSnapshot> {
 
 /**
  * Resolve a symbol the loaded watchlist does not carry yet: the instrument catalog
- * answers first, an unknown ticker is put to the broker once, and whatever resolves is
- * admitted to the maintained list so the row keeps arriving with every later snapshot.
- * Account-free like the public snapshot around it.
+ * answers first, an unknown ticker is put to the broker once, and whatever resolves and
+ * quotes is admitted to the maintained list so the row keeps arriving with every later
+ * snapshot. Account-free like the public snapshot around it.
+ *
+ * The quote is read before the admission. A resolved instrument the provider will not quote
+ * is answered as not found -- the honest answer for "no quote" -- and is not added, since a
+ * list entry nothing can price would only be dropped from every later build.
  */
 async function lookupPublicMarketSymbol(
   env: AppEnv,
@@ -544,10 +562,10 @@ async function lookupPublicMarketSymbol(
 ): Promise<PublicSymbolLookup | undefined> {
   const symbol = await resolveSearchedSymbol(env, query)
   if (!symbol) return undefined
+  const facts = await loadAnsweredMarketFacts(env, [symbol])
+  const ticker = facts?.tickers[0]
+  if (!facts || !ticker) return undefined
   const retained = await ensureInternalWatchlistSymbols(env, [symbol], 'visitor-search')
-  const facts = await loadMarketFacts(env, [symbol])
-  const ticker = facts.tickers[0]
-  if (!ticker) return undefined
   return {
     catalysts: facts.catalysts,
     ticker: publicTickerFromTicker(ticker),
@@ -557,7 +575,7 @@ async function lookupPublicMarketSymbol(
 
 /**
  * The same lookup, answered from the store. Every successful live lookup persists its symbol
- * through `loadMarketFacts`, so a symbol anyone has already searched can be served again
+ * through `loadAnsweredMarketFacts`, so a symbol anyone has already searched can be served again
  * without a provider call.
  */
 async function catalogSymbolForQuery(
