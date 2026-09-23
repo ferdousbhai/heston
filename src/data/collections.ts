@@ -254,8 +254,10 @@ async function updateSnapshotPreference(snapshot: MarketSnapshot): Promise<void>
 
 /**
  * The audience whose rows the in-memory overlay holds, which is not always the stored record's:
- * storage can evict the record while the overlay stays. Rows cross audiences only by wholesale
- * replacement, never by merge, so an owner-only live field cannot survive into a public view.
+ * storage can evict the record while the overlay stays. Both audiences carry the same ticker
+ * fields, but not the same rows: each snapshot contract publishes its own watchlist, and the
+ * owner's names a provenance the public one must not. Rows therefore cross audiences only by
+ * wholesale replacement, never by merge, so the overlay always matches one snapshot's rows.
  * Within one audience a refresh merges, so a live tick newer than the snapshot is kept rather
  * than pulled back to the snapshot's price on every poll.
  */
@@ -279,8 +281,9 @@ async function hydrateCollectionsImmediately(snapshot: MarketSnapshot, audience:
   const previous = offlineSnapshotCollection.get('snapshot')
   const audienceChanged = Boolean(previous && previous.audience !== audience)
   if (audienceChanged) {
-    // Hide the old audience before owner-only live fields can enter an opposite
-    // audience's overlay. The next persisted row is still one complete snapshot.
+    // Hide the old audience's record before the overlay swaps, so no reader ever sees one
+    // audience's watchlist beside the other's rows. The next persisted row is still one
+    // complete snapshot.
     await offlineSnapshotCollection.delete('snapshot').isPersisted.promise
   }
   await replaceLiveOverlay(snapshot.tickers, audience, audienceChanged)
@@ -302,8 +305,8 @@ export function hydrateCollections(
   snapshot: MarketSnapshot,
   audience: SnapshotAudience,
 ): Promise<void> {
-  // Serialize record and live-overlay replacements so an aborted owner request cannot
-  // race a succeeding public replacement and restore private quote fields afterward.
+  // Serialize record and live-overlay replacements so an aborted owner request cannot race
+  // a succeeding public replacement and restore the owner's watchlist and rows afterward.
   return queueSnapshotOperation(() => hydrateCollectionsImmediately(snapshot, audience))
 }
 
