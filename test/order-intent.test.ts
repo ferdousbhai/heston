@@ -4,7 +4,7 @@ import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { brokerCredential, stubBroker } from './broker-stub'
 import { buildOrderPayload } from '../src/server/order-payload'
 import { assertReplaceableOrder, resolveOrderIntent } from '../src/server/order-intent'
-import { tastytradeOrderFromPayload } from '../src/server/brokers/tastytrade'
+import { tastytradeOrderFromPayload, tastytradeOrderRecord } from '../src/server/brokers/tastytrade'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
 
 const tastytrade = stubBroker()
@@ -31,6 +31,20 @@ describe('order replacement source boundary', () => {
       ...order,
       legs: [{ ...order.legs[0], 'remaining-quantity': 1, fills: [{ quantity: 1 }] }],
     } }), '123', intended)).toThrow()
+  })
+
+  it('refuses a terminal order on the adapter\'s normalized flag, not a provider status word', () => {
+    expect(tastytradeOrderRecord({ status: 'Live' }).terminal).toBe(false)
+    expect(tastytradeOrderRecord({ status: 'Filled' }).terminal).toBe(true)
+    expect(tastytradeOrderRecord({ status: 'Live', 'terminal-at': '2026-08-13T12:00:00Z' }).terminal).toBe(true)
+    const order = {
+      id: '123', editable: true, status: 'Live', ...intended,
+      legs: intended.legs.map((leg) => ({ ...leg, 'remaining-quantity': leg.quantity, fills: [] })),
+    }
+    const record = tastytradeOrderFromPayload({ data: order })
+    expect(() => assertReplaceableOrder(record, '123', intended)).not.toThrow()
+    expect(() => assertReplaceableOrder({ ...record, terminal: true }, '123', intended))
+      .toThrow('order-changed-or-not-editable')
   })
 
   it('expands a price-only replacement from the exact prior Heston action', async () => {

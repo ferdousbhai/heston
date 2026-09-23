@@ -113,7 +113,13 @@ export interface BrokerOrderRecord {
   receivedAt?: string
   replacesOrderId?: string
   status?: string
-  terminalAt?: string
+  /**
+   * True when the broker said the order is finished (filled, cancelled, rejected, expired or
+   * removed, or stamped with a terminal time). Decided in the adapter from the provider's own
+   * status words, so nothing above the adapter matches a provider string. False covers an
+   * unfamiliar status too: only a verified terminal state is terminal.
+   */
+  terminal: boolean
   timeInForce?: string
   updatedAt?: string
 }

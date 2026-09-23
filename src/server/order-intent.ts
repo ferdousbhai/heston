@@ -72,8 +72,6 @@ async function resolveFreshOrder(
   }
 }
 
-const TERMINAL_ORDER_STATUSES = ['cancelled', 'expired', 'filled', 'rejected', 'removed']
-
 /** The shared echo, plus: nothing on it has filled, so the whole order is still working. */
 function sameOrderEcho(order: BrokerOrderRecord, intended: OrderPayload): boolean {
   return echoesOrderPayload(order, intended)
@@ -82,12 +80,10 @@ function sameOrderEcho(order: BrokerOrderRecord, intended: OrderPayload): boolea
 }
 
 export function assertReplaceableOrder(order: BrokerOrderRecord, orderId: string, intended: OrderPayload): void {
-  const status = order.status?.toLowerCase()
   if (order.id !== orderId
     || !order.editable
-    || !status
-    || TERMINAL_ORDER_STATUSES.includes(status)
-    || order.terminalAt
+    || !order.status
+    || order.terminal
     || !sameOrderEcho(order, intended)) {
     throw new CallerVisibleError('OrderReplacement:order-changed-or-not-editable')
   }

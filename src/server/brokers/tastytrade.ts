@@ -48,6 +48,7 @@ import {
   accountBalancesFromPayload,
   BROKER_ACCOUNT_PAGE_SIZE,
   completeAccountRows,
+  isWorkingOrderRecord,
   workingOrderRecords,
 } from './tastytrade-payload'
 import { CallerVisibleError } from '../caller-visible-error'
@@ -318,7 +319,7 @@ export function tastytradeOrderRecord(row: JsonObject): BrokerOrderRecord {
     receivedAt: jsonLooseText(row['received-at']),
     replacesOrderId: jsonLooseText(row['replaces-order-id']),
     status: jsonLooseText(row.status),
-    terminalAt: jsonLooseText(row['terminal-at']),
+    terminal: !isWorkingOrderRecord(row),
     timeInForce: jsonLooseText(row['time-in-force']),
     updatedAt: jsonLooseText(row['updated-at']),
   }
