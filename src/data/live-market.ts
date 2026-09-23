@@ -2,7 +2,7 @@ import { useEffect, useSyncExternalStore } from 'react'
 import { z } from 'zod'
 
 import { type JsonValue } from '../domain/json-payload'
-import { applyLiveMarketEvent } from './collections'
+import { applyLiveMarketEvent, type SnapshotAudience } from './collections'
 import { MarketFeedStatusSchema } from '../server/market-feed-contracts'
 
 export type LiveFeedIndicator = 'live' | 'snapshot'
@@ -16,7 +16,7 @@ function publishLiveFeedIndicator(next: LiveFeedIndicator): void {
   for (const listener of listeners) listener()
 }
 
-export function readLiveFeedIndicator(): LiveFeedIndicator {
+function readLiveFeedIndicator(): LiveFeedIndicator {
   return indicator
 }
 
@@ -36,7 +36,6 @@ export function useLiveFeedIndicator(): LiveFeedIndicator {
 const RelayFrameSchema = z.string()
 const RECONNECT_BASE_DELAY_MS = 1_000
 const RECONNECT_MAX_DELAY_MS = 30_000
-const RECONNECT_MAX_EXPONENT = 5
 /**
  * A hidden tab is nobody looking. The relay holds one upstream connection for as long as any
  * same-origin client socket exists. An abandoned overnight tab would otherwise keep dxLink
@@ -54,12 +53,16 @@ const HEARTBEAT_MS = 30 * 1_000
  * Opens the subscription and writes what it receives into the market collections.
  * Live vs snapshot is published to a store the top bar reads; reconnects must not
  * re-render the quote rows.
+ *
+ * `audience` is the audience whose snapshot is on screen, or undefined while none is. A change
+ * of audience closes the socket and opens another, and each socket's frames carry the audience
+ * it was opened for, so a frame queued before the change cannot land in the other audience.
  */
-export function useLiveMarket(symbols: readonly string[], enabled: boolean): void {
+export function useLiveMarket(symbols: readonly string[], audience: SnapshotAudience | undefined): void {
   const key = [...new Set(symbols)].sort().join(',')
 
   useEffect(() => {
-    if (!enabled || !key) {
+    if (!audience || !key) {
       publishLiveFeedIndicator('snapshot')
       return
     }
@@ -89,7 +92,7 @@ export function useLiveMarket(symbols: readonly string[], enabled: boolean): voi
             publishLiveFeedIndicator(status.data.state === 'live' ? 'live' : 'snapshot')
             return
           }
-          applyLiveMarketEvent(payload)
+          applyLiveMarketEvent(payload, audience)
         } catch {
           // A frame this bundle cannot read is dropped; the data on screen keeps its own age.
         }
@@ -106,10 +109,7 @@ export function useLiveMarket(symbols: readonly string[], enabled: boolean): voi
         publishLiveFeedIndicator('snapshot')
         if (stopped || idle) return
         // Cap browser reconnect backoff so a recovered live feed resumes without user action.
-        const delay = Math.min(
-          RECONNECT_MAX_DELAY_MS,
-          RECONNECT_BASE_DELAY_MS * 2 ** Math.min(attempts++, RECONNECT_MAX_EXPONENT),
-        )
+        const delay = Math.min(RECONNECT_MAX_DELAY_MS, RECONNECT_BASE_DELAY_MS * 2 ** attempts++)
         reconnectTimer = setTimeout(connect, delay)
       })
     }
@@ -152,5 +152,5 @@ export function useLiveMarket(symbols: readonly string[], enabled: boolean): voi
       socket?.close(1000, 'Subscription changed')
       publishLiveFeedIndicator('snapshot')
     }
-  }, [enabled, key])
+  }, [audience, key])
 }

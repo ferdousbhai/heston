@@ -183,13 +183,23 @@ async function replaceLiveTickers(
   await Promise.all(mutations.map((mutation) => mutation.isPersisted.promise))
 }
 
+/**
+ * Obsolete keys are written only by an older bundle, so one walk of storage per page load
+ * retires them. Walking every key on each snapshot poll bought nothing; a key another tab still
+ * on an older bundle writes meanwhile is retired by the next load, which is also when that tab
+ * stops writing it.
+ */
+let legacySnapshotStorageRetired = false
+
 async function preloadSnapshotCollections(): Promise<void> {
   await Promise.all([
     offlineSnapshotCollection.preload(),
     tickerCollection.preload(),
     preferenceCollection.preload(),
   ])
+  if (legacySnapshotStorageRetired) return
   retireLegacySnapshotStorage(browserStorage)
+  legacySnapshotStorageRetired = true
 }
 
 async function persistOfflineSnapshot(snapshot: MarketSnapshot, audience: SnapshotAudience): Promise<void> {
@@ -242,6 +252,28 @@ async function updateSnapshotPreference(snapshot: MarketSnapshot): Promise<void>
   }
 }
 
+/**
+ * The audience whose rows the in-memory overlay holds, which is not always the stored record's:
+ * storage can evict the record while the overlay stays. Rows cross audiences only by wholesale
+ * replacement, never by merge, so an owner-only live field cannot survive into a public view.
+ * Within one audience a refresh merges, so a live tick newer than the snapshot is kept rather
+ * than pulled back to the snapshot's price on every poll.
+ */
+let liveOverlayAudience: SnapshotAudience | undefined
+
+async function replaceLiveOverlay(
+  rows: readonly Ticker[],
+  audience: SnapshotAudience | undefined,
+  forceReplace = false,
+): Promise<void> {
+  const replaceExisting = forceReplace || liveOverlayAudience !== audience
+  if (replaceExisting) candleSnapshots.clear()
+  // Unset before the swap so a failed replacement is never mistaken for a completed one.
+  liveOverlayAudience = undefined
+  await replaceLiveTickers(rows, replaceExisting)
+  liveOverlayAudience = audience
+}
+
 async function hydrateCollectionsImmediately(snapshot: MarketSnapshot, audience: SnapshotAudience): Promise<void> {
   await preloadSnapshotCollections()
   const previous = offlineSnapshotCollection.get('snapshot')
@@ -251,9 +283,7 @@ async function hydrateCollectionsImmediately(snapshot: MarketSnapshot, audience:
     // audience's overlay. The next persisted row is still one complete snapshot.
     await offlineSnapshotCollection.delete('snapshot').isPersisted.promise
   }
-  const replaceExisting = audience === 'public' || audienceChanged
-  if (replaceExisting) candleSnapshots.clear()
-  await replaceLiveTickers(snapshot.tickers, replaceExisting)
+  await replaceLiveOverlay(snapshot.tickers, audience, audienceChanged)
   await persistOfflineSnapshot(snapshot, audience)
   await updateSnapshotPreference(snapshot)
 }
@@ -270,7 +300,7 @@ function queueSnapshotOperation(operation: () => Promise<void>): Promise<void> {
 
 export function hydrateCollections(
   snapshot: MarketSnapshot,
-  audience: SnapshotAudience = 'owner',
+  audience: SnapshotAudience,
 ): Promise<void> {
   // Serialize record and live-overlay replacements so an aborted owner request cannot
   // race a succeeding public replacement and restore private quote fields afterward.
@@ -281,17 +311,14 @@ async function restoreOfflineSnapshotImmediately(audience: SnapshotAudience): Pr
   await preloadSnapshotCollections()
   const record = offlineSnapshotCollection.get('snapshot')
   if (record?.audience === audience) {
-    const replaceExisting = audience === 'public'
-    if (replaceExisting) candleSnapshots.clear()
-    await replaceLiveTickers(record.snapshot.tickers, replaceExisting)
+    await replaceLiveOverlay(record.snapshot.tickers, audience)
     await updateSnapshotPreference(record.snapshot)
     return
   }
 
   // A record for another audience is unusable even when no component has observed it.
   if (record) await offlineSnapshotCollection.delete('snapshot').isPersisted.promise
-  candleSnapshots.clear()
-  await replaceLiveTickers([], true)
+  await replaceLiveOverlay([], undefined, true)
 }
 
 async function previewPublicSnapshotImmediately(): Promise<void> {
@@ -301,8 +328,7 @@ async function previewPublicSnapshotImmediately(): Promise<void> {
   // record is the one thing that must wait: on a shared device the person looking may have
   // signed out, and the audience tag exists so they never see what the last session held.
   if (record?.audience !== 'public') return
-  candleSnapshots.clear()
-  await replaceLiveTickers(record.snapshot.tickers, true)
+  await replaceLiveOverlay(record.snapshot.tickers, 'public', true)
 }
 
 /**
@@ -313,17 +339,20 @@ export function previewPublicSnapshot(): Promise<void> {
   return queueSnapshotOperation(previewPublicSnapshotImmediately)
 }
 
-export function restoreOfflineSnapshot(audience: SnapshotAudience = 'owner'): Promise<void> {
+export function restoreOfflineSnapshot(audience: SnapshotAudience): Promise<void> {
   return queueSnapshotOperation(() => restoreOfflineSnapshotImmediately(audience))
 }
 
 let cloudSnapshotEtag: string | undefined
 let cloudSnapshotEtagAudience: SnapshotAudience | undefined
 
+/**
+ * The audience is required: a default would have to pick one, and the privileged audience is
+ * the wrong thing for an omitted argument to request.
+ */
 export async function syncFromCloud(
+  audience: SnapshotAudience,
   signal?: AbortSignal,
-  isCurrent: () => boolean = () => true,
-  audience: SnapshotAudience = 'owner',
 ): Promise<MarketSnapshot> {
   // The root document preloads the public snapshot as a fetch. Any extra request header
   // here would miss that preload and refetch it, so the first public read sends none.
@@ -338,17 +367,20 @@ export async function syncFromCloud(
     : await fetch(PUBLIC_SNAPSHOT_URL, { headers, signal })
   if (response.status === 304) {
     const record = offlineSnapshotCollection.get('snapshot')
-    if (record?.audience === audience) return record.snapshot
-    throw new Error('Snapshot sync failed (304)')
+    if (record?.audience !== audience) throw new Error('Snapshot sync failed (304)')
+    // The ETag names the data, not the build that serves it, so an unchanged market answers
+    // an old bundle with 304s for as long as it stays unchanged -- a whole weekend. The
+    // deployment header still rides the 304, and it is the only chance this tab gets to learn
+    // it is running retired code. The record on screen stays: it is readable data.
+    const newerDeployment = newerResponseDeployment(response)
+    if (newerDeployment) throw new DeploymentMismatchError(newerDeployment, true)
+    clearDeploymentReload()
+    return record.snapshot
   }
   // A failed request is a failed request; reading a deployment header off one only disguised
   // the status that actually explains it.
   if (!response.ok) throw new Error(`Snapshot sync failed (${response.status})`)
   const etag = response.headers.get('ETag')
-  if (etag) {
-    cloudSnapshotEtag = etag
-    cloudSnapshotEtagAudience = audience
-  }
   const payload: unknown = await response.json()
   const newerDeployment = newerResponseDeployment(response)
   let snapshot: MarketSnapshot
@@ -362,10 +394,18 @@ export async function syncFromCloud(
     if (newerDeployment) throw new DeploymentMismatchError(newerDeployment)
     throw cause
   }
-  if (signal?.aborted || !isCurrent()) throw new DOMException('Snapshot was superseded', 'AbortError')
+  if (signal?.aborted) throw new DOMException('Snapshot was superseded', 'AbortError')
   // Readable data is worth showing even when a newer build exists: the reader gets the market
   // while the page refreshes itself underneath them, instead of an empty screen and a notice.
   await hydrateCollections(snapshot, audience)
+  // The ETag is a claim that this browser holds the body it names, so it is only recorded once
+  // that body is stored. Recording it earlier let a parse, abort, or hydration failure turn
+  // every later poll into a 304 that answered with the older record as success indefinitely.
+  // It is recorded before the deployment check because a mismatch here still hydrated.
+  if (etag) {
+    cloudSnapshotEtag = etag
+    cloudSnapshotEtagAudience = audience
+  }
   if (newerDeployment) throw new DeploymentMismatchError(newerDeployment, true)
   clearDeploymentReload()
   return snapshot
@@ -413,10 +453,14 @@ export function selectTicker(symbol: string, lookup?: PublicSymbolLookup): Promi
 
 const candleSnapshots = new CandleSnapshotAccumulator()
 
-export function applyLiveMarketEvent(untrusted: JsonValue): void {
-  // A closing owner stream may still deliver a queued frame after the public snapshot
-  // has replaced it. Never apply that private in-memory overlay outside the owner audience.
-  if (offlineSnapshotCollection.get('snapshot')?.audience !== 'owner') return
+/**
+ * `socketAudience` is the audience the stream was opened for. Every audience reads live quotes,
+ * but a socket outlives its audience: a stream opened before sign-in or sign-out can still
+ * deliver a queued frame after the other audience's snapshot replaced the overlay. A frame
+ * applies only while the stored snapshot belongs to the audience its socket was opened for.
+ */
+export function applyLiveMarketEvent(untrusted: JsonValue, socketAudience: SnapshotAudience): void {
+  if (offlineSnapshotCollection.get('snapshot')?.audience !== socketAudience) return
   const event: LiveMarketEvent = LiveMarketEventSchema.parse(untrusted)
   if (!tickerCollection.get(event.symbol)) throw new Error(`LiveMarketEvent:unknown-symbol:${event.symbol}`)
   tickerCollection.update(event.symbol, (ticker) => {

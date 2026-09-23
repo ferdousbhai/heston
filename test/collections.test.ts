@@ -112,6 +112,28 @@ describe('offline snapshot boundary', () => {
     expect([...tickerCollection.keys()]).toEqual([])
   })
 
+  it('applies a public socket\'s live quotes to a public snapshot and drops another audience\'s frames', async () => {
+    const snapshot = marketSnapshotFixture()
+    const original = snapshot.tickers[0]!
+    await hydrateCollections({ ...snapshot, tickers: [original] }, 'public')
+    const liveAt = new Date(Date.parse(original.updatedAt) + 60_000).toISOString()
+
+    // Every audience reads live quotes: a visitor's own stream moves the visitor's price.
+    applyLiveMarketEvent({ type: 'market', symbol: original.symbol, price: original.price + 10, timestamp: liveAt }, 'public')
+    expect(tickerCollection.get(original.symbol)).toMatchObject({ price: original.price + 10, updatedAt: liveAt })
+
+    // A frame still queued on a socket opened for the other audience never lands here.
+    const laterAt = new Date(Date.parse(liveAt) + 60_000).toISOString()
+    applyLiveMarketEvent({ type: 'market', symbol: original.symbol, price: original.price + 20, timestamp: laterAt }, 'owner')
+    expect(tickerCollection.get(original.symbol)).toMatchObject({ price: original.price + 10, updatedAt: liveAt })
+
+    // The next public poll keeps the newer live quote rather than pulling it back to the snapshot.
+    await hydrateCollections({ ...snapshot, tickers: [{ ...original, name: 'Updated name' }] }, 'public')
+    expect(tickerCollection.get(original.symbol)).toMatchObject({
+      name: 'Updated name', price: original.price + 10, updatedAt: liveAt,
+    })
+  })
+
   it('replaces owner cache and live overlay with only public rows before marking it public', async () => {
     const owner = marketSnapshotFixture()
     const original = owner.tickers[0]!
@@ -126,7 +148,7 @@ describe('offline snapshot boundary', () => {
       symbol: original.symbol,
       timestamp: liveAt,
       type: 'market',
-    })
+    }, 'owner')
     // Simulate atomic storage eviction while owner-only quote data remains in memory.
     await offlineSnapshotCollection.delete('snapshot').isPersisted.promise
     const publicTicker = {
@@ -154,7 +176,7 @@ describe('offline snapshot boundary', () => {
       symbol: original.symbol,
       timestamp: new Date(Date.parse(liveAt) + 60_000).toISOString(),
       type: 'market',
-    })
+    }, 'owner')
     expect(tickerCollection.get(original.symbol)).toMatchObject(publicTicker)
   })
 
@@ -218,13 +240,13 @@ describe('live market subscriptions', () => {
   it('keeps the newest quote and recomputes the daily move from the prior close', async () => {
     const snapshot = marketSnapshotFixture()
     const original = snapshot.tickers[0]!
-    await hydrateCollections({ ...snapshot, tickers: [original] })
+    await hydrateCollections({ ...snapshot, tickers: [original] }, 'owner')
     const priorClose = original.price - original.change
     const timestamp = new Date(Date.parse(original.updatedAt) + 60_000).toISOString()
 
     applyLiveMarketEvent({
       type: 'market', symbol: original.symbol, price: original.price + 10, timestamp,
-    })
+    }, 'owner')
     expect(tickerCollection.get(original.symbol)).toMatchObject({
       change: original.price + 10 - priorClose,
       updatedAt: timestamp,
@@ -232,20 +254,20 @@ describe('live market subscriptions', () => {
 
     applyLiveMarketEvent({
       type: 'market', symbol: original.symbol, price: 1, timestamp: original.updatedAt,
-    })
+    }, 'owner')
     expect(tickerCollection.get(original.symbol)?.price).toBe(original.price + 10)
   })
 
   it('does not let an older cloud snapshot overwrite newer live market fields', async () => {
     const snapshot = marketSnapshotFixture()
     const original = snapshot.tickers[0]!
-    await hydrateCollections({ ...snapshot, tickers: [original] })
+    await hydrateCollections({ ...snapshot, tickers: [original] }, 'owner')
     const timestamp = new Date(Date.parse(original.updatedAt) + 60_000).toISOString()
     applyLiveMarketEvent({
       type: 'market', symbol: original.symbol, price: original.price + 10, timestamp,
-    })
+    }, 'owner')
 
-    await hydrateCollections({ ...snapshot, tickers: [{ ...original, name: 'Updated name' }] })
+    await hydrateCollections({ ...snapshot, tickers: [{ ...original, name: 'Updated name' }] }, 'owner')
 
     expect(tickerCollection.get(original.symbol)).toMatchObject({
       name: 'Updated name',
@@ -327,7 +349,7 @@ describe('live market subscriptions', () => {
       { time: baseTime - 5 * 60_000, sequence: 0, close: original.price - original.change },
       { time: baseTime, sequence: 0, close: original.price },
     ]
-    await hydrateCollections({ ...snapshot, tickers: [{ ...original, sparkline: fallback }] })
+    await hydrateCollections({ ...snapshot, tickers: [{ ...original, sparkline: fallback }] }, 'owner')
     const liveCandles = Array.from({ length: 6 }, (_, index) => ({
       time: baseTime - (5 - index) * 60_000,
       sequence: index + 1,
@@ -335,7 +357,7 @@ describe('live market subscriptions', () => {
     }))
     applyLiveMarketEvent({
       type: 'market', symbol: original.symbol, candleSnapshot: liveCandles, timestamp: original.updatedAt,
-    })
+    }, 'owner')
 
     const refreshedAt = new Date(baseTime + 60_000).toISOString()
     await hydrateCollections({
@@ -348,7 +370,7 @@ describe('live market subscriptions', () => {
           { time: baseTime + 60_000, sequence: 0, close: original.price + 1 },
         ],
       }],
-    })
+    }, 'owner')
 
     expect(tickerCollection.get(original.symbol)?.sparkline).toEqual(liveCandles)
     expect(tickerCollection.get(original.symbol)?.updatedAt).toBe(refreshedAt)

@@ -72,7 +72,7 @@ function HestonWorkspace({
     ?? tickers.find((ticker) => ticker.symbol === fallbackSymbol)
   const loadedSymbols = new Set(tickers.map((ticker) => ticker.symbol))
   const streamSymbols = selectLiveMarketSymbols(selected?.symbol, activeWatchlist?.symbols ?? [], loadedSymbols)
-  useLiveMarket(streamSymbols, snapshotReady)
+  useLiveMarket(streamSymbols, snapshotReady ? audience : undefined)
   const collectionFailed = market.collectionFailed || favorites.collectionFailed
   // Reconnect is the feed healing itself. The top bar says Live or Snapshot; a banner
   // for the in-between states would flash on every tab wake.

@@ -102,6 +102,53 @@ test('a signed-in member sees an amber avatar whose menu signs them out', async 
   expect(signOutRequests).toBe(1)
 })
 
+test('a newer deployment reloads a tab whose unchanged data only ever answers 304', async ({ page }) => {
+  // The ETag names the data, not the build, so a quiet market answers an old bundle with 304s
+  // for as long as nothing changes. The deployment header on that 304 must still reload the tab.
+  const snapshot = marketSnapshotFixture()
+  snapshot.watchlists = [{
+    id: 'public-options-watch',
+    kind: 'public',
+    name: 'Options Watch',
+    symbols: snapshot.watchlists[0]!.symbols,
+  }]
+  const etag = '"unchanged-market"'
+  let documentRequests = 0
+  let notModifiedResponses = 0
+  page.on('request', (request) => {
+    if (request.resourceType() === 'document') documentRequests += 1
+  })
+  await page.route('**/api/viewer', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ user: null }),
+  }))
+  await page.route('**/api/public-snapshot*', (route) => {
+    if (route.request().headers()['if-none-match'] === etag) {
+      notModifiedResponses += 1
+      return route.fulfill({
+        status: 304,
+        headers: { ETag: etag, [HESTON_DEPLOYMENT_ID_HEADER]: 'next-deployment' },
+      })
+    }
+    return route.fulfill({
+      contentType: 'application/json',
+      headers: { ETag: etag, [HESTON_DEPLOYMENT_ID_HEADER]: 'development' },
+      body: JSON.stringify(snapshot),
+    })
+  })
+
+  await page.goto('/')
+  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Options Watch' })).toBeVisible()
+  expect(documentRequests).toBe(1)
+
+  // A returning tab refetches on visibility; the 304 it gets back names the newer build.
+  await page.evaluate(() => window.dispatchEvent(new Event('visibilitychange')))
+  await expect.poll(() => notModifiedResponses).toBeGreaterThanOrEqual(1)
+  await expect.poll(() => documentRequests).toBe(2)
+  await expect(page.getByRole('region', { name: 'Options Watch' })).toBeVisible()
+})
+
 test('unauthenticated visitors can read market data but connecting an agent needs Google sign-in', async ({ page }) => {
   const publicSnapshot = marketSnapshotFixture()
   publicSnapshot.catalysts = publicSnapshot.catalysts.map((catalyst) => (

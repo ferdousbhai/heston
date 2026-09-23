@@ -21,7 +21,7 @@ export const SNAPSHOT_REFETCH_MS = 30 * 1_000
 
 export function snapshotSyncQueryOptions(audience: SnapshotAudience) {
   return {
-    queryFn: ({ signal }: { signal?: AbortSignal }) => syncFromCloud(signal, () => true, audience),
+    queryFn: ({ signal }: { signal?: AbortSignal }) => syncFromCloud(audience, signal),
     queryKey: ['heston-snapshot', audience] as const,
     // Visibility, not window focus: a sitting tab on a second screen is still open.
     refetchInterval: () => document.visibilityState === 'hidden' ? false : SNAPSHOT_REFETCH_MS,
@@ -123,6 +123,10 @@ export function useAudienceMarket(audience: SnapshotAudience | undefined) {
       // One client per hook instance: query-core focus/reconnect/interval is what pushes a
       // new snapshot into the local collection while this tab stays open.
       queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      // Focus and reconnect reach a query only through a mounted client. Unmounted, the
+      // `refetchOnWindowFocus` and `refetchOnReconnect` below were inert, and a tab brought back
+      // after a deploy waited out the interval before it could learn it was running old code.
+      queryClient.mount()
       const observer = new QueryObserver(queryClient, snapshotSyncQueryOptions(audience))
       unsubscribe = observer.subscribe((result) => {
         if (cancelled) return
@@ -134,6 +138,7 @@ export function useAudienceMarket(audience: SnapshotAudience | undefined) {
     return () => {
       cancelled = true
       unsubscribe()
+      queryClient?.unmount()
       queryClient?.clear()
     }
   }, [audience])
