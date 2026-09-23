@@ -22,8 +22,9 @@ the `BriefPublisher` entrypoint over a service binding.
 
 - **Audiences are separate.** Public, authenticated member, and owner are three audiences, not
   three rungs. Account identity, account-derived data, provider watchlist provenance,
-  brokerage state, tokens, and mutations are never public. Live market stream data is
-  owner-only and stays in memory. API routes are excluded from service-worker caching.
+  brokerage state, tokens, and mutations are never public. Live quotes are relayed from the
+  Worker's own market-data feed to any same-origin browser and stay in memory, never stored.
+  API routes are excluded from service-worker caching.
 - **Access is two independent gates.** Signing in earns the market and research surface plus
   that member's own favorites and agent tokens. A broker credential *presented on the request*
   — never a membership level — unlocks account reads and placement, and only for the account
@@ -41,7 +42,8 @@ the `BriefPublisher` entrypoint over a service binding.
   names never cross that boundary; readers above it speak only the domain broker types. Adding
   a brokerage is an adapter file plus its id.
 - **Trading is one guarded step**: exact contract resolution from the live chain, the portfolio
-  drawdown guard, the market guard, and a clean broker dry-run — all server-side and
+  guard (defined risk only: a debit open or a close of a verified position, never naked short
+  exposure), the market guard, and a clean broker dry-run — all server-side and
   authoritative over any model's advice. Every tool declares MCP annotations, and an undeclared
   tool throws rather than reaching the wire; annotations are hints the spec tells clients to
   distrust, so the guards, not any prompt, are what bound the damage. Never automatically retry
