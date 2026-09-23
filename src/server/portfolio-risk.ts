@@ -17,10 +17,10 @@ interface RiskAccount {
   positions: RiskPosition[]
 }
 
-export interface PortfolioActionAssessment {
-  allowed: boolean
-  reason?: string
-}
+/** A refusal always carries its reason, so the guard never has to invent one. */
+export type PortfolioActionAssessment =
+  | { allowed: true }
+  | { allowed: false; reason: string }
 
 export class PortfolioRiskError extends CallerVisibleError {
   constructor(message: string) {
@@ -97,11 +97,9 @@ export function assessPortfolioAction(
   if (account.positions.some(unsupportedOpeningPosition)) {
     return { allowed: false, reason: 'Existing short, futures, or unsupported exposure prevents bounding the loss of a new position.' }
   }
-  const multiplier = action.kind === 'place_equity_order' ? 1 : optionContracts[0]?.sharesPerContract
-  if (multiplier === undefined || !Number.isFinite(multiplier) || multiplier <= 0) {
-    return { allowed: false, reason: 'The option contract multiplier could not be verified.' }
-  }
-  // The limit is the debit. Buying power is the broker dry-run, not a second cash floor.
+  // The limit is the debit. Buying power is the broker dry-run, not a second cash floor. The
+  // contract multiplier needs no check here: resolution refuses any contract whose
+  // shares-per-contract is not a positive integer, and the guard refuses a missing contract.
   return { allowed: true }
 }
 
@@ -131,5 +129,5 @@ export async function assertPortfolioActionAllowed(
     throw new PortfolioRiskError('The guard could not verify both spread contracts.')
   }
   const assessment = assessPortfolioAction(action, account, optionContracts)
-  if (!assessment.allowed) throw new PortfolioRiskError(assessment.reason ?? 'This trade was rejected at the portfolio boundary.')
+  if (!assessment.allowed) throw new PortfolioRiskError(assessment.reason)
 }

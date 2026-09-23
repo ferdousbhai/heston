@@ -8,7 +8,7 @@ const longOnlyAccount = {
 }
 
 describe('portfolio action boundary', () => {
-  it('sizes a debit vertical by its net debit and verified multiplier', () => {
+  it('allows a debit vertical on a long-only account', () => {
     const spread: Extract<OrderPlacement, { kind: 'place_vertical_spread_order' }> = {
       kind: 'place_vertical_spread_order', underlying: 'SPY', optionType: 'P',
       expiry: '2026-09-18', longStrike: 700, shortStrike: 690,
