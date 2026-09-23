@@ -182,6 +182,16 @@ describe('the maintained watchlist', () => {
     await expect(readInternalWatchlistCatalogCandidates(env)).resolves.toEqual(['NVDA', 'PLTR'])
   })
 
+  it('offers exactly the seed entries the symbol grammar admits, and throws on none it does not', async () => {
+    const env = { DB: store.database }
+    seedWatchlist(store, [], [{
+      kind: 'public',
+      name: 'Mixed notation',
+      entries: ['BRK/B', 'brk/a', '1810', 'BF.B', 'ABCDEFGH', '/ES', 'AAPL'].map((symbol) => ({ symbol })),
+    }])
+    await expect(readInternalWatchlistCatalogCandidates(env)).resolves.toEqual(['1810', 'AAPL', 'BRK/A', 'BRK/B'])
+  })
+
   it('promotes an existing public-seed member without losing retained seed provenance', async () => {
     const env = { DB: store.database }
     seedLists()

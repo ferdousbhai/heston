@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { jsonObject, type JsonObject } from '../domain/json-payload'
-import { EquitySymbolSchema } from '../domain/instrument'
+import { EQUITY_SYMBOL_GLOBS, EquitySymbolSchema } from '../domain/instrument'
 import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 import { type AppEnv } from './env'
 import { MAX_INSTRUMENT_CATALOG_ITEMS } from './instrument-catalog'
@@ -139,18 +139,21 @@ function normalizedSymbols(symbols: readonly string[]): string[] {
  * removal. Nothing writes the seed tables any more (the one-time import is gone), so there is no
  * readiness row to gate on: a database without the import simply has no candidates, and the live
  * list grows from reader and owner additions instead.
+ *
+ * Entries are filtered by the domain symbol grammar in SQL, before the LIMIT, so the cap counts
+ * only symbols the schema accepts: a stored entry in another venue's notation (`BF.B`) or past the
+ * grammar's width is not a name this product can ask the broker for, and is left out rather than
+ * counted toward the cap or thrown on after it.
  */
 export async function readInternalWatchlistCatalogCandidates(env: AppEnv): Promise<string[]> {
   const db = requiredDatabase(env)
   const result = await db.prepare(
-    `SELECT DISTINCT upper(broker_symbol) AS symbol
+    `SELECT DISTINCT upper(trim(broker_symbol)) AS symbol
      FROM internal_watchlist_seed_entries
      WHERE instrument_type = 'Equity'
-       AND broker_symbol GLOB '[A-Za-z]*'
-       AND broker_symbol NOT GLOB '*[^A-Za-z.]*'
-       AND length(broker_symbol) BETWEEN 1 AND 8
+       AND (${EQUITY_SYMBOL_GLOBS.map(() => 'upper(trim(broker_symbol)) GLOB ?').join(' OR ')})
      ORDER BY symbol ASC LIMIT ${MAX_CATALOG_CANDIDATES + 1}`,
-  ).all<{ symbol: string }>()
+  ).bind(...EQUITY_SYMBOL_GLOBS).all<{ symbol: string }>()
   const symbols = z.array(z.object({ symbol: SymbolSchema })).max(MAX_CATALOG_CANDIDATES).parse(result.results)
   return symbols.map((row) => row.symbol)
 }
