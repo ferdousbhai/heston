@@ -379,7 +379,11 @@ button { -webkit-tap-highlight-color: transparent; }
   .premium-verdict { margin-top: 0; justify-self: end; font-size: 15px; line-height: 1; }
   .premium-axis[data-slot="progress"] { width: 100%; grid-column: 1 / -1; height: 9px; margin-top: 8px; }
   .focus-narrative { display: contents; }
+  /* Dissolving the narrative grid drops its gap, so the rail's own sections carry the spacing:
+     the recommendation clears the premium axis, and freshness keeps the tape's row gap. */
+  .focus-recommendation { margin-top: 20px; }
   .focus-tape { margin-top: 24px; padding: 20px 0 0; }
+  .focus-freshness { margin-top: 12px; }
   .instrument-focus [data-slot="card-footer"] { grid-column: 1; grid-row: 3; }
   /* The last column line puts the runway right of the rail in both the two- and three-column
      arrangements, and the columns beside the rail stretch so their rules run the full height. */
@@ -623,5 +627,9 @@ button { -webkit-tap-highlight-color: transparent; }
 .brief-empty { padding: 26px 22px; }
 .brief-empty p { margin: 8px 0 0; color: var(--ink-faint); font-size: 15px; }
 .disclaimer { color: var(--ink-faint); font-size: 13px; line-height: 1.5; text-align: center; margin: 18px 12px 0; }
-.focus-recommendation + .focus-runway { padding-top: 20px; border-top: 1px solid var(--hairline); }
+/* One column only: at 960px and up the runway is its own column beside the rail, so a
+   recommendation above it in source order must not give it a top rule. */
+@media (max-width: 959px) {
+  .focus-recommendation + .focus-runway { padding-top: 20px; border-top: 1px solid var(--hairline); }
+}
 .focus-recommendation .brief-card { padding-top: 10px; border-top: 0; }
