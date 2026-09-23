@@ -144,7 +144,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         <p>
           Heston is a tool surface for an agent running on your own machine — Claude Code, Grok, Codex, or
           anything that speaks MCP. Any agent can read the public market surface without signing in
-          at all. Connecting yours adds live quotes, option chains and Greeks, lets it add symbols
+          at all. Signing yours in adds live quotes, option chains and Greeks, lets it add symbols
           to the watchlist, and lets it record catalysts and evidence everyone reads.
         </p>
       </header>
@@ -295,9 +295,9 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         </p>
         {owner && (
           <p className="connect-owner-note">
-            Your account also carries the owner tools: <code>read_watchlist</code> names where each
-            symbol came from, and <code>manage_watchlist</code> adds to or removes from the shared
-            watchlist.
+            Your account also carries the owner&apos;s watchlist reach: <code>read_watchlist</code>
+            takes a symbol and names where it came from, and <code>manage_watchlist</code> adds to or
+            removes from the shared watchlist.
           </p>
         )}
       </section>
