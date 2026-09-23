@@ -87,15 +87,36 @@ export function applySnapshotQueryResult(
  * disk went blank and refetched. Waiting one session check is cheaper than that, and it also
  * spares the owner a full public sync they never see.
  */
+/**
+ * Selections save one after another, so an earlier one can fail after a later one started. Only
+ * the latest selection may report: its failure shows, and its success clears whatever an earlier
+ * one left, so an alert never describes a choice the screen has already moved past.
+ */
+export function latestSelectionReporter(
+  setError: (message: string | undefined) => void,
+): (save: () => Promise<void>) => Promise<void> {
+  let latest = 0
+  return async (save) => {
+    const request = ++latest
+    try {
+      await save()
+      if (request === latest) setError(undefined)
+    } catch (cause: unknown) {
+      if (request === latest) setError(toError(cause)?.message ?? 'The market selection could not be saved')
+    }
+  }
+}
+
 export function useAudienceMarket(audience: SnapshotAudience | undefined) {
   const tickerQuery = useLiveQuery((query) => query.from({ ticker: tickerCollection }))
   const snapshotQuery = useLiveQuery((query) => query.from({ snapshot: offlineSnapshotCollection }))
   const preferenceQuery = useLiveQuery((query) => query.from({ preference: preferenceCollection }))
   const [bootstrappedAudience, setBootstrappedAudience] = useState<SnapshotAudience>()
   const [warning, setWarning] = useState<string>()
-  // A selection that could not be saved is not stale market data, and a later selection that
-  // succeeds settles it; it keeps its own state rather than borrowing the snapshot warning.
+  // A selection that could not be saved is not stale market data, so it keeps its own state
+  // rather than borrowing the snapshot warning.
   const [selectionError, setSelectionError] = useState<string>()
+  const [selectionReporter] = useState(() => latestSelectionReporter(setSelectionError))
   const { snapshot, tickers } = audienceMarketView(
     audience ?? 'public',
     snapshotQuery.data ?? [],
@@ -148,14 +169,10 @@ export function useAudienceMarket(audience: SnapshotAudience | undefined) {
     }
   }, [audience])
 
-  const chooseSymbol = useCallback(async (symbol: string, lookup?: PublicSymbolLookup): Promise<void> => {
-    setSelectionError(undefined)
-    try {
-      await selectTicker(symbol, lookup)
-    } catch (cause: unknown) {
-      setSelectionError(toError(cause)?.message ?? 'The market selection could not be saved')
-    }
-  }, [])
+  const chooseSymbol = useCallback(
+    (symbol: string, lookup?: PublicSymbolLookup): Promise<void> => selectionReporter(() => selectTicker(symbol, lookup)),
+    [selectionReporter],
+  )
 
   return {
     // An unknown audience has not bootstrapped anything. Comparing two undefined values read

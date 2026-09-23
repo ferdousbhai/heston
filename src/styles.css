@@ -642,5 +642,5 @@ button { -webkit-tap-highlight-color: transparent; }
 .focus-recommendation .brief-card { padding: 10px 0 0; border-top: 0; }
 /* Small controls on a phone still take a full touch target. */
 @media (max-width: 959px) {
-  .connect-code-head button, .connect-issue button, .brief-navigation button, .brief-card-head button { min-height: var(--touch-target); }
+  .connect-code-head button, .connect-issue button, .connect-tokens button, .brief-navigation button, .brief-card-head button { min-height: var(--touch-target); }
 }

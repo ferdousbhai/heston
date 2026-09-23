@@ -7,6 +7,7 @@ import { DEPLOYMENT_RELOAD_STORAGE_KEY, DeploymentMismatchError } from '../src/d
 import {
   applySnapshotQueryResult,
   audienceMarketView,
+  latestSelectionReporter,
   SNAPSHOT_REFETCH_MS,
   snapshotSyncQueryOptions,
 } from '../src/data/use-audience-market'
@@ -92,5 +93,31 @@ describe('the newer-version notice', () => {
     } finally {
       sessionStorage.removeItem(DEPLOYMENT_RELOAD_STORAGE_KEY)
     }
+  })
+})
+
+describe('a symbol selection that cannot be saved', () => {
+  it('reports the failure and clears it once a later selection saves', async () => {
+    const errors: Array<string | undefined> = []
+    const report = latestSelectionReporter((message) => errors.push(message))
+
+    await report(async () => { throw new Error('Selected market symbol is unavailable') })
+    expect(errors.at(-1)).toBe('Selected market symbol is unavailable')
+
+    await report(async () => undefined)
+    expect(errors.at(-1)).toBeUndefined()
+  })
+
+  it('never lets an earlier selection that fails late outlive a later one that saved', async () => {
+    const errors: Array<string | undefined> = []
+    const report = latestSelectionReporter((message) => errors.push(message))
+    let failEarlier: (error: Error) => void = () => undefined
+    const earlier = report(() => new Promise<void>((_resolve, reject) => { failEarlier = reject }))
+
+    await report(async () => undefined)
+    failEarlier(new Error('Selected market symbol is unavailable'))
+    await earlier
+
+    expect(errors).toEqual([undefined])
   })
 })
