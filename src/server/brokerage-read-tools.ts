@@ -1,6 +1,5 @@
 import { type AgentTool } from '../domain/agent-tool'
 
-import { equitySymbolFromModelText, equitySymbolsFromModelText } from '../domain/instrument'
 import { type AppEnv } from './env'
 import {
   ACCOUNT_SNAPSHOT_PARTS,
@@ -65,6 +64,7 @@ import { loadBrokerageContext } from './brokerage-context'
 import { BrokerCredentialMissingError, type BrokerCredential } from './broker-credential'
 import { CallerVisibleError } from './caller-visible-error'
 import { MAX_QUERY_LENGTH } from './symbol-search'
+import { tickerSymbolArgument, tickerSymbolsArgument } from './ticker-arguments'
 
 function dateDaysAgo(now: Date, days: number): string {
   const result = new Date(now)
@@ -563,14 +563,10 @@ function createAccountHistoryReadTool(
 
 export function createMarketMetricsReadTool(
   env: AppEnv,
-): AgentTool<typeof MarketMetricsReadParameters, MarketMetricsReadResult | { error: string }> {
+): AgentTool<typeof MarketMetricsReadParameters, MarketMetricsReadResult> {
   return {
     description: 'IV, liquidity, beta, valuation, and earnings metrics; IV is percentage points.',
-    execute: async (params) => {
-      const parsed = equitySymbolsFromModelText(params.symbols)
-      if ('unreadable' in parsed) return textResult({ error: `not a ticker symbol: ${parsed.unreadable.slice(0, 12)}` })
-      return textResult(await readMarketMetrics(env, parsed.symbols))
-    },
+    execute: async (params) => textResult(await readMarketMetrics(env, tickerSymbolsArgument(params.symbols))),
     name: 'read_market_metrics',
     parameters: MarketMetricsReadParameters,
   }
@@ -589,17 +585,14 @@ export function createSymbolSearchTool(
 
 export function createOptionContractFindTool(
   env: AppEnv,
-): AgentTool<typeof OptionContractFindParameters, OptionContractFindResult | { error: string }> {
+): AgentTool<typeof OptionContractFindParameters, OptionContractFindResult> {
   return {
     description: 'Without expiry, lists expirations; with expiry, returns active standard contracts '
       + 'with open interest and volume. Default order is open interest then volume; nearStrike is '
       + 'nearest listed, strike is exact. Only contracts this tool returns exist; never name one '
       + 'it did not list.',
     execute: async (params) => {
-      const underlying = equitySymbolFromModelText(params.underlying)
-      if (underlying === undefined) {
-        return textResult({ error: `not a ticker symbol: ${params.underlying.slice(0, 12)}` })
-      }
+      const underlying = tickerSymbolArgument(params.underlying, 'underlying')
       return textResult(await findOptionContracts(env, { ...params, underlying }))
     },
     name: 'find_option_contracts',
@@ -609,16 +602,12 @@ export function createOptionContractFindTool(
 
 export function createInstrumentQuoteReadTool(
   env: AppEnv,
-): AgentTool<typeof InstrumentQuoteReadParameters, InstrumentQuoteReadResult | { error: string }> {
+): AgentTool<typeof InstrumentQuoteReadParameters, InstrumentQuoteReadResult> {
   return {
     description: 'Current broker bid/ask/mid for equities or option tuples.',
     execute: async (params) => {
       if (params.symbols === undefined) return textResult(await readInstrumentQuotes(env, params))
-      const parsed = equitySymbolsFromModelText(params.symbols)
-      if ('unreadable' in parsed) {
-        return textResult({ error: `not a ticker symbol: ${parsed.unreadable.slice(0, 12)}` })
-      }
-      return textResult(await readInstrumentQuotes(env, { ...params, symbols: parsed.symbols }))
+      return textResult(await readInstrumentQuotes(env, { ...params, symbols: tickerSymbolsArgument(params.symbols) }))
     },
     name: 'read_instrument_quotes',
     parameters: InstrumentQuoteReadParameters,

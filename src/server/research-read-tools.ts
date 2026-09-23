@@ -2,7 +2,8 @@ import { type AgentTool } from '../domain/agent-tool'
 import { Type } from 'typebox'
 
 import { CATALYST_HORIZON_DAYS, CatalystSchema, distinctCatalysts, marketDate, type Catalyst } from '../domain/catalyst'
-import { equitySymbolsFromModelText, EquitySymbolSchema, ModelTextEquitySymbolType } from '../domain/instrument'
+import { EquitySymbolSchema, ModelTextEquitySymbolType } from '../domain/instrument'
+import { tickerSymbolsArgument } from './ticker-arguments'
 import { type DailyBrief } from '../domain/brief'
 import { addDays } from '../domain/iso-date'
 import { type AppEnv } from './env'
@@ -126,13 +127,11 @@ export async function readCatalysts(
 
 /** Each call reads the clock itself: a tool list is built once and answers for many calls. */
 export function createResearchReadTools(env: AppEnv) {
-  const catalysts: AgentTool<typeof CatalystReadParameters, CatalystReadResult | { error: string }> = {
+  const catalysts: AgentTool<typeof CatalystReadParameters, CatalystReadResult> = {
     description: 'Stored upcoming catalysts; excludes dividends.',
-    execute: async (params) => {
-      const parsed = equitySymbolsFromModelText(params.symbols)
-      if ('unreadable' in parsed) return textResult({ error: `not a ticker symbol: ${parsed.unreadable.slice(0, 12)}` })
-      return textResult(await readCatalysts(env, parsed.symbols, params.horizonDays, new Date()))
-    },
+    execute: async (params) => textResult(
+      await readCatalysts(env, tickerSymbolsArgument(params.symbols), params.horizonDays, new Date()),
+    ),
     name: 'read_catalysts',
     parameters: CatalystReadParameters,
   }
