@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { EquitySymbolSchema, isTradeableInstrument } from '../domain/instrument'
-import { type Catalyst } from '../domain/catalyst'
+import { type CatalystRefresh } from '../domain/catalyst'
 import { type CatalystProvider, persistResearchCatalysts } from './catalysts'
 import { runExaCatalystSearch } from './catalyst-research-exa'
 import { type AppEnv } from './env'
@@ -10,7 +10,7 @@ import { readInstrumentCatalog } from './instrument-catalog'
 /**
  * Catalyst coverage follows attention: a symbol is worth paying a web search for once a
  * reader favorites it, or once one looks at it and finds an empty near-term calendar.
- * A symbol is searched at most once in this window whatever the search found, so a name
+ * A symbol is searched at most once in this window whatever a finished search found, so a name
  * nobody has looked at stays unsearched and a name a hundred readers open is one search.
  *
  * The window bounds how often one symbol is searched. It says nothing about how many symbols
@@ -24,34 +24,38 @@ import { readInstrumentCatalog } from './instrument-catalog'
  */
 export const CATALYST_REFRESH_INTERVAL_DAYS = 30
 const CATALYST_PROVIDER: CatalystProvider = 'exa'
+/** The `catalyst_runs.detail` CHECK in migration 0024 admits at most this many characters. */
 const MAX_RUN_DETAIL_LENGTH = 500
 
-const StoredRunSchema = z.object({ ran_at: z.string() })
-
-export type CatalystRefresh = {
-  /** What this run bound, so a caller can show it without waiting for the next snapshot. */
-  catalysts: Catalyst[]
-  ran: boolean
-  reason?: 'fresh' | 'unknown-symbol' | 'untracked'
-}
+const StoredRunSchema = z.object({
+  ran_at: z.string(),
+  status: z.enum(['running', 'complete', 'failed']),
+})
 
 /**
  * Claim the run before making it. A concurrent favorite of the same symbol then sees a
  * fresh receipt and does not buy a second search; a run that dies mid-flight leaves a
  * receipt that ages out on its own rather than a lock nothing releases.
+ *
+ * A receipt the search itself marked `failed` is not a run that answered anything, so it holds
+ * nothing back: honoring it would tell every reader "searched, nothing scheduled" for a month
+ * on the strength of an outage. The next look pays for the search that never happened. A
+ * `running` receipt still holds, because that search may yet answer.
  */
-async function claimRun(env: AppEnv, symbol: string, now: Date, forced: boolean): Promise<boolean> {
-  if (!env.DB) throw new Error('CatalystRunStoreUnavailable')
-  const stored = forced ? undefined : await env.DB.prepare(
-    'SELECT ran_at FROM catalyst_runs WHERE symbol = ? AND source_provider = ?',
+async function claimRun(db: D1Database, symbol: string, now: Date, forced: boolean): Promise<boolean> {
+  const stored = forced ? undefined : await db.prepare(
+    'SELECT ran_at, status FROM catalyst_runs WHERE symbol = ? AND source_provider = ?',
   ).bind(symbol, CATALYST_PROVIDER).first()
   if (stored) {
+    const receipt = StoredRunSchema.parse(stored)
     // A receipt whose timestamp will not parse reads as expired — the comparison is false for
     // NaN — because one extra search costs less than a symbol that can never be searched again.
-    const ranAt = Date.parse(StoredRunSchema.parse(stored).ran_at)
-    if (now.getTime() - ranAt < CATALYST_REFRESH_INTERVAL_DAYS * 86_400_000) return false
+    const ranAt = Date.parse(receipt.ran_at)
+    if (receipt.status !== 'failed' && now.getTime() - ranAt < CATALYST_REFRESH_INTERVAL_DAYS * 86_400_000) {
+      return false
+    }
   }
-  await env.DB.prepare(
+  await db.prepare(
     `INSERT INTO catalyst_runs (symbol, source_provider, ran_at, catalyst_count, status)
      VALUES (?, ?, ?, 0, 'running')
      ON CONFLICT(symbol, source_provider) DO UPDATE SET
@@ -64,23 +68,21 @@ async function claimRun(env: AppEnv, symbol: string, now: Date, forced: boolean)
  * On the maintained watchlist. Searching for a name admits it there, so this is a bound on which
  * symbols incidental attention may spend a search on, not on which symbols can ever be covered.
  */
-async function isTracked(env: AppEnv, symbol: string): Promise<boolean> {
-  if (!env.DB) return false
-  const row = await env.DB.prepare(
+async function isTracked(db: D1Database, symbol: string): Promise<boolean> {
+  const row = await db.prepare(
     'SELECT 1 AS tracked FROM internal_watchlist_items WHERE symbol = ?',
   ).bind(symbol).first()
   return row !== null
 }
 
 async function recordRun(
-  env: AppEnv,
+  db: D1Database,
   symbol: string,
   status: 'complete' | 'failed',
   catalystCount: number,
   detail: string | undefined,
 ): Promise<void> {
-  if (!env.DB) return
-  await env.DB.prepare(
+  await db.prepare(
     `UPDATE catalyst_runs SET status = ?, catalyst_count = ?, detail = ?
      WHERE symbol = ? AND source_provider = ?`,
   ).bind(
@@ -101,6 +103,9 @@ async function recordRun(
  * bounded, but an owner asking on purpose is a different signal, and without it a symbol
  * searched once reads as empty for a month with no way to ask again. The receipt is still
  * written, so a forced run resets the window for everyone rather than escaping it.
+ *
+ * A search that throws answers `ran: false, reason: 'failed'`: it bound nothing, and a reader
+ * must not be told the calendar was searched and found empty when the search never finished.
  */
 export async function refreshCatalystsForSymbol(
   env: AppEnv,
@@ -108,6 +113,9 @@ export async function refreshCatalystsForSymbol(
   now = new Date(),
   forced = false,
 ): Promise<CatalystRefresh> {
+  // Every receipt and every row lives in D1, so without it nothing here can be answered.
+  const db = env.DB
+  if (!db) throw new Error('CatalystRunStoreUnavailable')
   const symbol = EquitySymbolSchema.parse(untrustedSymbol)
   const instrument = (await readInstrumentCatalog(env, [symbol])).get(symbol)
   // A delisted name has no upcoming anything. Paying for a search on one is spending real money
@@ -115,10 +123,10 @@ export async function refreshCatalystsForSymbol(
   if (!instrument || !isTradeableInstrument(instrument)) {
     return { catalysts: [], ran: false, reason: 'unknown-symbol' }
   }
-  if (!forced && !await isTracked(env, symbol)) {
+  if (!forced && !await isTracked(db, symbol)) {
     return { catalysts: [], ran: false, reason: 'untracked' }
   }
-  if (!await claimRun(env, symbol, now, forced)) return { catalysts: [], ran: false, reason: 'fresh' }
+  if (!await claimRun(db, symbol, now, forced)) return { catalysts: [], ran: false, reason: 'fresh' }
 
   try {
     const run = await runExaCatalystSearch(
@@ -128,12 +136,13 @@ export async function refreshCatalystsForSymbol(
       now,
     )
     await persistResearchCatalysts(env, CATALYST_PROVIDER, run.catalysts, now)
-    await recordRun(env, symbol, 'complete', run.catalysts.length, run.rejected.join('; ') || undefined)
+    await recordRun(db, symbol, 'complete', run.catalysts.length, run.rejected.join('; ') || undefined)
     return { catalysts: run.catalysts, ran: true }
   } catch (error) {
-    const cause = error instanceof Error ? error.message : 'UnknownError'
-    console.error('CatalystRefreshFailed', symbol, cause)
-    await recordRun(env, symbol, 'failed', 0, cause)
-    return { catalysts: [], ran: true }
+    // The log line carries the error's name only; the private receipt keeps the message, which
+    // is where an owner reconciling a failed run looks.
+    console.error('CatalystRefreshFailed', error instanceof Error ? error.name : 'UnknownError')
+    await recordRun(db, symbol, 'failed', 0, error instanceof Error ? error.message : 'UnknownError')
+    return { catalysts: [], ran: false, reason: 'failed' }
   }
 }

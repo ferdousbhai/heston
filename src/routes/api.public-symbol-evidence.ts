@@ -18,7 +18,7 @@ export const Route = createFileRoute('/api/public-symbol-evidence')({
           // response; a card's only attribution is the byline its recorder chose.
           return jsonPublic({ evidence: await readSymbolEvidence(appEnv.DB, symbol.data) })
         } catch (error) {
-          console.error('SymbolEvidenceUnavailable', error instanceof Error ? error.message : 'UnknownError')
+          console.error('SymbolEvidenceUnavailable', error instanceof Error ? error.name : 'UnknownError')
           return jsonNoStore({ error: 'Symbol evidence is temporarily unavailable' }, { status: 503 })
         }
       },

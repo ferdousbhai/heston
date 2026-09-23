@@ -307,12 +307,20 @@ function searchEmptyMessage(query: string, status: SymbolSearchState['status']):
 
 const CATALYST_SCOPE = `${CATALYST_KIND_NAMES.slice(0, -1).join(', ')} and ${CATALYST_KIND_NAMES.at(-1)}`
 
-/** An empty calendar is either one nobody has searched yet or one with nothing on it. */
-function RunwayEmpty({ searching, symbol }: { searching: boolean; symbol: string }) {
+/**
+ * An empty calendar is one nobody has searched yet, one whose search did not finish, or one with
+ * nothing on it -- and only the last may be told nothing is scheduled.
+ */
+function RunwayEmpty({ failed, searching, symbol }: { failed: boolean; searching: boolean; symbol: string }) {
   const [heading, detail] = searching
     ? [
         'Looking for what’s coming.',
         ` Nothing is on ${symbol}'s calendar yet, so Heston is searching for scheduled ${CATALYST_SCOPE} dates.`,
+      ]
+    : failed
+    ? [
+        'The calendar search didn’t finish.',
+        ` Heston couldn't search for ${symbol}'s scheduled ${CATALYST_SCOPE} dates just now, so this calendar is unknown rather than empty.`,
       ]
     : [
         'Nothing is on the calendar.',
@@ -327,12 +335,14 @@ function RunwayEmpty({ searching, symbol }: { searching: boolean; symbol: string
 
 function CatalystRunway({
   catalysts,
+  failed,
   now,
   onRefresh,
   searching,
   symbol,
 }: {
   catalysts: readonly Catalyst[]
+  failed: boolean
   now: Date
   onRefresh?: () => void
   searching: boolean
@@ -385,10 +395,15 @@ function CatalystRunway({
               })}
             </ol>
           )
-        : <RunwayEmpty searching={searching} symbol={symbol} />}
+        : <RunwayEmpty failed={failed} searching={searching} symbol={symbol} />}
       {searching && upcoming.length > 0 && (
         <p className="runway-searching" aria-live="polite">
           <span aria-hidden="true" /> Searching for nearer {CATALYST_SCOPE} dates…
+        </p>
+      )}
+      {failed && !searching && upcoming.length > 0 && (
+        <p className="runway-searching" aria-live="polite">
+          The search for nearer {CATALYST_SCOPE} dates didn’t finish.
         </p>
       )}
       {/* A search runs at most once a month for any symbol, so coverage can read thin long
@@ -853,6 +868,7 @@ export function MarketScreen({
           )}
           <CatalystRunway
             catalysts={visibleCatalysts}
+            failed={catalystSearch.failed}
             now={now}
             onRefresh={owner ? catalystSearch.refresh : undefined}
             searching={catalystSearch.searching}

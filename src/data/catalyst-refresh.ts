@@ -36,12 +36,15 @@ const searches = new Set<string>()
 const forcing = new Set<string>()
 /** Symbols a search actually ran for, as opposed to ones a receipt merely refused. */
 const searched = new Set<string>()
+/** Symbols whose last search never answered, which a reader is told rather than shown empty. */
+const failed = new Set<string>()
 const answers = new Map<string, Catalyst[]>()
 const listeners = new Set<() => void>()
 let revision = 0
 /** One shared empty list, so a caller can memoize on what a search bound rather than on a
     new array every render for the symbols no search has answered. */
 const NO_CATALYSTS: readonly Catalyst[] = []
+const FAILED_REFRESH: CatalystRefresh = { catalysts: [], ran: false, reason: 'failed' }
 
 function notify(): void {
   revision += 1
@@ -65,16 +68,18 @@ function record(symbol: string, refresh: CatalystRefresh): void {
   // question open, so the reader is not told nothing is coming on the strength of a receipt.
   if (refresh.ran) searched.add(symbol)
   else searched.delete(symbol)
+  if (refresh.reason === 'failed') failed.add(symbol)
+  else failed.delete(symbol)
   notify()
 }
 
 function searchOnce(symbol: string): void {
   if (searches.has(symbol)) return
   searches.add(symbol)
-  // A failed search reads as "nothing found": the reader is looking at a calendar, not at
-  // the state of our research, and the server keeps its own record of what went wrong.
+  // A request that never answered is a failed search, not an empty calendar: telling a reader
+  // nothing is scheduled on the strength of an outage is the one wrong answer here.
   void requestCatalystRefresh(symbol)
-    .catch((): CatalystRefresh => ({ catalysts: [], ran: false }))
+    .catch((): CatalystRefresh => FAILED_REFRESH)
     .then((refresh) => record(symbol, refresh))
   notify()
 }
@@ -90,7 +95,7 @@ export async function forceCatalystSearch(symbol: string): Promise<void> {
   try {
     record(symbol, await requestCatalystRefresh(symbol, true))
   } catch {
-    record(symbol, { catalysts: [], ran: false })
+    record(symbol, FAILED_REFRESH)
   } finally {
     forcing.delete(symbol)
     notify()
@@ -101,6 +106,8 @@ export type CatalystSearchState = {
   catalysts: readonly Catalyst[]
   /** True once a search has run and bound nothing, which is not the same as never having looked. */
   confirmedEmpty: boolean
+  /** True when the last search for this symbol never answered, so its calendar is unknown. */
+  failed: boolean
   forcing: boolean
   refresh: () => void
   searching: boolean
@@ -128,6 +135,7 @@ export function useCatalystSearch(
   return {
     catalysts: answer ?? NO_CATALYSTS,
     confirmedEmpty: searched.has(symbol) && (answer?.length ?? 0) === 0,
+    failed: failed.has(symbol),
     forcing: forcing.has(symbol),
     refresh: () => void forceCatalystSearch(symbol),
     searching: (answer === undefined && searches.has(symbol)) || forcing.has(symbol),

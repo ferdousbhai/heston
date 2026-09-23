@@ -63,16 +63,18 @@ export function snapshotCatalyst(catalyst: Catalyst): Catalyst {
 }
 
 /**
- * What a catalyst search hands back to the reader who provoked it. `ran` is false when the
- * symbol was searched recently enough that this look cost nothing; the rows already stored
- * for it reach the browser with the next snapshot either way.
+ * What a catalyst search hands back to the reader who provoked it. `ran` is true only when a
+ * search finished and answered; the rows already stored for the symbol reach the browser with
+ * the next snapshot either way.
  */
 export const CatalystRefreshSchema = z.strictObject({
   catalysts: z.array(CatalystSchema),
   ran: z.boolean(),
   // Why no search happened. Without it, "searched and found nothing", "refused, one ran this
   // month" and "not a name this site tracks" reach a reader as the same empty calendar.
-  reason: z.enum(['fresh', 'unknown-symbol', 'untracked']).optional(),
+  // `failed` is a search that was paid for and never answered, which says nothing about the
+  // calendar and must not read as one searched and found empty.
+  reason: z.enum(['failed', 'fresh', 'unknown-symbol', 'untracked']).optional(),
 })
 
 export type CatalystRefresh = z.infer<typeof CatalystRefreshSchema>

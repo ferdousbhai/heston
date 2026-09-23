@@ -38,13 +38,9 @@ export const Route = createFileRoute('/api/public-catalyst-refresh')({
             new Date(),
             parsed.data.force ?? false,
           )
-          return jsonNoStore(CatalystRefreshSchema.parse({
-            catalysts: refresh.catalysts,
-            ran: refresh.ran,
-            reason: refresh.reason,
-          }))
+          return jsonNoStore(CatalystRefreshSchema.parse(refresh))
         } catch (error) {
-          console.error('CatalystRefreshUnavailable', error instanceof Error ? error.message : 'UnknownError')
+          console.error('CatalystRefreshUnavailable', error instanceof Error ? error.name : 'UnknownError')
           return jsonNoStore({ error: 'Catalyst research is temporarily unavailable' }, { status: 503 })
         }
       },

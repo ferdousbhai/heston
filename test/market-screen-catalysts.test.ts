@@ -77,6 +77,27 @@ describe('reviewing a symbol with an empty calendar', () => {
 
     await waitFor(() => expect(screen.getByText(/none are scheduled/)).toBeTruthy())
   })
+
+  it('says a search that never answered did not finish, rather than that nothing is scheduled', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => String(input).startsWith('/api/public-catalyst-refresh')
+      ? Response.json({ catalysts: [], ran: false, reason: 'failed' })
+      : Response.json({ catalysts: [], evidence: [], series: [] })))
+
+    renderMarket('NVDA', [])
+
+    expect(await screen.findByText('The calendar search didn’t finish.')).toBeTruthy()
+    expect(screen.queryByText(/none are scheduled/)).toBeNull()
+  })
+
+  it('treats a refresh request that errors as a failed search too', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => String(input).startsWith('/api/public-catalyst-refresh')
+      ? new Response('', { status: 503 })
+      : Response.json({ catalysts: [], evidence: [], series: [] })))
+
+    renderMarket('AMD', [catalyst('AMD', 70)])
+
+    expect(await screen.findByText(/dates didn’t finish/)).toBeTruthy()
+  })
 })
 
 describe('owner catalyst refresh', () => {

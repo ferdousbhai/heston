@@ -166,18 +166,30 @@ describe('catalyst coverage seeded by favorites', () => {
     store.close()
   })
 
-  it('records a failed search so the next favorite does not repeat it immediately', async () => {
+  it('reports a failed search as failed, not as a calendar searched and found empty', async () => {
     const store = await storeWithCatalog()
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 500 })))
-    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const fetchMock = vi.fn(async () => new Response('', { status: 500 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
     await expect(refreshCatalystsForSymbol(env(store), 'BE', NOW))
-      .resolves.toEqual({ catalysts: [], ran: true })
+      .resolves.toEqual({ catalysts: [], ran: false, reason: 'failed' })
 
+    // The private receipt keeps the cause; the log line carries only the error's name.
     expect(store.sqlite.prepare('SELECT status, detail FROM catalyst_runs').get())
       .toEqual({ status: 'failed', detail: 'ExaSearchFailed:500' })
+    expect(logged).toHaveBeenCalledWith('CatalystRefreshFailed', 'Error')
+
+    // A failed receipt answered nothing, so it does not hold the next look back for a month.
+    stubExa()
     await expect(refreshCatalystsForSymbol(env(store), 'BE', NOW))
-      .resolves.toEqual({ catalysts: [], ran: false, reason: 'fresh' })
+      .resolves.toMatchObject({ ran: true, catalysts: [{ id: 'exa:BE:investor-event:2026-10-14' }] })
+    expect(store.sqlite.prepare('SELECT status FROM catalyst_runs').get()).toEqual({ status: 'complete' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
     store.close()
+  })
+
+  it('fails closed without the run store', async () => {
+    await expect(refreshCatalystsForSymbol({}, 'BE', NOW)).rejects.toThrow('CatalystRunStoreUnavailable')
   })
 })
