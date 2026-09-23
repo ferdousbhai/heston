@@ -153,10 +153,15 @@ export function selectLiveMarketSymbols(
  * undefined rather than deleted: TanStack merges an update's changes over the original row, so
  * a delete on the draft is not a change it can carry, while an explicit undefined is.
  */
+function isTickerField(key: string, row: Ticker): key is keyof Ticker {
+  return key in row
+}
+
 function assignTickerRow(draft: Ticker, next: Ticker): void {
+  // Every required field is present on a parsed `next`, so only optional readings are retired.
   const retired: Partial<Ticker> = draft
-  for (const key of Object.keys(draft) as (keyof Ticker)[]) {
-    if (!(key in next)) retired[key] = undefined
+  for (const key of Object.keys(draft)) {
+    if (isTickerField(key, draft) && !(key in next)) retired[key] = undefined
   }
   Object.assign(draft, next)
 }
