@@ -3,7 +3,9 @@
 import { QueryClient, QueryObserver } from '@tanstack/query-core'
 import { describe, expect, it, vi } from 'vitest'
 
+import { DEPLOYMENT_RELOAD_STORAGE_KEY, DeploymentMismatchError } from '../src/data/deployment'
 import {
+  applySnapshotQueryResult,
   audienceMarketView,
   SNAPSHOT_REFETCH_MS,
   snapshotSyncQueryOptions,
@@ -71,5 +73,24 @@ describe('snapshot sync while a tab stays open', () => {
     unsubscribe()
     observer.destroy()
     queryClient.clear()
+  })
+})
+
+describe('the newer-version notice', () => {
+  it('clears once a newer build\'s snapshot hydrates, even while the reload is cooling down', () => {
+    // A reload attempted moments ago holds the next one back.
+    sessionStorage.setItem(DEPLOYMENT_RELOAD_STORAGE_KEY, String(Date.now()))
+    const setWarning = vi.fn()
+    try {
+      applySnapshotQueryResult({ error: new DeploymentMismatchError('next', false), isFetched: true }, setWarning)
+      expect(setWarning).toHaveBeenLastCalledWith(expect.stringContaining('needs a newer version'))
+
+      // The next poll read the newer payload and put it on screen; the notice has nothing left
+      // to apologize for.
+      applySnapshotQueryResult({ error: new DeploymentMismatchError('next', true), isFetched: true }, setWarning)
+      expect(setWarning).toHaveBeenLastCalledWith(undefined)
+    } finally {
+      sessionStorage.removeItem(DEPLOYMENT_RELOAD_STORAGE_KEY)
+    }
   })
 })

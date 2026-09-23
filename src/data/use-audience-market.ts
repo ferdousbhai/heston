@@ -53,7 +53,7 @@ export function audienceMarketView<TSnapshot extends MarketSnapshot, TTicker ext
   return { snapshot, tickers: snapshot ? [...tickers] : [] }
 }
 
-function applySnapshotQueryResult(
+export function applySnapshotQueryResult(
   result: { error: unknown; isFetched: boolean },
   setWarning: (warning: string | undefined) => void,
 ): void {
@@ -65,12 +65,13 @@ function applySnapshotQueryResult(
   }
   if (failure instanceof DeploymentMismatchError) {
     // The snapshot has already been hydrated when it could be read, so a reload that is
-    // declined costs the reader nothing and is not worth a banner. Only a payload this
-    // bundle could not parse leaves the screen empty, and the message names the one thing
-    // that actually clears it — closing the tab, not the app, which iOS restores.
-    if (!reloadForDeployment() && !failure.hydrated) {
-      setWarning('Heston needs a newer version. Close this tab and open the site again.')
-    }
+    // declined costs the reader nothing and is not worth a banner -- nor is one an earlier,
+    // unreadable payload raised, since the data it apologized for is now on screen. Only a
+    // payload this bundle could not parse leaves the screen empty, and the message names the
+    // one thing that actually clears it — closing the tab, not the app, which iOS restores.
+    const reloading = reloadForDeployment()
+    if (failure.hydrated) setWarning(undefined)
+    else if (!reloading) setWarning('Heston needs a newer version. Close this tab and open the site again.')
     return
   }
   // A failed sync is not something to interrupt a reader over: the saved data is still on
