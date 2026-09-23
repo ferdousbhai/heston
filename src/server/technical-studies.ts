@@ -206,13 +206,26 @@ export function calculateStudies(
   const prices = rows.map((row) => row.adjustedClose)
   const align = (values: Array<number | null>) => alignSeries(values, returnedStart, dates)
   return inputs.map((input): PriceStudyResult => {
-    if (input.kind === 'SMA' || input.kind === 'EMA' || input.kind === 'RSI') {
-      const values = input.kind === 'SMA'
-        ? simpleMovingAverage(prices, input.period)
-        : input.kind === 'EMA'
-          ? exponentialMovingAverage(prices, input.period)
-          : relativeStrengthIndex(prices, input.period)
-      return { kind: input.kind, period: input.period, series: align(values) }
+    // MACD and BBANDS are tested first: each is the only member with its kind, so ruling them
+    // out narrows what remains to the single-period studies with no runtime guard left over.
+    if (input.kind === 'MACD') {
+      const values = movingAverageConvergenceDivergence(
+        prices,
+        input.fastPeriod,
+        input.slowPeriod,
+        input.signalPeriod,
+      )
+      // Three series, each with its own warm-up: the signal line starts later than the MACD line
+      // and the histogram exists only where both do, so each carries its own first row.
+      return {
+        fastPeriod: input.fastPeriod,
+        histogram: align(values.map((point) => point.histogram)),
+        kind: input.kind,
+        macd: align(values.map((point) => point.macd)),
+        signal: align(values.map((point) => point.signal)),
+        signalPeriod: input.signalPeriod,
+        slowPeriod: input.slowPeriod,
+      }
     }
     if (input.kind === 'BBANDS') {
       const values = bollingerBands(prices, input.period, input.standardDeviations)
@@ -225,23 +238,11 @@ export function calculateStudies(
         upper: align(values.map((band) => band.upper)),
       }
     }
-    if (input.kind !== 'MACD') throw new CallerVisibleError('Price studies are invalid.')
-    const values = movingAverageConvergenceDivergence(
-      prices,
-      input.fastPeriod,
-      input.slowPeriod,
-      input.signalPeriod,
-    )
-    // Three series, each with its own warm-up: the signal line starts later than the MACD line
-    // and the histogram exists only where both do, so each carries its own first row.
-    return {
-      fastPeriod: input.fastPeriod,
-      histogram: align(values.map((point) => point.histogram)),
-      kind: input.kind,
-      macd: align(values.map((point) => point.macd)),
-      signal: align(values.map((point) => point.signal)),
-      signalPeriod: input.signalPeriod,
-      slowPeriod: input.slowPeriod,
-    }
+    const values = input.kind === 'SMA'
+      ? simpleMovingAverage(prices, input.period)
+      : input.kind === 'EMA'
+        ? exponentialMovingAverage(prices, input.period)
+        : relativeStrengthIndex(prices, input.period)
+    return { kind: input.kind, period: input.period, series: align(values) }
   })
 }
