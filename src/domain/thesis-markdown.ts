@@ -1,7 +1,8 @@
 /*
  * The subset of Markdown a thesis may use, parsed into a tree the site renders itself. A thesis
- * is model output, so it is never handed to an HTML renderer: bold, italic, bullet lists, and
- * https links are the whole vocabulary, and anything else is shown as the text it is.
+ * is model output, so it is never handed to an HTML renderer: headings, bold, italic, bullet and
+ * ordered lists, and https links are the whole vocabulary. A code span is unwrapped to its plain
+ * text rather than styled, and anything else is shown as the text it is.
  */
 
 export type ThesisInline =
