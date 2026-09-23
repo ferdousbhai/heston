@@ -25,25 +25,20 @@ const ErrorResponseSchema = z.object({ error: z.string() })
 
 /**
  * A 2xx body that is not the documented shape is a server or deploy mismatch, not something the
- * member can act on, and a Zod issue list is not something they can read. Named once so all
- * three reads refuse it the same way.
+ * member can act on, and a Zod issue list is not something they can read.
  */
 const UNEXPECTED_RESPONSE = 'Agent tokens returned an unexpected response.'
 
-function parseResponse<T>(schema: z.ZodType<T>, body: unknown): T {
-  const parsed = schema.safeParse(body)
-  if (!parsed.success) throw new Error(UNEXPECTED_RESPONSE)
-  return parsed.data
-}
-
-async function readJson(response: Response) {
+async function readJson<T>(response: Response, schema: z.ZodType<T>): Promise<T> {
   const body: unknown = await response.json().catch(() => null)
   if (!response.ok) {
     // The server's own message is the useful one -- it names the token cap, or says the store
     // is unavailable. Anything that does not parse is reported generically rather than guessed at.
     throw new Error(ErrorResponseSchema.safeParse(body).data?.error ?? 'Request failed')
   }
-  return body
+  const parsed = schema.safeParse(body)
+  if (!parsed.success) throw new Error(UNEXPECTED_RESPONSE)
+  return parsed.data
 }
 
 function useAgentTokens() {
@@ -61,9 +56,9 @@ function useAgentTokens() {
   useEffect(() => {
     const controller = new AbortController()
     void fetch('/api/mcp-tokens', { credentials: 'same-origin', signal: controller.signal })
-      .then(readJson)
+      .then((response) => readJson(response, McpTokenListResponseSchema))
       .then((body) => {
-        setTokens(parseResponse(McpTokenListResponseSchema, body).tokens)
+        setTokens(body.tokens)
         setError(undefined)
       })
       .catch((cause: unknown) => {
@@ -75,8 +70,8 @@ function useAgentTokens() {
   }, [])
 
   const reload = useCallback(async () => {
-    const body = await readJson(await fetch('/api/mcp-tokens', { credentials: 'same-origin' }))
-    setTokens(parseResponse(McpTokenListResponseSchema, body).tokens)
+    const body = await readJson(await fetch('/api/mcp-tokens', { credentials: 'same-origin' }), McpTokenListResponseSchema)
+    setTokens(body.tokens)
   }, [])
 
   // Reports whether the token was created, so the caller can keep what the member typed when
@@ -89,8 +84,8 @@ function useAgentTokens() {
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },
         method: 'POST',
-      }))
-      setIssued(parseResponse(McpTokenIssuedResponseSchema, body).token)
+      }), McpTokenIssuedResponseSchema)
+      setIssued(body.token)
       setError(undefined)
       await reload()
       return true
@@ -105,20 +100,21 @@ function useAgentTokens() {
   const revoke = useCallback(async (tokenId: string) => {
     setBusy(true)
     try {
-      await readJson(await fetch('/api/mcp-tokens', {
+      // A revoke answers with the remaining list, so it is read here rather than fetched again.
+      const body = await readJson(await fetch('/api/mcp-tokens', {
         body: JSON.stringify({ tokenId }),
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },
         method: 'DELETE',
-      }))
+      }), McpTokenListResponseSchema)
+      setTokens(body.tokens)
       setError(undefined)
-      await reload()
     } catch (cause) {
       setError(toError(cause)?.message ?? 'The token could not be revoked')
     } finally {
       setBusy(false)
     }
-  }, [reload])
+  }, [])
 
   return { busy, error, issue, issued, loading, revoke, tokens }
 }

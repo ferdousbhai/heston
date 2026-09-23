@@ -44,18 +44,28 @@ it('reports a malformed issue response as an unexpected response', async () => {
   expect(screen.getByRole('textbox', { name: 'Token name' })).toHaveProperty('value', 'Phone')
 })
 
-it('reports a malformed list after a revoke as an unexpected response', async () => {
-  let listed = false
-  vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-    if (init?.method === 'DELETE') return Response.json({ ok: true })
-    if (listed) return Response.json({ tokens: 'nope' })
-    listed = true
-    return Response.json({ tokens: [token] })
-  }))
+it('reports a malformed revoke response as an unexpected response', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => init?.method === 'DELETE'
+    ? Response.json({ tokens: 'nope' })
+    : Response.json({ tokens: [token] })))
   render(createElement(ConnectScreen, { owner: false }))
   await screen.findByText('Laptop')
   fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
   await screen.findByText(UNEXPECTED)
+})
+
+it('keeps the server message for a refused revoke and shows the list it returns on success', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => init?.method === 'DELETE'
+    ? Response.json({ error: 'No such token' }, { status: 404 })
+    : Response.json({ tokens: [token] })))
+  render(createElement(ConnectScreen, { owner: false }))
+  await screen.findByText('Laptop')
+  fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
+  await screen.findByText('No such token')
+
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ tokens: [] })))
+  fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
+  await screen.findByText('No tokens yet.')
 })
 
 it('shows the spinner only while the first read is in flight', async () => {
