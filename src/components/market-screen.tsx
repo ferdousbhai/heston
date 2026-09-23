@@ -940,17 +940,21 @@ export function MarketScreen({
               <RecommendationCard recommendation={selectedRecommendation} />
             </section>
           )}
-          <CatalystRunway
-            catalysts={visibleCatalysts}
-            confirmedEmpty={catalystSearch.confirmedEmpty}
-            failed={catalystSearch.failed}
-            now={now}
-            onRefresh={owner ? catalystSearch.refresh : undefined}
-            readFailed={focusedRead.failed}
-            searching={catalystSearch.searching}
-            symbol={selected.symbol}
-          />
-          <EvidenceCards symbol={selected.symbol} />
+          {/* One column dissolves this wrapper into the narrative grid; the wide layout makes it
+              the column beside the rail, so evidence follows the runway rather than the rail. */}
+          <div className="focus-research">
+            <CatalystRunway
+              catalysts={visibleCatalysts}
+              confirmedEmpty={catalystSearch.confirmedEmpty}
+              failed={catalystSearch.failed}
+              now={now}
+              onRefresh={owner ? catalystSearch.refresh : undefined}
+              readFailed={focusedRead.failed}
+              searching={catalystSearch.searching}
+              symbol={selected.symbol}
+            />
+            <EvidenceCards symbol={selected.symbol} />
+          </div>
         </CardContent>
         <CardFooter>
           <dl className="focus-tape" aria-label={`${selected.symbol} metrics`}>

@@ -52,6 +52,9 @@ describe('evidence recorded under the selected symbol', () => {
     expect(source.getAttribute('href')).toBe('https://www.reuters.com/technology/nvidia-supply')
     expect(source.getAttribute('target')).toBe('_blank')
     expect(source.getAttribute('rel')).toBe('noreferrer')
+    // The wide layout stacks evidence directly under the runway only because both share this
+    // column; a sibling of the wrapper would drop below the whole rail instead.
+    expect(document.querySelector('.focus-research > .focus-runway + .focus-evidence')).not.toBeNull()
   })
 
   it('says nothing at all when nothing has been recorded', async () => {

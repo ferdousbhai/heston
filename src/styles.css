@@ -168,6 +168,9 @@ button { -webkit-tap-highlight-color: transparent; }
 .runway-body > a:hover, .runway-body > a:focus-visible { color: var(--text); }
 .runway-body > a svg { display: inline-block; width: 10px; height: 10px; margin-left: 3px; vertical-align: -1px; }
 
+/* The runway and its evidence share a wrapper that is transparent to the one-column grid, so
+   the phone reads them as two of the narrative's own rows; the wide layout makes it a column. */
+.focus-research { display: contents; }
 .focus-runway { container-type: inline-size; }
 .runway { margin: 14px 0 0; padding: 0; list-style: none; }
 .runway-event { position: relative; display: grid; grid-template-columns: 52px 10px minmax(0, 1fr); column-gap: 13px; padding-bottom: 14px; }
@@ -387,12 +390,11 @@ button { -webkit-tap-highlight-color: transparent; }
   .focus-tape { margin-top: 24px; padding: 20px 0 0; }
   .focus-freshness { margin-top: 12px; }
   .instrument-focus [data-slot="card-footer"] { grid-column: 1; grid-row: 3; }
-  /* The last column line puts the runway right of the rail in both the two- and three-column
-     arrangements, and the columns beside the rail stretch so their rules run the full height. */
-  .focus-runway { grid-column: -2; grid-row: 1 / -1; align-self: stretch; padding: 0 0 0 clamp(22px, 2.4vw, 40px); border-top: 0; border-left: 1px solid var(--hairline); }
-  /* Evidence keeps the runway's column and takes an implicit row under it, so the rail's rows
-     are untouched and the column's rule runs on down the page. */
-  .focus-runway + .focus-evidence { grid-column: -2; padding: 18px 0 0 clamp(22px, 2.4vw, 40px); border-top: 0; border-left: 1px solid var(--hairline); }
+  /* The last column line puts the research column right of the rail in both the two- and
+     three-column arrangements, and it stretches so its rule runs the full height. Evidence stacks
+     inside it directly under the runway, however short the runway is against the rail. */
+  .focus-research { display: block; grid-column: -2; grid-row: 1 / -1; align-self: stretch; padding: 0 0 0 clamp(22px, 2.4vw, 40px); border-left: 1px solid var(--hairline); }
+  .focus-runway + .focus-evidence { padding-top: 18px; border-top: 0; }
   .runway { margin-top: 0; }
   .runway-event { grid-template-columns: 68px 10px minmax(0, 1fr); padding-bottom: 13px; }
   .runway-event::before { left: 86.5px; }
@@ -632,6 +634,6 @@ button { -webkit-tap-highlight-color: transparent; }
 /* One column only: at 960px and up the runway is its own column beside the rail, so a
    recommendation above it in source order must not give it a top rule. */
 @media (max-width: 959px) {
-  .focus-recommendation + .focus-runway { padding-top: 20px; border-top: 1px solid var(--hairline); }
+  .focus-recommendation + .focus-research > .focus-runway { padding-top: 20px; border-top: 1px solid var(--hairline); }
 }
 .focus-recommendation .brief-card { padding-top: 10px; border-top: 0; }
