@@ -10,6 +10,13 @@ import { StringEnum } from '../domain/string-enum'
  */
 export const MAX_PRICE_HISTORY_PROVIDER_ROWS = 4_000
 export const MAX_PRICE_HISTORY_RETURNED_ROWS = 250
+/**
+ * The widest inclusive calendar window a read may ask for. Every interval is aggregated from
+ * daily bars, and a calendar span cannot hold more sessions than it has days, so a window no
+ * wider than the provider-row allocation can never overflow it. A wider one is refused as the
+ * caller's request up front, instead of reaching the provider and reading as a bad response.
+ */
+export const MAX_PRICE_HISTORY_SPAN_DAYS = MAX_PRICE_HISTORY_PROVIDER_ROWS
 export const MAX_PRICE_STUDIES = 5
 /**
  * What an omitted `limit` returns: about six months of daily bars, the recent trend a first read
@@ -102,7 +109,8 @@ export const PriceHistoryReadParameters = Type.Object({
     minimum: 1,
   })),
   startDate: Type.Optional(Type.String({
-    description: 'Start date in YYYY-MM-DD form. Defaults to one year before endDate.',
+    description: 'Start date in YYYY-MM-DD form. Defaults to one year before endDate. '
+      + `The inclusive range spans at most ${MAX_PRICE_HISTORY_SPAN_DAYS} calendar days, whatever the interval.`,
     pattern: ISO_DATE_PATTERN,
   })),
   studies: Type.Optional(Type.Array(PriceStudyParameters, {

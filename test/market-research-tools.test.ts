@@ -1,10 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import { type ChartResultArray } from 'yahoo-finance2/modules/chart'
 
+import { addDays } from '../src/domain/iso-date'
 import { type JsonObject } from '../src/domain/json-payload'
+import { CallerVisibleError } from '../src/server/caller-visible-error'
 
 import {
   MAX_PRICE_HISTORY_RETURNED_ROWS,
+  MAX_PRICE_HISTORY_SPAN_DAYS,
   PriceHistoryReadParameters,
   type PriceHistoryReadResult,
 } from '../src/server/market-research-contracts'
@@ -204,18 +207,48 @@ describe('market research tools', () => {
     }))
   })
 
-  it('leaves calendar range breadth to the bounded provider-row envelope', async () => {
+  it('refuses a range wider than the provider-row allocation as the caller\'s request', async () => {
     const provider = priceProvider(historyRows(1))
 
+    // The widest window: MAX_PRICE_HISTORY_SPAN_DAYS inclusive calendar days.
     await expect(readPriceHistory({
       endDate: '2026-07-30',
-      startDate: '2000-01-01',
+      startDate: addDays('2026-07-30', -(MAX_PRICE_HISTORY_SPAN_DAYS - 1)),
       symbol: 'AAPL',
     }, provider, now)).resolves.toMatchObject({ prices: { date: [expect.any(String)] } })
-    expect(provider.readDaily).toHaveBeenCalledWith('AAPL', {
+    expect(provider.readDaily).toHaveBeenCalledTimes(1)
+
+    // One day wider is refused before any fetch, whatever the interval asks for.
+    for (const interval of ['1d', '1mo'] as const) {
+      const refused = readPriceHistory({
+        endDate: '2026-07-30',
+        interval,
+        startDate: addDays('2026-07-30', -MAX_PRICE_HISTORY_SPAN_DAYS),
+        symbol: 'AAPL',
+      }, provider, now)
+      await expect(refused).rejects.toThrow(CallerVisibleError)
+      await expect(refused).rejects.toThrow(`longer than ${MAX_PRICE_HISTORY_SPAN_DAYS} calendar days`)
+    }
+    await expect(readPriceHistory({
       endDate: '2026-07-30',
-      startDate: '2000-01-01',
-    })
+      interval: '1mo',
+      startDate: '2006-07-30',
+      symbol: 'AAPL',
+    }, provider, now)).rejects.toThrow('calendar days')
+    expect(provider.readDaily).toHaveBeenCalledTimes(1)
+  })
+
+  it('answers a window after the current market date as holding no sessions, without fetching', async () => {
+    const provider = priceProvider(historyRows(1))
+
+    const refused = readPriceHistory({
+      endDate: '2026-08-20',
+      startDate: '2026-08-15',
+      symbol: 'AAPL',
+    }, provider, now)
+    await expect(refused).rejects.toThrow(CallerVisibleError)
+    await expect(refused).rejects.toThrow('Price history window contains no trading sessions.')
+    expect(provider.readDaily).not.toHaveBeenCalled()
   })
 
   it('fails before fetching on invalid ranges and duplicate or invalid studies', async () => {
@@ -350,11 +383,19 @@ describe('market research tools', () => {
     const range = { endDate: '2026-08-14', startDate: '2026-08-14' }
     const duplicates = createYahooPriceHistoryProvider(chartClient([bar, { ...bar }]))
     const mismatch = createYahooPriceHistoryProvider(chartClient([bar], { symbol: 'MSFT' }))
-    const empty = createYahooPriceHistoryProvider(chartClient([]))
+    const unusable = createYahooPriceHistoryProvider(chartClient([{ ...bar, open: null }]))
 
     await expect(duplicates.readDaily('AAPL', range)).rejects.toThrow('invalid-response')
     await expect(mismatch.readDaily('AAPL', range)).rejects.toThrow('invalid-response')
-    await expect(empty.readDaily('AAPL', range)).rejects.toThrow('invalid-response')
+    await expect(unusable.readDaily('AAPL', range)).rejects.toThrow('invalid-response')
+  })
+
+  it('answers a window Yahoo returns no bars for as holding no sessions, not a bad response', async () => {
+    const weekend = createYahooPriceHistoryProvider(chartClient([]))
+
+    const refused = weekend.readDaily('AAPL', { endDate: '2026-08-16', startDate: '2026-08-15' })
+    await expect(refused).rejects.toThrow(CallerVisibleError)
+    await expect(refused).rejects.toThrow('Price history window contains no trading sessions.')
   })
 
   it('translates class-share notation and reports provider failure as unavailable', async () => {

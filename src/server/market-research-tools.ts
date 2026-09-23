@@ -10,6 +10,7 @@ import {
   DEFAULT_PRICE_HISTORY_ROWS,
   MAX_PRICE_HISTORY_PROVIDER_ROWS,
   MAX_PRICE_HISTORY_RETURNED_ROWS,
+  MAX_PRICE_HISTORY_SPAN_DAYS,
   PriceHistoryReadParameters,
   type PriceHistoryProvider,
   type PriceHistoryReadInput,
@@ -76,6 +77,8 @@ function createYahooClient(fetcher: typeof fetch = fetch): ResearchYahooClient {
   })
 }
 
+const NO_SESSIONS_IN_WINDOW = 'Price history window contains no trading sessions.'
+
 function invalidHistory(): never {
   throw new ResearchProviderError('invalid-response', 'yahoo')
 }
@@ -138,6 +141,10 @@ export function createYahooPriceHistoryProvider(
       }
       const quotes = raw.quotes
       if (!Array.isArray(quotes) || quotes.length > MAX_PRICE_HISTORY_PROVIDER_ROWS) return invalidHistory()
+      // Yahoo answers a window with no sessions in it -- a weekend, a holiday -- with no bars at
+      // all. That is a fact about the requested window, not a malformed response; bars that
+      // arrive and are all unusable still are.
+      if (!quotes.length) throw new CallerVisibleError(NO_SESSIONS_IN_WINDOW)
       if (raw.meta?.symbol && raw.meta.symbol.toUpperCase() !== providerSymbol) return invalidHistory()
       const currency = raw.meta?.currency
       const exchange = raw.meta?.exchangeName
@@ -205,6 +212,13 @@ function requestedHistoryRange(input: PriceHistoryReadInput, now: Date) {
   const start = Date.parse(`${startDate}T00:00:00.000Z`)
   const end = Date.parse(`${endDate}T00:00:00.000Z`)
   if (start > end) throw new CallerVisibleError('Price history range is invalid.')
+  // The last date an inclusive window of the widest allowed span reaches from startDate.
+  if (endDate > addDays(startDate, MAX_PRICE_HISTORY_SPAN_DAYS - 1)) {
+    throw new CallerVisibleError(`Price history range is longer than ${MAX_PRICE_HISTORY_SPAN_DAYS} calendar days.`)
+  }
+  // Nothing has traded after the current market date, and Yahoo refuses such a window outright,
+  // which would otherwise read as the provider being unavailable.
+  if (startDate > marketDate(now)) throw new CallerVisibleError(NO_SESSIONS_IN_WINDOW)
   return { endDate, startDate }
 }
 
