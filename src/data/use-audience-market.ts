@@ -81,13 +81,6 @@ export function applySnapshotQueryResult(
 }
 
 /**
- * `audience` is undefined until the session check resolves. Guessing "public" in the meantime
- * cost the owner their whole view on every refresh: the stored snapshot belongs to one
- * audience, and restoring for the other discards it, so a page that already had the market on
- * disk went blank and refetched. Waiting one session check is cheaper than that, and it also
- * spares the owner a full public sync they never see.
- */
-/**
  * Selections save one after another, so an earlier one can fail after a later one started. Only
  * the latest selection may report: its failure shows, and its success clears whatever an earlier
  * one left, so an alert never describes a choice the screen has already moved past.
@@ -107,6 +100,13 @@ export function latestSelectionReporter(
   }
 }
 
+/**
+ * `audience` is undefined until the session check resolves. Guessing "public" in the meantime
+ * cost the owner their whole view on every refresh: the stored snapshot belongs to one
+ * audience, and restoring for the other discards it, so a page that already had the market on
+ * disk went blank and refetched. Waiting one session check is cheaper than that, and it also
+ * spares the owner a full public sync they never see.
+ */
 export function useAudienceMarket(audience: SnapshotAudience | undefined) {
   const tickerQuery = useLiveQuery((query) => query.from({ ticker: tickerCollection }))
   const snapshotQuery = useLiveQuery((query) => query.from({ snapshot: offlineSnapshotCollection }))
