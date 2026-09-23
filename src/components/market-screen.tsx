@@ -316,11 +316,14 @@ function focusTape(ticker: Ticker): Array<[label: string, value: string]> {
   return tape
 }
 
+/** The table's empty state and the status line above a partial list say the same thing. */
+const SYMBOL_SEARCH_FAILED = 'Symbol search is unavailable. Showing the loaded list only.'
+
 /** What an empty table says depends on how far the search got, not just that it found nothing. */
 function searchEmptyMessage(query: string, status: SymbolSearchState['status']): string {
   if (!query) return 'No option metrics are available for this list.'
   if (status === 'searching') return `Searching every listed symbol for "${query}"\u2026`
-  if (status === 'failed') return 'Symbol search is unavailable. Showing the loaded list only.'
+  if (status === 'failed') return SYMBOL_SEARCH_FAILED
   return 'No listed symbol matches your search.'
 }
 
@@ -1050,12 +1053,12 @@ export function MarketScreen({
           }} sort={sort} relevance={relevance} />}
         </header>
         {trimmedQuery && watchTickers.length > 0 && search.status === 'failed' && (
-          <p role="status">Symbol search is unavailable. Showing the loaded list only.</p>
+          <p className="watch-status" role="status">{SYMBOL_SEARCH_FAILED}</p>
         )}
         {/* The year's move rides the snapshot and stays; only the chart beside it is missing,
             and an empty chart slot must not read as a year with nothing in it. */}
         {yearCandles.failed && (
-          <p className="runway-searching" role="status">Year charts are unavailable just now.</p>
+          <p className="watch-status" role="status">Year charts are unavailable just now.</p>
         )}
         {narrow ? (
           <ol className="watch-list">

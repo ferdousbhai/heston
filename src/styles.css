@@ -228,6 +228,8 @@ button { -webkit-tap-highlight-color: transparent; }
 .watch-search:focus-within { outline: 2px solid var(--ring); outline-offset: 2px; }
 .watch-search svg { width: 18px; height: 18px; flex: 0 0 auto; }
 .watch-search input { width: 100%; border: 0; outline: 0; background: none; color: var(--text); font-size: var(--type-body); }
+/* A status line above the list: what the search or the year charts could not deliver. */
+.watch-status { margin: 12px 0 0; color: var(--ink-muted); font-family: var(--sans); font-size: 13px; }
 .watch-search input::placeholder { color: var(--ink-muted); }
 .watch-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
 .premium-data-table { min-width: 850px; border-top: 1px solid var(--hairline); font-size: 15px; }
