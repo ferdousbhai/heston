@@ -34,6 +34,7 @@ import {
   requiredTimestamp,
 } from '../brokerage-read-normalization'
 import { type BrokerCredential } from '../broker-credential'
+import { errorName, failureCode, toError } from '../../domain/failure'
 import { type AppEnv } from '../env'
 import { brokerApi } from '../tastytrade'
 import {
@@ -60,8 +61,14 @@ function segment(value: string): string {
   return encodeURIComponent(value)
 }
 
+/**
+ * What of a record-parsing failure may reach the caller. Only this repository's own codes pass;
+ * anything else -- a TypeError or ZodError from a parser, whose message can quote the payload --
+ * is reported by its name alone.
+ */
 function detail(cause: unknown): string {
-  return cause instanceof Error ? cause.message : 'UnknownError'
+  const error = toError(cause)
+  return failureCode(error) ?? errorName(error)
 }
 
 /**

@@ -99,6 +99,20 @@ describe('portfolio guard over the merged account snapshot', () => {
     )
   })
 
+  it('names an unexpected parser failure by its error name, never its message', async () => {
+    // A parser fault's message can quote the payload it choked on; only a repo code may pass.
+    const hostile = {
+      id: '5',
+      get status(): string {
+        throw new TypeError('Cannot read ACCOUNT-SECRET-9 of payload')
+      },
+    }
+    respondWith({ orders: { data: { items: [hostile] } } })
+    const refusal = guard()
+    await expect(refusal).rejects.toThrow(/could not verify every ordinary live order: TypeError\.$/)
+    await expect(refusal).rejects.not.toThrow('ACCOUNT-SECRET-9')
+  })
+
   it('reports a broker that would not answer separately from one that answered badly', async () => {
     tastytrade.tastyRequest.mockReset().mockRejectedValue(new Error('TastytradeApi:503:/accounts/[redacted]/positions'))
     await expect(guard()).rejects.toThrow('The portfolio guard could not refresh the complete brokerage account.')

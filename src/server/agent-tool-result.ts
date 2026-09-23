@@ -1,14 +1,8 @@
+import { errorName } from '../domain/failure'
 import { BrokerRefusalError, CallerVisibleError } from './caller-visible-error'
 
 export function textResult<T>(result: T) {
   return { content: [{ text: JSON.stringify(result), type: 'text' as const }], details: result }
-}
-
-/** An error name is echoed only while it is an identifier; anything else is not ours to relay. */
-const ERROR_NAME = /^[A-Za-z][A-Za-z0-9]*$/
-
-function errorName(error: Error | undefined): string {
-  return error && ERROR_NAME.test(error.name) ? error.name : 'UnknownError'
 }
 
 /**
