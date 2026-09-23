@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { quoteBindingRefusal } from '../src/server/research-citation-binding'
+import { MAX_PAGE_MARKDOWN_CHARS } from '../src/server/research-page-retention'
 import { readSymbolEvidence } from '../src/server/symbol-evidence'
 import { recordSymbolEvidence } from '../src/server/symbol-evidence-tool'
 import { markdownBrowser, unreadableBrowser } from './fake-browser'
@@ -142,14 +143,26 @@ describe('recording a quoted passage under a symbol', () => {
     expect(store.sqlite.prepare('SELECT COUNT(*) AS rows FROM symbol_evidence').get()).toEqual({ rows: 0 })
   })
 
+  it('names a quote past the part of a long page it read as unread, not as absent', async () => {
+    const longPage = `${'filler '.repeat(MAX_PAGE_MARKDOWN_CHARS / 'filler '.length + 1)}${PAGE_MARKDOWN}`
+    await expect(recordSymbolEvidence(recordingEnv(markdownBrowser(longPage)), RECORDER, evidence(), { now: NOW }))
+      .resolves.toEqual({
+        rejected: [
+          `quote not found in the first ${MAX_PAGE_MARKDOWN_CHARS} characters read of its source: "signed a multi-year supply agreement"`,
+        ],
+        status: 'rejected',
+      })
+    expect(store.sqlite.prepare('SELECT COUNT(*) AS rows FROM symbol_evidence').get()).toEqual({ rows: 0 })
+  })
+
   it('fails closed when the Worker cannot read a page at all', async () => {
     await expect(recordSymbolEvidence({ DB: store.database }, RECORDER, evidence(), { now: NOW }))
       .rejects.toThrow('SymbolEvidence:page-reading-unavailable')
   })
 
   it('binds no page to a quote with no words, whoever asks the binder', () => {
-    expect(quoteBindingRefusal(PAGE_MARKDOWN, '  **  ')).toBe('quote has no words to find on its source')
-    expect(quoteBindingRefusal(PAGE_MARKDOWN, 'signed a multi-year')).toBeUndefined()
+    expect(quoteBindingRefusal({ markdown: PAGE_MARKDOWN, truncated: false }, '  **  ')).toBe('quote has no words to find on its source')
+    expect(quoteBindingRefusal({ markdown: PAGE_MARKDOWN, truncated: false }, 'signed a multi-year')).toBeUndefined()
   })
 
   it('drops a member\'s cards with their account', async () => {

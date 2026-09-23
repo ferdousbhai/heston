@@ -4,7 +4,7 @@ import {
   bindCatalystCandidates,
   type ResearchCatalystCandidate,
 } from '../src/server/research-catalyst-output'
-import { type RetainedPage } from '../src/server/research-page-retention'
+import { MAX_PAGE_MARKDOWN_CHARS, type RetainedPage } from '../src/server/research-page-retention'
 
 const NOW = new Date('2026-08-31T18:00:00.000Z')
 const PAGE_URL = 'https://investors.example.com/events'
@@ -23,8 +23,8 @@ function candidate(overrides: Partial<ResearchCatalystCandidate> = {}): Research
   }
 }
 
-function retained(markdown: string): Map<string, RetainedPage> {
-  return new Map([[PAGE_URL, { markdown, readAt: NOW.toISOString() }]])
+function retained(markdown: string, truncated = false): Map<string, RetainedPage> {
+  return new Map([[PAGE_URL, { markdown, readAt: NOW.toISOString(), truncated }]])
 }
 
 describe('structured catalyst output binding', () => {
@@ -57,6 +57,16 @@ describe('structured catalyst output binding', () => {
       [candidate()],
       SOURCES,
       retained('NVIDIA will hold an investor day next quarter.'), NOW, 'member-research').rejected).toEqual(['catalyst 1: 2026-09-15 does not appear on its source page'])
+  })
+
+  it('names a miss on a page read only in part as a miss in what was read', () => {
+    // The date may sit past the cap; calling it absent from the page would be a claim about text
+    // this Worker never read.
+    expect(bindCatalystCandidates(
+      [candidate()],
+      SOURCES,
+      retained('NVIDIA will hold an investor day next quarter.', true), NOW, 'member-research').rejected)
+      .toEqual([`catalyst 1: 2026-09-15 not found in the first ${MAX_PAGE_MARKDOWN_CHARS} characters read of its source page`])
   })
 
   it('refuses out-of-horizon and duplicate updates instead of silently collapsing them', () => {

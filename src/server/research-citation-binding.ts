@@ -1,3 +1,5 @@
+import { type ReadPage, TRUNCATED_READ_MISS } from './research-page-retention'
+
 /*
  * A quote is bound to what this Worker actually read. Native web search runs inside the
  * provider, so a page the model reports opening leaves nothing here to check; a page read
@@ -48,11 +50,16 @@ export function quoteWithoutWordsReason(quote: string): string | undefined {
   return normalizedCitationText(quote) === '' ? 'quote has no words to find on its source' : undefined
 }
 
-/** Why `quote` does not bind to `pageText`, or undefined when it does. */
-export function quoteBindingRefusal(pageText: string, quote: string): string | undefined {
+/**
+ * Why `quote` does not bind to `page`, or undefined when it does. A miss on a truncated read is
+ * named as one: the quote may sit past the part this Worker read, and calling it absent from
+ * the source would tell its author the page does not say what it may well say.
+ */
+export function quoteBindingRefusal(page: ReadPage, quote: string): string | undefined {
   const withoutWords = quoteWithoutWordsReason(quote)
   if (withoutWords) return withoutWords
-  return normalizedCitationText(pageText).includes(normalizedCitationText(quote))
-    ? undefined
+  if (normalizedCitationText(page.markdown).includes(normalizedCitationText(quote))) return undefined
+  return page.truncated
+    ? `quote ${TRUNCATED_READ_MISS} its source: "${quote.slice(0, REJECTED_QUOTE_EXCERPT_CHARS)}"`
     : quoteAbsentFromSourceReason(quote)
 }

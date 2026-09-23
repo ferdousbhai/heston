@@ -93,11 +93,11 @@ export async function recordSymbolEvidence(
   const withoutWords = quoteWithoutWordsReason(evidence.quote)
   if (withoutWords) return { rejected: [withoutWords], status: 'rejected' }
 
-  const markdown = await readResearchPageMarkdown(browser, sourceUrl)
-  if (markdown === undefined) return { rejected: [`page did not open: ${sourceUrl}`], status: 'rejected' }
+  const page = await readResearchPageMarkdown(browser, sourceUrl)
+  if (page === undefined) return { rejected: [`page did not open: ${sourceUrl}`], status: 'rejected' }
   // The same normalization every citation here is bound by: markdown renders one sentence
   // many ways, and only its words decide whether the page contains the quote.
-  const refusal = quoteBindingRefusal(markdown, evidence.quote)
+  const refusal = quoteBindingRefusal(page, evidence.quote)
   if (refusal) return { rejected: [refusal], status: 'rejected' }
 
   const id = await upsertSymbolEvidence(db, {

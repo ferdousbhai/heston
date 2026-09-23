@@ -4,7 +4,13 @@ import { readBoundedJson } from './bounded-response'
 import { type AppEnv } from './env'
 import { citedPageKey } from './research-url'
 
-export type RetainedPage = { markdown: string; readAt: string }
+/**
+ * A page's text as read, and whether the read kept only its first `MAX_PAGE_MARKDOWN_CHARS`. A
+ * binder that cannot find a date or a quote in a truncated read has not shown it absent from the
+ * page, only from the part it read, and must say which.
+ */
+export type ReadPage = { markdown: string; truncated: boolean }
+export type RetainedPage = ReadPage & { readAt: string }
 
 /**
  * One call may read at most this many public pages. A member recording catalysts cites a page
@@ -21,25 +27,33 @@ const MAX_RESEARCH_PAGE_READS = 30
  *
  * Markdown is capped so one page cannot exhaust the isolate on its own.
  */
-const MAX_PAGE_MARKDOWN_CHARS = 120_000
+export const MAX_PAGE_MARKDOWN_CHARS = 120_000
+
+/** How a binder names a miss on a truncated read, so the author knows the rest went unread. */
+export const TRUNCATED_READ_MISS = `not found in the first ${MAX_PAGE_MARKDOWN_CHARS} characters read of`
 const MAX_PAGE_RESPONSE_BYTES = 4_000_000
 
 /**
  * One page read through the Worker's browser, used wherever a model-authored citation is
  * checked against text this Worker fetched itself.
  * A browser timeout, session limit, or oversized body all return undefined: the caller's
- * contract is "cite something else", never a run-ending error.
+ * contract is "cite something else", never a run-ending error. A page longer than the cap is
+ * read in part and says so, rather than passing its prefix off as the whole page.
  */
 export async function readResearchPageMarkdown(
   browser: NonNullable<AppEnv['BROWSER']>,
   key: string,
-): Promise<string | undefined> {
+): Promise<ReadPage | undefined> {
   try {
     const response = await browser.quickAction('markdown', { url: key })
     if (!response.ok) return undefined
     const payload = await readBoundedJson(response, MAX_PAGE_RESPONSE_BYTES, 'ResearchReadPage')
     const parsed = z.object({ result: z.string(), success: z.literal(true) }).safeParse(payload).data
-    return parsed?.result.slice(0, MAX_PAGE_MARKDOWN_CHARS)
+    if (!parsed) return undefined
+    return {
+      markdown: parsed.result.slice(0, MAX_PAGE_MARKDOWN_CHARS),
+      truncated: parsed.result.length > MAX_PAGE_MARKDOWN_CHARS,
+    }
   } catch {
     return undefined
   }
@@ -89,9 +103,9 @@ export async function retainCitedPages(
 
   const retained = new Map<string, RetainedPage>()
   for (const key of pageKeys) {
-    const markdown = await readResearchPageMarkdown(browser, key)
-    if (markdown === undefined) rejected.push(`page did not open: ${key}`)
-    else retained.set(key, { markdown, readAt })
+    const page = await readResearchPageMarkdown(browser, key)
+    if (page === undefined) rejected.push(`page did not open: ${key}`)
+    else retained.set(key, { ...page, readAt })
   }
   if (rejected.length) return { rejected, retained: new Map() }
   return { rejected, retained }
