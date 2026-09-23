@@ -210,6 +210,20 @@ describe('brokerage order placement', () => {
     expect(rows(db)).toMatchObject([{ error_code: 'TastytradeOrderRejected', status: 'failed' }])
   })
 
+  it('refuses a dry-run echoing a Rejected order before any claim or submission', async () => {
+    const rejected = { data: { ...ACCEPTED_ORDER_RESPONSE.data, order: { ...ACCEPTED_ORDER_RESPONSE.data.order, status: 'Rejected' } } }
+    const brokerage = brokerSubmitting(async () => ACCEPTED_ORDER_RESPONSE)
+    brokerage.tastyRequest.mockImplementation(async (_env: AppEnv, path: string) => (
+      path.endsWith('/dry-run') ? rejected : ACCEPTED_ORDER_RESPONSE
+    ))
+    const db = await freshStore()
+
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential))
+      .rejects.toThrow('Tastytrade rejected this order')
+    expect(submissions(brokerage)).toHaveLength(0)
+    expect(rows(db)).toHaveLength(0)
+  })
+
   it('refuses to submit when the write-ahead claim cannot be recorded', async () => {
     const brokerage = brokerSubmitting(async () => ACCEPTED_ORDER_RESPONSE)
     const db: D1Database = {

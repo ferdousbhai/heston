@@ -153,6 +153,15 @@ describe('broker order response boundary', () => {
     } }, intended))).toMatchObject({ check: 'broker-rejected', untrustedBrokerData: { messages: ['Off tick'] } })
   })
 
+  it('refuses a dry-run whose exact echo says Rejected, even with no errors array', () => {
+    expect(brokerRefusal(() => validateOrderResponse({ data: {
+      order: { ...brokerOrder, status: 'Rejected' }, 'buying-power-effect': { effect: 'Debit' },
+    } }, intended))).toMatchObject({ check: 'broker-rejected' })
+    expect(validateOrderResponse({ data: {
+      order: { ...brokerOrder, status: 'Received' }, 'buying-power-effect': { effect: 'Debit' },
+    } }, intended)).toEqual({ id: '123', warnings: [] })
+  })
+
   it('reads a 2xx whose exact echo says Rejected as a refusal, not an accepted order', () => {
     expect(brokerRefusal(() => validatePlacedOrderResponse({ data: {
       order: { ...brokerOrder, status: 'Rejected' }, 'buying-power-effect': { effect: 'Debit' },

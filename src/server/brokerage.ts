@@ -59,8 +59,14 @@ function messagePacket(value: JsonValue, kind: string): string[] {
   return omitted ? [...selected, `${omitted} more broker ${kind} omitted`] : selected
 }
 
+/**
+ * The dry-run check. A dry-run whose exact echo says Rejected is a refusal even with no errors
+ * array: counting it clean would claim the submission and send the real order. Nothing is
+ * claimed yet at this point, so there is nothing to settle.
+ */
 export function validateOrderResponse(payload: JsonValue, intended: OrderPayload): OrderResponseReceipt {
-  const { id, warnings } = readOrderResponse(payload, intended)
+  const { id, rejected, warnings } = readOrderResponse(payload, intended)
+  if (rejected) throw new TastytradeOrderRejectedError([])
   return { id, warnings }
 }
 
