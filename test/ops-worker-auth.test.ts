@@ -69,4 +69,17 @@ describe('temporary ops Worker request gate', () => {
     expect(opaque.status).toBe(500)
     expect(await opaque.json()).toEqual({ error: 'Ops:operation-failed' })
   })
+
+  it('collapses a human-readable Error message to the handler failure code', async () => {
+    const failing = (request: Request, message: string) =>
+      serveOpsRequest(request, { OPS_AUTH_TOKEN }, PATHS, 'Ops:operation-failed', async () => {
+        throw new Error(message)
+      })
+
+    // Prose has spaces and trailing punctuation, unlike this repository's
+    // `PascalCase:kebab-segments` codes, so it must not reach an ops caller verbatim.
+    const prose = await failing(opsRequest('/apply', OPS_AUTH_TOKEN), 'The instrument catalog request timed out.')
+    expect(prose.status).toBe(500)
+    expect(await prose.json()).toEqual({ error: 'Ops:operation-failed' })
+  })
 })

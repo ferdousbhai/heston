@@ -6,6 +6,13 @@ type CloudflareSubtleCrypto = SubtleCrypto & {
 
 export type OpsEnv = AppEnv & { OPS_AUTH_TOKEN?: string }
 
+// This repository's error codes are a PascalCase identifier, optionally followed by
+// `:`-joined segments of letters, digits, `_`, `.`, or `-` (e.g.
+// 'InternalWatchlist:too-many-entries:123', 'TastytradeAuth:401'). A message outside
+// that shape is prose meant for a stack trace, not a code a caller should parse, and
+// may carry provider or request detail that must not leave the boundary.
+const OPS_FAILURE_CODE = /^[A-Za-z][A-Za-z0-9]*(?::[A-Za-z0-9_][A-Za-z0-9_.-]*)*$/
+
 async function authorizedOpsRequest(request: Request, expected: string | undefined): Promise<boolean> {
   const provided = request.headers.get('Authorization')?.match(/^Bearer (\S+)$/)?.[1]
   if (!expected || !provided) return false
@@ -43,6 +50,8 @@ export async function serveOpsRequest(
   try {
     return await handle(path)
   } catch (cause) {
-    return Response.json({ error: cause instanceof Error ? cause.message : failureCode }, { status: 500 })
+    const message = cause instanceof Error ? cause.message : undefined
+    const code = message !== undefined && OPS_FAILURE_CODE.test(message) ? message : failureCode
+    return Response.json({ error: code }, { status: 500 })
   }
 }
