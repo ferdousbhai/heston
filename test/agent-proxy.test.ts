@@ -279,4 +279,3 @@ esac
     expect(stdout).not.toContain('HestonAgentProxy: http://')
   }, 30_000)
 })
-
