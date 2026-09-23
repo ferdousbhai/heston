@@ -1,5 +1,5 @@
 import {
-  FreshOrderPlacementSchema,
+  parseFreshOrderPlacement,
   StoredOrderPlacementSchema,
   type FreshOrderPlacement,
   type OrderPlacement,
@@ -121,7 +121,7 @@ async function expandReplacement(
     credential,
   )
   assertReplaceableOrder(current, action.orderId, sourceResolved.payload)
-  const replacementOrder = FreshOrderPlacementSchema.parse({ ...source, limitPrice: action.limitPrice })
+  const replacementOrder = parseFreshOrderPlacement({ ...source, limitPrice: action.limitPrice })
   const replacementResolved = await resolveFreshOrder(env, replacementOrder)
   return {
     effectiveAction: replacementOrder,

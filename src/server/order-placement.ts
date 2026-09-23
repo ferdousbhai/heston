@@ -1,5 +1,5 @@
 import {
-  OrderPlacementSchema,
+  parseOrderPlacement,
   type FreshOrderPlacement,
   type OrderPlacement,
 } from './agent-contracts'
@@ -41,7 +41,7 @@ export async function placeBrokerageOrder(
 ): Promise<SubmissionReceipt> {
   if (!credential) throw new BrokerCredentialMissingError()
   if (!env.DB) throw new PortfolioRiskError('The brokerage submission store is unavailable.')
-  const action: OrderPlacement = OrderPlacementSchema.parse(untrustedAction)
+  const action: OrderPlacement = parseOrderPlacement(untrustedAction)
   // Placement has not moved behind the adapter -- it still writes tastytrade's own paths -- so
   // refuse another broker by name here. Today such a credential fails closed in the transport
   // anyway, but with a "connect a brokerage" message that would be actively misleading once a

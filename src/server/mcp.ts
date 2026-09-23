@@ -208,7 +208,7 @@ function createOrderTools(env: AppEnv, credential: BrokerCredential | undefined)
       // and the spec says to treat them as untrusted anyway -- they inform a confirmation
       // prompt, they are not one. What bounds the damage is the guard chain it runs.
       execute: async (params) => {
-        // SAFETY: `placeBrokerageOrder` re-parses its input with OrderPlacementSchema at the
+        // SAFETY: `placeBrokerageOrder` re-parses its input with `parseOrderPlacement` at the
         // trust boundary regardless of what the transport already checked.
         return textResult(await placeBrokerageOrder(env, params as never, credential))
       },
