@@ -50,7 +50,7 @@ const ACCEPTED_ORDER_RESPONSE = {
 function allowingGuards() {
   setTradeGuards({
     assertOrderMarketSafe: async () => ({ ask: 700, bid: 699, observedAt: new Date().toISOString(), tickSize: 0.01 }),
-    assertPortfolioActionAllowed: async () => ({ allowed: true, maxLoss: 700 }),
+    assertPortfolioActionAllowed: async () => ({ allowed: true }),
   })
 }
 

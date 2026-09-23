@@ -22,8 +22,6 @@ export const MAX_SEARCH_RESULTS = 20
 export const MAX_OPTION_EXPIRATIONS = 12
 export const MAX_OPTION_CONTRACTS = 60
 export const MAX_QUOTE_INSTRUMENTS = 10
-/** Market-data query bound: tastytrade names every OCC symbol in the URL. Same size as the equity snapshot chunk. */
-export const MAX_OPTION_ACTIVITY_CHUNK = 100
 // Provider-envelope ceilings are substantially wider than returned context. They reject
 // anomalous upstream fan-out before normalization allocates or processes arbitrary rows.
 export const MAX_SEARCH_ROWS = 200
@@ -36,7 +34,7 @@ export const EQUITY_SYMBOL = EQUITY_SYMBOL_REGEX
  */
 export const UNDERLYING_SYMBOL = /^\/?[A-Z0-9.]{1,31}$/
 
-/** The three reader-facing parts of the brokerage snapshot. `liveOrders` stays with the guard. */
+/** The three reader-facing parts of the brokerage snapshot. */
 export const ACCOUNT_SNAPSHOT_PARTS = ['balances', 'positions', 'orders'] as const
 export type AccountSnapshotPart = (typeof ACCOUNT_SNAPSHOT_PARTS)[number]
 
@@ -80,7 +78,7 @@ export const AccountHistoryReadParameters = Type.Object({
   type: StringEnum(['transactions', 'orders']),
   underlyingSymbol: Type.Optional(Type.String({
     maxLength: 32,
-    pattern: '^\\/?[A-Z0-9.]{1,31}$',
+    pattern: UNDERLYING_SYMBOL.source,
   })),
 }, { additionalProperties: false })
 
@@ -164,19 +162,6 @@ export type MarketMetricsReadResult = {
   missingSymbols: string[]
   source: 'tastytrade'
   volatilityUnit: 'percentage_points'
-}
-
-export type MarketStatusReadResult = {
-  asOf: string
-  closesAt?: string
-  extendedClosesAt?: string
-  instrumentCollection?: string
-  nextOpenAt?: string
-  opensAt?: string
-  previousCloseAt?: string
-  startsAt?: string
-  state: string
-  source: 'tastytrade'
 }
 
 export type SymbolSearchItem = {

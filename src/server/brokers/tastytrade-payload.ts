@@ -9,7 +9,7 @@ import {
   type JsonObject,
   type JsonValue,
 } from '../../domain/json-payload'
-import { type BrokerBalances, type BrokerWorkingOrder } from '../../domain/broker'
+import { BROKER_ORDER_ID_MAX_LENGTH, type BrokerBalances, type BrokerWorkingOrder } from '../../domain/broker'
 
 // Account reads request one large broker page. completeAccountRows rejects a reported
 // larger total or a full page without a total, so this is a completeness boundary.
@@ -71,7 +71,7 @@ export function isWorkingOrderRecord(row: JsonObject): boolean {
 
 function id(value: JsonValue): string | undefined {
   const parsed = jsonLooseText(value)
-  return parsed !== undefined && parsed.length <= 80 ? parsed : undefined
+  return parsed !== undefined && parsed.length <= BROKER_ORDER_ID_MAX_LENGTH ? parsed : undefined
 }
 
 function requiredNumber(row: JsonObject, field: string): number {

@@ -64,8 +64,6 @@ type ResolutionOptions = {
 
 export type ResolvedEquityOptionTuple = EquityOptionTuple & EquityOptionContract
 
-export type { EquityOptionTuple }
-
 /** Resolve one exact, standard, active contract without assuming its root equals the underlying. */
 export function equityOptionContractFromChainTuple(
   payload: JsonValue,

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { executeOrderPlacement } from '../src/server/brokerage'
 import { type AppEnv } from '../src/server/env'
 import { brokerCredential, stubBrokerGate, tastytradeBalances as balances } from './broker-stub'
-import { highWaterDb } from './fake-d1'
+import { untouchedDb } from './fake-d1'
 
 function secret(value: string): SecretsStoreSecret {
   return { get: async () => value }
@@ -38,7 +38,7 @@ describe('brokerage dispatch portfolio guard', () => {
     const brokerGate = stubBrokerGate()
     const env: AppEnv = {
       BROKER_GATE: brokerGate.namespace,
-      DB: highWaterDb(100_000),
+      DB: untouchedDb(),
       TASTYTRADE_CLIENT_SECRET: secret('client'),
       TASTYTRADE_REFRESH_TOKEN: secret('refresh'),
     }
@@ -72,7 +72,7 @@ describe('brokerage dispatch portfolio guard', () => {
     const brokerGate = stubBrokerGate()
     const env: AppEnv = {
       BROKER_GATE: brokerGate.namespace,
-      DB: highWaterDb(100_000),
+      DB: untouchedDb(),
       TASTYTRADE_CLIENT_SECRET: secret('client'),
       TASTYTRADE_REFRESH_TOKEN: secret('refresh'),
     }
@@ -108,7 +108,7 @@ describe('brokerage dispatch portfolio guard', () => {
     const brokerGate = stubBrokerGate()
     const env: AppEnv = {
       BROKER_GATE: brokerGate.namespace,
-      DB: highWaterDb(100_000),
+      DB: untouchedDb(),
       TASTYTRADE_CLIENT_SECRET: secret('client'),
       TASTYTRADE_REFRESH_TOKEN: secret('refresh'),
     }

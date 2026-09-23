@@ -11,7 +11,6 @@ import {
   MAX_CHAIN_ROWS,
   MAX_HISTORY_ITEMS,
   MAX_MARKET_SYMBOLS,
-  MAX_OPTION_ACTIVITY_CHUNK,
   MAX_OPTION_CONTRACTS,
   MAX_OPTION_EXPIRATIONS,
   MAX_QUOTE_INSTRUMENTS,
@@ -31,7 +30,6 @@ import {
   type InstrumentQuoteReadResult,
   type InstrumentQuoteReadInput,
   type MarketMetricsReadResult,
-  type MarketStatusReadResult,
   type OptionContractFindResult,
   type OptionContractFindInput,
   type SymbolSearchItem,
@@ -39,8 +37,8 @@ import {
 } from './brokerage-read-contracts'
 import { jsonObject, type JsonObject } from '../domain/json-payload'
 import { isValidIsoDate } from '../domain/iso-date'
+import { tupleKey } from '../domain/equity-option'
 import {
-  dataRecord,
   invalidResponse,
   itemEnvelope,
   optionalBoolean,
@@ -55,8 +53,14 @@ import {
 } from './brokerage-read-normalization'
 import { resolveEquityOptionTuples } from './option-contract'
 import { textResult } from './agent-tool-result'
-import { brokerApi } from './tastytrade'
-import { brokerAdapterFor, BrokerSnapshotError, UnknownBrokerError, type BrokerHistoryQuery } from './brokers'
+import { BROKER_SYMBOL_CHUNK_SIZE, brokerApi } from './tastytrade'
+import {
+  brokerAdapterFor,
+  BrokerSnapshotError,
+  describeSnapshotError,
+  UnknownBrokerError,
+  type BrokerHistoryQuery,
+} from './brokers'
 import { loadBrokerageContext } from './brokerage-context'
 import { BrokerCredentialMissingError, type BrokerCredential } from './broker-credential'
 
@@ -72,19 +76,6 @@ function assertInteger(value: number, minimum: number, maximum: number | undefin
     throw new Error(`${label} is invalid.`)
   }
   return value
-}
-
-function snapshotReadError(error: BrokerSnapshotError): Error {
-  if (error.part === 'positions') {
-    return new Error(error.stage === 'record'
-      ? 'The account snapshot found an unsupported position record.'
-      : `The account snapshot could not verify every open position: ${error.message}.`)
-  }
-  if (error.part === 'balances') {
-    return new Error(`The account snapshot could not verify balances: ${error.message}.`)
-  }
-  const label = error.part === 'orders' ? 'every ordinary live order' : 'every complex live order'
-  return new Error(`The account snapshot could not verify ${label}: ${error.message}.`)
 }
 
 function requestedSnapshotParts(include: AccountSnapshotReadInput['include']): readonly AccountSnapshotPart[] {
@@ -116,7 +107,7 @@ export async function readAccountSnapshot(
     context = await loadBrokerageContext(env, credential)
   } catch (error) {
     if (error instanceof BrokerCredentialMissingError || error instanceof UnknownBrokerError) throw error
-    if (error instanceof BrokerSnapshotError) throw snapshotReadError(error)
+    if (error instanceof BrokerSnapshotError) throw new Error(describeSnapshotError(error, 'The account snapshot'))
     throw new Error('The account snapshot could not be loaded.')
   }
   const result: AccountSnapshotReadResult = { asOf: context.asOf, source: context.source }
@@ -246,29 +237,6 @@ export async function readMarketMetrics(
   }
 }
 
-export async function readMarketStatus(env: AppEnv, now = new Date()): Promise<MarketStatusReadResult> {
-  const label = 'Tastytrade equity market status'
-  const session = dataRecord(await brokerApi().tastyRequest(env, '/market-time/equities/sessions/current'), label)
-  const next = session['next-session'] === undefined || session['next-session'] === null
-    ? undefined
-    : jsonObject(session['next-session']) ?? invalidResponse(label)
-  const previous = session['previous-session'] === undefined || session['previous-session'] === null
-    ? undefined
-    : jsonObject(session['previous-session']) ?? invalidResponse(label)
-  return {
-    asOf: now.toISOString(),
-    closesAt: optionalTimestamp(session, ['close-at'], label),
-    extendedClosesAt: optionalTimestamp(session, ['close-at-ext'], label),
-    instrumentCollection: optionalText(session, ['instrument-collection'], label, 64),
-    nextOpenAt: next ? optionalTimestamp(next, ['open-at'], label) : undefined,
-    opensAt: optionalTimestamp(session, ['open-at'], label),
-    previousCloseAt: previous ? optionalTimestamp(previous, ['close-at'], label) : undefined,
-    startsAt: optionalTimestamp(session, ['start-at'], label),
-    state: requiredText(session, ['state'], label, 32),
-    source: 'tastytrade',
-  }
-}
-
 function compactSearchItem(row: JsonObject): SymbolSearchItem {
   const label = 'Tastytrade symbol search'
   return {
@@ -317,7 +285,9 @@ export async function readInstrumentQuotes(
   now = new Date(),
 ): Promise<InstrumentQuoteReadResult> {
   const symbols = [...new Set((input.symbols ?? []).map((symbol) => symbol.trim().toUpperCase()))]
-  const contracts = input.contracts ?? []
+  // Two identical tuples resolve to one OCC symbol and one quote row; counted twice they read
+  // as a broker that answered short.
+  const contracts = [...new Map((input.contracts ?? []).map((contract) => [tupleKey(contract), contract])).values()]
   if ((!symbols.length && !contracts.length)
     || symbols.length + contracts.length > MAX_QUOTE_INSTRUMENTS
     || symbols.some((symbol) => !EQUITY_SYMBOL.test(symbol))
@@ -465,8 +435,8 @@ async function readOptionActivity(
   const activity = new Map<string, OptionActivity>()
   if (!symbols.length) return activity
   const label = 'Tastytrade option activity'
-  for (let start = 0; start < symbols.length; start += MAX_OPTION_ACTIVITY_CHUNK) {
-    const chunk = symbols.slice(start, start + MAX_OPTION_ACTIVITY_CHUNK)
+  for (let start = 0; start < symbols.length; start += BROKER_SYMBOL_CHUNK_SIZE) {
+    const chunk = symbols.slice(start, start + BROKER_SYMBOL_CHUNK_SIZE)
     const query = chunk.map((symbol) => `equity-option=${encodeURIComponent(symbol)}`).join('&')
     const envelope = itemEnvelope(
       await brokerApi().tastyRequest(env, `/market-data/by-type?${query}`),

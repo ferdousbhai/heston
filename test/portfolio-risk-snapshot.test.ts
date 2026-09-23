@@ -5,10 +5,10 @@ import { assertPortfolioActionAllowed } from '../src/server/portfolio-risk'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { type JsonValue } from '../src/domain/json-payload'
 import { brokerCredential, stubBroker, tastytradeBalances as balances } from './broker-stub'
-import { highWaterDb } from './fake-d1'
+import { untouchedDb } from './fake-d1'
 
 /**
- * The account context and the drawdown guard read one broker snapshot now. These pin the
+ * The account context and the portfolio guard read one broker snapshot. These pin the
  * union of what the two separate readers used to reject, and the guard's own wording for
  * each — those messages reach a member's agent.
  */
@@ -37,7 +37,7 @@ function respondWith(overrides: Overrides = {}) {
   })
 }
 
-function guard(env = { DB: highWaterDb(100_000) }, resolved = {}) {
+function guard(env = { DB: untouchedDb() }, resolved = {}) {
   return assertPortfolioActionAllowed(env, openEquityOrder, brokerCredential, resolved)
 }
 
@@ -49,9 +49,9 @@ beforeEach(() => {
 
 afterEach(() => resetBrokerApi())
 
-describe('drawdown guard over the merged account snapshot', () => {
+describe('portfolio guard over the merged account snapshot', () => {
   it('allows a bounded opening debit against a complete, long-only account', async () => {
-    await expect(guard()).resolves.toMatchObject({ allowed: true, maxLoss: 700 })
+    await expect(guard()).resolves.toMatchObject({ allowed: true })
   })
 
   it('names the incomplete read rather than under-reporting the account', async () => {
@@ -127,7 +127,7 @@ describe('live orders do not veto a new ticket', () => {
     await expect(guard()).resolves.toMatchObject({ allowed: true })
   })
 
-  it('still reports a complex live order whose children have all gone terminal', async () => {
+  it('lists no working order for a complex order whose children have all gone terminal', async () => {
     const complex = { data: { items: [{
       id: 'c1', status: 'Received',
       orders: [{ id: 'c1a', status: 'Filled', 'terminal-at': '2026-09-03T12:00:00Z' }],
@@ -137,6 +137,5 @@ describe('live orders do not veto a new ticket', () => {
     await expect(guard()).resolves.toMatchObject({ allowed: true })
     const context = await loadBrokerageContext({}, brokerCredential)
     expect(context.orders).toEqual([])
-    expect(context.liveOrders).toEqual([{ id: 'c1', source: 'complex' }])
   })
 })

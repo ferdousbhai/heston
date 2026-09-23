@@ -1,4 +1,5 @@
 import { type AppEnv } from './env'
+import { BROKER_ORDER_ID } from '../domain/broker'
 import {
   JsonObjectArraySchema,
   jsonObjectOrEmpty,
@@ -67,7 +68,7 @@ export function validateOrderResponse(payload: JsonValue, intended: OrderPayload
     throw new Error('TastytradeOrderResponse:echo-mismatch')
   }
   const id = order.id === undefined || order.id === null ? undefined : String(order.id)
-  return { id: id && /^\d{1,40}$/.test(id) ? id : undefined, warnings }
+  return { id: id && BROKER_ORDER_ID.test(id) ? id : undefined, warnings }
 }
 
 export class BrokerageSubmissionUnknownError extends OwnerVisibleError {
@@ -105,7 +106,7 @@ export function validateReplacementReceipt(
     const order = jsonObjectOrEmpty(body.data ?? body)
     const id = String(order.id ?? '')
     const record = tastytradeOrderRecord(order)
-    const exact = /^\d{1,40}$/.test(id)
+    const exact = BROKER_ORDER_ID.test(id)
       && record.replacesOrderId === replacedOrderId
       && echoesOrderPayload(record, intended)
     if (!exact) throw new Error('TastytradeReplacementResponse:echo-mismatch')

@@ -11,9 +11,10 @@ import { type AppEnv } from '../env'
 
 /**
  * Which of the four account reads a snapshot failed on, and whether it failed reading the
- * page itself or one record inside it. The drawdown guard turns this back into its own
- * owner-visible wording, so the distinction has to survive the adapter boundary rather
- * than collapsing into one opaque "the account could not be read".
+ * page itself or one record inside it. The portfolio guard and the account snapshot tool turn
+ * this into owner-visible wording through `describeSnapshotError`, so the distinction has to
+ * survive the adapter boundary rather than collapsing into one opaque "the account could not
+ * be read".
  */
 export type BrokerSnapshotPart = 'balances' | 'complex-orders' | 'orders' | 'positions'
 export type BrokerSnapshotStage = 'page' | 'record'
@@ -33,6 +34,22 @@ export class BrokerSnapshotError extends Error {
     super(detail)
     this.name = 'BrokerSnapshotError'
   }
+}
+
+/**
+ * How a caller names a snapshot it refuses to believe, in its own voice (`subject`). These
+ * messages reach a member's agent and are how an incomplete account read is told apart from a
+ * rejected trade, so each stays as specific as the part and stage allow.
+ */
+export function describeSnapshotError(error: BrokerSnapshotError, subject: string): string {
+  if (error.part === 'positions') {
+    return error.stage === 'record'
+      ? `${subject} found an unsupported position record.`
+      : `${subject} could not verify every open position: ${error.message}.`
+  }
+  if (error.part === 'balances') return `${subject} could not verify balances: ${error.message}.`
+  const label = error.part === 'orders' ? 'every ordinary live order' : 'every complex live order'
+  return `${subject} could not verify ${label}: ${error.message}.`
 }
 
 /**
@@ -69,8 +86,8 @@ export interface BrokerHistoryQuery {
 }
 
 /**
- * Every account READ Heston performs against a brokerage. Order placement is deliberately
- * absent: it still lives in `brokerage.ts` behind its own guards.
+ * Every account read and cancellation Heston performs against a brokerage. Order placement is
+ * deliberately absent: it still lives in `brokerage.ts` behind its own guards.
  *
  * Each method takes the request-scoped credential explicitly. No adapter may hold, cache,
  * or persist one, and an adapter that cannot work without a stored long-lived credential
@@ -117,13 +134,6 @@ export interface BrokerAdapter {
     options: { startDate: string },
     credential: BrokerCredential | undefined,
   ): Promise<BrokerOrderHistoryPage>
-
-  /**
-   * Held equity symbols, for the one-time watchlist bootstrap only. It resolves its own
-   * account because it runs before any caller has a ref, and there is no recurring
-   * position sync for it to belong to.
-   */
-  readPositionSymbols(env: AppEnv, credential: BrokerCredential | undefined): Promise<string[]>
 
   /** The single account the credential grants; more than one is refused, never guessed. */
   resolveAccountRef(

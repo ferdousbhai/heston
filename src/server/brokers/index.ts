@@ -35,6 +35,7 @@ export function brokerAdapterFor(credential: BrokerCredential | undefined): Brok
 export {
   BrokerCancellationAmbiguousError,
   BrokerSnapshotError,
+  describeSnapshotError,
   UnknownBrokerError,
   type BrokerAdapter,
   type BrokerHistoryQuery,

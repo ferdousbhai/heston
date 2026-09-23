@@ -43,15 +43,9 @@ export function d1Result<T>(results: T[], changes = 0): D1Result<T> {
 }
 
 /**
- * The one row the drawdown guard reads: `portfolio_risk_state.high_water_nlv`. Every other
- * query on this database throws, so a reader that strays off that path fails loudly.
+ * A database the portfolio guard must never touch: it reads no D1 state, only the broker
+ * snapshot. Every call on this throws, so a guard that starts reading one fails loudly.
  */
-export function highWaterDb(value: number): D1Database {
-  const statement = {
-    ...unsupportedStatement(),
-    bind: (): D1PreparedStatement => statement,
-    run: async () => d1Result([], 1),
-    first: async () => ({ high_water_nlv: value }),
-  }
-  return { ...unsupportedDatabase(), prepare: vi.fn(() => statement) }
+export function untouchedDb(): D1Database {
+  return { ...unsupportedDatabase(), prepare: vi.fn(unsupported) }
 }

@@ -5,7 +5,6 @@ import {
   type BrokerHistoryOrder,
   type BrokerHistoryOrderLeg,
   type BrokerHistoryTransaction,
-  type BrokerLiveOrderRow,
   type BrokerOrderHistoryPage,
   type BrokerOrderRecord,
   type BrokerOrderRecordLeg,
@@ -13,8 +12,6 @@ import {
   type BrokerWorkingOrder,
 } from '../../domain/broker'
 import {
-  envelopeRows,
-  envelopeTotalItems,
   JsonArraySchema,
   jsonLooseText,
   jsonNumber,
@@ -36,9 +33,8 @@ import {
   requiredText,
   requiredTimestamp,
 } from '../brokerage-read-normalization'
-import { BrokerCredentialMissingError, type BrokerCredential } from '../broker-credential'
+import { type BrokerCredential } from '../broker-credential'
 import { type AppEnv } from '../env'
-import { activeEquityPositionSymbols, strictTastytradeRows } from '../tastytrade-market-normalization'
 import { brokerApi } from '../tastytrade'
 import {
   BrokerCancellationAmbiguousError,
@@ -51,11 +47,10 @@ import {
   accountBalancesFromPayload,
   BROKER_ACCOUNT_PAGE_SIZE,
   completeAccountRows,
-  isWorkingOrderRecord,
   workingOrderRecords,
 } from './tastytrade-payload'
 
-// The reconciliation history request asks for one page this wide; `orderHistoryPage`
+// The reconciliation history request asks for one page this wide; `readOrderHistory`
 // treats a page that did not fill as the whole history, so this is the completeness
 // boundary for deciding that an ambiguous submission never reached the broker.
 const RECONCILIATION_HISTORY_PAGE_SIZE = 100
@@ -70,8 +65,9 @@ function detail(cause: unknown): string {
 
 /**
  * `completeAccountRows` names its own failure (`TastytradeAccount:incomplete-positions`
- * and friends). Those names reach an owner-visible message through the drawdown guard, so
- * they are carried verbatim and only tagged with which read they came from.
+ * and friends). Those names reach an owner-visible message through the portfolio guard and
+ * the account snapshot tool, so they are carried verbatim and only tagged with which read
+ * they came from.
  */
 function accountRows(payload: JsonValue, part: BrokerSnapshotPart, label: string): JsonObject[] {
   try {
@@ -130,39 +126,21 @@ function expandedOrders(rows: readonly JsonObject[], part: BrokerSnapshotPart): 
   }
 }
 
-function liveOrderRows(rows: readonly JsonObject[], source: BrokerLiveOrderRow['source']): BrokerLiveOrderRow[] {
-  // `String(row.id ?? '')` rather than a parse: this id is only ever compared against the
-  // order id a replacement is allowed to ignore, and an unreadable id must not silently
-  // become a match for it.
-  return rows.filter(isWorkingOrderRecord).map((row) => ({ id: String(row.id ?? ''), source }))
-}
-
-function normalizedOrders(
-  ordinaryPayload: JsonValue,
-  complexPayload: JsonValue,
-): Pick<BrokerAccountSnapshot, 'liveOrders' | 'orders'> {
-  const ordinaryRows = accountRows(ordinaryPayload, 'orders', 'orders')
-  const complexRows = accountRows(complexPayload, 'complex-orders', 'complex-orders')
+function normalizedOrders(ordinaryPayload: JsonValue, complexPayload: JsonValue): BrokerWorkingOrder[] {
   const expanded = [
-    ...expandedOrders(ordinaryRows, 'orders'),
-    ...expandedOrders(complexRows, 'complex-orders'),
+    ...expandedOrders(accountRows(ordinaryPayload, 'orders', 'orders'), 'orders'),
+    ...expandedOrders(accountRows(complexPayload, 'complex-orders', 'complex-orders'), 'complex-orders'),
   ]
-  return {
-    liveOrders: [
-      ...liveOrderRows(ordinaryRows, 'ordinary'),
-      ...liveOrderRows(complexRows, 'complex'),
-    ],
-    orders: [...new Map(expanded.map((order) => [order.id, order])).values()],
-  }
+  return [...new Map(expanded.map((order) => [order.id, order])).values()]
 }
 
 async function resolveAccountRef(
   env: AppEnv,
   credential: BrokerCredential | undefined,
 ): Promise<BrokerAccountRef> {
-  // Account discovery stays on the `brokerApi()` transport seam beside `tastyRequest`,
-  // because order placement — which this chunk deliberately does not move — still reaches
-  // for it there. The adapter owns the ref shape every account reader above it uses.
+  // Account discovery stays on the `brokerApi()` transport seam beside `tastyRequest`, because
+  // order placement still reaches for it there. The adapter owns the ref shape every account
+  // reader above it uses.
   return { accountNumber: await brokerApi().resolveAccountNumber(env, credential), broker: 'tastytrade' }
 }
 
@@ -190,8 +168,10 @@ async function loadAccountSnapshot(
   return {
     asOf: new Date().toISOString(),
     balances,
+    // Positions are read first so the failure a caller sees is the same whichever of the
+    // pages is also malformed.
     positions: normalizedPositions(positionPayload),
-    ...normalizedOrders(orderPayload, complexOrderPayload),
+    orders: normalizedOrders(orderPayload, complexOrderPayload),
   }
 }
 
@@ -383,13 +363,6 @@ async function cancelOrder(
   }
 }
 
-/** Whether the broker claimed a total at all, as opposed to one we could not read. */
-function declaresTotalItems(payload: JsonValue): boolean {
-  const body = jsonObject(payload)
-  const pagination = jsonObject(body?.pagination) ?? jsonObject(jsonObject(body?.data)?.pagination)
-  return pagination?.['total-items'] !== undefined
-}
-
 async function readOrderHistory(
   env: AppEnv,
   ref: BrokerAccountRef,
@@ -403,40 +376,14 @@ async function readOrderHistory(
     {},
     credential,
   )
-  const candidate = envelopeRows(payload)
-  if (!candidate || candidate.length > RECONCILIATION_HISTORY_PAGE_SIZE) {
-    throw new Error('TastytradeReconciliation:invalid-history')
-  }
-  const rows = candidate.map((value) => {
-    const row = jsonObject(value)
-    if (!row) throw new Error('TastytradeReconciliation:invalid-history')
-    return row
-  })
+  const { rows, totalItems } = itemEnvelope(payload, 'Tastytrade order history', RECONCILIATION_HISTORY_PAGE_SIZE)
   // The history request asks for a full page, so a page that did not fill is the whole
-  // history. A broker that reports a total we cannot read is not evidence of completeness:
-  // staying incomplete keeps an ambiguous mutation quarantined rather than concluding the
-  // order is absent.
-  const total = envelopeTotalItems(payload)
-  const complete = total !== undefined
-    ? total <= rows.length
-    : !declaresTotalItems(payload) && rows.length < RECONCILIATION_HISTORY_PAGE_SIZE
+  // history. A declared total decides instead; one that cannot be read has already failed
+  // above, which keeps an ambiguous mutation quarantined rather than concluding it is absent.
+  const complete = totalItems !== undefined
+    ? totalItems <= rows.length
+    : rows.length < RECONCILIATION_HISTORY_PAGE_SIZE
   return { complete, orders: rows.map(tastytradeOrderRecord) }
-}
-
-/** Fetch position identity before the one-time D1 finalization mutates live rows. */
-export async function loadOwnerPositionSymbols(
-  env: AppEnv,
-  credential?: BrokerCredential,
-): Promise<string[]> {
-  if (!credential) throw new BrokerCredentialMissingError()
-  const ref = await resolveAccountRef(env, credential)
-  const payload = await brokerApi().tastyRequest(
-    env,
-    `/accounts/${segment(ref.accountNumber)}/positions`,
-    {},
-    credential,
-  )
-  return activeEquityPositionSymbols(strictTastytradeRows(payload, 'TastytradePositions'))
 }
 
 export const tastytradeAdapter: BrokerAdapter = {
@@ -446,6 +393,5 @@ export const tastytradeAdapter: BrokerAdapter = {
   readAccountHistory,
   readOrder,
   readOrderHistory,
-  readPositionSymbols: loadOwnerPositionSymbols,
   resolveAccountRef,
 }

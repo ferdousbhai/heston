@@ -4,6 +4,7 @@ import { Compile } from 'typebox/compile'
 
 import {
   EquityOptionTupleSchema,
+  tupleKey,
   type EquityOptionTuple,
 } from '../domain/equity-option'
 import { isValidIsoDate } from '../domain/iso-date'
@@ -47,10 +48,6 @@ export type ExactOptionGreeksReadResult = {
   }>
   impliedVolatilityUnit: 'decimal_ratio'
   source: 'tastytrade-dxlink'
-}
-
-function tupleKey(tuple: EquityOptionTuple): string {
-  return `${tuple.underlying}|${tuple.expiry}|${tuple.optionType}|${tuple.strike}`
 }
 
 /** Resolve exact broker instruments server-side, then ask the shared MarketFeed DO for live Greeks. */

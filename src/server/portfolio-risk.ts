@@ -3,7 +3,7 @@ import { type AppEnv } from './env'
 import { OwnerVisibleError } from './owner-visible-error'
 import { resolveEquityOptionContract, type EquityOptionContract } from './option-contract'
 import { type BrokerAccountRef, type BrokerAccountSnapshot } from '../domain/broker'
-import { brokerAdapterFor, BrokerSnapshotError } from './brokers'
+import { brokerAdapterFor, BrokerSnapshotError, describeSnapshotError } from './brokers'
 import { BrokerCredentialMissingError, type BrokerCredential } from './broker-credential'
 
 interface RiskPosition {
@@ -19,7 +19,6 @@ interface RiskAccount {
 
 export interface PortfolioActionAssessment {
   allowed: boolean
-  maxLoss: number
   reason?: string
 }
 
@@ -28,26 +27,6 @@ export class PortfolioRiskError extends OwnerVisibleError {
     super('portfolio-risk', message)
     this.name = 'PortfolioRiskError'
   }
-}
-
-/**
- * The portfolio guard's own wording for a snapshot it refuses to believe. The adapter reports
- * which of the four account reads failed and whether the page or a record inside it was
- * unreadable, so each of these stays as specific as it was when the guard did its own
- * parsing — these messages reach a member's agent and are how an incomplete account read is
- * told apart from a rejected trade.
- */
-function riskError(error: BrokerSnapshotError): PortfolioRiskError {
-  if (error.part === 'positions') {
-    return new PortfolioRiskError(error.stage === 'record'
-      ? 'The portfolio guard found an unsupported position record.'
-      : `The portfolio guard could not verify every open position: ${error.message}.`)
-  }
-  if (error.part === 'balances') {
-    return new PortfolioRiskError(`The portfolio guard could not verify balances: ${error.message}.`)
-  }
-  const label = error.part === 'orders' ? 'every ordinary live order' : 'every complex live order'
-  return new PortfolioRiskError(`The portfolio guard could not verify ${label}: ${error.message}.`)
 }
 
 async function loadRiskAccount(
@@ -62,7 +41,9 @@ async function loadRiskAccount(
     if (error instanceof BrokerCredentialMissingError) throw error
     // A BrokerSnapshotError means the broker answered something the adapter refuses to
     // believe; anything else means it would not answer at all.
-    if (error instanceof BrokerSnapshotError) throw riskError(error)
+    if (error instanceof BrokerSnapshotError) {
+      throw new PortfolioRiskError(describeSnapshotError(error, 'The portfolio guard'))
+    }
     throw new PortfolioRiskError('The portfolio guard could not refresh the complete brokerage account.')
   }
   const { netLiquidatingValue, cashBalance } = snapshot.balances
@@ -102,33 +83,40 @@ export function assessPortfolioAction(
     && (action.action === 'Sell to Close' || action.action === 'Buy to Close')
   if (isClose) {
     if (!closingPosition(action, account, optionContracts[0])) {
-      return { maxLoss: 0, allowed: false, reason: 'The requested close is larger than the verified matching position.' }
+      return { allowed: false, reason: 'The requested close is larger than the verified matching position.' }
     }
     if (action.action === 'Sell to Close' && account.positions.some(unsupportedOpeningPosition)) {
-      return { maxLoss: 0, allowed: false, reason: 'This account will not remove long collateral or protection while unsupported short exposure remains.' }
+      return { allowed: false, reason: 'This account will not remove long collateral or protection while unsupported short exposure remains.' }
     }
-    return { maxLoss: 0, allowed: true }
+    return { allowed: true }
   }
   if (action.kind !== 'place_vertical_spread_order'
     && (action.action !== 'Buy to Open' || action.priceEffect !== 'Debit')) {
-    return { maxLoss: Number.POSITIVE_INFINITY, allowed: false, reason: 'This account will not open a naked or unbounded short position.' }
+    return { allowed: false, reason: 'This account will not open a naked or unbounded short position.' }
   }
   if (account.positions.some(unsupportedOpeningPosition)) {
-    return { maxLoss: Number.POSITIVE_INFINITY, allowed: false, reason: 'Existing short, futures, or unsupported exposure prevents a contractually bounded portfolio floor.' }
+    return { allowed: false, reason: 'Existing short, futures, or unsupported exposure prevents bounding the loss of a new position.' }
   }
   const multiplier = action.kind === 'place_equity_order' ? 1 : optionContracts[0]?.sharesPerContract
   if (multiplier === undefined || !Number.isFinite(multiplier) || multiplier <= 0) {
-    return { maxLoss: Number.POSITIVE_INFINITY, allowed: false, reason: 'The option contract multiplier could not be verified.' }
+    return { allowed: false, reason: 'The option contract multiplier could not be verified.' }
   }
   // The limit is the debit. Buying power is the broker dry-run, not a second cash floor.
-  return { allowed: true, maxLoss: action.quantity * action.limitPrice * multiplier }
+  return { allowed: true }
 }
 
+/**
+ * The portfolio guard. Against a fresh, completeness-checked snapshot (positive net liquidation
+ * value, non-negative cash, every position and live-order page complete), it admits a close
+ * only up to the verified matching position, and an open only as a debit Buy to Open or debit
+ * vertical while the account holds nothing short, futures, or otherwise unsupported. It does
+ * not size the trade: the limit is the debit and the broker dry-run is the buying-power check.
+ */
 export async function assertPortfolioActionAllowed(
   env: AppEnv,
   action: FreshOrderPlacement,
   credential: BrokerCredential | undefined,
-  resolved: { accountNumber?: string; ignoredOrderId?: string; optionContracts?: readonly EquityOptionContract[] } = {},
+  resolved: { accountNumber?: string; optionContracts?: readonly EquityOptionContract[] } = {},
 ): Promise<PortfolioActionAssessment> {
   const adapter = brokerAdapterFor(credential)
   const ref = resolved.accountNumber

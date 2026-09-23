@@ -13,3 +13,8 @@ export const EquityOptionTupleSchema = Type.Object({
 }, { additionalProperties: false })
 
 export type EquityOptionTuple = Static<typeof EquityOptionTupleSchema>
+
+/** One key per exact contract, so duplicate tuples collapse before they reach the broker. */
+export function tupleKey(tuple: EquityOptionTuple): string {
+  return `${tuple.underlying}|${tuple.expiry}|${tuple.optionType}|${tuple.strike}`
+}

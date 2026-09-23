@@ -75,7 +75,7 @@ const USER_AGENT = 'Heston/0.1'
 // tastytrade names every requested symbol in the query string. This is the symbol count
 // one such request carries, and it is deliberately independent of how long the
 // watchlist grows: the list is paged into requests, never sent as one URL.
-const BROKER_SYMBOL_CHUNK_SIZE = 100
+export const BROKER_SYMBOL_CHUNK_SIZE = 100
 // Provider JSON is buffered for strict parsing; stay within the Worker isolate memory budget
 // while allowing the catalog endpoints, which are substantially larger than normal reads.
 const MAX_TASTYTRADE_RESPONSE_BYTES = 16 * 1024 * 1024

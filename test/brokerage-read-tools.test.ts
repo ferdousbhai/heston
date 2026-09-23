@@ -7,7 +7,6 @@ import {
   readAccountHistory,
   readAccountSnapshot,
   readMarketMetrics,
-  readMarketStatus,
   readInstrumentQuotes,
   searchSymbols,
 } from '../src/server/brokerage-read-tools'
@@ -341,31 +340,6 @@ describe('brokerage read tools', () => {
     await expect(readMarketMetrics({}, ['NVDA'], now)).rejects.toThrow('invalid response')
   })
 
-  it('normalizes the current equity session', async () => {
-    tastytrade.tastyRequest.mockResolvedValue({ data: {
-      state: 'Open',
-      'instrument-collection': 'Equity',
-      'open-at': '2026-08-13T13:30:00.000Z',
-      'close-at': '2026-08-13T20:00:00.000Z',
-      'close-at-ext': '2026-08-14T00:00:00.000Z',
-      'next-session': { 'open-at': '2026-08-14T13:30:00.000Z' },
-      'previous-session': { 'close-at': '2026-08-12T20:00:00.000Z' },
-    } })
-
-    await expect(readMarketStatus({}, now)).resolves.toEqual({
-      asOf: now.toISOString(),
-      closesAt: '2026-08-13T20:00:00.000Z',
-      extendedClosesAt: '2026-08-14T00:00:00.000Z',
-      instrumentCollection: 'Equity',
-      nextOpenAt: '2026-08-14T13:30:00.000Z',
-      opensAt: '2026-08-13T13:30:00.000Z',
-      previousCloseAt: '2026-08-12T20:00:00.000Z',
-      source: 'tastytrade',
-      startsAt: undefined,
-      state: 'Open',
-    })
-  })
-
   it('bounds and compacts symbol search results', async () => {
     tastytrade.tastyRequest.mockResolvedValue({ data: { items: [
       { symbol: 'AAPL', description: 'Apple Inc.', options: true, 'instrument-type': 'Equity', 'listed-market': 'NASDAQ' },
@@ -609,6 +583,30 @@ describe('brokerage read tools', () => {
       source: 'tastytrade-rest-market-data',
       quotes: [{ bid: 3.1, ask: 3.3, mid: 3.2, underlying: 'AAPL' }],
     })
+    expect(tastytrade.tastyRequest).toHaveBeenCalledWith(
+      {}, '/market-data/by-type?equity-option=AAPL%20%20260918C00200000',
+    )
+  })
+
+  it('collapses duplicate option tuples instead of blaming the broker for one quote row', async () => {
+    tastytrade.tastyRequest.mockImplementation((_env, path: string) => {
+      if (path === '/option-chains/AAPL') return Promise.resolve({ data: { items: [{
+        active: true, 'expiration-date': '2026-09-18', 'instrument-type': 'Equity Option',
+        'is-closing-only': false, 'option-chain-type': 'Standard', 'option-type': 'C',
+        'shares-per-contract': 100, 'strike-price': '200', symbol: 'AAPL  260918C00200000',
+        'underlying-symbol': 'AAPL',
+      }] } })
+      if (path.startsWith('/market-data/by-type?')) return Promise.resolve({ data: { items: [{
+        symbol: 'AAPL  260918C00200000', instrumentType: 'Equity Option',
+        bid: 3.1, ask: 3.3, updatedAt: '2026-08-13T11:59:59.000Z',
+      }] } })
+      throw new Error(`Unexpected path ${path}`)
+    })
+    const contract = { underlying: 'AAPL', expiry: '2026-09-18', optionType: 'C' as const, strike: 200 }
+
+    const result = await readInstrumentQuotes({}, { contracts: [contract, { ...contract }] }, now)
+
+    expect(result.quotes).toHaveLength(1)
     expect(tastytrade.tastyRequest).toHaveBeenCalledWith(
       {}, '/market-data/by-type?equity-option=AAPL%20%20260918C00200000',
     )

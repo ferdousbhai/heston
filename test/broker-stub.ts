@@ -42,7 +42,7 @@ export const stubBrokerCredential = {
 
 /**
  * The tastytrade `/balances` payload as the provider sends it: strings, kebab-case keys. Shared
- * because the account context and the drawdown guard both read this one shape.
+ * because the account context and the portfolio guard both read this one shape.
  */
 export const tastytradeBalances = {
   'available-trading-funds': '64000',
@@ -102,7 +102,6 @@ const stubSnapshot: BrokerAccountSnapshot = {
     equityBuyingPower: 128_000,
     netLiquidatingValue: 100_000,
   },
-  liveOrders: [],
   orders: [],
   positions: [{
     direction: 'Long', instrumentType: 'Equity', quantity: 10, symbol: 'SPY', underlying: 'SPY',
@@ -142,10 +141,6 @@ export function stubAdapter(): BrokerAdapter & { calls: string[] } {
     readOrderHistory: async (): Promise<BrokerOrderHistoryPage> => {
       calls.push('readOrderHistory')
       return { complete: true, orders: [] }
-    },
-    readPositionSymbols: async () => {
-      calls.push('readPositionSymbols')
-      return []
     },
     resolveAccountRef: async (): Promise<BrokerAccountRef> => {
       calls.push('resolveAccountRef')

@@ -17,7 +17,7 @@ describe('portfolio action boundary', () => {
     expect(assessPortfolioAction(spread, longOnlyAccount, [
       { symbol: 'long', sharesPerContract: 100 },
       { symbol: 'short', sharesPerContract: 100 },
-    ])).toMatchObject({ allowed: true, maxLoss: 600 })
+    ])).toEqual({ allowed: true })
   })
   it('allows a bounded debit: the limit is the loss, not a cash-vs-peak-NLV floor', () => {
     const action: Extract<OrderPlacement, { kind: 'place_option_order' }> = {
@@ -27,12 +27,12 @@ describe('portfolio action boundary', () => {
     }
     expect(assessPortfolioAction(action, longOnlyAccount, [{
       symbol: 'SPY   260918C00700000', sharesPerContract: 100,
-    }])).toMatchObject({ allowed: true, maxLoss: 1_000 })
+    }])).toEqual({ allowed: true })
 
     const larger = { ...action, quantity: 6 }
     expect(assessPortfolioAction(larger, longOnlyAccount, [{
       symbol: 'SPY   260918C00700000', sharesPerContract: 100,
-    }])).toMatchObject({ allowed: true, maxLoss: 6_000 })
+    }])).toEqual({ allowed: true })
   })
 
   it('rejects naked openings and portfolios whose downside is not contractually bounded', () => {

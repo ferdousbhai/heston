@@ -29,7 +29,6 @@ while true; do
   catalog_complete="$(catalog_field complete <<<"$catalog_result")"
   if [[ "$catalog_complete" == 'true' ]]; then
     if [[ "$ops_mode" == 'apply' ]]; then
-      temporary_worker_call finalize
       temporary_worker_call sync
     fi
     exit 0

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { BROKER_ORDER_ID } from '../domain/broker'
 import { EquitySymbolSchema } from '../domain/instrument'
 import { ISO_DATE_REGEX } from '../domain/iso-date'
 import { zodTypeBoxSchema } from './zod-typebox'
@@ -12,7 +13,7 @@ import {
 /** Exact tastytrade leg actions, as the order placement contract advertises them. */
 const OrderLegActionSchema = z.enum(['Buy to Open', 'Sell to Open', 'Buy to Close', 'Sell to Close'])
 
-const OrderIdSchema = z.string().regex(/^\d{1,40}$/)
+const OrderIdSchema = z.string().regex(BROKER_ORDER_ID)
 const ExpiryDateSchema = z.string().regex(ISO_DATE_REGEX)
 /** Limit prices are whole cents; the broker rejects finer increments. */
 const LimitPriceSchema = z.number().positive().multipleOf(0.01)

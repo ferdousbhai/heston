@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
+import { type JsonValue } from '../src/domain/json-payload'
+
 import {
   brokerAdapterFor,
   resetBrokerAdapters,
@@ -16,8 +18,9 @@ import {
   STUB_BROKER_ID,
   stubBrokerCredential,
   stubAdapter,
+  stubBroker,
 } from './broker-stub'
-import { highWaterDb } from './fake-d1'
+import { untouchedDb } from './fake-d1'
 
 /**
  * Every tastytrade entry point, wired to fail. Installed for the stub-adapter run so the seam
@@ -65,11 +68,11 @@ describe('broker adapter seam', () => {
       positions: [{ symbol: 'SPY' }],
     })
 
-    const assessment = await assertPortfolioActionAllowed({ DB: highWaterDb(100_000) }, {
+    const assessment = await assertPortfolioActionAllowed({ DB: untouchedDb() }, {
       kind: 'place_equity_order', symbol: 'SPY', action: 'Buy to Open',
       quantity: 1, limitPrice: 700, priceEffect: 'Debit',
     }, stubBrokerCredential)
-    expect(assessment).toMatchObject({ allowed: true, maxLoss: 700 })
+    expect(assessment).toMatchObject({ allowed: true })
 
     const history = await readAccountHistory({}, { type: 'transactions' }, stubBrokerCredential)
     expect(history).toMatchObject({ source: STUB_BROKER_ID, totalItemCount: 1, truncated: false })
@@ -112,5 +115,31 @@ describe('registered adapters', () => {
   it('routes a tastytrade credential to the tastytrade adapter', () => {
     expect(brokerAdapterFor(brokerCredential)).toBe(tastytradeAdapter)
     expect(tastytradeAdapter.id).toBe('tastytrade')
+  })
+})
+
+describe('tastytrade order history for reconciliation', () => {
+  afterEach(() => resetBrokerApi())
+
+  const history = (payload: JsonValue) => {
+    const broker = stubBroker()
+    broker.tastyRequest.mockResolvedValue(payload)
+    setBrokerApi(broker)
+    return tastytradeAdapter.readOrderHistory(
+      {}, { accountNumber: 'TEST123', broker: 'tastytrade' }, { startDate: '2026-09-01' }, brokerCredential,
+    )
+  }
+
+  it('treats a short page or a covering total as the whole history', async () => {
+    await expect(history({ data: { items: [] } })).resolves.toEqual({ complete: true, orders: [] })
+    await expect(history({ data: { items: [] }, pagination: { 'total-items': 0 } }))
+      .resolves.toEqual({ complete: true, orders: [] })
+    await expect(history({ data: { items: [] }, pagination: { 'total-items': 3 } }))
+      .resolves.toEqual({ complete: false, orders: [] })
+  })
+
+  it('refuses a declared total it cannot read rather than guessing completeness', async () => {
+    await expect(history({ data: { items: [] }, pagination: { 'total-items': null } })).rejects.toThrow('invalid response')
+    await expect(history({ data: { items: [] }, pagination: { 'total-items': 'many' } })).rejects.toThrow('invalid response')
   })
 })

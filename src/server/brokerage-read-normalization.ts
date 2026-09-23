@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { BROKER_ORDER_ID_MAX_LENGTH } from '../domain/broker'
 import { isValidIsoDate } from '../domain/iso-date'
 import { envelopeRows, jsonNumber, jsonObject, type JsonObject, type JsonValue } from '../domain/json-payload'
 
@@ -22,17 +23,12 @@ export function itemEnvelope(payload: JsonValue, label: string, maximumRows: num
   const rawPagination = body?.pagination ?? data?.pagination
   if (rawPagination === undefined || rawPagination === null) return { rows }
   const pagination = jsonObject(rawPagination) ?? invalidResponse(label)
-  const rawTotal = pagination['total-items']
-  if (rawTotal === undefined || rawTotal === null) return { rows }
-  const totalItems = finiteNumber(rawTotal, label)
+  // A total the broker declared but that cannot be read is not the same fact as no total:
+  // callers decide completeness from it, so it fails rather than reading as absent.
+  if (!Object.hasOwn(pagination, 'total-items')) return { rows }
+  const totalItems = finiteNumber(pagination['total-items'], label)
   if (!Number.isSafeInteger(totalItems) || totalItems < 0) return invalidResponse(label)
   return { rows, totalItems }
-}
-
-export function dataRecord(payload: JsonValue, label: string): JsonObject {
-  const body = jsonObject(payload) ?? invalidResponse(label)
-  const rawData = body.data ?? body
-  return jsonObject(rawData) ?? invalidResponse(label)
 }
 
 export function optionalText(
@@ -114,7 +110,7 @@ export function requiredIdentifier(row: JsonObject, key: string, label: string):
   const numeric = z.number().safeParse(value).data
   if (numeric !== undefined && Number.isSafeInteger(numeric)) return String(numeric)
   const normalized = BrokerTextSchema.safeParse(value).data?.trim()
-  if (normalized && normalized.length <= 64) return normalized
+  if (normalized && normalized.length <= BROKER_ORDER_ID_MAX_LENGTH) return normalized
   return invalidResponse(label)
 }
 

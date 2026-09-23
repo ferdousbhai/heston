@@ -74,11 +74,9 @@ describe('request-scoped broker credential', () => {
       previewInternalWatchlistFromTastytrade,
       seedInternalWatchlistFromTastytrade,
     } = await import('../src/server/tastytrade')
-    const { loadOwnerPositionSymbols } = await import('../src/server/brokers/tastytrade')
     const { BrokerCredentialMissingError } = await import('../src/server/broker-credential')
 
     for (const operation of [
-      loadOwnerPositionSymbols,
       previewInternalWatchlistFromTastytrade,
       seedInternalWatchlistFromTastytrade,
     ]) {

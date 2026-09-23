@@ -17,6 +17,16 @@ export const BrokerIdSchema = z.enum(['tastytrade'])
 
 export type BrokerId = z.infer<typeof BrokerIdSchema>
 
+/**
+ * The longest broker order or record id Heston accepts. tastytrade issues these as integers, and
+ * 40 characters holds the decimal form of any 128-bit value (39 digits) with room to spare; the
+ * bound exists so an id read from a broker or a model cannot carry a payload into a URL path,
+ * a stored row, or model context. Reads that report what the broker wrote apply the length;
+ * ids Heston sends or trusts as an order's identity must also be all digits.
+ */
+export const BROKER_ORDER_ID_MAX_LENGTH = 40
+export const BROKER_ORDER_ID = new RegExp(`^\\d{1,${BROKER_ORDER_ID_MAX_LENGTH}}$`)
+
 /** The one account a presented credential resolves to. */
 export interface BrokerAccountRef {
   accountNumber: string
@@ -63,29 +73,13 @@ export interface BrokerWorkingOrder {
 }
 
 /**
- * One live order row exactly as the broker listed it, before complex orders are expanded
- * into their child legs and duplicate ids are collapsed. The drawdown guard counts these
- * rather than `BrokerAccountSnapshot.orders`, because expansion can erase a complex order
- * whose children have all gone terminal while the order itself still occupies the account.
- */
-export interface BrokerLiveOrderRow {
-  /** The broker's own row id, stringified; empty when the row carried none. */
-  id: string
-  source: 'complex' | 'ordinary'
-}
-
-/**
- * The snapshot carries orders twice on purpose.
- *
- * `orders` expands complex orders into their legs and dedupes them, which is what a reader
- * wants. Expansion can erase a complex order whose children have all gone terminal while the
- * order itself still occupies the account. `liveOrders` is the rows as the broker listed them,
- * which is the only faithful answer to "is anything still working".
+ * One completeness-checked account read. `orders` expands complex orders into their working
+ * legs and dedupes them by id; the portfolio guard refuses the whole snapshot when any of the
+ * position, balance, or live-order pages cannot be shown to be complete.
  */
 export interface BrokerAccountSnapshot {
   asOf: string
   balances: BrokerBalances
-  liveOrders: BrokerLiveOrderRow[]
   orders: BrokerWorkingOrder[]
   positions: BrokerPosition[]
 }
