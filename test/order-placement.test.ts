@@ -8,7 +8,8 @@ import { PortfolioRiskError } from '../src/server/portfolio-risk'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { resetInternalWatchlistWriter, setInternalWatchlistWriter } from '../src/server/internal-watchlist'
 import { resetTradeGuards, setTradeGuards } from '../src/server/trade-guards'
-import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
+import { unsupportedDatabase, unsupportedStatement } from './fake-d1'
+import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 import { brokerCredential, stubAdapter, stubBroker, STUB_BROKER_ID, stubBrokerCredential } from './broker-stub'
 
 afterEach(() => {
@@ -37,6 +38,7 @@ const ACCEPTED_ORDER_RESPONSE = {
       legs: [{ action: 'Buy to Open', 'instrument-type': 'Equity', quantity: 1, symbol: 'SPY' }],
       'order-type': 'Limit',
       price: '700.00',
+      'price-effect': 'Debit',
       'time-in-force': 'Day',
     },
     warnings: [],
@@ -50,129 +52,149 @@ function allowingGuards() {
   })
 }
 
-/**
- * A D1 double that records writes and answers the quarantine lookup from an in-memory row,
- * so a test can assert on what the placement path actually persisted.
- */
-function quarantineDatabase(existing: { account_number: string; broker_id: string } | undefined) {
-  const inserts: unknown[][] = []
-  const accepted: unknown[][] = []
-  const db: D1Database = {
-    ...unsupportedDatabase(),
-    prepare: (sql: string) => ({
-      ...unsupportedStatement(),
-      bind: (...values: unknown[]) => ({
-        ...unsupportedStatement(),
-        first: async () => {
-          if (!sql.includes('FROM broker_submissions')) throw new Error(`Unexpected first query: ${sql}`)
-          const [broker, account] = values
-          if (!existing || existing.broker_id !== broker || existing.account_number !== account) return null
-          return { id: 'quarantined-1', payload_json: JSON.stringify(EQUITY_ORDER), submitted_at: new Date().toISOString() }
-        },
-        run: async () => {
-          if (!sql.includes('INSERT INTO broker_submissions')) throw new Error(`Unexpected run query: ${sql}`)
-          // Only the quarantine write is under test here; the accepted-submission record is
-          // asserted separately so a test cannot pass by conflating the two.
-          if (sql.includes("'unresolved'")) inserts.push(values)
-          else accepted.push(values)
-          return d1Result([], 1)
-        },
-      }),
-    }),
-  }
-  return { accepted, db, inserts }
+/** A broker whose dry-run is clean and whose submission is whatever the test says. */
+function brokerSubmitting(submit: () => Promise<unknown>, account = 'TEST123') {
+  const brokerage = stubBroker()
+  brokerage.resolveAccountNumber.mockResolvedValue(account)
+  brokerage.tastyRequest.mockImplementation(async (_env: unknown, path: string) => (
+    path.endsWith('/dry-run') ? ACCEPTED_ORDER_RESPONSE : submit()
+  ))
+  setBrokerApi(brokerage)
+  setInternalWatchlistWriter({ ensureSymbols: async () => [] })
+  allowingGuards()
+  return brokerage
+}
+
+function submissions(brokerage: ReturnType<typeof stubBroker>) {
+  return brokerage.tastyRequest.mock.calls.filter(([, path]) => !String(path).endsWith('/dry-run'))
+}
+
+function rows(store: SqliteD1Store) {
+  return store.sqlite.prepare(
+    'SELECT account_number, broker_id, error_code, payload_json, provider_order_id, status FROM broker_submissions',
+  ).all()
+}
+
+function quarantine(store: SqliteD1Store, account: string) {
+  store.sqlite.prepare(
+    `INSERT INTO broker_submissions (id, broker_id, account_number, payload_json, submitted_at, status)
+     VALUES ('quarantined-1', 'tastytrade', ?, ?, ?, 'unresolved')`,
+  ).run(account, JSON.stringify(EQUITY_ORDER), new Date().toISOString())
+}
+
+function apiError(status: number): Error {
+  const error = new Error(`TastytradeApi:${status}:/accounts/[redacted]/orders`)
+  error.name = status >= 500 ? 'TastytradeApiAmbiguousError' : 'TastytradeApiError'
+  return error
+}
+
+let store: SqliteD1Store | undefined
+
+afterEach(() => {
+  store?.close()
+  store = undefined
+})
+
+async function freshStore(): Promise<SqliteD1Store> {
+  store = await migrationStore()
+  return store
 }
 
 describe('brokerage order placement', () => {
   it('refuses without a broker credential before touching the store or the broker', async () => {
     const brokerage = stubBroker()
     setBrokerApi(brokerage)
+    const { database } = await freshStore()
 
-    await expect(placeBrokerageOrder({ DB: quarantineDatabase(undefined).db }, EQUITY_ORDER, undefined))
+    await expect(placeBrokerageOrder({ DB: database }, EQUITY_ORDER, undefined))
       .rejects.toBeInstanceOf(BrokerCredentialMissingError)
     expect(brokerage.resolveAccountNumber).not.toHaveBeenCalled()
     expect(brokerage.tastyRequest).not.toHaveBeenCalled()
   })
 
   it('refuses while an ambiguous submission for that account is unresolved', async () => {
-    const brokerage = stubBroker()
-    brokerage.resolveAccountNumber.mockResolvedValue('TEST123')
-    setBrokerApi(brokerage)
-    setInternalWatchlistWriter({ ensureSymbols: async () => [] })
-    allowingGuards()
-    const { db } = quarantineDatabase({ account_number: 'TEST123', broker_id: 'tastytrade' })
+    const brokerage = brokerSubmitting(async () => ACCEPTED_ORDER_RESPONSE)
+    const db = await freshStore()
+    quarantine(db, 'TEST123')
 
-    await expect(placeBrokerageOrder({ DB: db }, EQUITY_ORDER, brokerCredential))
-      .rejects.toBeInstanceOf(PortfolioRiskError)
-    // Nothing may reach the broker while the earlier submission is unaccounted for.
-    expect(brokerage.tastyRequest).not.toHaveBeenCalled()
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential))
+      .rejects.toThrow(/still unresolved/)
+    // Nothing may be submitted while the earlier submission is unaccounted for.
+    expect(submissions(brokerage)).toHaveLength(0)
+    expect(rows(db)).toHaveLength(1)
+  })
+
+  it('refuses a concurrent placement while the first submission is still in flight', async () => {
+    let failFirst: (error: Error) => void = () => undefined
+    const brokerage = brokerSubmitting(() => new Promise((_resolve, reject) => { failFirst = reject }))
+    const db = await freshStore()
+
+    // The stub lease does not serialize, which is the lost-lease case: only the write-ahead
+    // claim stands between the second placement and a second order.
+    const first = placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential)
+    await vi.waitFor(() => expect(submissions(brokerage)).toHaveLength(1))
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential))
+      .rejects.toThrow(/still unresolved/)
+    failFirst(new TypeError('fetch failed'))
+    await expect(first).rejects.toBeInstanceOf(BrokerageSubmissionUnknownError)
+
+    expect(submissions(brokerage)).toHaveLength(1)
+    expect(rows(db)).toMatchObject([{ status: 'unresolved' }])
   })
 
   it('does not let one account quarantine block a different account', async () => {
-    const brokerage = stubBroker()
-    brokerage.resolveAccountNumber.mockResolvedValue('OTHER456')
-    brokerage.tastyRequest
-      .mockResolvedValueOnce(ACCEPTED_ORDER_RESPONSE)
-      .mockResolvedValueOnce(ACCEPTED_ORDER_RESPONSE)
-    setBrokerApi(brokerage)
-    setInternalWatchlistWriter({ ensureSymbols: async () => [] })
-    allowingGuards()
-    // The unresolved row belongs to TEST123; the caller's credential resolves to OTHER456.
-    const { db, inserts } = quarantineDatabase({ account_number: 'TEST123', broker_id: 'tastytrade' })
+    brokerSubmitting(async () => ACCEPTED_ORDER_RESPONSE, 'OTHER456')
+    const db = await freshStore()
+    quarantine(db, 'TEST123')
 
-    await expect(placeBrokerageOrder({ DB: db }, EQUITY_ORDER, brokerCredential)).resolves.toMatchObject({ orderId: '123' })
-    expect(inserts).toHaveLength(0)
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential))
+      .resolves.toEqual({ detail: 'Order #123 accepted by tastytrade.', orderId: '123' })
   })
 
-  it('writes no quarantine row when the broker accepts the order', async () => {
-    const brokerage = stubBroker()
-    brokerage.resolveAccountNumber.mockResolvedValue('TEST123')
-    brokerage.tastyRequest
-      .mockResolvedValueOnce(ACCEPTED_ORDER_RESPONSE)
-      .mockResolvedValueOnce(ACCEPTED_ORDER_RESPONSE)
-    setBrokerApi(brokerage)
-    setInternalWatchlistWriter({ ensureSymbols: async () => [] })
-    allowingGuards()
-    const { accepted, db, inserts } = quarantineDatabase(undefined)
+  it('settles the claimed row as executed with the broker order id', async () => {
+    brokerSubmitting(async () => ACCEPTED_ORDER_RESPONSE)
+    const db = await freshStore()
 
-    await expect(placeBrokerageOrder({ DB: db }, EQUITY_ORDER, brokerCredential)).resolves.toMatchObject({ orderId: '123' })
-    expect(inserts).toHaveLength(0)
-    // The accepted order is still recorded: a later price-only replacement resolves the
-    // original order's shape from this row before the broker is asked to echo it.
-    expect(accepted).toHaveLength(1)
-    expect(accepted[0]?.at(-1)).toBe('123')
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential))
+      .resolves.toMatchObject({ orderId: '123' })
+    // A later price-only replacement resolves the original order's shape from this row.
+    const [row] = rows(db)
+    expect(row).toMatchObject({ account_number: 'TEST123', broker_id: 'tastytrade', provider_order_id: '123', status: 'executed' })
+    expect(JSON.parse(String(row?.payload_json))).toMatchObject({ kind: 'place_equity_order', symbol: 'SPY' })
   })
 
   it('quarantines the account when a submission becomes ambiguous', async () => {
-    const brokerage = stubBroker()
-    brokerage.resolveAccountNumber.mockResolvedValue('TEST123')
-    brokerage.tastyRequest
-      .mockResolvedValueOnce(ACCEPTED_ORDER_RESPONSE)
-      .mockRejectedValueOnce(new TypeError('fetch failed'))
-    setBrokerApi(brokerage)
-    setInternalWatchlistWriter({ ensureSymbols: async () => [] })
-    allowingGuards()
-    const { db, inserts } = quarantineDatabase(undefined)
+    brokerSubmitting(async () => { throw new TypeError('fetch failed') })
+    const db = await freshStore()
 
-    await expect(placeBrokerageOrder({ DB: db }, EQUITY_ORDER, brokerCredential))
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential))
       .rejects.toBeInstanceOf(BrokerageSubmissionUnknownError)
-    expect(inserts).toHaveLength(1)
-    const [, broker, account, payloadJson] = inserts[0]!
-    expect(broker).toBe('tastytrade')
-    expect(account).toBe('TEST123')
+    const [row] = rows(db)
+    expect(row).toMatchObject({ account_number: 'TEST123', broker_id: 'tastytrade', status: 'unresolved' })
     // The server-resolved order, not the caller's: reconciliation fingerprints against this.
-    expect(JSON.parse(String(payloadJson))).toMatchObject({ kind: 'place_equity_order', symbol: 'SPY' })
+    expect(JSON.parse(String(row?.payload_json))).toMatchObject({ kind: 'place_equity_order', symbol: 'SPY' })
   })
 
-  it('preserves submission ambiguity when the quarantine row cannot be recorded', async () => {
-    const brokerage = stubBroker()
-    brokerage.resolveAccountNumber.mockResolvedValue('TEST123')
-    brokerage.tastyRequest
-      .mockResolvedValueOnce(ACCEPTED_ORDER_RESPONSE)
-      .mockRejectedValueOnce(new TypeError('fetch failed'))
-    setBrokerApi(brokerage)
-    setInternalWatchlistWriter({ ensureSymbols: async () => [] })
-    allowingGuards()
+  it('keeps a 5xx submission quarantined', async () => {
+    brokerSubmitting(async () => { throw apiError(503) })
+    const db = await freshStore()
+
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential))
+      .rejects.toBeInstanceOf(BrokerageSubmissionUnknownError)
+    expect(rows(db)).toMatchObject([{ status: 'unresolved' }])
+  })
+
+  it('marks a definite 4xx rejection failed and leaves the account tradeable', async () => {
+    brokerSubmitting(async () => { throw apiError(422) })
+    const db = await freshStore()
+
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential))
+      .rejects.toThrow('TastytradeApi:422')
+    expect(rows(db)).toMatchObject([{ error_code: 'TastytradeApiError', status: 'failed' }])
+  })
+
+  it('refuses to submit when the write-ahead claim cannot be recorded', async () => {
+    const brokerage = brokerSubmitting(async () => ACCEPTED_ORDER_RESPONSE)
     const db: D1Database = {
       ...unsupportedDatabase(),
       prepare: (sql: string) => ({
@@ -189,29 +211,41 @@ describe('brokerage order placement', () => {
     }
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    // A failed quarantine write must never downgrade an ambiguous broker outcome into a
-    // plain failure: the caller still has to treat the order as possibly live.
     await expect(placeBrokerageOrder({ DB: db }, EQUITY_ORDER, brokerCredential))
-      .rejects.toBeInstanceOf(BrokerageSubmissionUnknownError)
-    expect(errorLog).toHaveBeenCalledWith('BrokerageQuarantinePersistenceFailed')
+      .rejects.toThrow('nothing was submitted')
+    expect(submissions(brokerage)).toHaveLength(0)
+    expect(errorLog).toHaveBeenCalledWith('BrokerageSubmissionClaimFailed')
   })
 
-  it('refuses a rejected portfolio guard before any broker submission', async () => {
-    const brokerage = stubBroker()
-    brokerage.resolveAccountNumber.mockResolvedValue('TEST123')
-    brokerage.tastyRequest.mockResolvedValue(ACCEPTED_ORDER_RESPONSE)
-    setBrokerApi(brokerage)
-    setInternalWatchlistWriter({ ensureSymbols: async () => [] })
+  it('reports an accepted order whose settlement could not be recorded, and stays quarantined', async () => {
+    brokerSubmitting(async () => ACCEPTED_ORDER_RESPONSE)
+    const db = await freshStore()
+    const database: D1Database = {
+      ...unsupportedDatabase(),
+      prepare: (sql: string) => {
+        if (sql.startsWith('UPDATE broker_submissions')) throw new Error('D1 persistence unavailable')
+        return db.database.prepare(sql)
+      },
+    }
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(placeBrokerageOrder({ DB: database }, EQUITY_ORDER, brokerCredential))
+      .resolves.toMatchObject({ detail: expect.stringContaining('stays quarantined'), orderId: '123' })
+    expect(rows(db)).toMatchObject([{ status: 'unresolved' }])
+  })
+
+  it('refuses a rejected portfolio guard before any broker request or claim', async () => {
+    const brokerage = brokerSubmitting(async () => ACCEPTED_ORDER_RESPONSE)
     setTradeGuards({
       assertOrderMarketSafe: async () => ({ ask: 700, bid: 699, observedAt: new Date().toISOString(), tickSize: 0.01 }),
-      assertPortfolioActionAllowed: async () => { throw new PortfolioRiskError('Maximum order loss exceeds the remaining budget.') },
+      assertPortfolioActionAllowed: async () => { throw new PortfolioRiskError('The requested close is larger than the verified matching position.') },
     })
-    const { db, inserts } = quarantineDatabase(undefined)
+    const db = await freshStore()
 
-    await expect(placeBrokerageOrder({ DB: db }, EQUITY_ORDER, brokerCredential))
-      .rejects.toThrow('Maximum order loss')
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential))
+      .rejects.toThrow('larger than the verified')
     expect(brokerage.tastyRequest).not.toHaveBeenCalled()
-    expect(inserts).toHaveLength(0)
+    expect(rows(db)).toHaveLength(0)
   })
 })
 
@@ -254,7 +288,7 @@ describe('brokers without placement', () => {
     setBrokerAdapters({ [STUB_BROKER_ID]: stubAdapter() })
     // Reads work for this credential, so "connect a brokerage" would be a lie; the refusal has
     // to say that placement specifically is missing for this broker.
-    await expect(placeBrokerageOrder({ DB: quarantineDatabase(undefined).db }, EQUITY_ORDER, stubBrokerCredential))
+    await expect(placeBrokerageOrder({ DB: (await freshStore()).database }, EQUITY_ORDER, stubBrokerCredential))
       .rejects.toThrow(/not implemented for/)
   })
 })

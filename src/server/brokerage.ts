@@ -8,12 +8,14 @@ import {
   type JsonObject,
   type JsonValue,
 } from '../domain/json-payload'
-import { resolveStoredOrderIntent } from './order-intent'
+import { type OrderPlacement } from './agent-contracts'
+import { claimSubmission, settleSubmission } from './brokerage-reconciliation'
+import { resolveOrderIntent, type ResolvedOrderIntent } from './order-intent'
 import { replacementOrderPayload, type OrderPayload } from './order-payload'
 import { brokerApi } from './tastytrade'
 import { tradeGuards } from './trade-guards'
 import { OwnerVisibleError } from './owner-visible-error'
-import { type BrokerCredential } from './broker-credential'
+import { BrokerCredentialMissingError, type BrokerCredential } from './broker-credential'
 
 export type OrderResponseReceipt = { id?: string; warnings: string[] }
 export type PlacedOrderReceipt = { id: string; warnings: string[] }
@@ -160,55 +162,89 @@ export function validatePlacedOrderResponse(payload: JsonValue, intended: OrderP
   return { id: receipt.id, warnings: receipt.warnings }
 }
 
+export type PlacementOutcome = { detail: string; intent: ResolvedOrderIntent; orderId: string }
+
+/** A provider 4xx: the broker positively refused the request, so nothing was placed. */
+function definiteRejection(error: unknown): boolean {
+  return error instanceof Error && error.name === 'TastytradeApiError'
+}
+
+/**
+ * Resolve, guard, dry-run, and submit one order under the account's mutation lease.
+ *
+ * The account number and the intent are resolved once, by the caller and inside the lease
+ * respectively; `onResolved` runs at the point the intent becomes exact, before any guard.
+ */
 export async function executeOrderPlacement(
   env: AppEnv,
-  untrustedAction: JsonValue,
+  action: OrderPlacement,
   credential: BrokerCredential | undefined,
-): Promise<{ detail: string; orderId?: string }> {
-  const account = await brokerApi().resolveAccountNumber(env, credential)
-  return brokerApi().withBrokerMutationLease(env, account, async (lease) => {
-    const intent = await resolveStoredOrderIntent(env, untrustedAction, account, credential)
+  accountNumber: string,
+  onResolved: (intent: ResolvedOrderIntent) => Promise<void> = async () => undefined,
+): Promise<PlacementOutcome> {
+  if (!credential) throw new BrokerCredentialMissingError()
+  const broker = credential.broker
+  return brokerApi().withBrokerMutationLease(env, accountNumber, async (lease) => {
+    const intent = await resolveOrderIntent(env, action, accountNumber, credential)
+    await onResolved(intent)
     await tradeGuards().assertPortfolioActionAllowed(env, intent.effectiveAction, credential, {
-      accountNumber: account,
-      ignoredOrderId: intent.replaceOrderId,
+      accountNumber,
       optionContracts: intent.optionContracts,
     })
     await tradeGuards().assertOrderMarketSafe(env, intent.effectiveAction, intent.optionContracts)
-    const dryRunPath = intent.replaceOrderId
-      ? `/accounts/${encodeURIComponent(account)}/orders/${encodeURIComponent(intent.replaceOrderId)}/dry-run`
-      : `/accounts/${encodeURIComponent(account)}/orders/dry-run`
-    const dryRunBody = intent.replaceOrderId ? replacementOrderPayload(intent.payload) : intent.payload
+    const account = encodeURIComponent(accountNumber)
+    const orderPath = intent.replaceOrderId
+      ? `/accounts/${account}/orders/${encodeURIComponent(intent.replaceOrderId)}`
+      : `/accounts/${account}/orders`
+    const body = JSON.stringify(intent.replaceOrderId ? replacementOrderPayload(intent.payload) : intent.payload)
     await lease.renew()
     const dryRun = await brokerApi().tastyRequest(
       env,
-      dryRunPath,
-      { method: 'POST', body: JSON.stringify(dryRunBody) },
+      `${orderPath}/dry-run`,
+      { method: 'POST', body },
       credential,
     )
     rejectDryRunWarnings(validateOrderResponse(dryRun, intent.payload).warnings)
+    // Everything that can fail without sending anything happens before the claim and the try
+    // below: a lost lease here is a plain failure, never an ambiguous submission.
+    await lease.renew()
+    const submissionId = await claimSubmission(env, { accountNumber, broker, storedAction: intent.storedAction })
     let placed: JsonValue
     try {
-      const path = intent.replaceOrderId
-        ? `/accounts/${encodeURIComponent(account)}/orders/${encodeURIComponent(intent.replaceOrderId)}`
-        : `/accounts/${encodeURIComponent(account)}/orders`
-      const body = intent.replaceOrderId
-        ? JSON.stringify(replacementOrderPayload(intent.payload))
-        : JSON.stringify(intent.payload)
-      await lease.renew()
-      placed = await brokerApi().tastyRequest(env, path, {
+      placed = await brokerApi().tastyRequest(env, orderPath, {
         method: intent.replaceOrderId ? 'PUT' : 'POST',
         body,
       }, credential)
     } catch (error) {
-      if (error instanceof Error && error.name === 'TastytradeApiError') throw error
+      if (definiteRejection(error)) {
+        await settleSubmission(env, submissionId, { errorCode: 'TastytradeApiError', status: 'failed' })
+        throw error
+      }
+      // Ambiguous: the claimed row stays `unresolved`, which is the quarantine.
       throw new BrokerageSubmissionUnknownError()
     }
-    if (intent.replaceOrderId) {
-      const receipt = validateReplacementReceipt(placed, intent.replaceOrderId, intent.payload)
-      return { detail: `Order #${intent.replaceOrderId} replaced by order #${receipt.id}.`, orderId: receipt.id }
+    let receipt: { detail: string; orderId: string }
+    try {
+      if (intent.replaceOrderId) {
+        const replaced = validateReplacementReceipt(placed, intent.replaceOrderId, intent.payload)
+        receipt = { detail: `Order #${intent.replaceOrderId} replaced by order #${replaced.id}.`, orderId: replaced.id }
+      } else {
+        const accepted = validatePlacedOrderResponse(placed, intent.payload)
+        const warningDetail = accepted.warnings.length ? ` Broker warning: ${accepted.warnings.join('; ')}` : ''
+        receipt = { detail: `Order #${accepted.id} accepted by tastytrade.${warningDetail}`, orderId: accepted.id }
+      }
+    } catch (error) {
+      if (error instanceof TastytradeOrderRejectedError) {
+        await settleSubmission(env, submissionId, { errorCode: 'TastytradeOrderRejected', status: 'failed' })
+      }
+      throw error
     }
-    const receipt = validatePlacedOrderResponse(placed, intent.payload)
-    const warningDetail = receipt.warnings.length ? ` Broker warning: ${receipt.warnings.join('; ')}` : ''
-    return { detail: `Order #${receipt.id} accepted by tastytrade.${warningDetail}`, orderId: receipt.id }
+    const settled = await settleSubmission(env, submissionId, { providerOrderId: receipt.orderId, status: 'executed' })
+    // The order is placed and the caller must be told so. An unrecorded settlement only keeps
+    // the account quarantined until reconciliation finds this order in broker history.
+    const detail = settled
+      ? receipt.detail
+      : `${receipt.detail} Heston could not record this result, so this account stays quarantined until reconcile_brokerage_action confirms it.`
+    return { detail, intent, orderId: receipt.orderId }
   })
 }

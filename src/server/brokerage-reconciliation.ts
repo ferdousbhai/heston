@@ -9,6 +9,7 @@ import { resolveStoredOrderFingerprint } from './order-intent'
 import { brokerAdapterFor } from './brokers'
 import { textResult } from './agent-tool-result'
 import { BrokerCredentialMissingError, type BrokerCredential } from './broker-credential'
+import { PortfolioRiskError } from './portfolio-risk'
 
 type StoredUnknownAction = {
   id: string
@@ -32,62 +33,82 @@ export async function unresolvedSubmission(
 }
 
 /**
- * Record an ambiguous submission so the account stops trading until it is reconciled. The
- * stored payload is the server-resolved order, which is what the fingerprint match below needs;
- * a model-supplied one would let a wrong order clear the quarantine.
+ * The write-ahead record of one submission, and with it the quarantine check.
+ *
+ * It is written inside the mutation lease, after the broker dry-run and before the POST or PUT
+ * leaves, as `unresolved`. The partial unique index `broker_submissions_one_unresolved_per_account`
+ * makes this insert the atomic "is this account quarantined?" test: a second placement whose
+ * insert conflicts is refused, and so is one whose insert fails for any other reason, because an
+ * order sent without this row could go ambiguous with nothing to stop the next one. Checking
+ * first and writing after the broker answered left a window -- the lease is not held across both
+ * -- in which a concurrent placement could slip through before the quarantine landed.
+ *
+ * The stored payload is the server-resolved order, which is what the reconciliation fingerprint
+ * needs; a model-supplied one would let a wrong order clear the quarantine.
  */
-export async function quarantineSubmission(
+export async function claimSubmission(
   env: AppEnv,
   submission: { accountNumber: string; broker: string; storedAction: JsonValue },
-): Promise<void> {
-  if (!env.DB) throw new Error('TastytradeReconciliation:store-unavailable')
+): Promise<string> {
+  if (!env.DB) throw new PortfolioRiskError('The brokerage submission store is unavailable, so nothing was submitted.')
+  const id = crypto.randomUUID()
   try {
     await env.DB.prepare(
       `INSERT INTO broker_submissions
          (id, broker_id, account_number, payload_json, submitted_at, status, error_code)
        VALUES (?, ?, ?, ?, ?, 'unresolved', 'BrokerageSubmissionUnknown')`,
     ).bind(
-      crypto.randomUUID(),
+      id,
       submission.broker,
       submission.accountNumber,
       JSON.stringify(submission.storedAction),
       new Date().toISOString(),
     ).run()
+    return id
   } catch {
-    // The ambiguous broker outcome is the primary failure and must still surface. Log a fixed
-    // marker only: D1 and provider detail can carry private account or order context.
-    console.error('BrokerageQuarantinePersistenceFailed')
+    // Either refusal is safe; the lookup only chooses which one the caller reads. A lookup that
+    // itself fails falls to the store refusal, never to submitting.
+    const quarantined = await unresolvedSubmission(env, submission.broker, submission.accountNumber)
+      .catch(() => null)
+    if (quarantined) {
+      throw new PortfolioRiskError(
+        'A previous submission for this account could not be verified and is still unresolved. '
+        + 'Reconcile it against broker order history before placing another order; do not retry the previous one.',
+      )
+    }
+    // A fixed marker only: D1 detail can carry private account or order context.
+    console.error('BrokerageSubmissionClaimFailed')
+    throw new PortfolioRiskError('The brokerage submission could not be recorded, so nothing was submitted.')
   }
 }
 
+export type SubmissionOutcome =
+  | { providerOrderId: string; status: 'executed' }
+  | { errorCode: 'TastytradeApiError' | 'TastytradeOrderRejected'; status: 'failed' }
+
 /**
- * Record an accepted submission. This is not bookkeeping for its own sake: a price-only
- * replacement resolves the original order's shape from here and then requires the broker's live
- * order to echo it, so an order this server never characterized can never be replaced.
+ * Settle a claimed submission once the broker's answer is definite. Returns whether the row
+ * moved. A write that fails leaves the row `unresolved`, which is the safe direction: the
+ * account stays quarantined until reconciliation settles it from broker order history, rather
+ * than being released on a result nothing recorded. An ambiguous answer is never settled here.
  */
-export async function recordSubmission(
-  env: AppEnv,
-  submission: { accountNumber: string; broker: string; providerOrderId: string; storedAction: JsonValue },
-): Promise<void> {
-  if (!env.DB) throw new Error('TastytradeReconciliation:store-unavailable')
+export async function settleSubmission(env: AppEnv, id: string, outcome: SubmissionOutcome): Promise<boolean> {
   try {
-    await env.DB.prepare(
-      `INSERT INTO broker_submissions
-         (id, broker_id, account_number, payload_json, submitted_at, status, provider_order_id)
-       VALUES (?, ?, ?, ?, ?, 'executed', ?)`,
-    ).bind(
-      crypto.randomUUID(),
-      submission.broker,
-      submission.accountNumber,
-      JSON.stringify(submission.storedAction),
-      new Date().toISOString(),
-      submission.providerOrderId,
-    ).run()
+    if (!env.DB) throw new Error('TastytradeReconciliation:store-unavailable')
+    const statement = outcome.status === 'executed'
+      ? env.DB.prepare(
+        "UPDATE broker_submissions SET status = 'executed', error_code = NULL, provider_order_id = ? WHERE id = ? AND status = 'unresolved'",
+      ).bind(outcome.providerOrderId, id)
+      : env.DB.prepare(
+        "UPDATE broker_submissions SET status = 'failed', error_code = ? WHERE id = ? AND status = 'unresolved'",
+      ).bind(outcome.errorCode, id)
+    const update = await statement.run()
+    if (update.meta.changes === 1) return true
   } catch {
-    // The order is placed and the caller must be told so. A lost record only costs the ability
-    // to replace this order by price later, which fails visibly at that point.
-    console.error('BrokerageSubmissionRecordFailed')
+    // Fall through to the fixed marker below.
   }
+  console.error('BrokerageSubmissionSettleFailed')
+  return false
 }
 
 export type ReconciliationResult = {
@@ -100,6 +121,10 @@ export type ReconciliationResult = {
 const ReconcileParameters = Type.Object({}, { additionalProperties: false })
 // A recent absence is not proof that an ambiguous broker mutation failed; wait through the
 // provider's order-history propagation window before allowing a deterministic absence result.
+// `submitted_at` is the write-ahead claim, taken before the request leaves, so the window runs
+// from no later than the send. A claimed row whose request never left at all (a transport
+// failure before sending is still treated as ambiguous) is covered the same way: it stays
+// quarantined until this window passes with a complete history and no match.
 const FINAL_ABSENCE_DELAY_MS = 15 * 60_000
 function sameLeg(actual: BrokerOrderRecordLeg | undefined, intended: OrderPayload['legs'][number]): boolean {
   if (!actual) return false
@@ -173,12 +198,17 @@ export async function reconcileUnknownBrokerageAction(
   const status = match.status?.toLowerCase()
   if (!providerOrderId || !status) throw new Error('TastytradeReconciliation:invalid-match')
   const rejected = status === 'rejected'
-  // provider_order_id is not stored: the quarantine only needs to know the submission is
-  // settled, and the broker's own history is authoritative for the order itself.
-  const update = await env.DB.prepare(rejected
-    ? "UPDATE broker_submissions SET status = 'failed', error_code = 'TastytradeOrderRejected' WHERE id = ? AND status = 'unresolved'"
-    : "UPDATE broker_submissions SET status = 'executed', error_code = NULL WHERE id = ? AND status = 'unresolved'"
-  ).bind(stored.id).run()
+  // An executed match stores the broker's order id: this row is the only source a later
+  // price-only replacement can resolve the order's shape from, exactly as if the placement had
+  // settled it directly.
+  const update = await (rejected
+    ? env.DB.prepare(
+      "UPDATE broker_submissions SET status = 'failed', error_code = 'TastytradeOrderRejected' WHERE id = ? AND status = 'unresolved'",
+    ).bind(stored.id)
+    : env.DB.prepare(
+      "UPDATE broker_submissions SET status = 'executed', error_code = NULL, provider_order_id = ? WHERE id = ? AND status = 'unresolved'",
+    ).bind(providerOrderId, stored.id)
+  ).run()
   if (update.meta.changes !== 1) {
     return { actionId: stored.id, detail: 'The action was already reconciled by another request.', status: 'unresolved' }
   }

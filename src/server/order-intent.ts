@@ -140,22 +140,6 @@ export async function resolveOrderIntent(
   return { effectiveAction: action, ...resolved, storedAction: action }
 }
 
-/** Revalidate a stored confirmation draft without trusting its embedded replacement details. */
-export async function resolveStoredOrderIntent(
-  env: AppEnv,
-  untrustedAction: JsonValue,
-  accountNumber: string,
-  credential: BrokerCredential | undefined,
-): Promise<ResolvedOrderIntent> {
-  const stored = StoredOrderPlacementSchema.parse(untrustedAction)
-  if (stored.kind !== 'replace_order') return resolveOrderIntent(env, stored, accountNumber, credential)
-  const expanded = await expandReplacement(env, stored, accountNumber, credential)
-  if (JSON.stringify(expanded.effectiveAction) !== JSON.stringify(stored.replacementOrder)) {
-    throw new Error('OrderReplacement:draft-no-longer-matches')
-  }
-  return { ...expanded, storedAction: stored }
-}
-
 /** Build the exact submitted fingerprint for reconciliation without requiring the replaced order to remain live. */
 export async function resolveStoredOrderFingerprint(
   env: AppEnv,
