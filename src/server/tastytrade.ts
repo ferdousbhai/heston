@@ -574,9 +574,8 @@ async function lookupPublicMarketSymbol(
 }
 
 /**
- * The same lookup, answered from the store. Every successful live lookup persists its symbol
- * through `loadAnsweredMarketFacts`, so a symbol anyone has already searched can be served again
- * without a provider call.
+ * The catalog's answer to a search. A ticker-shaped query is answered only by that exact ticker;
+ * a name query takes the catalog's best match.
  */
 async function catalogSymbolForQuery(
   env: AppEnv,
@@ -589,6 +588,11 @@ async function catalogSymbolForQuery(
   return { candidate, symbol: match?.symbol }
 }
 
+/**
+ * The same lookup, answered from the store. Every successful live lookup persists its symbol
+ * through `loadAnsweredMarketFacts`, so a symbol anyone has already searched can be served again
+ * without a provider call.
+ */
 async function lookupStoredMarketSymbol(
   env: AppEnv,
   query: string,
@@ -623,8 +627,8 @@ async function lookupStoredMarketSymbol(
 async function resolveSearchedSymbol(env: AppEnv, query: string): Promise<string | undefined> {
   const { candidate, symbol } = await catalogSymbolForQuery(env, query)
   if (symbol || !candidate) return symbol
-  // Prefixes and company names may match an unrelated ticker. Resolve the requested
-  // ticker before allowing that weaker match to stand in for it.
+  // A ticker-shaped query the catalog does not hold exactly is resolved against the broker, then
+  // re-read under the same exact-match rule: a prefix or name match never stands in for it.
   await refreshMissingTastytradeInstruments(env, [candidate])
   const { symbol: resolved } = await catalogSymbolForQuery(env, candidate)
   return resolved
