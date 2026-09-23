@@ -27,7 +27,7 @@ export const Route = createFileRoute('/api/snapshot')({
             snapshotEtag(snapshot),
           )
         } catch (error) {
-          console.error('MarketSnapshotUnavailable', error instanceof Error ? error.message : 'UnknownError')
+          console.error('MarketSnapshotUnavailable', error instanceof Error ? error.name : 'UnknownError')
           return jsonNoStore({ error: 'Market sync is temporarily unavailable' }, { status: 502 })
         }
       },

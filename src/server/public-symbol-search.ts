@@ -1,3 +1,4 @@
+import { type PublicSymbolLookup } from '../domain/market'
 import { type AppEnv } from './env'
 import { jsonNoStore, jsonPublic } from './http'
 import { type PublicSnapshotCache } from './public-snapshot-cache'
@@ -36,7 +37,7 @@ async function store(
   try {
     await edgeCache.put(cacheKey, stored)
   } catch (error) {
-    console.error('PublicSymbolSearchCacheWriteFailed', error instanceof Error ? error.message : 'UnknownError')
+    console.error('PublicSymbolSearchCacheWriteFailed', error instanceof Error ? error.name : 'UnknownError')
   }
   return response
 }
@@ -53,13 +54,18 @@ export async function servePublicSymbolSearch(
     const stored = await edgeCache.match(cacheKey)
     if (stored) return stored
   } catch (error) {
-    console.error('PublicSymbolSearchCacheReadFailed', error instanceof Error ? error.message : 'UnknownError')
+    console.error('PublicSymbolSearchCacheReadFailed', error instanceof Error ? error.name : 'UnknownError')
   }
 
+  // A symbol anyone has already searched is in the store, so losing the claim still answers, and
+  // so does a live lookup that fails. Read once: the failure path reuses this answer.
+  let stored: PublicSymbolLookup | undefined
   try {
-    // A symbol anyone has already searched is in the store, so losing the claim still answers.
-    const stored = await brokerApi().lookupStoredMarketSymbol(env, query)
-      .catch(() => undefined)
+    stored = await brokerApi().lookupStoredMarketSymbol(env, query)
+  } catch (error) {
+    console.error('PublicSymbolSearchStoreReadFailed', error instanceof Error ? error.name : 'UnknownError')
+  }
+  try {
     const claimed = await brokerApi().claimMarketRefresh(env, LOOKUP_LEASE_MS, new Date(), `${SYMBOL_REFRESH_LEASE_PREFIX}${query}`)
     if (!claimed && stored) return await store(edgeCache, cacheKey, jsonPublic(stored), FOUND_RETENTION_SECONDS)
     const lookup = await brokerApi().lookupPublicMarketSymbol(env, query)
@@ -73,8 +79,7 @@ export async function servePublicSymbolSearch(
     }
     return await store(edgeCache, cacheKey, jsonPublic(lookup), FOUND_RETENTION_SECONDS)
   } catch (error) {
-    console.error('PublicSymbolSearchUnavailable', error instanceof Error ? error.message : 'UnknownError')
-    const stored = await brokerApi().lookupStoredMarketSymbol(env, query).catch(() => undefined)
+    console.error('PublicSymbolSearchUnavailable', error instanceof Error ? error.name : 'UnknownError')
     if (stored) return jsonPublic(stored)
     return jsonNoStore({ error: 'Symbol search is temporarily unavailable' }, { status: 503 })
   }

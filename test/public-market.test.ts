@@ -273,6 +273,7 @@ describe('public market boundary', () => {
   })
 
   it('loads the stored source-free universe through market-only endpoints', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
       if (url.endsWith('/oauth/token')) return Response.json({ access_token: 'public-read-token', expires_in: 900 })
@@ -302,7 +303,8 @@ describe('public market boundary', () => {
         ...unsupportedStatement(),
         first: async () => {
           if (sql.includes('FROM public_market_universe')) {
-            return { payload_json: JSON.stringify({ symbols: ['BE', 'NVDA'] }) }
+            // GONE is listed but the provider answers for it nowhere: it is left out and counted.
+            return { payload_json: JSON.stringify({ symbols: ['BE', 'GONE', 'NVDA'] }) }
           }
           if (sql.includes('FROM daily_briefs')) return null
           throw new Error(`Unexpected first query: ${sql}`)
@@ -331,7 +333,8 @@ describe('public market boundary', () => {
       TASTYTRADE_REFRESH_TOKEN: secret,
     })
 
-    expect(snapshot.watchlists[0]?.symbols).toEqual(['BE', 'NVDA'])
+    expect(snapshot.watchlists[0]?.symbols).toEqual(['BE', 'GONE', 'NVDA'])
+    expect(warn).toHaveBeenCalledWith('MarketSymbolsDropped', 1)
     expect(snapshot.tickers).toEqual([
       expect.objectContaining({ symbol: 'BE', updatedAt: '2026-08-26T13:31:00.000Z' }),
       expect.objectContaining({ symbol: 'NVDA', updatedAt: '2026-08-26T13:31:00.000Z', metricsUpdatedAt: '2026-08-26T05:02:00.000Z' }),

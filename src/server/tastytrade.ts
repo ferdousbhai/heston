@@ -712,8 +712,26 @@ async function storedSnapshotParts(env: AppEnv, symbols: readonly string[]) {
       catalogTickerInstrument(catalog.get(symbol)),
       yearCandles.get(symbol),
     ))
-  if (!tickers.length || !records.observedAt) return undefined
-  return { brief, catalysts, observedAt: records.observedAt, session, tickers }
+  if (!tickers.length || !records.observedAt || !records.latestObservedAt) return undefined
+  return {
+    brief,
+    catalysts,
+    latestObservedAt: records.latestObservedAt,
+    observedAt: records.observedAt,
+    session,
+    tickers,
+  }
+}
+
+/**
+ * A public snapshot read from the store, with the instant the store was last written for it.
+ * The snapshot's own `syncedAt` is the oldest reading, the honest staleness bound a reader sees;
+ * `lastWrittenAt` is the newest, which is what says whether the provider was asked lately. It
+ * stays beside the snapshot rather than in it, because the snapshot is the public wire contract.
+ */
+export type StoredPublicMarketSnapshot = {
+  lastWrittenAt: string
+  snapshot: PublicMarketSnapshot
 }
 
 /**
@@ -721,12 +739,12 @@ async function storedSnapshotParts(env: AppEnv, symbols: readonly string[]) {
  * provider request. Absence is returned rather than thrown: a cold store has nothing to serve
  * and the caller falls back to one guarded live build.
  */
-async function loadStoredPublicMarketSnapshot(env: AppEnv): Promise<PublicMarketSnapshot | undefined> {
+async function loadStoredPublicMarketSnapshot(env: AppEnv): Promise<StoredPublicMarketSnapshot | undefined> {
   if (!env.DB) return undefined
   const storedUniverse = await loadStoredPublicMarketUniverse(env)
   const parts = await storedSnapshotParts(env, [...new Set(storedUniverse.symbols)])
   if (!parts) return undefined
-  return PublicMarketSnapshotSchema.parse({
+  const snapshot = PublicMarketSnapshotSchema.parse({
     source: 'tastytrade',
     syncedAt: parts.observedAt,
     marketState: parts.session?.state ?? 'unknown',
@@ -742,6 +760,7 @@ async function loadStoredPublicMarketSnapshot(env: AppEnv): Promise<PublicMarket
     catalysts: parts.catalysts,
     brief: parts.brief,
   })
+  return { lastWrittenAt: parts.latestObservedAt, snapshot }
 }
 
 /**

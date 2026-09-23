@@ -183,6 +183,12 @@ function storedMetricRecord(row: z.infer<typeof StoredMetricRowSchema>): Tastytr
 }
 
 export type StoredMarketRecords = {
+  /**
+   * The newest reading in the set: when the store was last written for these symbols. This,
+   * not the oldest, says whether the provider has been asked lately — a symbol the provider
+   * stopped answering for keeps its old row, and must not make the whole set look unrefreshed.
+   */
+  latestObservedAt?: string
   metrics: Map<string, TastytradeMarketMetricRecord>
   /** The oldest reading in the set, which is what bounds how stale the snapshot is. */
   observedAt?: string
@@ -192,7 +198,7 @@ export type StoredMarketRecords = {
 /**
  * Read back what `persistTastytradeMarketSnapshot` wrote. A row that no longer parses is
  * skipped rather than fatal: the caller decides whether the remaining coverage is enough,
- * and one poisoned row must not deny every visitor a snapshot.
+ * and one poisoned row must not deny every visitor a snapshot. The skip is counted in the log.
  */
 export async function readStoredMarketRecords(
   env: AppEnv,
@@ -202,8 +208,11 @@ export async function readStoredMarketRecords(
   const metrics = new Map<string, TastytradeMarketMetricRecord>()
   const quotes = new Map<string, TastytradeMarketQuoteRecord>()
   let observedAt: string | undefined
+  let latestObservedAt: string | undefined
+  let skipped = 0
   const observe = (value: string): void => {
     if (observedAt === undefined || value < observedAt) observedAt = value
+    if (latestObservedAt === undefined || value > latestObservedAt) latestObservedAt = value
   }
   for (let start = 0; start < symbols.length; start += SQL_SYMBOL_CHUNK_SIZE) {
     const chunk = symbols.slice(start, start + SQL_SYMBOL_CHUNK_SIZE)
@@ -216,13 +225,19 @@ export async function readStoredMarketRecords(
     ])
     for (const result of metricResult.results) {
       const row = StoredMetricRowSchema.safeParse(result)
-      if (!row.success) continue
+      if (!row.success) {
+        skipped += 1
+        continue
+      }
       metrics.set(row.data.symbol, storedMetricRecord(row.data))
       observe(row.data.observed_at)
     }
     for (const result of quoteResult.results) {
       const row = StoredQuoteRowSchema.safeParse(result)
-      if (!row.success) continue
+      if (!row.success) {
+        skipped += 1
+        continue
+      }
       quotes.set(row.data.symbol, {
         previousClose: row.data.previous_close,
         price: row.data.price,
@@ -235,7 +250,8 @@ export async function readStoredMarketRecords(
       observe(row.data.observed_at)
     }
   }
-  return { metrics, observedAt, quotes }
+  if (skipped) console.warn('MarketStoreRowsSkipped', skipped)
+  return { latestObservedAt, metrics, observedAt, quotes }
 }
 
 /**
@@ -287,7 +303,7 @@ export async function claimMarketRefresh(
     ).bind(id, claimedUntil, nowIso).run()
     return result.meta.changes === 1
   } catch (error) {
-    console.error('MarketRefreshLeaseUnavailable', error instanceof Error ? error.message : 'UnknownError')
+    console.error('MarketRefreshLeaseUnavailable', error instanceof Error ? error.name : 'UnknownError')
     return true
   }
 }

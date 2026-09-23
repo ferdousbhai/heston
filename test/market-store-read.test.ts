@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { tickerFromStoredRecords } from '../src/server/tastytrade-market-normalization'
 import {
@@ -46,7 +46,10 @@ beforeEach(async () => {
   store = await migrationStore()
 })
 
-afterEach(() => store.close())
+afterEach(() => {
+  store.close()
+  vi.restoreAllMocks()
+})
 
 describe('stored market read model', () => {
   it('round-trips what the writer persisted back into a renderable ticker', async () => {
@@ -91,6 +94,24 @@ describe('stored market read model', () => {
     // A row written before the conversion rounded keeps its digits until its symbol next
     // reaches the provider, which outside market hours is a long time, so the read rounds too.
     expect(ticker.ivRank).toBe(18.3712)
+  })
+
+  it('reports both the oldest and the newest reading, and counts rows it could not read', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const env = { DB: store.database }
+    await persistTastytradeMarketSnapshot(env, { metrics: [], quotes: [quote] }, new Date('2026-08-28T13:00:00.000Z'))
+    await persistTastytradeMarketSnapshot(env, { metrics: [], quotes: [{ ...quote, symbol: 'NVDA' }] }, new Date('2026-08-28T14:00:00.000Z'))
+
+    const records = await readStoredMarketRecords(env, ['AAPL', 'NVDA'])
+    expect(records.observedAt).toBe('2026-08-28T13:00:00.000Z')
+    expect(records.latestObservedAt).toBe('2026-08-28T14:00:00.000Z')
+    expect(warn).not.toHaveBeenCalled()
+
+    store.sqlite.exec('PRAGMA ignore_check_constraints = ON')
+    store.sqlite.prepare("UPDATE tastytrade_market_quotes SET price = 'unreadable' WHERE symbol = 'NVDA'").run()
+    const partial = await readStoredMarketRecords(env, ['AAPL', 'NVDA'])
+    expect([...partial.quotes.keys()]).toEqual(['AAPL'])
+    expect(warn).toHaveBeenCalledWith('MarketStoreRowsSkipped', 1)
   })
 
   it('drops an earnings date the store has outlived, as the live path does', async () => {

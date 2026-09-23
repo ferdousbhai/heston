@@ -1,9 +1,15 @@
-import { PublicMarketSnapshotSchema, MarketStateSchema, slimPublicSnapshot, type PublicMarketSnapshot } from '../domain/market'
+import {
+  MarketStateSchema,
+  PublicMarketSnapshotSchema,
+  slimPublicSnapshot,
+  type MarketSnapshot,
+  type PublicMarketSnapshot,
+} from '../domain/market'
 import { HESTON_DEPLOYMENT_ID } from '../deployment'
 import { HESTON_DEPLOYMENT_ID_HEADER } from '../domain/deployment'
 import { type AppEnv } from './env'
 import { jsonNoStore, jsonPublic, PUBLIC_RESPONSE_CACHE_CONTROL } from './http'
-import { brokerApi } from './tastytrade'
+import { brokerApi, type StoredPublicMarketSnapshot } from './tastytrade'
 
 // A provider reading is usable for one minute while the market is open before a refresh is
 // attempted; the retained copy of the store is rebuilt on the same bound, since catalysts,
@@ -60,16 +66,27 @@ export function publicSessionStatus(
   return status
 }
 
-export function snapshotEtag(
-  snapshot: Pick<PublicMarketSnapshot, 'syncedAt'> & Partial<Pick<PublicMarketSnapshot, 'brief' | 'marketOpensAt' | 'marketState'>>,
-): string {
-  // Quotes, session, and the brief are independent writes. Keying only the observation hid a
-  // newly published brief, and a session-only refresh, behind 304s.
-  const parts = [snapshot.syncedAt]
-  if (snapshot.brief) parts.push(snapshot.brief.publishedAt)
-  if (snapshot.marketState) parts.push(snapshot.marketState)
-  if (snapshot.marketOpensAt) parts.push(snapshot.marketOpensAt)
-  return `W/"${parts.join(':')}"`
+/**
+ * A weak validator over the whole snapshot. Quotes, session, catalysts and the brief are
+ * independent writes, and keying on any one instant hid the others behind 304s: a stored
+ * snapshot's `syncedAt` is its oldest reading, so one symbol the provider stopped answering for
+ * froze the tag while every other price moved. Hashing the content changes the tag exactly when
+ * the answer changes. cyrb53 is a non-cryptographic 53-bit hash; a validator needs only to tell
+ * two answers apart, and a collision costs one reader one stale revalidation.
+ */
+export function snapshotEtag(snapshot: MarketSnapshot | PublicMarketSnapshot): string {
+  const text = JSON.stringify(snapshot)
+  let h1 = 0xdeadbeef
+  let h2 = 0x41c6ce57
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index)
+    h1 = Math.imul(h1 ^ code, 2_654_435_761)
+    h2 = Math.imul(h2 ^ code, 1_597_334_677)
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2_246_822_507) ^ Math.imul(h2 ^ (h2 >>> 13), 3_266_489_909)
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2_246_822_507) ^ Math.imul(h1 ^ (h1 >>> 13), 3_266_489_909)
+  const hash = 4_294_967_296 * (2_097_151 & h2) + (h1 >>> 0)
+  return `W/"${hash.toString(36)}"`
 }
 
 function sessionFromHeaders(response: Response) {
@@ -156,7 +173,10 @@ function copyAgeMs(stored: Response, now: number): number {
 }
 
 /**
- * Whether the provider reading behind a stored snapshot is worth refreshing now.
+ * Whether the provider reading behind a stored snapshot is worth refreshing now. Age is measured
+ * from the store's last write, not from the snapshot's `syncedAt`: that is the oldest row, and a
+ * symbol the provider stopped answering for would otherwise keep every reader's refresh due —
+ * a provider rebuild a minute, all night, that could never repair the row that caused it.
  *
  * While the market is open, prices move and the one-minute bound applies. Outside the session
  * nothing trades, so the reading stands until the bell the provider itself named; refreshing
@@ -165,11 +185,9 @@ function copyAgeMs(stored: Response, now: number): number {
  * already passed, is refreshed on the open-market bound, so an unlabelled store can only err
  * toward asking.
  */
-export function providerRefreshDue(
-  snapshot: Pick<PublicMarketSnapshot, 'marketOpensAt' | 'marketState' | 'syncedAt' | 'tickers'>,
-  now: number,
-): boolean {
-  if (now - Date.parse(snapshot.syncedAt) < SNAPSHOT_FRESH_MS) return false
+export function providerRefreshDue(stored: StoredPublicMarketSnapshot, now: number): boolean {
+  const { snapshot } = stored
+  if (now - Date.parse(stored.lastWrittenAt) < SNAPSHOT_FRESH_MS) return false
   if (snapshot.marketState === 'open' || snapshot.marketState === 'unknown') return true
   // A store written before the provider's metrics instant was kept has no age to show for any
   // reading, and a closed market would leave it that way until the next bell. One refresh
@@ -182,13 +200,10 @@ export function providerRefreshDue(
 }
 
 /** A closed book whose last quote predates the previous cash session still needs one rebuild. */
-export function quoteCatchUpDue(
-  snapshot: Pick<PublicMarketSnapshot, 'marketState' | 'syncedAt'>,
-  now: number,
-): boolean {
-  if (snapshot.marketState !== 'closed') return false
-  const synced = Date.parse(snapshot.syncedAt)
-  return Number.isFinite(synced) && now - synced >= QUOTE_CATCH_UP_MS
+export function quoteCatchUpDue(stored: StoredPublicMarketSnapshot, now: number): boolean {
+  if (stored.snapshot.marketState !== 'closed') return false
+  const written = Date.parse(stored.lastWrittenAt)
+  return Number.isFinite(written) && now - written >= QUOTE_CATCH_UP_MS
 }
 
 /** Overnight `after` becomes `pre` without a quote rebuild, starting six hours before the bell. */
@@ -204,6 +219,20 @@ export function sessionRefreshDue(
   if (now >= opens) return true
   if (snapshot.marketState !== 'after') return false
   return opens - now <= PRE_SESSION_REFRESH_MS
+}
+
+/** A quote rebuild from the provider: the open-market bound, or a closed book's catch-up. */
+function quoteRefreshDue(stored: StoredPublicMarketSnapshot, now: number): boolean {
+  return providerRefreshDue(stored, now) || quoteCatchUpDue(stored, now)
+}
+
+/**
+ * Whether a stored snapshot warrants any background refresh — quotes or the session. Both reader
+ * paths decide with this one predicate; the cache-miss path used to leave out the closed-book
+ * catch-up, so a store read there never scheduled the rebuild a stale-copy read would have.
+ */
+export function refreshDue(stored: StoredPublicMarketSnapshot, now: number): boolean {
+  return quoteRefreshDue(stored, now) || sessionRefreshDue(stored.snapshot, now)
 }
 
 function responseForVisitor(stored: Response): Response {
@@ -227,7 +256,7 @@ async function refreshFromProvider(env: AppEnv): Promise<PublicMarketSnapshot | 
   try {
     return await brokerApi().loadPublicMarketSnapshot(env)
   } catch (error) {
-    console.error('PublicMarketSnapshotRefreshFailed', error instanceof Error ? error.message : 'UnknownError')
+    console.error('PublicMarketSnapshotRefreshFailed', error instanceof Error ? error.name : 'UnknownError')
     return undefined
   }
 }
@@ -237,7 +266,7 @@ async function awaitFirstRefresh(env: AppEnv): Promise<PublicMarketSnapshot | un
   for (const delay of COLD_STORE_RETRY_DELAYS_MS) {
     await new Promise((resolve) => setTimeout(resolve, delay))
     const stored = await brokerApi().loadStoredPublicMarketSnapshot(env)
-    if (stored) return stored
+    if (stored) return stored.snapshot
   }
   return undefined
 }
@@ -277,7 +306,7 @@ async function retain(
   try {
     await edgeCache.put(cacheKey, stored)
   } catch (error) {
-    console.error('PublicMarketSnapshotCacheWriteFailed', error instanceof Error ? error.message : 'UnknownError')
+    console.error('PublicMarketSnapshotCacheWriteFailed', error instanceof Error ? error.name : 'UnknownError')
   }
   return response
 }
@@ -305,20 +334,17 @@ function refreshRetainedCopy(
       const stored = await brokerApi().loadStoredPublicMarketSnapshot(env)
       // A cold store is filled in a reader's own path, where the wait is at least visible.
       if (!stored) return
-      let snapshot = stored
-      if (providerRefreshDue(stored, now) || quoteCatchUpDue(stored, now)) {
-        snapshot = (await refreshFromProvider(env)) ?? stored
-      }
-      if (snapshot === stored && sessionRefreshDue(stored, now)) {
+      let snapshot = quoteRefreshDue(stored, now) ? await refreshFromProvider(env) : undefined
+      if (!snapshot && sessionRefreshDue(stored.snapshot, now)) {
         try {
-          snapshot = await brokerApi().refreshPublicMarketSession(env, stored)
+          snapshot = await brokerApi().refreshPublicMarketSession(env, stored.snapshot)
         } catch (error) {
-          console.error('PublicMarketSessionRefreshFailed', error instanceof Error ? error.message : 'UnknownError')
+          console.error('PublicMarketSessionRefreshFailed', error instanceof Error ? error.name : 'UnknownError')
         }
       }
-      await retain(edgeCache, cacheKey, snapshot, now)
+      await retain(edgeCache, cacheKey, snapshot ?? stored.snapshot, now)
     } catch (error) {
-      console.error('PublicMarketSnapshotRefreshFailed', error instanceof Error ? error.message : 'UnknownError')
+      console.error('PublicMarketSnapshotRefreshFailed', error instanceof Error ? error.name : 'UnknownError')
     } finally {
       refreshInFlight = undefined
     }
@@ -345,7 +371,7 @@ export async function servePublicSnapshot(
   try {
     retained = await edgeCache.match(cacheKey)
   } catch (error) {
-    console.error('PublicMarketSnapshotCacheReadFailed', error instanceof Error ? error.message : 'UnknownError')
+    console.error('PublicMarketSnapshotCacheReadFailed', error instanceof Error ? error.name : 'UnknownError')
   }
   if (retained) {
     if (copyAgeMs(retained, now) >= SNAPSHOT_FRESH_MS) {
@@ -359,11 +385,11 @@ export async function servePublicSnapshot(
   try {
     const stored = await brokerApi().loadStoredPublicMarketSnapshot(env)
     if (stored) {
-      if (providerRefreshDue(stored, now) || sessionRefreshDue(stored, now)) {
+      if (refreshDue(stored, now)) {
         const task = refreshRetainedCopy(env, edgeCache, cacheKey, now)
         if (task) schedule(task)
       }
-      const visitor = await retain(edgeCache, cacheKey, stored, now)
+      const visitor = await retain(edgeCache, cacheKey, stored.snapshot, now)
       return notModified(request, visitor) ?? projectVisitorResponse(request, visitor)
     }
     return projectVisitorResponse(
@@ -371,7 +397,7 @@ export async function servePublicSnapshot(
       await retain(edgeCache, cacheKey, await buildFromColdStore(env), now),
     )
   } catch (error) {
-    console.error('PublicMarketSnapshotUnavailable', error instanceof Error ? error.message : 'UnknownError')
+    console.error('PublicMarketSnapshotUnavailable', error instanceof Error ? error.name : 'UnknownError')
     return jsonNoStore({ error: 'Public market sync is temporarily unavailable' }, { status: 502 })
   }
 }
