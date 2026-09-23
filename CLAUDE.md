@@ -28,7 +28,7 @@ the `BriefPublisher` entrypoint over a service binding.
 - **Access is two independent gates.** Signing in earns the market and research surface plus
   that member's own favorites and agent tokens. A broker credential *presented on the request*
   — never a membership level — unlocks account reads and placement, and only for the account
-  that credential resolves to. Owner adds private discovery and watchlist removal, and those
+  that credential resolves to. Owner adds watchlist provenance and watchlist removal, and those
   tools are absent from a member's `tools/list` rather than present and refused.
 - **No member's long-lived broker credential is ever stored here**, for any broker; an adapter
   that cannot work without one does not get added. It lives in the member's OS keyring, and a
