@@ -62,8 +62,8 @@ describe('broker adapter seam', () => {
 
   it('drives the account context, the portfolio guard, and the read tools with no provider code in the path', async () => {
     const context = await loadBrokerageContext({}, stubBrokerCredential)
+    expect(context).not.toHaveProperty('accountNumber')
     expect(context).toMatchObject({
-      accountNumber: 'STUB-1',
       source: STUB_BROKER_ID,
       balances: { netLiquidatingValue: 100_000 },
       positions: [{ symbol: 'SPY' }],
