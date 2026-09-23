@@ -4,6 +4,7 @@ import { MarketStateSchema, type MarketSnapshot } from '../domain/market'
 import { type AppEnv } from './env'
 import { D1_MAX_BOUND_PARAMETERS, rowsPerD1Statement } from './d1-limits'
 import { CallerVisibleError } from './caller-visible-error'
+import { ConfigurationError } from './secrets'
 
 const METRIC_BOUND_PARAMETERS_PER_ROW = 16
 const QUOTE_BOUND_PARAMETERS_PER_ROW = 8
@@ -268,7 +269,8 @@ export const SYMBOL_REFRESH_LEASE_PREFIX = 'symbol:'
  * nobody back, which is what makes deleting it safe rather than a lost guard.
  */
 export async function sweepExpiredSymbolRefreshLeases(env: AppEnv, now = new Date()): Promise<number> {
-  if (!env.DB) return 0
+  // Scheduled only: a missing binding is a misconfiguration to name, not a sweep of zero rows.
+  if (!env.DB) throw new ConfigurationError('BindingMissing', 'DB')
   const result = await env.DB.prepare(
     'DELETE FROM market_refresh_lease WHERE id LIKE ? AND expires_at <= ?',
   ).bind(`${SYMBOL_REFRESH_LEASE_PREFIX}%`, now.toISOString()).run()

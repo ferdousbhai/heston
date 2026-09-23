@@ -3,6 +3,7 @@ import { isRegularSessionOpen } from '../domain/market'
 import { type AppEnv } from './env'
 import { readInternalWatchlistFocus } from './internal-watchlist'
 import { MARKET_FEED_INSTANCE, MAX_DAILY_CANDLE_SYMBOLS } from './market-feed-contracts'
+import { ConfigurationError } from './secrets'
 import { replaceYearCandles } from './year-candle-store'
 
 /**
@@ -14,7 +15,10 @@ export async function refreshYearCandles(env: AppEnv, asOf = new Date()): Promis
   // The trigger fires at 13:30 and 14:30 UTC so one of them is 09:30 Eastern in either DST
   // offset. The off-season fire is a no-op rather than a second DXLink subscription.
   if (!isRegularSessionOpen(asOf)) return 0
-  if (!env.DB || !env.MARKET_FEED) return 0
+  // A missing binding is a misconfiguration, not a refresh of nothing: throw its name so the
+  // tick's failure log says which one, rather than logging a count of zero that reads as success.
+  if (!env.DB) throw new ConfigurationError('BindingMissing', 'DB')
+  if (!env.MARKET_FEED) throw new ConfigurationError('BindingMissing', 'MARKET_FEED')
   // The focus defaults to the watchlist's own `MAX_WATCHLIST_SYMBOLS`, but one year read admits
   // only `MAX_DAILY_CANDLE_SYMBOLS`. Asking for the list's bound refused the whole refresh the
   // moment the list — which grows on its own through visitor search — outgrew the read. The

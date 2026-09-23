@@ -93,4 +93,15 @@ describe('year candle refresh', () => {
     expect(await refreshYearCandles(env, new Date('2026-09-16T14:30:00.000Z'))).toBe(0)
     expect(readDailyCandles).not.toHaveBeenCalled()
   })
+
+  it('names a missing binding instead of reporting an empty refresh', async () => {
+    const open = new Date('2026-09-07T13:30:00.000Z')
+    const feed = { getByName: vi.fn(() => ({ fetch: vi.fn(), readDailyCandles: vi.fn(), readOptionGreeks: vi.fn() })) }
+    await expect(refreshYearCandles({ MARKET_FEED: feed }, open))
+      .rejects.toMatchObject({ name: 'BindingMissing', message: 'BindingMissing:DB' })
+    await expect(refreshYearCandles({ DB: store.database }, open))
+      .rejects.toMatchObject({ name: 'BindingMissing', message: 'BindingMissing:MARKET_FEED' })
+    // The off-season fire stays a deliberate no-op, binding or not.
+    await expect(refreshYearCandles({}, new Date('2026-09-16T14:30:00.000Z'))).resolves.toBe(0)
+  })
 })

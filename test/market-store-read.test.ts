@@ -175,6 +175,7 @@ describe('stored market read model', () => {
 
     const lapsed = new Date(now.getTime() + 31_000)
     await expect(sweepExpiredSymbolRefreshLeases(env, lapsed)).resolves.toBe(2)
+    await expect(sweepExpiredSymbolRefreshLeases({}, lapsed)).rejects.toMatchObject({ name: 'BindingMissing' })
     const remaining = await store.database.prepare('SELECT id FROM market_refresh_lease').all()
     expect(remaining.results).toEqual([{ id: 'public-snapshot' }])
   })
