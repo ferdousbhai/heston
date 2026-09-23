@@ -130,11 +130,13 @@ async function expandReplacement(
   )
   assertReplaceableOrder(current, action.orderId, sourceResolved.payload)
   const replacementOrder = parseFreshOrderPlacement({ ...source, limitPrice: action.limitPrice })
-  const replacementResolved = await resolveFreshOrder(env, replacementOrder)
+  // Only the limit price differs from the source, so the contracts just resolved from the live
+  // chain are the replacement's contracts too. Resolving again would fetch the whole chain a
+  // second time and could, in between, name a different contract than the one checked above.
   return {
     effectiveAction: replacementOrder,
-    optionContracts: replacementResolved.optionContracts,
-    payload: replacementResolved.payload,
+    optionContracts: sourceResolved.optionContracts,
+    payload: buildOrderPayload(replacementOrder, sourceResolved.payload.legs.map((leg) => leg.symbol)),
     replaceOrderId: action.orderId,
     storedAction: { ...action, replacementOrder },
   }

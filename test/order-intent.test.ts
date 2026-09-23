@@ -7,6 +7,7 @@ import { assertReplaceableOrder, resolveOrderIntent } from '../src/server/order-
 import { tastytradeOrderFromPayload, tastytradeOrderRecord } from '../src/server/brokers/tastytrade'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
 import { migrationStore } from './sqlite-d1'
+import { type AppEnv } from '../src/server/env'
 
 const tastytrade = stubBroker()
 
@@ -19,7 +20,11 @@ describe('order replacement source boundary', () => {
     quantity: 2, limitPrice: 700, priceEffect: 'Debit',
   }, ['SPY'])
 
-  beforeEach(() => tastytrade.tastyRequest.mockReset())
+  // Braced: `mockReset` returns the mock, and a function returned from `beforeEach` is run as
+  // a cleanup hook, which would call the broker stub with no arguments after every test.
+  beforeEach(() => {
+    tastytrade.tastyRequest.mockReset()
+  })
 
   it('requires the exact unfilled editable live order', () => {
     const order = {
@@ -82,6 +87,44 @@ describe('order replacement source boundary', () => {
       kind: 'replace_order', orderId: '123', limitPrice: 699.5,
       replacementOrder: { ...source, limitPrice: 699.5 },
     })
+  })
+
+  it('resolves a replaced option order\'s contract from one chain read', async () => {
+    const source = {
+      kind: 'place_option_order', underlying: 'SPY', optionType: 'C', strike: 700,
+      expiry: '2026-09-18', action: 'Buy to Open', quantity: 1, limitPrice: 5, priceEffect: 'Debit',
+    }
+    const contract = 'SPY   260918C00700000'
+    const sourcePayload = buildOrderPayload({ ...source, kind: 'place_option_order', action: 'Buy to Open', optionType: 'C', priceEffect: 'Debit' }, [contract])
+    const working = {
+      id: '123', editable: true, status: 'Live', ...sourcePayload,
+      legs: sourcePayload.legs.map((leg) => ({ ...leg, 'remaining-quantity': leg.quantity, fills: [] })),
+    }
+    tastytrade.tastyRequest.mockImplementation(async (_env: AppEnv, path: string) => {
+      if (path.startsWith('/option-chains/')) return { data: { items: [{
+        active: true, 'expiration-date': '2026-09-18', 'instrument-type': 'Equity Option', 'is-closing-only': false,
+        'option-chain-type': 'Standard', 'option-type': 'C', 'shares-per-contract': 100,
+        'strike-price': '700.0', symbol: contract, 'underlying-symbol': 'SPY',
+      }] } }
+      return { data: working }
+    })
+    const store = await migrationStore()
+    try {
+      store.sqlite.prepare(
+        `INSERT INTO broker_submissions (id, broker_id, account_number, payload_json, submitted_at, status, provider_order_id)
+         VALUES ('mine', 'tastytrade', 'TEST', ?, '2026-09-01T00:00:00.000Z', 'executed', '123')`,
+      ).run(JSON.stringify(source))
+
+      const resolved = await resolveOrderIntent(
+        { DB: store.database }, { kind: 'replace_order', orderId: '123', limitPrice: 4.8 }, 'TEST', brokerCredential,
+      )
+      expect(resolved.payload).toEqual({ ...sourcePayload, price: '4.80' })
+      expect(resolved.optionContracts).toEqual([{ sharesPerContract: 100, symbol: contract }])
+      const chainReads = tastytrade.tastyRequest.mock.calls.filter(([, path]) => String(path).startsWith('/option-chains/'))
+      expect(chainReads).toHaveLength(1)
+    } finally {
+      store.close()
+    }
   })
 
   it('reads the source order only from the replacing account\'s own rows', async () => {
