@@ -674,6 +674,81 @@ describe('MarketFeed option Greeks RPC', () => {
     ))).toBe(true)
   })
 
+  it('keeps a working quote token across a reconnect after the usual initial UNAUTHORIZED', async () => {
+    const context = new FakeContext([downstream(['SPY'])])
+    const feed = new MarketFeedCore(context, liveEnvironment())
+    await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(1))
+
+    const socket = FakeUpstreamWebSocket.instances[0]!
+    socket.open()
+    await context.drain()
+    socket.message({ type: 'SETUP', channel: 0, version: '0.1-test' })
+    socket.message({ type: 'AUTH_STATE', channel: 0, state: 'UNAUTHORIZED' })
+    await context.drain()
+    socket.message({ type: 'AUTH_STATE', channel: 0, state: 'AUTHORIZED' })
+    await context.drain()
+    socket.close()
+    await context.drain()
+    await feed.alarm()
+    await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(2))
+
+    expect(tasty.loadQuoteToken).toHaveBeenCalledTimes(1)
+    FakeUpstreamWebSocket.instances[1]!.close()
+    await context.drain()
+  })
+
+  it('buys a fresh quote token after the upstream rejects one', async () => {
+    const context = new FakeContext([downstream(['SPY'])])
+    const feed = new MarketFeedCore(context, liveEnvironment())
+    await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(1))
+
+    const socket = FakeUpstreamWebSocket.instances[0]!
+    socket.open()
+    await context.drain()
+    socket.message({ type: 'AUTH_STATE', channel: 0, state: 'UNAUTHORIZED' })
+    socket.message({ type: 'AUTH_STATE', channel: 0, state: 'UNAUTHORIZED' })
+    await context.drain()
+    expect(socket.readyState).toBe(FakeUpstreamWebSocket.CLOSED)
+    await feed.alarm()
+    await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(2))
+
+    expect(tasty.loadQuoteToken).toHaveBeenCalledTimes(2)
+    FakeUpstreamWebSocket.instances[1]!.close()
+    await context.drain()
+  })
+
+  it('buys a fresh quote token only when setup timed out before authorization', async () => {
+    vi.useFakeTimers()
+    const context = new FakeContext([downstream(['SPY'])])
+    const feed = new MarketFeedCore(context, liveEnvironment())
+    await vi.advanceTimersByTimeAsync(0)
+    const first = FakeUpstreamWebSocket.instances[0]!
+    first.open()
+    await context.drain()
+    first.message({ type: 'AUTH_STATE', channel: 0, state: 'AUTHORIZED' })
+    await context.drain()
+    await vi.advanceTimersByTimeAsync(15_000)
+    await context.drain()
+    expect(first.readyState).toBe(FakeUpstreamWebSocket.CLOSED)
+    await feed.alarm()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(FakeUpstreamWebSocket.instances).toHaveLength(2)
+    expect(tasty.loadQuoteToken).toHaveBeenCalledTimes(1)
+
+    const second = FakeUpstreamWebSocket.instances[1]!
+    second.open()
+    await context.drain()
+    await vi.advanceTimersByTimeAsync(15_000)
+    await context.drain()
+    expect(second.readyState).toBe(FakeUpstreamWebSocket.CLOSED)
+    await feed.alarm()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(FakeUpstreamWebSocket.instances).toHaveLength(3)
+    expect(tasty.loadQuoteToken).toHaveBeenCalledTimes(2)
+    FakeUpstreamWebSocket.instances[2]!.close()
+    await context.drain()
+  })
+
   it('treats any rejection after authorization as terminal', async () => {
     const context = new FakeContext([downstream(['SPY'])])
     new MarketFeedCore(context, liveEnvironment())

@@ -616,6 +616,9 @@ export class MarketFeedCore {
     this.clearSetupTimeout()
     this.setupTimeout = setTimeout(() => {
       if (socket !== this.upstream || this.demandIsConfigured()) return
+      // A handshake that never authorized leaves the token suspect, so the retry buys a fresh
+      // one. A timeout after authorization is a channel problem and keeps the working token.
+      if (this.upstreamAuthorization !== 'authorized') this.quoteToken = undefined
       this.track(this.closeUpstream(socket, 1013, 'Upstream setup timed out'))
     }, UPSTREAM_SETUP_TIMEOUT_MS)
     socket.addEventListener('open', () => this.track(this.handleUpstreamOpen(socket, credentials.token)))
@@ -688,12 +691,14 @@ export class MarketFeedCore {
     if (messageType === 'AUTH_STATE') {
       if (messageChannel !== 0 || message.state !== 'UNAUTHORIZED') throw new FeedFrameError('Malformed auth state.')
       if (this.upstreamAuthorization === 'awaiting') {
+        // Every handshake reports this state before answering AUTH, so it says nothing about
+        // the token; clearing it here would re-fetch a working token on every reconnect.
         this.upstreamAuthorization = 'initial-unauthorized'
-        // The token the handshake just used is the suspect; the next attempt buys a fresh one.
-        this.quoteToken = undefined
         return
       }
-      // Provider frames are untrusted and may echo credentials or private payloads.
+      // This is the answer to our AUTH: the token was rejected, so the next attempt buys a
+      // fresh one. Provider frames are untrusted and may echo credentials or private payloads.
+      this.quoteToken = undefined
       throw new FeedProtocolError('Upstream authorization failed')
     }
     if (messageType === 'CHANNEL_OPENED') {
