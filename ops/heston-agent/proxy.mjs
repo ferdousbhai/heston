@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { z } from 'zod'
 
-import { tokenRetiresAt } from './token-refresh.mjs'
+import { tokenRetiresAt, UPSTREAM_TIMEOUT_MS } from './token-refresh.mjs'
 
 /**
  * The brokerage credential broker for a local agent.
@@ -36,13 +36,8 @@ const LISTEN_HOST = '127.0.0.1'
 const DEFAULT_PORT = 8787
 const UPSTREAM = process.env.HESTON_MCP_URL ?? 'https://heston.io/mcp'
 const TASTYTRADE_API_BASE = process.env.TASTYTRADE_API_BASE ?? 'https://api.tastyworks.com'
-// This proxy's budget for one forwarded MCP call, headers through the last streamed byte. Nothing
-// on the Worker bounds a request's wall time (Workers limit CPU, not wall-clock, and each broker
-// call there carries its own timeout), so this is not a mirror of a Worker bound: it is meant to
-// cover a single call's worst case, a placement's sequential broker round trips being the longest,
-// and it is a judgment of that case rather than a figure derived from one. It is also how long a
-// broker token must outlive the moment it is attached; see token-refresh.mjs.
-const UPSTREAM_TIMEOUT_MS = 60_000
+// UPSTREAM_TIMEOUT_MS lives in token-refresh.mjs: tokenRetiresAt needs it too, and a test that
+// exercises retirement without spawning this process needs it importable on its own.
 const TOKEN_REQUEST_TIMEOUT_MS = 20_000
 
 /**
