@@ -57,11 +57,10 @@ import {
   brokerAdapterFor,
   BrokerSnapshotError,
   describeSnapshotError,
-  UnknownBrokerError,
   type BrokerHistoryQuery,
 } from './brokers'
 import { loadBrokerageContext } from './brokerage-context'
-import { BrokerCredentialMissingError, type BrokerCredential } from './broker-credential'
+import { type BrokerCredential } from './broker-credential'
 import { CallerVisibleError } from './caller-visible-error'
 import { MAX_QUERY_LENGTH } from './symbol-search'
 import { tickerSymbolArgument, tickerSymbolsArgument } from './ticker-arguments'
@@ -108,7 +107,10 @@ export async function readAccountSnapshot(
   try {
     context = await loadBrokerageContext(env, credential)
   } catch (error) {
-    if (error instanceof BrokerCredentialMissingError || error instanceof UnknownBrokerError) throw error
+    // Account resolution and the adapter already speak to the caller in this repository's words
+    // (a missing credential, an unknown broker, more than one account); those pass as they are,
+    // exactly as they do through `readAccountHistory`, rather than collapsing into "could not load".
+    if (error instanceof CallerVisibleError) throw error
     if (error instanceof BrokerSnapshotError) throw new CallerVisibleError(describeSnapshotError(error, 'The account snapshot'))
     throw new CallerVisibleError('The account snapshot could not be loaded.')
   }

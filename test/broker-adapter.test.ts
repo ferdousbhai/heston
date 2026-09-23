@@ -10,6 +10,7 @@ import {
 } from '../src/server/brokers'
 import { tastytradeAdapter } from '../src/server/brokers/tastytrade'
 import { loadBrokerageContext } from '../src/server/brokerage-context'
+import { CallerVisibleError } from '../src/server/caller-visible-error'
 import { readAccountHistory, readAccountSnapshot } from '../src/server/brokerage-read-tools'
 import { assertPortfolioActionAllowed } from '../src/server/portfolio-risk'
 import { resetBrokerApi, setBrokerApi, type BrokerApi } from '../src/server/tastytrade'
@@ -94,6 +95,21 @@ describe('broker adapter seam', () => {
       'resolveAccountRef',
       'loadAccountSnapshot',
     ])
+  })
+
+  it('passes an account-resolution refusal to the snapshot caller as it passes it to history', async () => {
+    const ambiguous = new CallerVisibleError('TastytradeAccount:explicit-account-required')
+    setBrokerAdapters({ [STUB_BROKER_ID]: { ...adapter, resolveAccountRef: async () => { throw ambiguous } } })
+    // A member with several accounts must be told why, not that the snapshot "could not be loaded".
+    await expect(readAccountSnapshot({}, {}, stubBrokerCredential)).rejects.toBe(ambiguous)
+    await expect(readAccountHistory({}, { type: 'orders' }, stubBrokerCredential)).rejects.toBe(ambiguous)
+  })
+
+  it('names a transport failure as an unloadable snapshot rather than passing its text through', async () => {
+    setBrokerAdapters({
+      [STUB_BROKER_ID]: { ...adapter, loadAccountSnapshot: async () => { throw new TypeError('fetch failed: secret detail') } },
+    })
+    await expect(readAccountSnapshot({}, {}, stubBrokerCredential)).rejects.toThrow('The account snapshot could not be loaded.')
   })
 
   it('fails closed on a broker id no adapter is registered for', async () => {
