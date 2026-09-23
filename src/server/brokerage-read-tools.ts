@@ -66,6 +66,7 @@ import {
 import { loadBrokerageContext } from './brokerage-context'
 import { type BrokerCredential } from './broker-credential'
 import { CallerVisibleError } from './caller-visible-error'
+import { FIND_OPTION_CONTRACTS_MODES } from './doctrine'
 import { MAX_QUERY_LENGTH } from './symbol-search'
 import { tickerSymbolArgument, tickerSymbolsArgument } from './ticker-arguments'
 
@@ -593,10 +594,10 @@ export function createOptionContractFindTool(
   env: AppEnv,
 ): AgentTool<typeof OptionContractFindParameters> {
   return {
-    description: 'Without expiry, lists expirations; with expiry, returns active standard contracts '
-      + 'with open interest and volume. Default order is open interest then volume; nearStrike is '
-      + 'nearest listed, strike is exact. Only contracts this tool returns exist; never name one '
-      + 'it did not list.',
+    description: `${FIND_OPTION_CONTRACTS_MODES} Contracts carry open interest and volume. `
+      + 'Within an expiration, default order is open interest then volume; nearStrike is nearest '
+      + 'listed, strike is exact. Only contracts this tool returns exist; never name one it did '
+      + 'not list.',
     execute: async (params) => {
       const underlying = tickerSymbolArgument(params.underlying, 'underlying')
       return textResult(await findOptionContracts(env, { ...params, underlying }))

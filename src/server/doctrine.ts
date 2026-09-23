@@ -41,6 +41,15 @@ ${tier}
 `.trim()
 }
 
+/**
+ * When \`find_option_contracts\` lists expirations and when it lists contracts. Said once, here,
+ * because both the tool description and the guide state it and the two drifted from the code:
+ * a strike or nearStrike alone already returns contracts, across every expiration.
+ */
+export const FIND_OPTION_CONTRACTS_MODES = 'Given no expiry, strike, or nearStrike, lists expirations. '
+  + 'Given any of them, returns active standard contracts, across every listed expiration unless '
+  + 'expiry names one.'
+
 export const PLACE_BROKERAGE_ORDER_DESCRIPTION = 'PLACES a real equity, option, debit vertical, or price-replacement order '
   + 'against the connected brokerage account. Supply every field explicitly: the server '
   + 'never fills in, enlarges, or reinterprets one. A fully specified user-directed order '
@@ -126,9 +135,9 @@ What is not obvious from the tool list:
   conversation developed is kept.
 - An empty \`read_catalysts\` result distinguishes "not searched yet" from "searched, found
   nothing". Reader attention is what pays for a search, so an untouched name stays unsearched.
-- \`find_option_contracts\` lists expirations when given no expiry, contracts when given one.
-  Contract rows carry open interest and volume and are ranked by those unless a strike target
-  is given. A contract exists only if the chain lists it -- never name one the lookup did not
+- \`find_option_contracts\`: ${FIND_OPTION_CONTRACTS_MODES}
+  Contract rows carry open interest and volume and, within an expiration, are ranked by those
+  unless a strike target is given. A contract exists only if the chain lists it -- never name one the lookup did not
   return.
 - What a caller can do depends on what it presents, and the surfaces differ rather than stack.
   With no credential: reads of the website's cached public snapshot and the rows behind it --

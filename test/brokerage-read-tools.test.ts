@@ -9,8 +9,10 @@ import {
   readMarketMetrics,
   readInstrumentQuotes,
   searchSymbols,
+  createOptionContractFindTool,
   createSymbolSearchTool,
 } from '../src/server/brokerage-read-tools'
+import { FIND_OPTION_CONTRACTS_MODES, HESTON_GUIDE } from '../src/server/doctrine'
 import { createPublicMarketReadTools } from '../src/server/public-market-tools'
 import { MAX_QUERY_LENGTH } from '../src/server/symbol-search'
 import {
@@ -498,6 +500,37 @@ describe('brokerage read tools', () => {
       strikePrice: 200,
       volume: 88,
     }])
+  })
+
+  it('returns contracts across every expiration for a strike with no expiry, as its description says', async () => {
+    tastytrade.tastyRequest.mockImplementation((_env, path: string) => {
+      if (path === '/option-chains/AAPL') {
+        return Promise.resolve({ data: { items: ['2026-09-18', '2026-10-16'].map((expiry) => ({
+          active: true,
+          'expiration-date': expiry,
+          'instrument-type': 'Equity Option',
+          'is-closing-only': false,
+          'option-chain-type': 'Standard',
+          'option-type': 'C',
+          'shares-per-contract': 100,
+          'strike-price': '200',
+          symbol: `AAPL ${expiry} 200`,
+          'underlying-symbol': 'AAPL',
+        })) } })
+      }
+      if (path.startsWith('/market-data/by-type?')) return Promise.resolve({ data: { items: [] } })
+      throw new Error(`Unexpected path ${path}`)
+    })
+
+    const result = await findOptionContracts({}, { optionType: 'C', strike: 200, underlying: 'AAPL' }, now)
+    if (result.mode !== 'contracts') throw new Error('Expected contract mode')
+    expect(result.contracts.map((contract) => contract.expirationDate)).toEqual(['2026-09-18', '2026-10-16'])
+
+    // The tool description and the guide state that one rule, from one constant.
+    expect(FIND_OPTION_CONTRACTS_MODES).toMatch(/no expiry, strike, or nearStrike, lists expirations/)
+    expect(FIND_OPTION_CONTRACTS_MODES).toMatch(/across every listed expiration unless expiry names one/)
+    expect(createOptionContractFindTool({}).description.startsWith(FIND_OPTION_CONTRACTS_MODES)).toBe(true)
+    expect(HESTON_GUIDE).toContain(FIND_OPTION_CONTRACTS_MODES)
   })
 
   it('returns listed contracts nearest a target strike', async () => {
