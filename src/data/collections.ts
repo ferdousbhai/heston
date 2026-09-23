@@ -414,11 +414,11 @@ export async function syncFromCloud(
       return record.snapshot
     }
     // The record went away while the request was in flight. Forget the tag so no later poll
-    // repeats the claim, and ask once more for a body; a newer build is the better answer,
-    // and it has nothing on screen to keep.
+    // repeats the claim, and ask once more for a body -- even from a newer build, whose body
+    // this bundle may well read: the body path below hydrates what it can before it reports
+    // the newer build, and leaves the screen empty only for a payload it cannot parse.
     cloudSnapshotEtag = undefined
     cloudSnapshotEtagAudience = undefined
-    if (newerDeployment) throw new DeploymentMismatchError(newerDeployment, false)
     response = await requestSnapshot(audience, undefined, signal)
   }
   // A failed request is a failed request; reading a deployment header off one only disguised

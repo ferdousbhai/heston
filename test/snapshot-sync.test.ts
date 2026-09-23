@@ -117,27 +117,41 @@ describe('snapshot sync deployment check', () => {
     expect(offlineSnapshotCollection.get('snapshot')?.audience).toBe('owner')
   })
 
-  it('reports a newer deployment on a 304 that has no record to answer with', async () => {
+  it('asks for a body on a newer build\'s 304 that has no record to answer with', async () => {
     const snapshot = marketSnapshotFixture()
     const { syncFromCloud, offlineSnapshotCollection, sent } = await loadSync([
       snapshotResponse(snapshot, { ETag: '"stored"' }),
     ])
     await syncFromCloud('owner')
-    const responses = [notModified('next-deployment')]
+    const responses = [
+      notModified('next-deployment'),
+      snapshotResponse(snapshot, { ETag: '"next"', [HESTON_DEPLOYMENT_ID_HEADER]: 'next-deployment' }),
+      snapshotResponse({ unreadable: true }, { [HESTON_DEPLOYMENT_ID_HEADER]: 'next-deployment' }),
+    ]
     vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       sent.push(new Headers(init?.headers).get('If-None-Match'))
       const next = responses.shift()
       if (!next) throw new Error('unexpected snapshot request')
-      await offlineSnapshotCollection.delete('snapshot').isPersisted.promise
+      if (next.status === 304) await offlineSnapshotCollection.delete('snapshot').isPersisted.promise
       return next
     }))
-    // Nothing is on screen, so the reload notice is the whole answer; the tag is forgotten.
+    // Nothing is on screen, but the newer build's body is readable: it is drawn, and the
+    // newer build is still reported so the tab can reload underneath it.
     await expect(syncFromCloud('owner')).rejects.toMatchObject({
-      hydrated: false,
+      hydrated: true,
       name: 'DeploymentMismatchError',
       receivedDeploymentId: 'next-deployment',
     })
-    expect(sent).toEqual([null, '"stored"'])
+    expect(sent).toEqual([null, '"stored"', null])
+    expect(offlineSnapshotCollection.get('snapshot')?.audience).toBe('owner')
+
+    // Only a body this bundle cannot read leaves the screen as it was, and says so.
+    await offlineSnapshotCollection.delete('snapshot').isPersisted.promise
+    await expect(syncFromCloud('owner')).rejects.toMatchObject({
+      hydrated: false,
+      name: 'DeploymentMismatchError',
+    })
+    expect(sent).toEqual([null, '"stored"', null, null])
   })
 
   it('never sends one audience\'s ETag once the other audience holds the record', async () => {
