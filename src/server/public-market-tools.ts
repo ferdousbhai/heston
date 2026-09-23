@@ -41,8 +41,10 @@ const PublicSearchParameters = Type.Object({
   query: Type.String({ description: 'Ticker or company name.', maxLength: MAX_QUERY_LENGTH, minLength: 1 }),
 }, { additionalProperties: false })
 
-/** The public search route answered something other than a match or a clean miss. */
-/** `status` is this Worker's own public search route's answer, never a provider's. */
+/**
+ * The public search route answered something other than a match or a clean miss. `status` is
+ * this Worker's own public search route's answer, never a provider's.
+ */
 export class PublicSymbolSearchError extends CallerVisibleError {
   constructor(status: number) {
     super(`Symbol search is unavailable (HTTP ${status}).`)
