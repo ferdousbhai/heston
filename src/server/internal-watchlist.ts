@@ -130,29 +130,18 @@ function requiredDatabase(env: AppEnv): D1Database {
   return env.DB
 }
 
-async function requireImportedSeed(db: D1Database): Promise<void> {
-  const seed = await db.prepare(
-    `SELECT status FROM internal_watchlist_seed WHERE id = 'primary'`,
-  ).first<{ status: string }>()
-  if (seed?.status !== 'ready') throw new CallerVisibleError('InternalWatchlist:not-seeded')
-}
-
-async function requireFinalizedSeed(db: D1Database): Promise<void> {
-  const seed = await db.prepare(
-    `SELECT status, finalized_at FROM internal_watchlist_seed WHERE id = 'primary'`,
-  ).first<{ finalized_at: string | null; status: string }>()
-  if (seed?.status !== 'ready') throw new CallerVisibleError('InternalWatchlist:not-seeded')
-  if (!seed.finalized_at) throw new CallerVisibleError('InternalWatchlist:not-finalized')
-}
-
 function normalizedSymbols(symbols: readonly string[]): string[] {
   return [...new Set(symbols.map((symbol) => SymbolSchema.safeParse(symbol).data).filter((symbol): symbol is string => Boolean(symbol)))]
 }
 
-/** The retained seed's equities: stable catalog candidates that survive any live-list pruning or removal. */
+/**
+ * The retained seed's equities: stable catalog candidates that survive any live-list pruning or
+ * removal. Nothing writes the seed tables any more (the one-time import is gone), so there is no
+ * readiness row to gate on: a database without the import simply has no candidates, and the live
+ * list grows from reader and owner additions instead.
+ */
 export async function readInternalWatchlistCatalogCandidates(env: AppEnv): Promise<string[]> {
   const db = requiredDatabase(env)
-  await requireImportedSeed(db)
   const result = await db.prepare(
     `SELECT DISTINCT upper(broker_symbol) AS symbol
      FROM internal_watchlist_seed_entries
@@ -235,7 +224,6 @@ export async function ensureInternalWatchlistSymbols(
   now = new Date(),
 ): Promise<string[]> {
   const db = requiredDatabase(env)
-  await requireFinalizedSeed(db)
   const normalized = normalizedSymbols(symbols)
   if (!normalized.length) return []
   if (normalized.length > MAX_WATCHLIST_SYMBOLS) throw new CallerVisibleError('InternalWatchlist:too-many-symbols')
@@ -258,7 +246,6 @@ export async function ensureInternalWatchlistSymbols(
 
 export async function removeInternalWatchlistSymbols(env: AppEnv, symbols: readonly string[]): Promise<string[]> {
   const db = requiredDatabase(env)
-  await requireFinalizedSeed(db)
   const normalized = normalizedSymbols(symbols)
   if (!normalized.length) return []
   if (normalized.length > MAX_WATCHLIST_SYMBOLS) throw new CallerVisibleError('InternalWatchlist:too-many-symbols')
@@ -282,24 +269,12 @@ const StoredItemSchema = z.object({
 })
 
 export async function readInternalWatchlist(env: AppEnv): Promise<InternalWatchlistItem[]> {
-  const db = requiredDatabase(env)
-  await requireFinalizedSeed(db)
-  const items = await readItems(db)
-  if (items.length > MAX_WATCHLIST_SYMBOLS) throw new CallerVisibleError('InternalWatchlist:invalid-store')
-  return items
-}
-
-/**
- * The ungated read. Callers that already hold the finalized-seed gate use this
- * so one request does not pay for the same gate query two or three times; the
- * gate itself stays mandatory on every entry point that is reached directly.
- */
-async function readItems(db: D1Database): Promise<InternalWatchlistItem[]> {
-  const result = await db.prepare(
+  const result = await requiredDatabase(env).prepare(
     `SELECT symbol, instrument_type, origin, metadata_json, created_at, updated_at
-     FROM internal_watchlist_items ORDER BY symbol ASC LIMIT ${MAX_INSTRUMENT_CATALOG_ITEMS + 1}`,
+     FROM internal_watchlist_items ORDER BY symbol ASC LIMIT ${MAX_WATCHLIST_SYMBOLS + 1}`,
   ).all()
-  if (!Array.isArray(result.results) || result.results.length > MAX_INSTRUMENT_CATALOG_ITEMS) {
+  // Every write prunes to `MAX_WATCHLIST_SYMBOLS`, so a longer store is corrupt, not a page.
+  if (!Array.isArray(result.results) || result.results.length > MAX_WATCHLIST_SYMBOLS) {
     throw new CallerVisibleError('InternalWatchlist:invalid-store')
   }
   return result.results.map((row) => {
@@ -328,7 +303,6 @@ export async function readInternalWatchlistFocus(
   limit = MAX_WATCHLIST_SYMBOLS,
 ): Promise<string[]> {
   const db = requiredDatabase(env)
-  await requireFinalizedSeed(db)
   return focusFromStore(db, positionSymbols, limit)
 }
 

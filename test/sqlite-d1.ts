@@ -130,10 +130,10 @@ export function seededItems(symbols: readonly string[]): SeededWatchlistItem[] {
 }
 
 /**
- * The state every live watchlist read requires: the one-time seed `ready` and finalized, its
- * retained sources and entries, and the maintained items. Production has no writer for the seed
- * any more (the owner bootstrap that imported it is gone), so tests write the rows the
- * migrations define directly rather than through a production path kept alive only for them.
+ * The watchlist state production holds: the one-time seed's retained sources and entries, and the
+ * maintained items. Production has no writer for the seed any more (the owner bootstrap that
+ * imported it is gone) and no read gates on its readiness row, so tests write only the rows a
+ * read consults, directly rather than through a production path kept alive only for them.
  * An item defaults to the seed origin; a source's id follows the imported `tastytrade-<kind>-<n>`
  * shape so the ranking's joins and the provenance reads see what production holds.
  */
@@ -142,10 +142,6 @@ export function seedFinalizedWatchlist(
   items: readonly SeededWatchlistItem[],
   provenance: readonly SeededWatchlistSource[] = [],
 ): void {
-  store.sqlite.prepare(
-    `INSERT INTO internal_watchlist_seed (id, status, attempt_id, started_at, seeded_at, finalized_at)
-     VALUES ('primary', 'ready', 'seed-1', ?, ?, ?)`,
-  ).run(SEEDED_AT, SEEDED_AT, SEEDED_AT)
   const insertSource = store.sqlite.prepare(
     `INSERT INTO internal_watchlist_seed_sources (id, source_kind, source_index, name, metadata_json)
      VALUES (?, ?, ?, ?, ?)`,

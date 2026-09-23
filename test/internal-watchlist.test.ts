@@ -61,20 +61,14 @@ function seedLists(): void {
   ], LISTS)
 }
 
-describe('the finalized-seed gate', () => {
-  it('refuses every live read and write until the seed is ready and finalized', async () => {
+describe('a database without the one-time seed', () => {
+  it('serves and grows the live list rather than refusing it as unseeded', async () => {
     const env = { DB: store.database }
-    await expect(readInternalWatchlist(env)).rejects.toThrow('not-seeded')
-    await expect(ensureInternalWatchlistSymbols(env, ['NVDA'], 'owner')).rejects.toThrow('not-seeded')
-    await expect(readInternalWatchlistCatalogCandidates(env)).rejects.toThrow('not-seeded')
-
-    seedLists()
-    store.sqlite.exec(`UPDATE internal_watchlist_seed SET finalized_at = NULL`)
-    await expect(readInternalWatchlist(env)).rejects.toThrow('not-finalized')
-    await expect(readInternalWatchlistFocus(env, [])).rejects.toThrow('not-finalized')
-    await expect(removeInternalWatchlistSymbols(env, ['NVDA'])).rejects.toThrow('not-finalized')
-    // The catalog candidates read the retained seed itself, which is complete once it is ready.
-    await expect(readInternalWatchlistCatalogCandidates(env)).resolves.toEqual(['NVDA', 'PLTR'])
+    await expect(readInternalWatchlist(env)).resolves.toEqual([])
+    await expect(readInternalWatchlistCatalogCandidates(env)).resolves.toEqual([])
+    await expect(ensureInternalWatchlistSymbols(env, ['NVDA'], 'owner')).resolves.toEqual(['NVDA'])
+    await expect(readInternalWatchlistFocus(env, [])).resolves.toEqual(['NVDA'])
+    await expect(removeInternalWatchlistSymbols(env, ['NVDA'])).resolves.toEqual(['NVDA'])
   })
 })
 

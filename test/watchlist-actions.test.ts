@@ -82,12 +82,4 @@ describe('internal watchlist mutation boundary', () => {
     expect(store.sqlite.prepare('SELECT count(*) AS count FROM internal_watchlist_seed_entries').get())
       .toEqual({ count: 1 })
   })
-
-  it('fails closed until the explicit one-time seed is complete', async () => {
-    store.sqlite.prepare("UPDATE internal_watchlist_seed SET status = 'failed'").run()
-
-    await expect(executeWatchlistAction({ DB: store.database }, {
-      kind: 'add_watchlist_symbols', symbols: ['NVDA'],
-    })).rejects.toThrow('InternalWatchlist:not-seeded')
-  })
 })
