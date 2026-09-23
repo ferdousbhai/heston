@@ -91,8 +91,10 @@ export async function noteSymbolAttention(env: AppEnv, call: SymbolNamingCall): 
     try {
       await refreshCatalystsForSymbol(env, symbol)
     } catch (error) {
-      // A search nobody asked for must never affect the answer that was asked for. The window
-      // means a failure costs a receipt that ages out on its own, not a symbol stuck unsearched.
+      // A search nobody asked for must never affect the answer that was asked for. A run cut off
+      // here -- this work outlives the response only as long as the runtime allows -- leaves a
+      // `running` receipt that holds for the run budget, not the refresh window, so the symbol is
+      // not stuck unsearched.
       console.error('SymbolAttentionRefreshFailed', error instanceof Error ? error.name : 'UnknownError')
     }
   }

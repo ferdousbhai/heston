@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { EquitySymbolSchema, isTradeableInstrument } from '../domain/instrument'
 import { type CatalystRefresh } from '../domain/catalyst'
 import { type CatalystProvider, persistResearchCatalysts } from './catalysts'
-import { runExaCatalystSearch } from './catalyst-research-exa'
+import { EXA_REQUEST_TIMEOUT_MS, runExaCatalystSearch } from './catalyst-research-exa'
 import { type AppEnv } from './env'
 import { readInstrumentCatalog } from './instrument-catalog'
 import { CallerVisibleError } from './caller-visible-error'
@@ -28,6 +28,22 @@ const CATALYST_PROVIDER: CatalystProvider = 'exa'
 /** The `catalyst_runs.detail` CHECK in migration 0024 admits at most this many characters. */
 const MAX_RUN_DETAIL_LENGTH = 500
 
+/**
+ * The work a run does besides the search: the catalog read before it, the secret read, and the
+ * D1 persist and receipt write after it. None of those carries its own timeout, so this is a
+ * stated allowance rather than a derived one -- as long again as the search itself, far more than
+ * a handful of D1 statements take, and still short enough that a dead run frees its symbol within
+ * the minute rather than the month.
+ */
+const RUN_OVERHEAD_ALLOWANCE_MS = EXA_REQUEST_TIMEOUT_MS
+/**
+ * How long a `running` receipt can be a live run. Past this it is a run that died mid-flight -- a
+ * reader who disconnected from the public refresh, or attention work cut off with its invocation
+ * -- and it holds nothing back. Were a run somehow still alive past it, the cost is one extra
+ * search whose persist is idempotent, against a symbol left unsearched for a month.
+ */
+export const CATALYST_RUN_BUDGET_MS = EXA_REQUEST_TIMEOUT_MS + RUN_OVERHEAD_ALLOWANCE_MS
+
 const StoredRunSchema = z.object({
   ran_at: z.string(),
   status: z.enum(['running', 'complete', 'failed']),
@@ -35,13 +51,14 @@ const StoredRunSchema = z.object({
 
 /**
  * Claim the run before making it. A concurrent favorite of the same symbol then sees a
- * fresh receipt and does not buy a second search; a run that dies mid-flight leaves a
- * receipt that ages out on its own rather than a lock nothing releases.
+ * fresh receipt and does not buy a second search.
  *
- * A receipt the search itself marked `failed` is not a run that answered anything, so it holds
- * nothing back: honoring it would tell every reader "searched, nothing scheduled" for a month
- * on the strength of an outage. The next look pays for the search that never happened. A
- * `running` receipt still holds, because that search may yet answer.
+ * Only two receipts hold a symbol back: a `complete` one inside the refresh window, and a
+ * `running` one inside the run budget, because that search may yet answer. A `running` receipt
+ * past the budget is a run that died mid-flight, so it ages out within the minute rather than
+ * standing in for a search that never finished for the whole window. A receipt the search itself
+ * marked `failed` answered nothing either, so it holds nothing back: honoring it would tell every
+ * reader "searched, nothing scheduled" for a month on the strength of an outage.
  */
 async function claimRun(db: D1Database, symbol: string, now: Date, forced: boolean): Promise<boolean> {
   const stored = forced ? undefined : await db.prepare(
@@ -51,10 +68,11 @@ async function claimRun(db: D1Database, symbol: string, now: Date, forced: boole
     const receipt = StoredRunSchema.parse(stored)
     // A receipt whose timestamp will not parse reads as expired — the comparison is false for
     // NaN — because one extra search costs less than a symbol that can never be searched again.
-    const ranAt = Date.parse(receipt.ran_at)
-    if (receipt.status !== 'failed' && now.getTime() - ranAt < CATALYST_REFRESH_INTERVAL_DAYS * 86_400_000) {
-      return false
-    }
+    const age = now.getTime() - Date.parse(receipt.ran_at)
+    const holds = receipt.status === 'complete'
+      ? age < CATALYST_REFRESH_INTERVAL_DAYS * 86_400_000
+      : receipt.status === 'running' && age < CATALYST_RUN_BUDGET_MS
+    if (holds) return false
   }
   await db.prepare(
     `INSERT INTO catalyst_runs (symbol, source_provider, ran_at, catalyst_count, status)

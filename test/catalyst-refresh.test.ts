@@ -7,6 +7,7 @@ import {
 } from '../src/server/instrument-catalog'
 import {
   CATALYST_REFRESH_INTERVAL_DAYS,
+  CATALYST_RUN_BUDGET_MS,
   refreshCatalystsForSymbol,
 } from '../src/server/catalyst-refresh'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
@@ -185,6 +186,28 @@ describe('catalyst coverage seeded by favorites', () => {
     await expect(refreshCatalystsForSymbol(env(store), 'BE', NOW))
       .resolves.toMatchObject({ ran: true, catalysts: [{ id: 'exa:BE:investor-event:2026-10-14' }] })
     expect(store.sqlite.prepare('SELECT status FROM catalyst_runs').get()).toEqual({ status: 'complete' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    store.close()
+  })
+
+  it('holds a running receipt only for the run budget, so an abandoned run frees its symbol', async () => {
+    const store = await storeWithCatalog()
+    const fetchMock = stubExa()
+    // A run cut off mid-flight -- a reader who disconnected, or attention work that outlived its
+    // invocation -- leaves exactly this behind.
+    await store.database.prepare(
+      `INSERT INTO catalyst_runs (symbol, source_provider, ran_at, catalyst_count, status)
+       VALUES ('BE', 'exa', ?, 0, 'running')`,
+    ).bind(NOW.toISOString()).run()
+
+    const insideBudget = new Date(NOW.getTime() + CATALYST_RUN_BUDGET_MS - 1)
+    await expect(refreshCatalystsForSymbol(env(store), 'BE', insideBudget))
+      .resolves.toEqual({ catalysts: [], ran: false, reason: 'fresh' })
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    const pastBudget = new Date(NOW.getTime() + CATALYST_RUN_BUDGET_MS)
+    await expect(refreshCatalystsForSymbol(env(store), 'BE', pastBudget))
+      .resolves.toMatchObject({ ran: true })
     expect(fetchMock).toHaveBeenCalledTimes(1)
     store.close()
   })

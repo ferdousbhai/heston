@@ -38,7 +38,11 @@ const MAX_EXA_RESULTS = 8
 const MAX_RESULT_CHARACTERS = 4_000
 /** An allocation bound on the untrusted events array; the response is already byte-bounded above. */
 const MAX_EXA_EVENTS = 50
-const EXA_REQUEST_TIMEOUT_MS = 30_000
+/**
+ * Bounds the whole search, body included, since the signal aborts the stream too. Exported because
+ * a `running` receipt older than the run this bounds is a run that died, not one still answering.
+ */
+export const EXA_REQUEST_TIMEOUT_MS = 30_000
 
 const EXA_OUTPUT_SCHEMA = {
   additionalProperties: false,
