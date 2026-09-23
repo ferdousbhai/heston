@@ -12,16 +12,12 @@ if [[ "$seed_mode" != 'preview' && "$seed_mode" != 'sync' && "$seed_mode" != 'bo
 fi
 
 trap temporary_worker_cleanup_on_exit EXIT
-temporary_worker_start "$seed_worker" tools/wrangler.seed.jsonc
-
-call_seed_worker() {
-  temporary_worker_call "$1"
-}
+temporary_worker_start "$seed_worker" ops/internal-watchlist-seed/wrangler.jsonc
 
 if [[ "$seed_mode" == 'bootstrap' ]]; then
   # The authoritative list is not ready for product use until the retained
   # provenance has been resolved, reduced to 100 names, published, and synced.
-  seed_result="$(call_seed_worker seed)"
+  seed_result="$(temporary_worker_call seed)"
   printf '%s\n' "$seed_result"
   seed_finalized="$(node -e '
     let input = "";
@@ -31,10 +27,10 @@ if [[ "$seed_mode" == 'bootstrap' ]]; then
   if [[ "$seed_finalized" == 'true' ]]; then
     # Finalization and the first owner snapshot are separate invocations so each
     # stays within D1 limits. A retry must repair an interrupted post-finalize sync.
-    call_seed_worker sync
+    temporary_worker_call sync
     exit 0
   fi
   HESTON_CATALOG_MODE=apply bash ops/instrument-catalog/run.sh
 else
-  call_seed_worker "$seed_mode"
+  temporary_worker_call "$seed_mode"
 fi

@@ -1,10 +1,10 @@
-import { readInternalWatchlistSeedAudit } from '../src/server/internal-watchlist'
+import { readInternalWatchlistSeedAudit } from '../../src/server/internal-watchlist'
 import {
   previewInternalWatchlistFromTastytrade,
   seedInternalWatchlistFromTastytrade,
-} from '../src/server/tastytrade'
-import { summarizeOwnerMarketSync } from '../ops/shared/market-sync'
-import { type OpsEnv, serveOpsRequest } from '../ops/shared/worker-auth'
+} from '../../src/server/tastytrade'
+import { summarizeOwnerMarketSync } from '../shared/market-sync'
+import { type OpsEnv, serveOpsRequest } from '../shared/worker-auth'
 
 const SEED_PATHS = ['/preview', '/seed', '/sync']
 
