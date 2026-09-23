@@ -4,9 +4,16 @@ import { z } from 'zod'
 import { type JsonValue } from '../src/domain/json-payload'
 
 import { HESTON_GUIDE } from '../src/server/doctrine'
-import { handleMcpRequest, mcpEndpointRedirect, resolveMcpCaller, type McpExecutionContext } from '../src/server/mcp'
+import {
+  handleMcpRequest,
+  McpCallerLookupError,
+  mcpEndpointRedirect,
+  resolveMcpCaller,
+  type McpExecutionContext,
+} from '../src/server/mcp'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
+import { unsupportedDatabase } from './fake-d1'
 
 /**
  * Every caller is now a row in `user_mcp_tokens`, so a test that reaches `/mcp` needs a real
@@ -75,8 +82,57 @@ describe('MCP bearer authentication', () => {
     const { store, token } = await ownerHarness()
     // The shared secret that used to authenticate as the owner is gone; without the token
     // store there is no other way in, and a missing binding must not become a bypass.
-    await expect(resolveMcpCaller(mcpRequest({}, token), {})).resolves.toBeUndefined()
+    await expect(resolveMcpCaller(mcpRequest({}, token), {})).rejects.toBeInstanceOf(McpCallerLookupError)
     store.close()
+  })
+
+  it('answers a missing token store as unverifiable, not as a dead token', async () => {
+    const { store, token } = await ownerHarness()
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      const response = await handleMcpRequest(mcpRequest({ id: 1, jsonrpc: '2.0', method: 'tools/list' }, token), {}, executionContext)
+      expect(response.status).toBe(401)
+      const challenge = response.headers.get('WWW-Authenticate') ?? ''
+      expect(challenge).toContain('invalid_token')
+      expect(challenge).toContain('Heston could not verify this request.')
+      expect(challenge).not.toContain('Issue a new one')
+      expect(logged.mock.calls).toEqual([['McpCallerLookupFailed', 'McpCallerLookupError']])
+    } finally {
+      logged.mockRestore()
+      store.close()
+    }
+  })
+
+  it('answers a failing token read with a challenge and a named log, never an escaped throw', async () => {
+    const { env, store, token } = await ownerHarness()
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      for (const failing of ['FROM user_mcp_tokens', 'FROM "user"']) {
+        const database = env.DB
+        const broken: D1Database = {
+          ...unsupportedDatabase(),
+          prepare: (sql: string) => {
+            if (sql.includes(failing)) {
+              const error = new Error(`D1_ERROR: read failed for ${token}`)
+              error.name = 'D1Error'
+              throw error
+            }
+            return database.prepare(sql)
+          },
+        }
+        const response = await handleMcpRequest(
+          mcpRequest({ id: 1, jsonrpc: '2.0', method: 'tools/list' }, token),
+          { DB: broken },
+          executionContext,
+        )
+        expect(response.status).toBe(401)
+        expect(response.headers.get('WWW-Authenticate')).toContain('Heston could not verify this request.')
+      }
+      expect(logged.mock.calls).toEqual([['McpCallerLookupFailed', 'D1Error'], ['McpCallerLookupFailed', 'D1Error']])
+    } finally {
+      logged.mockRestore()
+      store.close()
+    }
   })
 
   it('gives a member their own identity, not the owner\'s', async () => {

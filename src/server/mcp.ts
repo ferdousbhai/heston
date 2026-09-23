@@ -270,13 +270,29 @@ function presentedBearer(request: Request): string | undefined {
   return match?.[1]?.trim() || undefined
 }
 
-/** A minted `user_mcp_tokens` credential, resolved to its caller; undefined for anything else. */
+/**
+ * The token store could not answer: a missing binding or a failed read. Distinct from a token
+ * the store answered "no" for, because telling the caller to issue a new token would misreport a
+ * fault on this side as one on theirs. Either way it is no access, never open access.
+ */
+export class McpCallerLookupError extends Error {
+  constructor() {
+    super('McpCallerLookup:store-unavailable')
+    this.name = 'McpCallerLookupError'
+  }
+}
+
+/**
+ * A minted `user_mcp_tokens` credential, resolved to its caller; undefined for anything the
+ * store says is not a live token. Throws when the store itself cannot answer.
+ */
 export async function resolveMcpCaller(request: Request, env: AppEnv): Promise<McpCaller | undefined> {
   const presented = presentedBearer(request)
   if (!presented || !isMintedMcpToken(presented)) return undefined
 
-  // No store means no way to recognise anyone: no access, never open access.
-  if (!env.DB) return undefined
+  // No store means no way to recognise anyone: no access, never open access -- but reported as
+  // this server's fault, not as a dead token.
+  if (!env.DB) throw new McpCallerLookupError()
   const identity = await authenticateMcpToken(env.DB, presented)
   if (!identity) return undefined
   return callerForUser(env.DB, identity.userId)
@@ -336,6 +352,17 @@ function authChallenge(request: Request, description: string): Response {
 }
 
 /**
+ * A store fault while resolving who is calling. Answered as the auth-unavailable case is: a
+ * challenge rather than an escaped exception, which the platform would turn into a bare 500 with
+ * no challenge and no named log. Only the error's name is recorded; D1 detail can carry a token
+ * id or user id.
+ */
+function callerLookupFailed(request: Request, errorName: string): Response {
+  console.error('McpCallerLookupFailed', errorName)
+  return authChallenge(request, 'Heston could not verify this request.')
+}
+
+/**
  * Two ways in, for two kinds of caller.
  *
  * A person at a terminal authenticates with OAuth: their client discovers this server, registers
@@ -368,7 +395,12 @@ export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpEx
   // here, and never handed to the JWT verifier, where it could only fail and be logged as an
   // OAuth verification failure it never was.
   if (isMintedMcpToken(presented)) {
-    const minted = await resolveMcpCaller(request, env)
+    let minted
+    try {
+      minted = await resolveMcpCaller(request, env)
+    } catch (error) {
+      return callerLookupFailed(request, error instanceof Error ? error.name : 'UnknownError')
+    }
     if (minted) return serveMcp(request, env, ctx, minted)
     console.error('McpTokenRejected')
     return authChallenge(request, 'This agent token is not live. Issue a new one from the Connect tab.')
@@ -401,7 +433,12 @@ export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpEx
     return authChallenge(request, 'Heston could not verify this token.')
   }
 
-  const caller = await callerForUser(runtime.database, claims.sub)
+  let caller
+  try {
+    caller = await callerForUser(runtime.database, claims.sub)
+  } catch (error) {
+    return callerLookupFailed(request, error instanceof Error ? error.name : 'UnknownError')
+  }
   // A token whose subject is not a user this server knows authenticates nothing.
   if (!caller) {
     console.error('McpAuthRejected')

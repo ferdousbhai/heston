@@ -87,6 +87,26 @@ describe('MCP OAuth callers', () => {
     expect(logged).toHaveBeenCalledWith('McpAuthRejected')
   })
 
+  it('answers a failing member lookup with a challenge and a named log, never an escaped throw', async () => {
+    addMember('lookup-member')
+    const token = await accessTokenFor('lookup-member')
+    const prepare = store.database.prepare.bind(store.database)
+    vi.spyOn(store.database, 'prepare').mockImplementation((sql: string) => {
+      if (sql.includes('FROM "user"')) {
+        const error = new Error('D1_ERROR: read failed')
+        error.name = 'D1Error'
+        throw error
+      }
+      return prepare(sql)
+    })
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const response = await handleMcpRequest(toolsList(`Bearer ${token}`), env, executionContext)
+    expect(response.status).toBe(401)
+    expect(response.headers.get('WWW-Authenticate')).toContain('Heston could not verify this request.')
+    expect(logged.mock.calls).toEqual([['McpCallerLookupFailed', 'D1Error']])
+  })
+
   it('decides a minted token by its own table, whatever case the scheme is in, and never as a JWT', async () => {
     addMember('minted-member')
     setBrokerApi(stubBroker())
