@@ -177,8 +177,13 @@ describe('a calendar read that fails', () => {
     expect(screen.queryByText('Searched — nothing scheduled.')).toBeNull()
 
     readOk = true
-    window.dispatchEvent(new Event('focus'))
-    expect(await screen.findByText('IWM analyst day')).toBeTruthy()
+    // The failure text renders before React runs the passive effect that attaches the retry's
+    // focus listener, so one focus dispatched right after it can land on no listener at all.
+    // Focus again on every poll, as a reader returning to the tab would, until the retry lands.
+    await waitFor(() => {
+      window.dispatchEvent(new Event('focus'))
+      expect(screen.queryByText('IWM analyst day')).not.toBeNull()
+    })
     expect(screen.queryByText('The calendar didn’t load.')).toBeNull()
   })
 
@@ -215,9 +220,16 @@ describe('a calendar search that fails', () => {
     expect(requested).toEqual(['SPY'])
 
     searchOk = true
-    window.dispatchEvent(new Event('focus'))
-    expect(await screen.findByText('SPY analyst day')).toBeTruthy()
-    expect(requested).toEqual(['SPY', 'SPY'])
+    // Same passive-effect race as the calendar-read retry above: focus again on every poll
+    // until the retry's listener has attached and the search lands.
+    await waitFor(() => {
+      window.dispatchEvent(new Event('focus'))
+      expect(screen.queryByText('SPY analyst day')).not.toBeNull()
+    })
+    // A reader dispatching focus more than once before the listener attaches can spend more
+    // than one retry; what matters is that every retry it did spend was for this symbol.
+    expect(requested.length).toBeGreaterThanOrEqual(2)
+    expect(requested.every((symbol) => symbol === 'SPY')).toBe(true)
     expect(screen.queryByText('The calendar search didn’t finish.')).toBeNull()
   })
 })
