@@ -38,6 +38,14 @@ export function catalystUpsertStatements(
   observedAt: string,
 ): D1PreparedStatement[] {
   // Every producer writes through here, so this is the one place the write envelope is held.
+  //
+  // A sighting never moves backwards. `CURRENT_CATALYSTS` reads only a producer's latest
+  // sighting, so a superseded run that finishes last -- an attention search still in flight when
+  // the owner forces a newer one that lands first -- would otherwise stamp its older instant back
+  // over the newer rows, retire what the newer run reported, and put its stale fields in their
+  // place. The guard on the conflict branch makes that late write land nowhere for any row the
+  // newer run touched. Every producer stamps the instant its own run began, so an equal stamp is
+  // the same run writing again and still applies.
   const rows = catalysts.map((catalyst) => RecordedCatalystSchema.parse(catalyst))
   const statements: D1PreparedStatement[] = []
   for (let start = 0; start < rows.length; start += CATALYST_ROWS_PER_STATEMENT) {
@@ -51,7 +59,8 @@ export function catalystUpsertStatements(
         description = excluded.description, event_date = excluded.event_date,
         timing = excluded.timing, confidence = excluded.confidence,
         source_label = excluded.source_label, source_url = excluded.source_url,
-        updated_at = excluded.updated_at, last_seen_at = excluded.last_seen_at`,
+        updated_at = excluded.updated_at, last_seen_at = excluded.last_seen_at
+       WHERE excluded.last_seen_at >= catalysts.last_seen_at`,
     ).bind(...chunk.flatMap((catalyst) => [
       catalyst.id, provider, catalyst.symbol, catalyst.kind, catalyst.title,
       catalyst.description ?? null, catalyst.date, catalyst.timing, catalyst.confidence,

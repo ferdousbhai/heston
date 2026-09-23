@@ -493,6 +493,35 @@ describe('a producer that looked again', () => {
     }
   })
 
+  it('never lets a superseded run that lands last move a sighting backwards', async () => {
+    // An attention search claimed at LATE_START is still in flight when the owner forces a newer
+    // one at NOW that finishes first; the older run's persist then arrives last.
+    const LATE_START = new Date('2026-09-21T17:59:00.000Z')
+    const store = await migrationStore()
+    try {
+      const env = { DB: store.database }
+      seedRun(store, 'INTC', 'exa')
+      await persistResearchCatalysts(env, 'exa', [
+        searched('earnings', '2026-10-23', 'Q3 2026 earnings'),
+        searched('conference', '2026-11-05', 'Citi TMT'),
+      ], NOW)
+      await persistResearchCatalysts(env, 'exa', [
+        { ...searched('earnings', '2026-10-23', 'stale title'), updatedAt: LATE_START.toISOString() },
+      ], LATE_START)
+
+      const upcoming = await readUpcomingCatalystsForSymbol(env, 'INTC', NOW)
+      // The newer run's rows all still stand, and the late run's fields did not replace them.
+      expect(upcoming.map((row) => [row.date, row.title])).toEqual([
+        ['2026-10-23', 'Q3 2026 earnings'],
+        ['2026-11-05', 'Citi TMT'],
+      ])
+      expect(store.sqlite.prepare('SELECT last_seen_at FROM catalysts WHERE id = ?').get('exa:INTC:earnings:2026-10-23'))
+        .toEqual({ last_seen_at: NOW.toISOString() })
+    } finally {
+      store.close()
+    }
+  })
+
   it('never lets one member retire what another member recorded', async () => {
     // `member-research` is not one voice: every member's agent writes under it. A second member
     // recording a conference is not the first one looking again, so nothing of theirs is

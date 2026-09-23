@@ -40,7 +40,10 @@ const RUN_OVERHEAD_ALLOWANCE_MS = EXA_REQUEST_TIMEOUT_MS
  * How long a `running` receipt can be a live run. Past this it is a run that died mid-flight -- a
  * reader who disconnected from the public refresh, or attention work cut off with its invocation
  * -- and it holds nothing back. Were a run somehow still alive past it, the cost is one extra
- * search whose persist is idempotent, against a symbol left unsearched for a month.
+ * search, against a symbol left unsearched for a month. Its late persist cannot undo the newer
+ * run: a row write never moves a sighting backwards (`catalystUpsertStatements`), and its receipt
+ * lands nowhere (`recordRun`). What it adds is rows the newer run did not report, stamped with its
+ * older instant, which `CURRENT_CATALYSTS` already reads as superseded.
  */
 export const CATALYST_RUN_BUDGET_MS = EXA_REQUEST_TIMEOUT_MS + RUN_OVERHEAD_ALLOWANCE_MS
 /**
