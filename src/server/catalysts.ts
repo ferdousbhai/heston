@@ -12,6 +12,7 @@ import { isValidIsoDate } from '../domain/iso-date'
 import { type AppEnv } from './env'
 import { jsonObject, jsonText, type JsonObject, type JsonValue } from '../domain/json-payload'
 import { D1_MAX_BOUND_PARAMETERS, rowsPerD1Statement } from './d1-limits'
+import { CallerVisibleError } from './caller-visible-error'
 
 const TASTYTRADE_METRICS_URL = 'https://developer.tastytrade.com/open-api-spec/market-metrics/'
 const DELETE_SYMBOL_CHUNK_SIZE = D1_MAX_BOUND_PARAMETERS
@@ -64,7 +65,7 @@ function optionalBoolean(object: JsonObject, key: string): boolean | undefined {
   const value = object[key]
   if (value === undefined || value === null) return undefined
   const parsed = z.boolean().safeParse(value)
-  if (!parsed.success) throw new Error(`TastytradeCatalyst:invalid-${key}`)
+  if (!parsed.success) throw new CallerVisibleError(`TastytradeCatalyst:invalid-${key}`)
   return parsed.data
 }
 
@@ -72,7 +73,7 @@ function earningsRecord(metric: JsonObject | undefined): JsonObject | undefined 
   const value = metric?.earnings
   if (value === undefined || value === null) return undefined
   const earnings = jsonObject(value)
-  if (!earnings) throw new Error('TastytradeCatalyst:invalid-earnings')
+  if (!earnings) throw new CallerVisibleError('TastytradeCatalyst:invalid-earnings')
   return earnings
 }
 
@@ -81,7 +82,7 @@ function upcomingEarningsDate(earnings: JsonObject | undefined, today: string): 
   const rawDate = earnings['expected-report-date']
   if (rawDate === undefined || rawDate === null) return undefined
   const candidate = jsonText(rawDate)
-  if (!candidate || !isValidIsoDate(candidate)) throw new Error('TastytradeCatalyst:invalid-earnings-date')
+  if (!candidate || !isValidIsoDate(candidate)) throw new CallerVisibleError('TastytradeCatalyst:invalid-earnings-date')
   if (candidate < today) return undefined
   return candidate
 }
@@ -89,7 +90,7 @@ function upcomingEarningsDate(earnings: JsonObject | undefined, today: string): 
 function providerTimestamp(value: JsonValue): string {
   const candidate = jsonText(value)
   if (!candidate || Number.isNaN(Date.parse(candidate))) {
-    throw new Error('TastytradeCatalyst:invalid-updated-at')
+    throw new CallerVisibleError('TastytradeCatalyst:invalid-updated-at')
   }
   return new Date(candidate).toISOString()
 }
@@ -97,7 +98,7 @@ function providerTimestamp(value: JsonValue): string {
 function earningsTiming(value: JsonValue): Catalyst['timing'] {
   if (value === undefined || value === null) return 'unknown'
   const parsed = z.string().safeParse(value)
-  if (!parsed.success) throw new Error('TastytradeCatalyst:invalid-time-of-day')
+  if (!parsed.success) throw new CallerVisibleError('TastytradeCatalyst:invalid-time-of-day')
   const timing = parsed.data.toLowerCase()
   if (timing.includes('before') || timing.includes('pre')) return 'pre-market'
   if (timing.includes('after') || timing.includes('post')) return 'after-hours'
@@ -202,7 +203,7 @@ const UPCOMING_CATALYSTS_QUERY =
 
 /** The upcoming-catalyst read, for a caller that must not write. */
 export async function readUpcomingCatalysts(env: AppEnv, now = new Date()): Promise<Catalyst[]> {
-  if (!env.DB) throw new Error('CatalystStoreUnavailable')
+  if (!env.DB) throw new CallerVisibleError('CatalystStoreUnavailable')
   const result = await env.DB.prepare(UPCOMING_CATALYSTS_QUERY)
     .bind(marketDate(now), MAX_CATALYSTS_PER_SYMBOL).all()
   return CatalystSchema.array().parse(result.results ?? [])
@@ -227,7 +228,7 @@ export async function readUpcomingCatalystsForSymbol(
   symbol: string,
   now = new Date(),
 ): Promise<Catalyst[]> {
-  if (!env.DB) throw new Error('CatalystStoreUnavailable')
+  if (!env.DB) throw new CallerVisibleError('CatalystStoreUnavailable')
   const result = await env.DB.prepare(SYMBOL_CATALYSTS_QUERY)
     .bind(marketDate(now), EquitySymbolSchema.parse(symbol), MAX_CATALYSTS_PER_SYMBOL).all()
   return CatalystSchema.array().parse(result.results ?? [])
@@ -239,7 +240,7 @@ export async function persistAndLoadCatalysts(
   refreshedSymbols: readonly string[],
   now = new Date(),
 ): Promise<Catalyst[]> {
-  if (!env.DB) throw new Error('CatalystStoreUnavailable')
+  if (!env.DB) throw new CallerVisibleError('CatalystStoreUnavailable')
   const normalizedSymbols = [...new Set(refreshedSymbols.map((symbol) => EquitySymbolSchema.parse(symbol)))]
   const statements: D1PreparedStatement[] = []
   for (let start = 0; start < normalizedSymbols.length; start += DELETE_SYMBOL_CHUNK_SIZE) {
@@ -265,7 +266,7 @@ export async function persistResearchCatalysts(
   catalysts: readonly Catalyst[],
   now = new Date(),
 ): Promise<void> {
-  if (!env.DB) throw new Error('CatalystStoreUnavailable')
+  if (!env.DB) throw new CallerVisibleError('CatalystStoreUnavailable')
   if (!catalysts.length) return
   await env.DB.batch(catalystUpsertStatements(env.DB, provider, catalysts, now.toISOString()))
 }

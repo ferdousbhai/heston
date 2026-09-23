@@ -58,7 +58,7 @@ export function stubBrokerGate() {
   const gate = {
     acquire: vi.fn(async () => undefined),
     acquireMutation: vi.fn(async () => 'mutation-token'),
-    renewMutation: vi.fn(async (_token: string) => undefined),
+    renewMutation: vi.fn(async (_token: string) => true),
     releaseMutation: vi.fn(async (_token: string) => undefined),
   }
   const namespace = {

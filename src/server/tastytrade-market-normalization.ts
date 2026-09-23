@@ -21,10 +21,11 @@ import {
   type TastytradeMarketMetricRecord,
   type TastytradeMarketQuoteRecord,
 } from './tastytrade-market-store'
+import { CallerVisibleError } from './caller-visible-error'
 
 function numeric(value: JsonValue, field: string): number {
   const parsed = jsonNumber(value)
-  if (parsed === undefined) throw new Error(`TastytradeSnapshot:invalid-${field}`)
+  if (parsed === undefined) throw new CallerVisibleError(`TastytradeSnapshot:invalid-${field}`)
   return parsed
 }
 
@@ -41,7 +42,7 @@ function optionalNumeric(value: JsonValue, field: string): number | undefined {
 
 function nonnegative(value: JsonValue, field: string): number {
   const parsed = numeric(value, field)
-  if (parsed < 0) throw new Error(`TastytradeSnapshot:invalid-${field}`)
+  if (parsed < 0) throw new CallerVisibleError(`TastytradeSnapshot:invalid-${field}`)
   return parsed
 }
 
@@ -52,7 +53,7 @@ function optionalNonnegative(value: JsonValue, field: string): number | undefine
 
 function positive(value: JsonValue, field: string): number {
   const parsed = numeric(value, field)
-  if (parsed <= 0) throw new Error(`TastytradeSnapshot:invalid-${field}`)
+  if (parsed <= 0) throw new CallerVisibleError(`TastytradeSnapshot:invalid-${field}`)
   return parsed
 }
 
@@ -64,14 +65,14 @@ function optionalPositive(value: JsonValue, field: string): number | undefined {
 function optionalText(value: JsonValue, field: string): string | undefined {
   if (unreported(value)) return undefined
   const parsed = jsonText(value)
-  if (!parsed) throw new Error(`TastytradeSnapshot:invalid-${field}`)
+  if (!parsed) throw new CallerVisibleError(`TastytradeSnapshot:invalid-${field}`)
   return parsed
 }
 
 function optionalBoolean(value: JsonValue, field: string): boolean | undefined {
   if (unreported(value)) return undefined
   const parsed = z.boolean().safeParse(value)
-  if (!parsed.success) throw new Error(`TastytradeSnapshot:invalid-${field}`)
+  if (!parsed.success) throw new CallerVisibleError(`TastytradeSnapshot:invalid-${field}`)
   return parsed.data
 }
 
@@ -134,10 +135,10 @@ function optionalPercentagePoints(value: JsonValue, field: string): number | und
 function optionTermStructure(metrics: JsonObject, symbol: string): Ticker['ivTermStructure'] {
   const value = metrics['option-expiration-implied-volatilities'] ?? metrics.optionExpirationImpliedVolatilities
   if (unreported(value)) return undefined
-  if (!Array.isArray(value)) throw new Error(`TastytradeSnapshot:invalid-option-term-structure:${symbol}`)
+  if (!Array.isArray(value)) throw new CallerVisibleError(`TastytradeSnapshot:invalid-option-term-structure:${symbol}`)
   const candidates = value.flatMap((candidate) => {
     const row = jsonObject(candidate)
-    if (!row) throw new Error(`TastytradeSnapshot:invalid-option-term-row:${symbol}`)
+    if (!row) throw new CallerVisibleError(`TastytradeSnapshot:invalid-option-term-row:${symbol}`)
     const rawExpiration = optionalText(
       row['expiration-date'] ?? row.expirationDate,
       `option-expiration:${symbol}`,
@@ -154,8 +155,8 @@ function optionTermStructure(metrics: JsonObject, symbol: string): Ticker['ivTer
     // fields still fail in the parsers above.
     if (rawExpiration === undefined || impliedVolatility === undefined) return []
     const expiration = rawExpiration.slice(0, 10)
-    if (!isValidIsoDate(expiration)) throw new Error(`TastytradeSnapshot:invalid-option-expiration:${symbol}`)
-    if (impliedVolatility < 0) throw new Error(`TastytradeSnapshot:invalid-option-implied-volatility:${symbol}`)
+    if (!isValidIsoDate(expiration)) throw new CallerVisibleError(`TastytradeSnapshot:invalid-option-expiration:${symbol}`)
+    if (impliedVolatility < 0) throw new CallerVisibleError(`TastytradeSnapshot:invalid-option-implied-volatility:${symbol}`)
     return [{
       chainType,
       expiration,
@@ -178,7 +179,7 @@ function assetType(instrument: JsonObject | undefined): Ticker['assetType'] {
   if (!instrument) return undefined
   const isIndex = optionalBoolean(instrument['is-index'] ?? instrument.isIndex, 'is-index')
   const isEtf = optionalBoolean(instrument['is-etf'] ?? instrument.isEtf, 'is-etf')
-  if (isIndex && isEtf) throw new Error('TastytradeSnapshot:conflicting-asset-type')
+  if (isIndex && isEtf) throw new CallerVisibleError('TastytradeSnapshot:conflicting-asset-type')
   if (isIndex) return 'index'
   if (isEtf) return 'etf'
   return isIndex === false && isEtf === false ? 'stock' : undefined
@@ -187,7 +188,7 @@ function assetType(instrument: JsonObject | undefined): Ticker['assetType'] {
 export function strictTastytradeRows(payload: JsonValue, label: string): JsonObject[] {
   const candidate = envelopeRows(payload)
   const rows = candidate && JsonObjectArraySchema.safeParse(candidate).data
-  if (!rows) throw new Error(`${label}:invalid-response`)
+  if (!rows) throw new CallerVisibleError(`${label}:invalid-response`)
   return rows
 }
 
@@ -205,10 +206,10 @@ export function tastytradeRowsByRequestedSymbol(
   const bySymbol = new Map<string, JsonObject>()
   for (const row of rows) {
     const parsed = EquitySymbolSchema.safeParse(jsonText(row.symbol))
-    if (!parsed.success) throw new Error(`${label}:invalid-symbol`)
+    if (!parsed.success) throw new CallerVisibleError(`${label}:invalid-symbol`)
     const symbol = parsed.data
-    if (!requested.has(symbol)) throw new Error(`${label}:unexpected-symbol`)
-    if (bySymbol.has(symbol)) throw new Error(`${label}:duplicate-symbol`)
+    if (!requested.has(symbol)) throw new CallerVisibleError(`${label}:unexpected-symbol`)
+    if (bySymbol.has(symbol)) throw new CallerVisibleError(`${label}:duplicate-symbol`)
     bySymbol.set(symbol, row)
   }
   return bySymbol
@@ -226,8 +227,8 @@ export function normalizeTastytradeMarketTicker(
   quote: JsonObject | undefined,
   instrument?: JsonObject,
 ): NormalizedTastytradeMarketTicker {
-  if (!metrics) throw new Error(`TastytradeSnapshot:missing-metrics:${symbol}`)
-  if (!quote) throw new Error(`TastytradeSnapshot:missing-quote:${symbol}`)
+  if (!metrics) throw new CallerVisibleError(`TastytradeSnapshot:missing-metrics:${symbol}`)
+  if (!quote) throw new CallerVisibleError(`TastytradeSnapshot:missing-quote:${symbol}`)
   const price = positive(quote.mark ?? quote['mark-price'] ?? quote.last ?? quote['last-price'] ?? quote.close, 'price')
   const previousClose = positive(
     quote.prevClose
@@ -263,11 +264,11 @@ export function normalizeTastytradeMarketTicker(
   const yearLow = optionalPositive(quote.yearLowPrice ?? quote['year-low-price'], 'year-low')
   const yearHigh = optionalPositive(quote.yearHighPrice ?? quote['year-high-price'], 'year-high')
   if (yearLow !== undefined && yearHigh !== undefined && yearHigh <= yearLow) {
-    throw new Error('TastytradeSnapshot:invalid-year-range')
+    throw new CallerVisibleError('TastytradeSnapshot:invalid-year-range')
   }
   const quoteUpdatedAt = optionalText(quote.updatedAt ?? quote['updated-at'], 'updated-at')
   const quoteTime = Date.parse(quoteUpdatedAt ?? '')
-  if (!Number.isFinite(quoteTime)) throw new Error('TastytradeSnapshot:invalid-updated-at')
+  if (!Number.isFinite(quoteTime)) throw new CallerVisibleError('TastytradeSnapshot:invalid-updated-at')
   const updatedAt = new Date(quoteTime).toISOString()
   const lendability = optionalText(metrics.lendability ?? instrument?.lendability, 'lendability')
   const ivIndex5DayChange = optionalPercentagePoints(
@@ -290,7 +291,7 @@ export function normalizeTastytradeMarketTicker(
   const metricsUpdatedAtText = optionalText(metrics['updated-at'] ?? metrics.updatedAt, 'metrics-updated-at')
   const metricsUpdatedAtTime = metricsUpdatedAtText === undefined ? undefined : Date.parse(metricsUpdatedAtText)
   if (metricsUpdatedAtTime !== undefined && !Number.isFinite(metricsUpdatedAtTime)) {
-    throw new Error('TastytradeSnapshot:invalid-metrics-updated-at')
+    throw new CallerVisibleError('TastytradeSnapshot:invalid-metrics-updated-at')
   }
   const metricsUpdatedAt = metricsUpdatedAtTime === undefined ? undefined : new Date(metricsUpdatedAtTime).toISOString()
   const metricRecord: TastytradeMarketMetricRecord = {
@@ -416,9 +417,9 @@ export function catalogTickerInstrument(item: InstrumentCatalogItem | undefined)
 export function marketStateFromTastytradeSession(payload: JsonValue): MarketSnapshot['marketState'] {
   const body = jsonObject(payload)
   const session = jsonObject(body?.data ?? payload)
-  if (!session) throw new Error('TastytradeMarketSession:invalid-response')
+  if (!session) throw new CallerVisibleError('TastytradeMarketSession:invalid-response')
   const rawState = optionalText(session.state, 'market-state')?.toLowerCase()
-  if (!rawState) throw new Error('TastytradeMarketSession:missing-state')
+  if (!rawState) throw new CallerVisibleError('TastytradeMarketSession:missing-state')
   if (rawState === 'open') return 'open'
   if (rawState.includes('pre')) return 'pre'
   if (rawState.includes('after') || rawState.includes('extended')) return 'after'

@@ -7,6 +7,7 @@ import {
   type BrokerOrderRecord,
 } from '../../domain/broker'
 import { type BrokerCredential } from '../broker-credential'
+import { CallerVisibleError } from '../caller-visible-error'
 import { type AppEnv } from '../env'
 
 /**
@@ -57,7 +58,7 @@ export function describeSnapshotError(error: BrokerSnapshotError, subject: strin
  * its own caller-visible warning; what matters here is that an adapter must raise it rather
  * than retrying, because the broker may already have accepted the cancellation.
  */
-export class BrokerCancellationAmbiguousError extends Error {
+export class BrokerCancellationAmbiguousError extends CallerVisibleError {
   constructor() {
     super('The broker may have received this cancellation, but the result could not be verified.')
     this.name = 'BrokerCancellationAmbiguousError'
@@ -65,10 +66,10 @@ export class BrokerCancellationAmbiguousError extends Error {
 }
 
 /** An unknown broker id. Never defaulted to a broker; account access fails closed. */
-export class UnknownBrokerError extends Error {
+export class UnknownBrokerError extends CallerVisibleError {
   constructor(broker: string) {
-    // The id is caller-supplied, never a secret, and naming it is what makes a
-    // misconfigured member agent diagnosable.
+    // The id is caller-supplied but already parsed against `BrokerIdSchema`, so it is one of
+    // this repository's own ids, never a secret; naming it makes a misconfigured agent diagnosable.
     super(`No broker adapter is registered for '${broker}'.`)
     this.name = 'UnknownBrokerError'
   }

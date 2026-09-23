@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { MarketStateSchema, type MarketSnapshot } from '../domain/market'
 import { type AppEnv } from './env'
 import { D1_MAX_BOUND_PARAMETERS, rowsPerD1Statement } from './d1-limits'
+import { CallerVisibleError } from './caller-visible-error'
 
 const METRIC_BOUND_PARAMETERS_PER_ROW = 16
 const QUOTE_BOUND_PARAMETERS_PER_ROW = 8
@@ -54,7 +55,7 @@ export async function persistTastytradeMarketSnapshot(
   records: TastytradeMarketRecords,
   observedAt = new Date(),
 ): Promise<void> {
-  if (!env.DB) throw new Error('TastytradeMarketStore:unavailable')
+  if (!env.DB) throw new CallerVisibleError('TastytradeMarketStore:unavailable')
   if (!records.metrics.length && !records.quotes.length) return
   const timestamp = observedAt.toISOString()
   const statements: D1PreparedStatement[] = []
@@ -204,7 +205,7 @@ export async function readStoredMarketRecords(
   env: AppEnv,
   symbols: readonly string[],
 ): Promise<StoredMarketRecords> {
-  if (!env.DB) throw new Error('TastytradeMarketStore:unavailable')
+  if (!env.DB) throw new CallerVisibleError('TastytradeMarketStore:unavailable')
   const metrics = new Map<string, TastytradeMarketMetricRecord>()
   const quotes = new Map<string, TastytradeMarketQuoteRecord>()
   let observedAt: string | undefined

@@ -11,6 +11,7 @@ import { type BackgroundScheduler, servePublicSnapshot } from './public-snapshot
 import { servePublicSymbolSearch } from './public-symbol-search'
 import { MAX_MARKET_SYMBOLS } from './brokerage-read-contracts'
 import { MAX_QUERY_LENGTH } from './symbol-search'
+import { CallerVisibleError } from './caller-visible-error'
 
 /**
  * The market reads an unauthenticated caller gets.
@@ -41,7 +42,8 @@ const PublicSearchParameters = Type.Object({
 }, { additionalProperties: false })
 
 /** The public search route answered something other than a match or a clean miss. */
-export class PublicSymbolSearchError extends Error {
+/** `status` is this Worker's own public search route's answer, never a provider's. */
+export class PublicSymbolSearchError extends CallerVisibleError {
   constructor(status: number) {
     super(`Symbol search is unavailable (HTTP ${status}).`)
     this.name = 'PublicSymbolSearchError'
@@ -102,7 +104,7 @@ async function readCachedSnapshot(env: AppEnv, schedule: BackgroundScheduler): P
   // The same URL the website requests, so this shares its cache entry rather than opening a
   // second one that would double the refresh cost it was meant to avoid.
   const response = await servePublicSnapshot(new Request(`${origin}/api/public-snapshot`), env, edgeCache(), schedule)
-  if (!response.ok) throw new Error('PublicSnapshotUnavailable')
+  if (!response.ok) throw new CallerVisibleError('PublicSnapshotUnavailable')
   return PublicQuoteBookSchema.parse(await response.json())
 }
 
@@ -114,7 +116,7 @@ function edgeCache(): Cache {
 
 function requiredOrigin(env: AppEnv): string {
   const origin = env.AUTH_BASE_URL
-  if (!origin) throw new Error('PublicSnapshotOriginMissing')
+  if (!origin) throw new CallerVisibleError('PublicSnapshotOriginMissing')
   return origin
 }
 

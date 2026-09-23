@@ -49,6 +49,7 @@ import {
   completeAccountRows,
   workingOrderRecords,
 } from './tastytrade-payload'
+import { CallerVisibleError } from '../caller-visible-error'
 
 // The reconciliation history request asks for one page this wide; `readOrderHistory`
 // treats a page that did not fill as the whole history, so this is the completeness
@@ -263,7 +264,7 @@ async function readAccountHistory(
       credential,
     )
   } catch {
-    throw new Error(`Tastytrade ${request.type} are unavailable.`)
+    throw new CallerVisibleError(`Tastytrade ${request.type} are unavailable.`)
   }
   const label = request.type === 'transactions' ? 'Tastytrade transaction history' : 'Tastytrade order history'
   // The envelope ceiling is deliberately wider than the model-context budget: it rejects an
@@ -323,7 +324,7 @@ export function tastytradeOrderFromPayload(payload: JsonValue): BrokerOrderRecor
   const data = jsonObject(body?.data ?? payload)
   // A collection where one order was asked for is ambiguous, never the first row.
   // The failure name is preserved verbatim: it is the existing caller-visible one.
-  if (!data || JsonArraySchema.safeParse(data.items).success) throw new Error('OrderReplacement:invalid-order')
+  if (!data || JsonArraySchema.safeParse(data.items).success) throw new CallerVisibleError('OrderReplacement:invalid-order')
   return tastytradeOrderRecord(data)
 }
 

@@ -15,6 +15,7 @@ import { type AppEnv } from './env'
 import { MAX_INSTRUMENT_CATALOG_ITEMS } from './instrument-catalog'
 import { publishInternalWatchlistUniverse } from './public-market-universe'
 import { defineSeam, type SeamValue } from './seam'
+import { CallerVisibleError } from './caller-visible-error'
 
 // The seed import is a one-time parse of untrusted provider collections. These ceilings are
 // isolate-memory and D1-write budgets; they do not constrain the finalized product list, whose
@@ -170,7 +171,7 @@ export type InternalWatchlistSeedAudit = {
 }
 
 function requiredDatabase(env: AppEnv): D1Database {
-  if (!env.DB) throw new Error('InternalWatchlist:store-unavailable')
+  if (!env.DB) throw new CallerVisibleError('InternalWatchlist:store-unavailable')
   return env.DB
 }
 
@@ -178,15 +179,15 @@ async function requireImportedSeed(db: D1Database): Promise<void> {
   const seed = await db.prepare(
     `SELECT status FROM internal_watchlist_seed WHERE id = 'primary'`,
   ).first<{ status: string }>()
-  if (seed?.status !== 'ready') throw new Error('InternalWatchlist:not-seeded')
+  if (seed?.status !== 'ready') throw new CallerVisibleError('InternalWatchlist:not-seeded')
 }
 
 async function requireFinalizedSeed(db: D1Database): Promise<void> {
   const seed = await db.prepare(
     `SELECT status, finalized_at FROM internal_watchlist_seed WHERE id = 'primary'`,
   ).first<{ finalized_at: string | null; status: string }>()
-  if (seed?.status !== 'ready') throw new Error('InternalWatchlist:not-seeded')
-  if (!seed.finalized_at) throw new Error('InternalWatchlist:not-finalized')
+  if (seed?.status !== 'ready') throw new CallerVisibleError('InternalWatchlist:not-seeded')
+  if (!seed.finalized_at) throw new CallerVisibleError('InternalWatchlist:not-finalized')
 }
 
 function serialized(value: JsonValue, label: string, maxBytes: number): string {
@@ -577,7 +578,7 @@ export async function finalizeInternalWatchlist(
   await requireImportedSeed(db)
   const positions = normalizedSymbols(positionSymbols)
   if (positions.length > MAX_WATCHLIST_SYMBOLS) {
-    throw new Error('InternalWatchlist:too-many-position-symbols')
+    throw new CallerVisibleError('InternalWatchlist:too-many-position-symbols')
   }
   const timestamp = now.toISOString()
   const statements = [
@@ -605,7 +606,7 @@ export async function finalizeInternalWatchlist(
   const state = await db.prepare(
     `SELECT finalized_at FROM internal_watchlist_seed WHERE id = 'primary' AND status = 'ready'`,
   ).first<{ finalized_at: string | null }>()
-  if (!state?.finalized_at) throw new Error('InternalWatchlist:finalization-failed')
+  if (!state?.finalized_at) throw new CallerVisibleError('InternalWatchlist:finalization-failed')
   await publishInternalWatchlistUniverse(env, now)
   return {
     finalized,
@@ -624,7 +625,7 @@ export async function ensureInternalWatchlistSymbols(
   await requireFinalizedSeed(db)
   const normalized = normalizedSymbols(symbols)
   if (!normalized.length) return []
-  if (normalized.length > MAX_WATCHLIST_SYMBOLS) throw new Error('InternalWatchlist:too-many-symbols')
+  if (normalized.length > MAX_WATCHLIST_SYMBOLS) throw new CallerVisibleError('InternalWatchlist:too-many-symbols')
   const timestamp = now.toISOString()
   const parsedOrigin = InternalWatchlistMutationOriginSchema.parse(origin)
   // D1 batch executes transactionally. Ranking inside the same batch prevents concurrent
@@ -647,7 +648,7 @@ export async function removeInternalWatchlistSymbols(env: AppEnv, symbols: reado
   await requireFinalizedSeed(db)
   const normalized = normalizedSymbols(symbols)
   if (!normalized.length) return []
-  if (normalized.length > MAX_WATCHLIST_SYMBOLS) throw new Error('InternalWatchlist:too-many-symbols')
+  if (normalized.length > MAX_WATCHLIST_SYMBOLS) throw new CallerVisibleError('InternalWatchlist:too-many-symbols')
   const results = await db.batch(normalized.map((symbol) => (
     db.prepare('DELETE FROM internal_watchlist_items WHERE symbol = ?').bind(symbol)
   )))
@@ -671,7 +672,7 @@ export async function readInternalWatchlist(env: AppEnv): Promise<InternalWatchl
   const db = requiredDatabase(env)
   await requireFinalizedSeed(db)
   const items = await readItems(db)
-  if (items.length > MAX_WATCHLIST_SYMBOLS) throw new Error('InternalWatchlist:invalid-store')
+  if (items.length > MAX_WATCHLIST_SYMBOLS) throw new CallerVisibleError('InternalWatchlist:invalid-store')
   return items
 }
 
@@ -686,12 +687,12 @@ async function readItems(db: D1Database): Promise<InternalWatchlistItem[]> {
      FROM internal_watchlist_items ORDER BY symbol ASC LIMIT ${MAX_INSTRUMENT_CATALOG_ITEMS + 1}`,
   ).all()
   if (!Array.isArray(result.results) || result.results.length > MAX_INSTRUMENT_CATALOG_ITEMS) {
-    throw new Error('InternalWatchlist:invalid-store')
+    throw new CallerVisibleError('InternalWatchlist:invalid-store')
   }
   return result.results.map((row) => {
     const parsed = StoredItemSchema.parse(row)
     const metadata = jsonObject(JSON.parse(parsed.metadata_json))
-    if (!metadata) throw new Error('InternalWatchlist:invalid-metadata')
+    if (!metadata) throw new CallerVisibleError('InternalWatchlist:invalid-metadata')
     return {
       createdAt: parsed.created_at,
       instrumentType: parsed.instrument_type,
@@ -723,7 +724,7 @@ async function focusFromStore(
   positionSymbols: readonly string[],
   limit: number,
 ): Promise<string[]> {
-  if (!Number.isSafeInteger(limit) || limit < 0) throw new Error('InternalWatchlist:invalid-focus-limit')
+  if (!Number.isSafeInteger(limit) || limit < 0) throw new CallerVisibleError('InternalWatchlist:invalid-focus-limit')
   const result = await db.prepare(
     `${RANKED_ITEMS_CTE}
      SELECT symbol FROM ranked ORDER BY ${RANK_ORDER} LIMIT ?`,
@@ -749,7 +750,7 @@ export async function readInternalWatchlistSymbolDetails(
      LIMIT ${MAX_SEED_MEMBERSHIPS_PER_SYMBOL + 1}`,
   ).bind(symbol).all()
   if (!Array.isArray(result.results) || result.results.length > MAX_SEED_MEMBERSHIPS_PER_SYMBOL) {
-    throw new Error('InternalWatchlist:invalid-provenance')
+    throw new CallerVisibleError('InternalWatchlist:invalid-provenance')
   }
   const seedMemberships = result.results.map((row) => {
     const parsed = z.object({
@@ -760,7 +761,7 @@ export async function readInternalWatchlistSymbolDetails(
     }).parse(row)
     const entryMetadata = jsonObject(JSON.parse(parsed.entry_metadata_json))
     const sourceMetadata = jsonObject(JSON.parse(parsed.source_metadata_json))
-    if (!entryMetadata || !sourceMetadata) throw new Error('InternalWatchlist:invalid-provenance')
+    if (!entryMetadata || !sourceMetadata) throw new CallerVisibleError('InternalWatchlist:invalid-provenance')
     return {
       entryMetadata,
       sourceKind: parsed.source_kind,

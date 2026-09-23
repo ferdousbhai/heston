@@ -33,7 +33,7 @@ export class BrokerGate extends DurableObject<AppEnv> {
   }
 
   /** Extends a token-checked lease while a bounded multi-request mutation is still progressing. */
-  async renewMutation(token: string): Promise<void> {
+  async renewMutation(token: string): Promise<boolean> {
     return this.core.renewMutation(token)
   }
 

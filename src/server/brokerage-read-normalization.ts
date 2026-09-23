@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { BROKER_ORDER_ID_MAX_LENGTH } from '../domain/broker'
 import { isValidIsoDate } from '../domain/iso-date'
 import { envelopeRows, jsonNumber, jsonObject, type JsonObject, type JsonValue } from '../domain/json-payload'
+import { CallerVisibleError } from './caller-visible-error'
 
 type ItemEnvelope = { rows: JsonObject[]; totalItems?: number }
 
@@ -10,7 +11,7 @@ type ItemEnvelope = { rows: JsonObject[]; totalItems?: number }
 const BrokerTextSchema = z.string()
 
 export function invalidResponse(label: string): never {
-  throw new Error(`${label} returned an invalid response.`)
+  throw new CallerVisibleError(`${label} returned an invalid response.`)
 }
 
 export function itemEnvelope(payload: JsonValue, label: string, maximumRows: number): ItemEnvelope {

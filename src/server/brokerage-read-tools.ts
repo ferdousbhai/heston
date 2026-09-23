@@ -68,13 +68,13 @@ import { CallerVisibleError } from './caller-visible-error'
 function dateDaysAgo(now: Date, days: number): string {
   const result = new Date(now)
   result.setUTCDate(result.getUTCDate() - days)
-  if (!Number.isFinite(result.getTime())) throw new Error('Account history days is invalid.')
+  if (!Number.isFinite(result.getTime())) throw new CallerVisibleError('Account history days is invalid.')
   return result.toISOString().slice(0, 10)
 }
 
 function assertInteger(value: number, minimum: number, maximum: number | undefined, label: string): number {
   if (!Number.isSafeInteger(value) || value < minimum || maximum !== undefined && value > maximum) {
-    throw new Error(`${label} is invalid.`)
+    throw new CallerVisibleError(`${label} is invalid.`)
   }
   return value
 }
@@ -86,7 +86,7 @@ function requestedSnapshotParts(include: AccountSnapshotReadInput['include']): r
     || include.length < 1
     || include.length > ACCOUNT_SNAPSHOT_PARTS.length
     || include.some((part) => !ACCOUNT_SNAPSHOT_PARTS.includes(part))) {
-    throw new Error('Account snapshot include is invalid.')
+    throw new CallerVisibleError('Account snapshot include is invalid.')
   }
   return include
 }
@@ -125,18 +125,18 @@ export async function readAccountHistory(
   credential: BrokerCredential | undefined,
   now = new Date(),
 ): Promise<AccountHistoryReadResult> {
-  if (input.type !== 'orders' && input.type !== 'transactions') throw new Error('Account history type is invalid.')
+  if (input.type !== 'orders' && input.type !== 'transactions') throw new CallerVisibleError('Account history type is invalid.')
   if (input.type === 'orders' && input.transactionType !== undefined) {
-    throw new Error('transactionType is valid only for transaction history.')
+    throw new CallerVisibleError('transactionType is valid only for transaction history.')
   }
   const defaultDays = input.type === 'transactions' ? 90 : 7
   const days = assertInteger(input.days ?? defaultDays, 0, undefined, 'Account history days')
   const limit = assertInteger(input.limit ?? 25, 1, MAX_HISTORY_ITEMS, 'Account history limit')
   const pageOffset = assertInteger(input.pageOffset ?? 0, 0, undefined, 'Account history page offset')
   const underlyingSymbol = input.underlyingSymbol?.trim().toUpperCase()
-  if (underlyingSymbol && !UNDERLYING_SYMBOL.test(underlyingSymbol)) throw new Error('Account history underlying symbol is invalid.')
+  if (underlyingSymbol && !UNDERLYING_SYMBOL.test(underlyingSymbol)) throw new CallerVisibleError('Account history underlying symbol is invalid.')
   if (input.transactionType !== undefined && input.transactionType !== 'Trade' && input.transactionType !== 'Money Movement') {
-    throw new Error('Account history transaction type is invalid.')
+    throw new CallerVisibleError('Account history transaction type is invalid.')
   }
 
   const adapter = brokerAdapterFor(credential)
@@ -215,7 +215,7 @@ export async function readMarketMetrics(
 ): Promise<MarketMetricsReadResult> {
   const symbols = [...new Set(requestedSymbols.map((symbol) => symbol.trim().toUpperCase()))]
   if (symbols.length < 1 || symbols.length > MAX_MARKET_SYMBOLS || symbols.some((symbol) => !EQUITY_SYMBOL.test(symbol))) {
-    throw new Error('Market metric symbols are invalid.')
+    throw new CallerVisibleError('Market metric symbols are invalid.')
   }
   const query = symbols.map(encodeURIComponent).join(',')
   const envelope = itemEnvelope(
@@ -297,7 +297,7 @@ export async function readInstrumentQuotes(
       || (contract.optionType !== 'C' && contract.optionType !== 'P')
       || !Number.isFinite(contract.strike)
       || contract.strike <= 0)) {
-    throw new Error('Quote instruments are invalid.')
+    throw new CallerVisibleError('Quote instruments are invalid.')
   }
   const resolvedContracts = await resolveEquityOptionTuples(env, contracts)
   const query = [
@@ -337,7 +337,7 @@ export async function searchSymbols(
   now = new Date(),
 ): Promise<SymbolSearchResult> {
   const query = requestedQuery.trim()
-  if (!query || query.length > 64 || !/^[\x20-\x7E]+$/.test(query)) throw new Error('Symbol search query is invalid.')
+  if (!query || query.length > 64 || !/^[\x20-\x7E]+$/.test(query)) throw new CallerVisibleError('Symbol search query is invalid.')
   const limit = assertInteger(requestedLimit, 1, MAX_SEARCH_RESULTS, 'Symbol search limit')
   const envelope = itemEnvelope(
     await brokerApi().tastyRequest(env, `/symbols/search/${encodeURIComponent(query)}`),
@@ -469,15 +469,15 @@ export async function findOptionContracts(
   now = new Date(),
 ): Promise<OptionContractFindResult> {
   const underlying = input.underlying.trim().toUpperCase()
-  if (!EQUITY_SYMBOL.test(underlying)) throw new Error('Option underlying is invalid.')
-  if (input.expiry !== undefined && !isValidIsoDate(input.expiry)) throw new Error('Option expiry is invalid.')
+  if (!EQUITY_SYMBOL.test(underlying)) throw new CallerVisibleError('Option underlying is invalid.')
+  if (input.expiry !== undefined && !isValidIsoDate(input.expiry)) throw new CallerVisibleError('Option expiry is invalid.')
   if (input.optionType !== undefined && input.optionType !== 'C' && input.optionType !== 'P') {
-    throw new Error('Option type is invalid.')
+    throw new CallerVisibleError('Option type is invalid.')
   }
   if ([input.nearStrike, input.strike].some((strike) => (
     strike !== undefined && (!Number.isFinite(strike) || strike <= 0)
   ))) {
-    throw new Error('Option strike is invalid.')
+    throw new CallerVisibleError('Option strike is invalid.')
   }
   const envelope = itemEnvelope(
     await brokerApi().tastyRequest(env, `/option-chains/${encodeURIComponent(underlying)}`),

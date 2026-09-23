@@ -76,11 +76,11 @@ describe('BrokerGate durable mutation lease', () => {
     const original = TestMutationLeaseSchema.parse(storage.values.get('active-mutation-lease'))
 
     now += 60_000
-    await core.renewMutation(token)
+    expect(await core.renewMutation(token)).toBe(true)
     const renewed = TestMutationLeaseSchema.parse(storage.values.get('active-mutation-lease'))
 
     expect(renewed.expiresAt).toBeGreaterThan(original.expiresAt)
-    await expect(core.renewMutation('wrong-token')).rejects.toThrow('BrokerMutationLeaseExpired')
+    expect(await core.renewMutation('wrong-token')).toBe(false)
     await core.releaseMutation(token)
   })
 })

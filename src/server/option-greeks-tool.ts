@@ -17,6 +17,7 @@ import {
 } from './market-feed-contracts'
 import { textResult } from './agent-tool-result'
 import { resolveEquityOptionTuples } from './option-contract'
+import { CallerVisibleError } from './caller-visible-error'
 
 export const ExactOptionGreeksReadParameters = Type.Object({
   contracts: Type.Array(EquityOptionTupleSchema, {
@@ -58,7 +59,7 @@ export async function readExactOptionGreeks(
 ): Promise<ExactOptionGreeksReadResult> {
   const parsed = ExactOptionGreeksReadValidator.Parse(input)
   if (parsed.contracts.some((contract) => !isValidIsoDate(contract.expiry))) {
-    throw new Error('Option expiry is invalid.')
+    throw new CallerVisibleError('Option expiry is invalid.')
   }
   const contracts = [...new Map(parsed.contracts.map((contract) => [tupleKey(contract), contract])).values()]
   const resolved = (await resolveEquityOptionTuples(env, contracts, { requireStreamerSymbol: true })).map((instrument) => {
@@ -75,9 +76,9 @@ export async function readExactOptionGreeks(
   })
   const streamerSymbols = resolved.map((contract) => contract.streamerSymbol)
   if (new Set(streamerSymbols).size !== streamerSymbols.length) {
-    throw new Error('Requested option contracts did not resolve to unique market-data instruments.')
+    throw new CallerVisibleError('Requested option contracts did not resolve to unique market-data instruments.')
   }
-  if (!env.MARKET_FEED) throw new Error('Live option Greeks are unavailable.')
+  if (!env.MARKET_FEED) throw new CallerVisibleError('Live option Greeks are unavailable.')
   const observation = OptionGreeksReadResultSchema.parse(
     await env.MARKET_FEED.getByName(MARKET_FEED_INSTANCE).readOptionGreeks(streamerSymbols),
   )
@@ -85,7 +86,7 @@ export async function readExactOptionGreeks(
   if (byStreamerSymbol.size !== streamerSymbols.length
     || observation.greeks.length !== streamerSymbols.length
     || streamerSymbols.some((symbol) => !byStreamerSymbol.has(symbol))) {
-    throw new Error('Live option Greeks returned an incomplete or mismatched observation.')
+    throw new CallerVisibleError('Live option Greeks returned an incomplete or mismatched observation.')
   }
   return {
     asOf: observation.asOf,

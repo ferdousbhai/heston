@@ -24,6 +24,7 @@ import { ResearchProviderError } from './research-provider'
 import { textResult } from './agent-tool-result'
 import { boundedInteger, calculateStudies, normalizeStudies } from './technical-studies'
 import { boundedYahooFetch } from './yahoo-finance-transport'
+import { CallerVisibleError } from './caller-visible-error'
 
 export type { PriceHistoryProvider, PriceHistoryRow } from './market-research-contracts'
 
@@ -52,7 +53,7 @@ function finite(value: number | null | undefined): number | undefined {
 
 function normalizeSymbol(value: string): string {
   const symbol = value.trim().toUpperCase()
-  if (!EQUITY_SYMBOL_REGEX.test(symbol)) throw new Error('Market research symbol is invalid.')
+  if (!EQUITY_SYMBOL_REGEX.test(symbol)) throw new CallerVisibleError('Market research symbol is invalid.')
   return symbol
 }
 
@@ -186,12 +187,12 @@ function roundedRow(row: PriceHistoryRow): PriceHistoryRow {
 
 function requestedHistoryRange(input: PriceHistoryReadInput, now: Date) {
   const endDate = input.endDate ?? marketDate(now)
-  if (!isValidIsoDate(endDate)) throw new Error('Price history end date is invalid.')
+  if (!isValidIsoDate(endDate)) throw new CallerVisibleError('Price history end date is invalid.')
   const startDate = input.startDate ?? addDays(endDate, -DEFAULT_PRICE_HISTORY_LOOKBACK_DAYS)
-  if (!isValidIsoDate(startDate)) throw new Error('Price history start date is invalid.')
+  if (!isValidIsoDate(startDate)) throw new CallerVisibleError('Price history start date is invalid.')
   const start = Date.parse(`${startDate}T00:00:00.000Z`)
   const end = Date.parse(`${endDate}T00:00:00.000Z`)
-  if (start > end) throw new Error('Price history range is invalid.')
+  if (start > end) throw new CallerVisibleError('Price history range is invalid.')
   return { endDate, startDate }
 }
 
@@ -235,17 +236,17 @@ export async function readPriceHistory(
 ): Promise<PriceHistoryReadResult> {
   const symbol = normalizeSymbol(input.symbol)
   const interval = input.interval ?? '1d'
-  if (interval !== '1d' && interval !== '1wk' && interval !== '1mo') throw new Error('Price history interval is invalid.')
+  if (interval !== '1d' && interval !== '1wk' && interval !== '1mo') throw new CallerVisibleError('Price history interval is invalid.')
   const limit = boundedInteger(input.limit, DEFAULT_PRICE_HISTORY_ROWS, 1, MAX_PRICE_HISTORY_RETURNED_ROWS, 'Price history limit')
   const requestedRange = requestedHistoryRange(input, now)
   const studyInputs = normalizeStudies(input.studies)
   const providerResult = await provider.readDaily(symbol, requestedRange)
   if (providerResult.symbol !== symbol || providerResult.prices.length > MAX_PRICE_HISTORY_PROVIDER_ROWS) {
-    throw new Error('Price history provider returned a mismatched or oversized response.')
+    throw new CallerVisibleError('Price history provider returned a mismatched or oversized response.')
   }
   const daily = [...providerResult.prices].sort((left, right) => left.date.localeCompare(right.date))
   if (!daily.length || new Set(daily.map((row) => row.date)).size !== daily.length) {
-    throw new Error('Price history provider returned no usable unique rows.')
+    throw new CallerVisibleError('Price history provider returned no usable unique rows.')
   }
   const normalized = aggregateHistory(daily, interval)
   const returnedStart = Math.max(0, normalized.length - limit)

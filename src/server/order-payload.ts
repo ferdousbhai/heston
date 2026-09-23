@@ -1,5 +1,6 @@
 import { type FreshOrderPlacement } from './agent-contracts'
 import { type BrokerOrderRecord } from '../domain/broker'
+import { CallerVisibleError } from './caller-visible-error'
 
 export type OrderPayload = {
   'advanced-instructions'?: { 'strict-position-effect-validation': true }
@@ -30,7 +31,7 @@ export function buildOrderPayload(
         quantity: action.quantity,
         symbol: resolvedSymbols[0]!,
       }]
-  if (legs.some((leg) => !leg.symbol)) throw new Error('OrderPayload:missing-resolved-symbol')
+  if (legs.some((leg) => !leg.symbol)) throw new CallerVisibleError('OrderPayload:missing-resolved-symbol')
   const payload: OrderPayload = {
     'order-type': 'Limit',
     'price-effect': action.priceEffect,

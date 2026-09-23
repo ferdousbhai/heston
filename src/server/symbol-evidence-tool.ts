@@ -16,6 +16,7 @@ import { readResearchPageMarkdown } from './research-page-retention'
 import { quoteBindingRefusal, quoteWithoutWordsReason } from './research-citation-binding'
 import { citedPageKey } from './research-url'
 import { upsertSymbolEvidence } from './symbol-evidence'
+import { CallerVisibleError } from './caller-visible-error'
 
 /*
  * One quoted passage, attached to a symbol, by a member's own agent.
@@ -73,11 +74,11 @@ export async function recordSymbolEvidence(
 ): Promise<EvidenceRecording> {
   const browser = env.BROWSER
   // Without page reading the quote cannot be bound, so nothing may be written. Fail closed.
-  if (!browser) throw new Error('SymbolEvidence:page-reading-unavailable')
+  if (!browser) throw new CallerVisibleError('SymbolEvidence:page-reading-unavailable')
   const db = env.DB
-  if (!db) throw new Error('SymbolEvidenceStoreUnavailable')
+  if (!db) throw new CallerVisibleError('SymbolEvidenceStoreUnavailable')
   // A card is a row that needs a name behind it, and the caller's is the one the token carries.
-  if (!recordedByUserId) throw new Error('SymbolEvidence:unidentified-caller')
+  if (!recordedByUserId) throw new CallerVisibleError('SymbolEvidence:unidentified-caller')
   const now = options.now ?? new Date()
   // Re-parsed at the trust boundary whatever the transport already checked.
   const evidence = EvidenceValidator.Parse(untrustedEvidence)

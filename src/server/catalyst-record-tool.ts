@@ -10,6 +10,7 @@ import { MAX_CITED_SOURCE_URL_LENGTH } from '../domain/https-url'
 import { bindCatalystCandidates, ResearchCatalystCandidateSchema } from './research-catalyst-output'
 import { retainCitedPages } from './research-page-retention'
 import { zodTypeBoxSchema } from './zod-typebox'
+import { CallerVisibleError } from './caller-visible-error'
 
 /**
  * The model-authored shapes a member's agent submits: a candidate dated event, and the pages it
@@ -75,9 +76,9 @@ export async function recordResearchCatalysts(
 ): Promise<CatalystRecording> {
   const browser = env.BROWSER
   // Without page reading nothing can be bound, so nothing may be written. Fail closed.
-  if (!browser) throw new Error('CatalystRecord:page-reading-unavailable')
+  if (!browser) throw new CallerVisibleError('CatalystRecord:page-reading-unavailable')
   // Nothing bound here can be kept without the store, so fail closed before reading a page.
-  if (!env.DB) throw new Error('CatalystStoreUnavailable')
+  if (!env.DB) throw new CallerVisibleError('CatalystStoreUnavailable')
   const now = options.now ?? new Date()
   // Re-parsed at the trust boundary whatever the transport already checked.
   const recording = RecordValidator.Parse(untrustedRecording)

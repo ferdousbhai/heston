@@ -4,7 +4,7 @@ import { type DailyCandlesReadResult, type OptionGreeksReadResult } from './mark
 interface BrokerGateRpcStub {
   acquire(): Promise<void>
   acquireMutation(): Promise<string>
-  renewMutation(token: string): Promise<void>
+  renewMutation(token: string): Promise<boolean>
   releaseMutation(token: string): Promise<void>
 }
 

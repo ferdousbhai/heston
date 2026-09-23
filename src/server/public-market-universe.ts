@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { EquitySymbolSchema } from '../domain/instrument'
 import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 import { type AppEnv } from './env'
+import { CallerVisibleError } from './caller-visible-error'
 
 const PublicMarketUniverseSchema = z.strictObject({
   symbols: z.array(EquitySymbolSchema).max(MAX_WATCHLIST_SYMBOLS),
@@ -17,7 +18,7 @@ export async function publishInternalWatchlistUniverse(
   env: AppEnv,
   updatedAt = new Date(),
 ): Promise<void> {
-  if (!env.DB) throw new Error('PublicMarketUniverse:store-unavailable')
+  if (!env.DB) throw new CallerVisibleError('PublicMarketUniverse:store-unavailable')
   // A name the broker has stopped trading is excluded here rather than deleted from the list.
   // It quotes a stale last price forever and can never trade again, so offering it to a reader
   // is offering something to act on that cannot be acted on -- CRVW rode the original seed onto
@@ -40,11 +41,11 @@ export async function publishInternalWatchlistUniverse(
 }
 
 export async function loadStoredPublicMarketUniverse(env: AppEnv): Promise<PublicMarketUniverse> {
-  if (!env.DB) throw new Error('PublicMarketUniverse:store-unavailable')
+  if (!env.DB) throw new CallerVisibleError('PublicMarketUniverse:store-unavailable')
   const result = await env.DB.prepare(
     `SELECT payload_json FROM public_market_universe WHERE id = 'primary'`,
   ).first<{ payload_json: string }>()
-  if (!result) throw new Error('PublicMarketUniverse:not-found')
+  if (!result) throw new CallerVisibleError('PublicMarketUniverse:not-found')
   const row = StoredPublicMarketUniverseRowSchema.parse(result)
   return PublicMarketUniverseSchema.parse(JSON.parse(row.payload_json))
 }

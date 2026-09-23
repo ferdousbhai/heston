@@ -6,6 +6,7 @@ import { type CatalystProvider, persistResearchCatalysts } from './catalysts'
 import { runExaCatalystSearch } from './catalyst-research-exa'
 import { type AppEnv } from './env'
 import { readInstrumentCatalog } from './instrument-catalog'
+import { CallerVisibleError } from './caller-visible-error'
 
 /**
  * Catalyst coverage follows attention: a symbol is worth paying a web search for once a
@@ -115,7 +116,7 @@ export async function refreshCatalystsForSymbol(
 ): Promise<CatalystRefresh> {
   // Every receipt and every row lives in D1, so without it nothing here can be answered.
   const db = env.DB
-  if (!db) throw new Error('CatalystRunStoreUnavailable')
+  if (!db) throw new CallerVisibleError('CatalystRunStoreUnavailable')
   const symbol = EquitySymbolSchema.parse(untrustedSymbol)
   const instrument = (await readInstrumentCatalog(env, [symbol])).get(symbol)
   // A delisted name has no upcoming anything. Paying for a search on one is spending real money

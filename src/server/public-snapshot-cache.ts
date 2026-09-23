@@ -10,6 +10,7 @@ import { HESTON_DEPLOYMENT_ID_HEADER } from '../domain/deployment'
 import { type AppEnv } from './env'
 import { jsonNoStore, jsonPublic, PUBLIC_RESPONSE_CACHE_CONTROL } from './http'
 import { brokerApi, type StoredPublicMarketSnapshot } from './tastytrade'
+import { CallerVisibleError } from './caller-visible-error'
 
 // A provider reading is usable for one minute while the market is open before a refresh is
 // attempted; the retained copy of the store is rebuilt on the same bound, since catalysts,
@@ -281,7 +282,7 @@ async function buildFromColdStore(env: AppEnv): Promise<PublicMarketSnapshot> {
   if (claimed) return brokerApi().loadPublicMarketSnapshot(env)
   const filled = await awaitFirstRefresh(env)
   if (filled) return filled
-  throw new Error('PublicMarketSnapshot:store-cold')
+  throw new CallerVisibleError('PublicMarketSnapshot:store-cold')
 }
 
 async function retain(

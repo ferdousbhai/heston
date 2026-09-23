@@ -66,6 +66,7 @@ import {
   readStoredMarketSession,
   type TastytradeMarketQuoteRecord,
 } from './tastytrade-market-store'
+import { CallerVisibleError } from './caller-visible-error'
 
 const USER_AGENT = 'Heston/0.1'
 /**
@@ -125,10 +126,10 @@ async function refreshAccessToken(env: AppEnv): Promise<string> {
   }
   const payload = jsonObjectOrEmpty(await readBoundedJson(response, MAX_TASTYTRADE_AUTH_RESPONSE_BYTES, 'TastytradeAuth'))
   const token = jsonText(payload.access_token)
-  if (!token) throw new Error('TastytradeAuth:missing-token')
+  if (!token) throw new CallerVisibleError('TastytradeAuth:missing-token')
   const lifetimeSeconds = jsonNumber(payload.expires_in)
   if (lifetimeSeconds === undefined || !Number.isSafeInteger(lifetimeSeconds) || lifetimeSeconds <= 0) {
-    throw new Error('TastytradeAuth:invalid-token-lifetime')
+    throw new CallerVisibleError('TastytradeAuth:invalid-token-lifetime')
   }
   const lifetimeMs = lifetimeSeconds * 1_000
   const skewMs = Math.min(TOKEN_EXPIRY_SKEW_MS, lifetimeMs * MAX_TOKEN_EXPIRY_SKEW_FRACTION)
@@ -153,12 +154,20 @@ export type BrokerMutationLease = {
   renew(): Promise<void>
 }
 
+/** The account's mutation lease lapsed before the next broker step, so nothing further was sent. */
+export class BrokerMutationLeaseExpiredError extends CallerVisibleError {
+  constructor() {
+    super('BrokerMutationLeaseExpired')
+    this.name = 'BrokerMutationLeaseExpiredError'
+  }
+}
+
 function requestGate(env: AppEnv, accountNumber?: string): BrokerRequestGate {
   // Broker coordination is part of the provider safety boundary. Validate the
   // binding before reading credentials so a misbound deployment cannot silently
   // bypass request throttling.
   const namespace = env.BROKER_GATE
-  if (!namespace) throw new Error('TastytradeCoordinatorUnavailable')
+  if (!namespace) throw new CallerVisibleError('TastytradeCoordinatorUnavailable')
   // A rate budget belongs to one broker account, so two members' account work must not
   // share a gate. Market requests and initial account discovery have no account number.
   return namespace.getByName(accountNumber ? `tastytrade:${accountNumber}` : 'tastytrade:market')
@@ -175,11 +184,15 @@ export async function withBrokerMutationLease<T>(
   accountNumber: string,
   operation: (lease: BrokerMutationLease) => Promise<T>,
 ): Promise<T> {
-  if (!accountNumber) throw new Error('TastytradeAccount:invalid-account-number')
+  if (!accountNumber) throw new CallerVisibleError('TastytradeAccount:invalid-account-number')
   const gate = requestGate(env, accountNumber)
   const token = await gate.acquireMutation()
   try {
-    return await operation({ renew: () => gate.renewMutation(token) })
+    return await operation({
+      renew: async () => {
+        if (!await gate.renewMutation(token)) throw new BrokerMutationLeaseExpiredError()
+      },
+    })
   } finally {
     try {
       await gate.releaseMutation(token)
@@ -196,13 +209,13 @@ function isAccountPath(path: string): boolean {
 function accountNumberFromPath(path: string): string | undefined {
   if (!path.startsWith('/accounts/')) return undefined
   const encoded = path.slice('/accounts/'.length).split(/[/?]/, 1)[0]
-  if (!encoded) throw new Error('TastytradeAccount:invalid-path-account')
+  if (!encoded) throw new CallerVisibleError('TastytradeAccount:invalid-path-account')
   try {
     const accountNumber = decodeURIComponent(encoded)
-    if (!accountNumber) throw new Error('TastytradeAccount:invalid-path-account')
+    if (!accountNumber) throw new CallerVisibleError('TastytradeAccount:invalid-path-account')
     return accountNumber
   } catch {
-    throw new Error('TastytradeAccount:invalid-path-account')
+    throw new CallerVisibleError('TastytradeAccount:invalid-path-account')
   }
 }
 
@@ -278,14 +291,14 @@ async function resolveAccountNumber(
 ): Promise<string> {
   const payload = await tastyRequest(env, '/customers/me/accounts', {}, credential)
   const accounts = envelopeRows(payload)
-  if (!accounts) throw new Error('TastytradeAccount:invalid-accounts')
-  if (accounts.length !== 1) throw new Error('TastytradeAccount:explicit-account-required')
+  if (!accounts) throw new CallerVisibleError('TastytradeAccount:invalid-accounts')
+  if (accounts.length !== 1) throw new CallerVisibleError('TastytradeAccount:explicit-account-required')
   const row = jsonObject(accounts[0])
-  if (!row) throw new Error('TastytradeAccount:invalid-account')
+  if (!row) throw new CallerVisibleError('TastytradeAccount:invalid-account')
   const account = jsonObject(row.account ?? row)
-  if (!account) throw new Error('TastytradeAccount:invalid-account')
+  if (!account) throw new CallerVisibleError('TastytradeAccount:invalid-account')
   const accountNumber = jsonText(account['account-number'])
-  if (!accountNumber) throw new Error('TastytradeAccount:not-found')
+  if (!accountNumber) throw new CallerVisibleError('TastytradeAccount:not-found')
   return accountNumber
 }
 
@@ -294,13 +307,13 @@ async function loadQuoteToken(env: AppEnv): Promise<{ token: string; url: string
   const data = jsonObjectOrEmpty(payload.data ?? payload)
   const token = jsonText(data.token)
   const url = jsonText(data['dxlink-url'])
-  if (!token || !url || !url.startsWith('wss://')) throw new Error('TastytradeQuoteToken:invalid')
+  if (!token || !url || !url.startsWith('wss://')) throw new CallerVisibleError('TastytradeQuoteToken:invalid')
   return { token, url }
 }
 
 /** Both audiences read the same brief; a missing store is a fault, never an empty brief. */
 async function loadStoredBrief(env: AppEnv): Promise<MarketSnapshot['brief']> {
-  if (!env.DB) throw new Error('DailyBrief:store-unavailable')
+  if (!env.DB) throw new CallerVisibleError('DailyBrief:store-unavailable')
   return readLatestDailyBrief(env.DB)
 }
 
@@ -364,7 +377,7 @@ async function loadMarketFacts(
   if (normalized.length < symbols.length) {
     console.warn('MarketSymbolsDropped', symbols.length - normalized.length)
   }
-  if (!normalized.length) throw new Error('TastytradeSnapshot:empty')
+  if (!normalized.length) throw new CallerVisibleError('TastytradeSnapshot:empty')
   // Read-only: the year series is refreshed on the schedule, so a symbol the refresh has not
   // reached yet simply carries no year chart rather than delaying the whole market read.
   const yearCandles = await readOptionalYearCandles(env, symbols)
@@ -435,9 +448,9 @@ async function internalInstrumentCatalogChunk(
   now: Date,
   persist: boolean,
 ): Promise<InternalInstrumentCatalogChunkRefresh> {
-  if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('InstrumentCatalog:invalid-offset')
+  if (!Number.isSafeInteger(offset) || offset < 0) throw new CallerVisibleError('InstrumentCatalog:invalid-offset')
   const symbols = await readInternalWatchlistCatalogCandidates(env)
-  if (offset > symbols.length) throw new Error('InstrumentCatalog:invalid-offset')
+  if (offset > symbols.length) throw new CallerVisibleError('InstrumentCatalog:invalid-offset')
   const chunk = symbols.slice(offset, offset + BROKER_SYMBOL_CHUNK_SIZE)
   const loaded = await loadTastytradeInstrumentCatalog(env, chunk, now)
   if (persist) {

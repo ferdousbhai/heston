@@ -10,6 +10,7 @@ import { textResult } from './agent-tool-result'
 import { MAX_MARKET_SYMBOLS } from './brokerage-read-contracts'
 import { CURRENT_CATALYSTS } from './catalysts'
 import { readLatestDailyBrief } from './daily-brief-store'
+import { CallerVisibleError } from './caller-visible-error'
 
 // A catalyst call shares the normal market-read batch budget. The row ceiling is a model-context
 // budget and is observable through `truncated`. The horizon is the store's own: no research producer may
@@ -68,7 +69,7 @@ export type DailyBriefReadResult = {
 } & ({ brief: DailyBrief; status: 'ok' } | { status: 'not_found' })
 
 async function readLatestDailyBriefState(env: AppEnv, now = new Date()): Promise<DailyBriefReadResult> {
-  if (!env.DB) throw new Error('Daily brief is unavailable.')
+  if (!env.DB) throw new CallerVisibleError('Daily brief is unavailable.')
   const brief = await readLatestDailyBrief(env.DB)
   const fetchedAt = now.toISOString()
   return brief ? { brief, fetchedAt, source: 'heston-brief-store', status: 'ok' } : { fetchedAt, source: 'heston-brief-store', status: 'not_found' }
@@ -80,21 +81,21 @@ export async function readCatalysts(
   horizonDays = CATALYST_HORIZON_DAYS,
   now = new Date(),
 ): Promise<CatalystReadResult> {
-  if (!env.DB) throw new Error('Catalyst data is unavailable.')
+  if (!env.DB) throw new CallerVisibleError('Catalyst data is unavailable.')
   if (!requestedSymbols.length || requestedSymbols.length > MAX_CATALYST_SYMBOLS) {
-    throw new Error('Catalyst symbols are invalid.')
+    throw new CallerVisibleError('Catalyst symbols are invalid.')
   }
   const normalized: string[] = []
   for (const symbol of requestedSymbols) {
     const parsed = EquitySymbolSchema.safeParse(symbol).data
-    if (!parsed || parsed !== symbol) throw new Error('Catalyst symbols are invalid.')
+    if (!parsed || parsed !== symbol) throw new CallerVisibleError('Catalyst symbols are invalid.')
     normalized.push(parsed)
   }
   const symbols = [...new Set(normalized)]
   // Refused rather than rounded: a caller that sent 30.5 asked for something this read does not
   // answer, and quietly answering a different question is the failure to avoid.
   if (!Number.isInteger(horizonDays) || horizonDays < 1 || horizonDays > CATALYST_HORIZON_DAYS) {
-    throw new Error('Catalyst horizon is invalid.')
+    throw new CallerVisibleError('Catalyst horizon is invalid.')
   }
   const start = marketDate(now)
   const result = await env.DB.prepare(
@@ -106,7 +107,7 @@ export async function readCatalysts(
      ORDER BY event_date ASC, symbol ASC
      LIMIT ?`,
   ).bind(...symbols, start, addDays(start, horizonDays), MAX_CATALYSTS + 1).all()
-  if (!Array.isArray(result.results)) throw new Error('Catalyst data returned an invalid response.')
+  if (!Array.isArray(result.results)) throw new CallerVisibleError('Catalyst data returned an invalid response.')
   const allCatalysts = CatalystSchema.array().parse(result.results)
   // Truncation is judged on the rows the query returned, before one event's several sightings
   // fold into one: folding says nothing about what the ceiling left behind, and a reader told

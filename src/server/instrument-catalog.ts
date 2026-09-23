@@ -14,6 +14,7 @@ import {
 } from '../domain/json-payload'
 import { type AppEnv } from './env'
 import { D1_MAX_BOUND_PARAMETERS, rowsPerD1Statement } from './d1-limits'
+import { CallerVisibleError } from './caller-visible-error'
 
 const SQL_SYMBOL_CHUNK_SIZE = D1_MAX_BOUND_PARAMETERS
 // The one-time seed can retain far more provenance than the live watchlist;
@@ -62,22 +63,22 @@ export type InstrumentCatalogRecord = z.infer<typeof InstrumentCatalogRecordSche
 function optionalText(value: JsonValue, max: number, field: string): string | null {
   if (value === undefined || value === null) return null
   const text = jsonText(value)
-  if (text === undefined) throw new Error(`InstrumentCatalog:${field}-invalid`)
-  if (text.length > max) throw new Error(`InstrumentCatalog:${field}-too-long`)
+  if (text === undefined) throw new CallerVisibleError(`InstrumentCatalog:${field}-invalid`)
+  if (text.length > max) throw new CallerVisibleError(`InstrumentCatalog:${field}-too-long`)
   return text
 }
 
 function optionalBoolean(value: JsonValue, field: string): boolean | null {
   if (value === undefined || value === null) return null
   const parsed = z.boolean().safeParse(value)
-  if (!parsed.success) throw new Error(`InstrumentCatalog:${field}-invalid`)
+  if (!parsed.success) throw new CallerVisibleError(`InstrumentCatalog:${field}-invalid`)
   return parsed.data
 }
 
 function optionalNumber(value: JsonValue, field: string): number | null {
   if (value === undefined || value === null) return null
   const parsed = jsonNumber(value)
-  if (parsed === undefined) throw new Error(`InstrumentCatalog:${field}-invalid`)
+  if (parsed === undefined) throw new CallerVisibleError(`InstrumentCatalog:${field}-invalid`)
   return parsed
 }
 
@@ -85,7 +86,7 @@ function optionalDateTime(value: JsonValue, field: string): string | null {
   const text = optionalText(value, 64, field)
   if (text === null) return null
   const epoch = Date.parse(text)
-  if (!Number.isFinite(epoch)) throw new Error(`InstrumentCatalog:${field}-invalid`)
+  if (!Number.isFinite(epoch)) throw new CallerVisibleError(`InstrumentCatalog:${field}-invalid`)
   return new Date(epoch).toISOString()
 }
 
@@ -98,18 +99,18 @@ export function instrumentCatalogFromPayload(
   const body = jsonObject(payload)
   const single = jsonObject(body?.data ?? payload)
   const rows = envelopeRows(payload) ?? (jsonText(single?.symbol) ? [single!] : undefined)
-  if (!rows) throw new Error('InstrumentCatalog:invalid-response')
+  if (!rows) throw new CallerVisibleError('InstrumentCatalog:invalid-response')
   const timestamp = now.toISOString()
   const seen = new Set<string>()
   return rows.map((candidate) => {
     const row = jsonObject(candidate)
-    if (!row) throw new Error('InstrumentCatalog:invalid-row')
+    if (!row) throw new CallerVisibleError('InstrumentCatalog:invalid-row')
     const symbol = EquitySymbolSchema.parse(jsonText(row.symbol))
-    if (!requested.has(symbol)) throw new Error('InstrumentCatalog:unexpected-symbol')
-    if (seen.has(symbol)) throw new Error('InstrumentCatalog:duplicate-symbol')
+    if (!requested.has(symbol)) throw new CallerVisibleError('InstrumentCatalog:unexpected-symbol')
+    if (seen.has(symbol)) throw new CallerVisibleError('InstrumentCatalog:duplicate-symbol')
     seen.add(symbol)
     if (jsonText(row['instrument-type']) !== 'Equity') {
-      throw new Error('InstrumentCatalog:invalid-instrument-type')
+      throw new CallerVisibleError('InstrumentCatalog:invalid-instrument-type')
     }
     return InstrumentCatalogRecordSchema.parse({
       active: optionalBoolean(row.active, 'active'),
@@ -228,7 +229,7 @@ function catalogUpserts(
  * partial write when a later batch failed.
  */
 export async function persistInstrumentCatalog(env: AppEnv, items: readonly InstrumentCatalogRecord[]): Promise<void> {
-  if (!env.DB) throw new Error('InstrumentCatalog:store-unavailable')
+  if (!env.DB) throw new CallerVisibleError('InstrumentCatalog:store-unavailable')
   if (!items.length) return
   const resolved = items.filter((item) => item.resolutionStatus === 'resolved')
   const unresolved = items.filter((item) => item.resolutionStatus === 'unresolved')
@@ -283,9 +284,9 @@ export async function readInstrumentCatalog(
   env: AppEnv,
   requestedSymbols: readonly string[],
 ): Promise<Map<string, InstrumentCatalogItem>> {
-  if (!env.DB) throw new Error('InstrumentCatalog:store-unavailable')
+  if (!env.DB) throw new CallerVisibleError('InstrumentCatalog:store-unavailable')
   const symbols = [...new Set(requestedSymbols.map((symbol) => EquitySymbolSchema.parse(symbol)))]
-  if (symbols.length > MAX_INSTRUMENT_CATALOG_ITEMS) throw new Error('InstrumentCatalog:too-many-symbols')
+  if (symbols.length > MAX_INSTRUMENT_CATALOG_ITEMS) throw new CallerVisibleError('InstrumentCatalog:too-many-symbols')
   if (!symbols.length) return new Map()
   const catalogRows: z.infer<typeof StoredCatalogRowSchema>[] = []
   for (let start = 0; start < symbols.length; start += SQL_SYMBOL_CHUNK_SIZE) {
@@ -325,11 +326,11 @@ export async function loadInstrumentCatalog(
   now = new Date(),
 ): Promise<{ items: InstrumentCatalogRecord[]; missingSymbols: string[]; requestedCount: number }> {
   const symbols = [...new Set(requestedSymbols.map((symbol) => EquitySymbolSchema.parse(symbol)))]
-  if (symbols.length > MAX_INSTRUMENT_CATALOG_ITEMS) throw new Error('InstrumentCatalog:too-many-symbols')
+  if (symbols.length > MAX_INSTRUMENT_CATALOG_ITEMS) throw new CallerVisibleError('InstrumentCatalog:too-many-symbols')
   if (!symbols.length) return { items: [], missingSymbols: [], requestedCount: 0 }
   const received: InstrumentCatalogRecord[] = []
   if (!Number.isSafeInteger(symbolsPerRequest) || symbolsPerRequest < 1) {
-    throw new Error('InstrumentCatalog:invalid-request-size')
+    throw new CallerVisibleError('InstrumentCatalog:invalid-request-size')
   }
   for (let start = 0; start < symbols.length; start += symbolsPerRequest) {
     const chunk = symbols.slice(start, start + symbolsPerRequest)

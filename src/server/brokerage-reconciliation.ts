@@ -11,6 +11,7 @@ import { brokerAdapterFor } from './brokers'
 import { textResult } from './agent-tool-result'
 import { BrokerCredentialMissingError, type BrokerCredential } from './broker-credential'
 import { PortfolioRiskError } from './portfolio-risk'
+import { CallerVisibleError } from './caller-visible-error'
 
 type StoredUnknownAction = {
   id: string
@@ -24,7 +25,7 @@ export async function unresolvedSubmission(
   broker: string,
   accountNumber: string,
 ): Promise<StoredUnknownAction | null> {
-  if (!env.DB) throw new Error('TastytradeReconciliation:store-unavailable')
+  if (!env.DB) throw new CallerVisibleError('TastytradeReconciliation:store-unavailable')
   return env.DB.prepare(
     `SELECT id, payload_json, submitted_at
        FROM broker_submissions
@@ -95,7 +96,7 @@ export type SubmissionOutcome =
  */
 export async function settleSubmission(env: AppEnv, id: string, outcome: SubmissionOutcome): Promise<boolean> {
   try {
-    if (!env.DB) throw new Error('TastytradeReconciliation:store-unavailable')
+    if (!env.DB) throw new CallerVisibleError('TastytradeReconciliation:store-unavailable')
     const statement = outcome.status === 'executed'
       ? env.DB.prepare(
         "UPDATE broker_submissions SET status = 'executed', error_code = NULL, provider_order_id = ? WHERE id = ? AND status = 'unresolved'",
@@ -165,7 +166,7 @@ export async function reconcileUnknownBrokerageAction(
   now = new Date(),
 ): Promise<ReconciliationResult> {
   if (!credential) throw new BrokerCredentialMissingError()
-  if (!env.DB) throw new Error('TastytradeReconciliation:store-unavailable')
+  if (!env.DB) throw new CallerVisibleError('TastytradeReconciliation:store-unavailable')
   // Scoped to the account the presented credential resolves to: a member may only reconcile
   // their own quarantine, and possession of a row id is never authority to touch it.
   const adapter = brokerAdapterFor(credential)
@@ -199,7 +200,7 @@ export async function reconcileUnknownBrokerageAction(
   const match = matches[0]!
   const providerOrderId = match.id
   const status = match.status?.toLowerCase()
-  if (!providerOrderId || !status) throw new Error('TastytradeReconciliation:invalid-match')
+  if (!providerOrderId || !status) throw new CallerVisibleError('TastytradeReconciliation:invalid-match')
   const rejected = status === 'rejected'
   // An executed match stores the broker's order id: this row is the only source a later
   // price-only replacement can resolve the order's shape from, exactly as if the placement had

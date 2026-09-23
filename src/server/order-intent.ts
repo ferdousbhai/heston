@@ -16,6 +16,7 @@ import {
   type EquityOptionContract,
 } from './option-contract'
 import { type BrokerCredential } from './broker-credential'
+import { CallerVisibleError } from './caller-visible-error'
 
 export type ResolvedOrderIntent = {
   effectiveAction: FreshOrderPlacement
@@ -45,7 +46,7 @@ async function resolveFreshOrder(
     { underlying: action.underlying, expiry: action.expiry, optionType: action.optionType, strike: action.shortStrike },
   ], { opening: true })
   if (contracts[0]!.sharesPerContract !== contracts[1]!.sharesPerContract) {
-    throw new Error('OrderIntent:spread-multiplier-mismatch')
+    throw new CallerVisibleError('OrderIntent:spread-multiplier-mismatch')
   }
   return {
     optionContracts: contracts,
@@ -70,19 +71,19 @@ export function assertReplaceableOrder(order: BrokerOrderRecord, orderId: string
     || TERMINAL_ORDER_STATUSES.includes(status)
     || order.terminalAt
     || !sameOrderEcho(order, intended)) {
-    throw new Error('OrderReplacement:order-changed-or-not-editable')
+    throw new CallerVisibleError('OrderReplacement:order-changed-or-not-editable')
   }
 }
 
 async function sourceOrderAction(env: AppEnv, orderId: string): Promise<StoredOrderPlacement> {
-  if (!env.DB) throw new Error('OrderReplacement:action-store-unavailable')
+  if (!env.DB) throw new CallerVisibleError('OrderReplacement:action-store-unavailable')
   const result = await env.DB.prepare(
     `SELECT payload_json FROM broker_submissions
       WHERE provider_order_id = ? AND status = 'executed'
       ORDER BY submitted_at DESC LIMIT 2`,
   ).bind(orderId).all<{ payload_json: string }>()
   const rows = result.results ?? []
-  if (rows.length !== 1) throw new Error('OrderReplacement:source-order-not-found')
+  if (rows.length !== 1) throw new CallerVisibleError('OrderReplacement:source-order-not-found')
   return StoredOrderPlacementSchema.parse(JSON.parse(rows[0]!.payload_json))
 }
 

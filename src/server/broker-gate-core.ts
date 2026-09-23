@@ -95,12 +95,15 @@ export class BrokerGateCore {
     }
   }
 
-  async renewMutation(token: string): Promise<void> {
+  /**
+   * Answers whether `token` still held the lease (and now holds it longer). A lost lease is a
+   * result, not a throw: an error crossing Durable Object RPC loses its class, and the caller
+   * owns the caller-visible wording (`BrokerMutationLeaseExpiredError` in `tastytrade.ts`).
+   */
+  async renewMutation(token: string): Promise<boolean> {
     const value = await this.ctx.storage.get(MUTATION_LEASE_KEY)
     const stored = value === undefined ? undefined : StoredMutationLeaseSchema.safeParse(value).data
-    if (!stored || stored.token !== token || stored.expiresAt <= this.now()) {
-      throw new Error('BrokerMutationLeaseExpired')
-    }
+    if (!stored || stored.token !== token || stored.expiresAt <= this.now()) return false
     await this.ctx.storage.put(MUTATION_LEASE_KEY, {
       expiresAt: this.now() + MUTATION_LEASE_MS,
       token,
@@ -109,6 +112,7 @@ export class BrokerGateCore {
       clearTimeout(this.activeMutation.timeout)
       this.activeMutation.timeout = this.expiryTimer(token, MUTATION_LEASE_MS)
     }
+    return true
   }
 
   async releaseMutation(token: string): Promise<void> {

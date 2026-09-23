@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 import { EQUITY_SYMBOL_REGEX, EquitySymbolSchema } from '../domain/instrument'
 import { type AppEnv } from './env'
+import { CallerVisibleError } from './caller-visible-error'
 
 /**
  * The watchlist is what the market screen loads, and it is never the whole market. A
@@ -51,7 +52,7 @@ export async function searchInstrumentCatalog(
   rawQuery: string,
   limit = MAX_MATCHES,
 ): Promise<SymbolSearchMatch[]> {
-  if (!env.DB) throw new Error('SymbolSearch:store-unavailable')
+  if (!env.DB) throw new CallerVisibleError('SymbolSearch:store-unavailable')
   const query = searchableQuery(rawQuery)
   if (!query) return []
   const prefix = `${query}%`

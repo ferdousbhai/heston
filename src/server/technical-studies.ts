@@ -8,6 +8,7 @@ import {
   roundPrice,
   type StudyInput,
 } from './market-research-contracts'
+import { CallerVisibleError } from './caller-visible-error'
 
 type NormalizedStudy =
   | { kind: 'SMA' | 'EMA' | 'RSI'; period: number }
@@ -23,7 +24,7 @@ export function boundedInteger(
 ): number {
   const result = value ?? fallback
   if (!Number.isSafeInteger(result) || result < minimum || result > maximum) {
-    throw new Error(`${label} is invalid.`)
+    throw new CallerVisibleError(`${label} is invalid.`)
   }
   return result
 }
@@ -44,7 +45,7 @@ function alignSeries(
   if (firstPriceIndex < 0) return { values: [] }
   const aligned = returned.slice(firstPriceIndex)
   if (aligned.some((value) => value === null)) {
-    throw new Error('Price study produced a discontinuous series.')
+    throw new CallerVisibleError('Price study produced a discontinuous series.')
   }
   return {
     firstDate: dates[returnedStart + firstPriceIndex]!,
@@ -113,7 +114,7 @@ function bollingerBands(values: number[], period: number, deviations: number) {
     const lower = mean - width
     const upper = mean + width
     if (![lower, mean, upper].every(Number.isFinite)) {
-      throw new Error('Bollinger study produced a non-finite result.')
+      throw new CallerVisibleError('Bollinger study produced a non-finite result.')
     }
     return { lower, middle: mean, upper }
   })
@@ -150,14 +151,14 @@ function movingAverageConvergenceDivergence(
 
 export function normalizeStudies(inputs: StudyInput[] | undefined): NormalizedStudy[] {
   if (!inputs) return []
-  if (!Array.isArray(inputs) || inputs.length > MAX_PRICE_STUDIES) throw new Error('Price studies are invalid.')
+  if (!Array.isArray(inputs) || inputs.length > MAX_PRICE_STUDIES) throw new CallerVisibleError('Price studies are invalid.')
   const seen = new Set<string>()
   const remember = (key: string) => {
-    if (seen.has(key)) throw new Error('Duplicate price studies are not allowed.')
+    if (seen.has(key)) throw new CallerVisibleError('Duplicate price studies are not allowed.')
     seen.add(key)
   }
   return inputs.map((input) => {
-    if (!JsonObjectSchema.safeParse(input).success) throw new Error('Price studies are invalid.')
+    if (!JsonObjectSchema.safeParse(input).success) throw new CallerVisibleError('Price studies are invalid.')
     if (input.kind === 'SMA' || input.kind === 'EMA' || input.kind === 'RSI') {
       const period = boundedInteger(input.period, 14, 2, MAX_PRICE_STUDY_PERIOD, `${input.kind} period`)
       remember(`${input.kind}:${period}`)
@@ -167,17 +168,17 @@ export function normalizeStudies(inputs: StudyInput[] | undefined): NormalizedSt
       const period = boundedInteger(input.period, 14, 2, MAX_PRICE_STUDY_PERIOD, 'Bollinger period')
       const standardDeviations = input.standardDeviations ?? 2
       if (!Number.isFinite(standardDeviations) || standardDeviations <= 0) {
-        throw new Error('Bollinger deviations are invalid.')
+        throw new CallerVisibleError('Bollinger deviations are invalid.')
       }
       remember(`${input.kind}:${period}:${standardDeviations}`)
       return { kind: input.kind, period, standardDeviations }
     }
     // Reachable: `inputs` is untrusted model output, not yet a closed union.
-    if (input.kind !== 'MACD') throw new Error('Price studies are invalid.')
+    if (input.kind !== 'MACD') throw new CallerVisibleError('Price studies are invalid.')
     const fastPeriod = boundedInteger(input.fastPeriod, 12, 2, MAX_PRICE_STUDY_PERIOD, 'MACD fast period')
     const slowPeriod = boundedInteger(input.slowPeriod, 26, 3, MAX_PRICE_STUDY_PERIOD, 'MACD slow period')
     const signalPeriod = boundedInteger(input.signalPeriod, 9, 2, MAX_PRICE_STUDY_PERIOD, 'MACD signal period')
-    if (fastPeriod >= slowPeriod) throw new Error('MACD fast period must be less than slow period.')
+    if (fastPeriod >= slowPeriod) throw new CallerVisibleError('MACD fast period must be less than slow period.')
     remember(`${input.kind}:${fastPeriod}:${slowPeriod}:${signalPeriod}`)
     return { fastPeriod, kind: input.kind, signalPeriod, slowPeriod }
   })
@@ -211,7 +212,7 @@ export function calculateStudies(
         upper: align(values.map((band) => band.upper)),
       }
     }
-    if (input.kind !== 'MACD') throw new Error('Price studies are invalid.')
+    if (input.kind !== 'MACD') throw new CallerVisibleError('Price studies are invalid.')
     const values = movingAverageConvergenceDivergence(
       prices,
       input.fastPeriod,
