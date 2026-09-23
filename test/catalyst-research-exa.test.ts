@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { CATALYST_HORIZON_DAYS } from '../src/domain/catalyst'
 import { runExaCatalystSearch } from '../src/server/catalyst-research-exa'
 
 const NOW = new Date('2026-09-01T13:00:00.000Z')
@@ -80,6 +81,7 @@ describe('exa catalyst search', () => {
     expect(body).not.toHaveProperty('startPublishedDate')
     expect(Object.keys(body.outputSchema.properties.events.items.properties)).not.toContain('confidence')
     expect(body.query).toContain('Bloom Energy Corporation (BE)')
+    expect(body.query).toContain(`over the next ${CATALYST_HORIZON_DAYS} days`)
     expect(body.outputSchema.required).toEqual(['events'])
   })
 

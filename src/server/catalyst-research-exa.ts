@@ -91,8 +91,10 @@ export type ExaCatalystRun = {
   rejected: string[]
 }
 
+// The window the query asks about is the one the binder enforces, so the search is not spent on
+// events the binder would refuse.
 function catalystQuery(symbol: string, name: string): string {
-  return `Scheduled upcoming catalysts for ${name} (${symbol}) stock over the next six months: `
+  return `Scheduled upcoming catalysts for ${name} (${symbol}) stock over the next ${CATALYST_HORIZON_DAYS} days: `
     + 'next earnings report date, investor day, product launch or event, regulatory or FDA '
     + 'decision date, clinical trial readout, conference presentation, shareholder meeting. '
     + 'Report only events with a specific announced date.'
