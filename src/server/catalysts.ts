@@ -196,16 +196,28 @@ const UPCOMING_CATALYSTS_QUERY =
            source_label AS source, source_url AS "sourceUrl", updated_at AS "updatedAt",
            ${EVENT_RANK} AS nearest
          FROM ${CURRENT_CATALYSTS}
-         WHERE event_date >= ?
+         WHERE event_date >= ? AND symbol IN (SELECT value FROM json_each(?))
      )
      WHERE nearest <= ?
      ORDER BY date ASC, symbol ASC, id ASC`
 
-/** The upcoming-catalyst read, for a caller that must not write. */
-export async function readUpcomingCatalysts(env: AppEnv, now = new Date()): Promise<Catalyst[]> {
+/**
+ * The upcoming-catalyst read for a snapshot's symbols, for a caller that must not write. The
+ * table holds rows for every symbol any producer ever wrote -- a member's agent researching a
+ * name nobody lists, a symbol since removed -- so a snapshot reads only its own symbols, and the
+ * stored and live builds of one state carry the same calendar. The symbols travel as one JSON
+ * parameter, so their count is not capped by D1's bound-parameter limit.
+ */
+export async function readUpcomingCatalysts(
+  env: AppEnv,
+  symbols: readonly string[],
+  now = new Date(),
+): Promise<Catalyst[]> {
   if (!env.DB) throw new CallerVisibleError('CatalystStoreUnavailable')
+  const normalized = [...new Set(symbols.map((symbol) => EquitySymbolSchema.parse(symbol)))]
+  if (!normalized.length) return []
   const result = await env.DB.prepare(UPCOMING_CATALYSTS_QUERY)
-    .bind(marketDate(now), MAX_CATALYSTS_PER_SYMBOL).all()
+    .bind(marketDate(now), JSON.stringify(normalized), MAX_CATALYSTS_PER_SYMBOL).all()
   return CatalystSchema.array().parse(result.results ?? [])
 }
 
@@ -252,7 +264,7 @@ export async function persistAndLoadCatalysts(
   }
   statements.push(...catalystUpsertStatements(env.DB, 'tastytrade', observed, now.toISOString()))
   if (statements.length) await env.DB.batch(statements)
-  return readUpcomingCatalysts(env, now)
+  return readUpcomingCatalysts(env, normalizedSymbols, now)
 }
 
 /**

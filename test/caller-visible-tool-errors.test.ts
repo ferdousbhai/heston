@@ -101,7 +101,7 @@ const cases: [string, string, () => Promise<void> | void][] = [
   }],
   ['catalysts', 'CatalystStoreUnavailable', async () => {
     const { readUpcomingCatalysts } = await import('../src/server/catalysts')
-    await readUpcomingCatalysts(noStore)
+    await readUpcomingCatalysts(noStore, ['NVDA'])
   }],
   ['catalyst-refresh', 'CatalystRunStoreUnavailable', async () => {
     const { refreshCatalystsForSymbol } = await import('../src/server/catalyst-refresh')

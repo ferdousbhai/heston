@@ -38,7 +38,7 @@ describe('research read tools', () => {
     expect(db.bind).toHaveBeenCalledWith('NVDA', '2026-08-13', '2026-09-12', 61)
 
     const site = d1WithResults([catalyst])
-    await expect(readUpcomingCatalysts(site.env, new Date('2026-08-13T12:00:00.000Z')))
+    await expect(readUpcomingCatalysts(site.env, ['NVDA'], new Date('2026-08-13T12:00:00.000Z')))
       .resolves.toEqual([catalyst])
   })
 

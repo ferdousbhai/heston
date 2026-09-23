@@ -10,7 +10,12 @@ import {
 } from '../domain/market'
 import { type AppEnv } from './env'
 import { readBoundedJson } from './bounded-response'
-import { catalystsFromMarketMetrics, persistAndLoadCatalysts, readUpcomingCatalysts } from './catalysts'
+import {
+  catalystsFromMarketMetrics,
+  persistAndLoadCatalysts,
+  readUpcomingCatalysts,
+  readUpcomingCatalystsForSymbol,
+} from './catalysts'
 import {
   ensureInternalWatchlistSymbols,
   readInternalWatchlistCatalogCandidates,
@@ -381,7 +386,7 @@ async function loadMarketFacts(
     const cached = yearCandles.get(item.ticker.symbol)
     if (cached !== undefined) item.ticker.yearAgoClose = cached
   }
-  const allCatalysts = await persistAndLoadCatalysts(
+  const catalysts = await persistAndLoadCatalysts(
     env,
     catalystsFromMarketMetrics(metrics),
     symbols,
@@ -390,10 +395,9 @@ async function loadMarketFacts(
     metrics: normalized.map((item) => item.metricRecord),
     quotes: normalized.map((item) => item.quoteRecord),
   })
-  const allowedSymbols = new Set(symbols)
   return {
     tickers: normalized.map((item) => item.ticker),
-    catalysts: allCatalysts.filter((catalyst) => allowedSymbols.has(catalyst.symbol)),
+    catalysts,
   }
 }
 
@@ -576,7 +580,7 @@ async function lookupStoredMarketSymbol(
     readStoredMarketRecords(env, [symbol]),
     readInstrumentCatalog(env, [symbol]),
     readYearAgoCloses(env.DB, [symbol]),
-    readUpcomingCatalysts(env),
+    readUpcomingCatalystsForSymbol(env, symbol),
   ])
   const quote = records.quotes.get(symbol)
   if (!quote) return undefined
@@ -588,7 +592,7 @@ async function lookupStoredMarketSymbol(
     yearCandles.get(symbol),
   )
   return {
-    catalysts: catalysts.filter((catalyst) => catalyst.symbol === symbol),
+    catalysts,
     ticker: publicTickerFromTicker(ticker),
     // A stored answer says nothing about maintained-list membership, which only the live
     // lookup decides; claiming otherwise would tell the reader their search was retained.
@@ -677,7 +681,7 @@ async function storedSnapshotParts(env: AppEnv, symbols: readonly string[]) {
     readStoredMarketRecords(env, symbols),
     readInstrumentCatalog(env, symbols),
     readYearAgoCloses(env.DB, symbols),
-    readUpcomingCatalysts(env),
+    readUpcomingCatalysts(env, symbols),
     readStoredMarketSession(env),
     loadStoredBrief(env),
   ])

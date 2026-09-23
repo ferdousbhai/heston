@@ -54,7 +54,7 @@ describe('tastytrade catalyst normalization', () => {
         store.database, 'member-research', [...crowded, other], NOW.toISOString(),
       ))
 
-      const upcoming = await readUpcomingCatalysts({ DB: store.database }, NOW)
+      const upcoming = await readUpcomingCatalysts({ DB: store.database }, ['NVDA', 'META'], NOW)
       const nvda = upcoming.filter((catalyst) => catalyst.symbol === 'NVDA')
 
       expect(nvda).toHaveLength(MAX_CATALYSTS_PER_SYMBOL)
@@ -98,7 +98,7 @@ describe('tastytrade catalyst normalization', () => {
       const nearest = events.slice(0, MAX_CATALYSTS_PER_SYMBOL).map((event) => event.date)
 
       for (const rows of [
-        await readUpcomingCatalysts(env, NOW),
+        await readUpcomingCatalysts(env, ['NVDA'], NOW),
         await readUpcomingCatalystsForSymbol(env, 'NVDA', NOW),
       ]) {
         expect(rows).toHaveLength(MAX_CATALYSTS_PER_SYMBOL * 2)
@@ -132,9 +132,9 @@ describe('tastytrade catalyst normalization', () => {
     await expect(persistAndLoadCatalysts({ DB: database }, [], symbols, NOW)).resolves.toEqual([])
 
     expect(batch).toHaveBeenCalledOnce()
-    // The delete binds one symbol each; the read that follows binds the market date and the
-    // per-symbol cap.
-    expect(boundParameterCounts).toEqual([100, 2])
+    // The delete binds one symbol each; the read that follows binds the market date, the
+    // symbols as one JSON array, and the per-symbol cap.
+    expect(boundParameterCounts).toEqual([100, 3])
   })
 
   it('extracts upcoming earnings and ignores dividend fields', () => {
@@ -483,7 +483,7 @@ describe('a producer that looked again', () => {
       // One producer moving its own estimate says nothing about what another producer reports.
       expect((await readUpcomingCatalystsForSymbol(env, 'INTC', NOW)).map((row) => row.id))
         .toEqual(['member-research:INTC:earnings:2026-10-22', 'exa:INTC:earnings:2026-10-23'])
-      expect((await readUpcomingCatalysts(env, NOW)).map((row) => row.id))
+      expect((await readUpcomingCatalysts(env, ['INTC'], NOW)).map((row) => row.id))
         .toEqual(['member-research:INTC:earnings:2026-10-22', 'exa:INTC:earnings:2026-10-23'])
     } finally {
       store.close()

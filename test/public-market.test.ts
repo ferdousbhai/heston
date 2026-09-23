@@ -5,6 +5,7 @@ import { migrationStore } from './sqlite-d1'
 import { symbolAt } from './symbols'
 import { ensureInternalWatchlistSeeded, finalizeInternalWatchlist } from '../src/server/internal-watchlist'
 import { MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
+import { catalystUpsertStatements } from '../src/server/catalysts'
 import {
   loadStoredPublicMarketUniverse,
   publishInternalWatchlistUniverse,
@@ -378,5 +379,88 @@ describe('public market boundary', () => {
     const requestedUrls = fetchMock.mock.calls.map(([input]) => String(input))
     expect(requestedUrls.some((url) => url.includes('/accounts/') || url.includes('/watchlists'))).toBe(false)
     expect(requestedUrls.some((url) => url.includes('/instruments/equities'))).toBe(false)
+  })
+
+  it('carries the same catalysts, and only the snapshot\'s own, in the stored and live builds', async () => {
+    // The catalyst table holds rows for names no snapshot lists: a member's agent researching
+    // anything it likes, a symbol since removed. Neither build may carry them.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-08-26T13:32:00.000Z'))
+    const store = await migrationStore()
+    store.sqlite.exec(`
+      INSERT INTO internal_watchlist_seed
+        (id, status, attempt_id, started_at, seeded_at, finalized_at)
+      VALUES (
+        'primary', 'ready', 'seed-1', '2026-08-26T10:00:00.000Z',
+        '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z'
+      );
+      INSERT INTO internal_watchlist_items
+        (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
+      VALUES ('NVDA', 'Equity', 'owner', '{}', '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z');
+    `)
+    const researched = (symbol: string) => ({
+      confidence: 'estimated' as const,
+      date: '2026-09-15',
+      id: `member-research:${symbol}:investor-event:2026-09-15`,
+      kind: 'investor-event' as const,
+      source: 'Member research · investors.example.com',
+      sourceUrl: 'https://investors.example.com/events',
+      symbol,
+      timing: 'unknown' as const,
+      title: `${symbol} investor day`,
+      updatedAt: '2026-08-26T12:00:00.000Z',
+    })
+    await store.database.batch(catalystUpsertStatements(
+      store.database, 'member-research', [researched('NVDA'), researched('META')], '2026-08-26T12:00:00.000Z',
+    ))
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/oauth/token')) return Response.json({ access_token: 'owner-read-token', expires_in: 900 })
+      if (url.includes('/market-time/equities/sessions/current')) {
+        return Response.json({ data: { state: 'Open', 'open-at': '2026-08-26T13:30:00.000Z' } })
+      }
+      if (url.includes('/market-metrics')) return Response.json({ data: { items: [{
+        symbol: 'NVDA',
+        'implied-volatility-index': '0.42',
+        'implied-volatility-index-rank': '0.55',
+        'implied-volatility-percentile': '0.61',
+        'liquidity-rating': '4',
+      }] } })
+      if (url.includes('/market-data/by-type')) return Response.json({ data: { items: [{
+        symbol: 'NVDA', mark: '100', 'previous-close': '98', description: 'NVDA',
+        change: '2', 'change-percent': '2.0408163265',
+        'updated-at': '2026-08-26T13:31:00.000Z',
+      }] } })
+      if (url.includes('/instruments/equities')) return Response.json({ data: { items: [{
+        active: true, description: 'NVDA', 'instrument-type': 'Equity', symbol: 'NVDA',
+      }] } })
+      return new Response('', { status: 404 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { brokerApi } = await import('../src/server/tastytrade')
+    const env = {
+      BROKER_GATE: stubBrokerGate().namespace,
+      DB: store.database,
+      TASTYTRADE_CLIENT_SECRET: secret,
+      TASTYTRADE_REFRESH_TOKEN: secret,
+    }
+    try {
+      const live = await brokerApi().loadMarketSnapshot(env)
+      const stored = await brokerApi().loadStoredMarketSnapshot(env)
+      expect(live.catalysts.map((catalyst) => catalyst.symbol)).toEqual(['NVDA'])
+      expect(stored?.catalysts).toEqual(live.catalysts)
+
+      const livePublic = await brokerApi().loadPublicMarketSnapshot(env)
+      const storedPublic = await brokerApi().loadStoredPublicMarketSnapshot(env)
+      expect(livePublic.catalysts.map((catalyst) => catalyst.symbol)).toEqual(['NVDA'])
+      expect(storedPublic?.snapshot.catalysts).toEqual(livePublic.catalysts)
+
+      // A symbol lookup served from the store reads that one symbol's calendar.
+      const lookup = await brokerApi().lookupStoredMarketSymbol(env, 'NVDA')
+      expect(lookup?.catalysts).toEqual(live.catalysts)
+    } finally {
+      vi.useRealTimers()
+      store.close()
+    }
   })
 })
