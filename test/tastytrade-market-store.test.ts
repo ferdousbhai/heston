@@ -5,10 +5,11 @@ import { MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
 import { D1_MAX_BOUND_PARAMETERS } from '../src/server/d1-limits'
 import {
   persistTastytradeMarketSnapshot,
+  readStoredMarketRecords,
   type TastytradeMarketRecords,
 } from '../src/server/tastytrade-market-store'
 import { marketTickersFixture } from './fixtures/market'
-import { unsupportedDatabase, unsupportedStatement } from './fake-d1'
+import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 
 let store: SqliteD1Store
@@ -85,6 +86,40 @@ describe('source-specific tastytrade market storage', () => {
     expect(batch).toHaveBeenCalledOnce()
     expect(boundParameterCounts.length).toBeGreaterThan(1)
     expect(Math.max(...boundParameterCounts)).toBeLessThanOrEqual(D1_MAX_BOUND_PARAMETERS)
+  })
+
+  it('skips and counts a stored quote with no positive previous close rather than showing no move', async () => {
+    // The table's CHECK refuses such a row, so the read is exercised against rows D1 hands back.
+    const quote = (symbol: string, previousClose: number) => ({
+      observed_at: '2026-08-26T13:31:00.000Z',
+      previous_close: previousClose,
+      price: 100,
+      provider_updated_at: '2026-08-26T13:31:00.000Z',
+      symbol,
+      volume: null,
+      year_high: null,
+      year_low: null,
+    })
+    const database: D1Database = {
+      ...unsupportedDatabase(),
+      prepare: vi.fn((sql: string) => ({
+        ...unsupportedStatement(),
+        bind: () => ({
+          ...unsupportedStatement(),
+          all: async <T>() => {
+            const rows = sql.includes('tastytrade_market_quotes') ? [quote('GOOD', 98), quote('ZERO', 0)] : []
+            // SAFETY: the reader re-parses every row with its own schema; that parse is under test.
+            return d1Result(rows as T[])
+          },
+        }),
+      })),
+    }
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    const records = await readStoredMarketRecords({ DB: database }, ['GOOD', 'ZERO'])
+
+    expect([...records.quotes.keys()]).toEqual(['GOOD'])
+    expect(warned).toHaveBeenCalledWith('MarketStoreRowsSkipped', 1)
   })
 
   it('keeps metrics and quotes in their source-specific tables', async () => {

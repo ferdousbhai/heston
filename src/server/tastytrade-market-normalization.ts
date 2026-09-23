@@ -379,7 +379,7 @@ export function tickerFromStoredRecords(
     marketCap: metric?.marketCap,
     price: quote.price,
     change,
-    changePercent: quote.previousClose > 0 ? projected((change / quote.previousClose) * 100) : 0,
+    changePercent: projected((change / quote.previousClose) * 100),
     // Candle history is live-only state; a stored snapshot carries no intraday chart.
     sparkline: [],
     yearAgoClose,

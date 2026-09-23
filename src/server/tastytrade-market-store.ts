@@ -142,7 +142,10 @@ const StoredMetricRowSchema = z.object({
 const StoredQuoteRowSchema = z.object({
   symbol: z.string(),
   price: z.number(),
-  previous_close: z.number(),
+  // The move is computed against this, so a zero or negative close has no honest move to
+  // report; the table's CHECK already refuses one, and a row that somehow carries it is skipped
+  // and counted rather than shown as unchanged.
+  previous_close: z.number().positive(),
   volume: z.number().nullable(),
   year_low: z.number().nullable(),
   year_high: z.number().nullable(),
