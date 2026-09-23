@@ -6,6 +6,7 @@ import { buildOrderPayload } from '../src/server/order-payload'
 import { assertReplaceableOrder, resolveOrderIntent } from '../src/server/order-intent'
 import { tastytradeOrderFromPayload, tastytradeOrderRecord } from '../src/server/brokers/tastytrade'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
+import { migrationStore } from './sqlite-d1'
 
 const tastytrade = stubBroker()
 
@@ -81,5 +82,39 @@ describe('order replacement source boundary', () => {
       kind: 'replace_order', orderId: '123', limitPrice: 699.5,
       replacementOrder: { ...source, limitPrice: 699.5 },
     })
+  })
+
+  it('reads the source order only from the replacing account\'s own rows', async () => {
+    const source = {
+      kind: 'place_equity_order', symbol: 'SPY', action: 'Buy to Open',
+      quantity: 2, limitPrice: 700, priceEffect: 'Debit',
+    }
+    const order = {
+      id: '123', editable: true, status: 'Live', ...intended,
+      legs: intended.legs.map((leg) => ({ ...leg, 'remaining-quantity': leg.quantity, fills: [] })),
+    }
+    tastytrade.tastyRequest.mockResolvedValue({ data: order })
+    const store = await migrationStore()
+    try {
+      // Another member's executed order that happens to carry the same broker order id.
+      store.sqlite.prepare(
+        `INSERT INTO broker_submissions (id, broker_id, account_number, payload_json, submitted_at, status, provider_order_id)
+         VALUES ('other', 'tastytrade', 'OTHER', ?, '2026-09-01T00:00:00.000Z', 'executed', '123')`,
+      ).run(JSON.stringify(source))
+      const replace = { kind: 'replace_order' as const, orderId: '123', limitPrice: 699.5 }
+
+      await expect(resolveOrderIntent({ DB: store.database }, replace, 'TEST', brokerCredential))
+        .rejects.toThrow('OrderReplacement:source-order-not-found')
+      expect(tastytrade.tastyRequest).not.toHaveBeenCalled()
+
+      store.sqlite.prepare(
+        `INSERT INTO broker_submissions (id, broker_id, account_number, payload_json, submitted_at, status, provider_order_id)
+         VALUES ('mine', 'tastytrade', 'TEST', ?, '2026-09-01T00:00:00.000Z', 'executed', '123')`,
+      ).run(JSON.stringify(source))
+      await expect(resolveOrderIntent({ DB: store.database }, replace, 'TEST', brokerCredential))
+        .resolves.toMatchObject({ replaceOrderId: '123' })
+    } finally {
+      store.close()
+    }
   })
 })

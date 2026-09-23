@@ -89,13 +89,25 @@ export function assertReplaceableOrder(order: BrokerOrderRecord, orderId: string
   }
 }
 
-async function sourceOrderAction(env: AppEnv, orderId: string): Promise<StoredOrderPlacement> {
+/**
+ * The action Heston placed as `orderId`, read only from this broker account's own rows. The broker
+ * re-verifies the live order afterwards, but another account's row must never be the source of an
+ * order's shape: the per-account rule holds here too, not only at the broker. Rows carried forward
+ * by migration 0029 have an empty account number and so are never found; they were all Day
+ * orders placed long before it, so none of them is still working to be replaced.
+ */
+async function sourceOrderAction(
+  env: AppEnv,
+  broker: string,
+  accountNumber: string,
+  orderId: string,
+): Promise<StoredOrderPlacement> {
   if (!env.DB) throw new CallerVisibleError('OrderReplacement:action-store-unavailable')
   const result = await env.DB.prepare(
     `SELECT payload_json FROM broker_submissions
-      WHERE provider_order_id = ? AND status = 'executed'
+      WHERE broker_id = ? AND account_number = ? AND provider_order_id = ? AND status = 'executed'
       ORDER BY submitted_at DESC LIMIT 2`,
-  ).bind(orderId).all<{ payload_json: string }>()
+  ).bind(broker, accountNumber, orderId).all<{ payload_json: string }>()
   const rows = result.results ?? []
   if (rows.length !== 1) throw new CallerVisibleError('OrderReplacement:source-order-not-found')
   return StoredOrderPlacementSchema.parse(JSON.parse(rows[0]!.payload_json))
@@ -107,9 +119,9 @@ async function expandReplacement(
   accountNumber: string,
   credential: BrokerCredential | undefined,
 ): Promise<ResolvedOrderIntent> {
-  const source = effectiveStoredOrder(await sourceOrderAction(env, action.orderId))
-  const sourceResolved = await resolveFreshOrder(env, source)
   const adapter = brokerAdapterFor(credential)
+  const source = effectiveStoredOrder(await sourceOrderAction(env, adapter.id, accountNumber, action.orderId))
+  const sourceResolved = await resolveFreshOrder(env, source)
   const current = await adapter.readOrder(
     env,
     { accountNumber, broker: adapter.id },
