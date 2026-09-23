@@ -6,6 +6,7 @@ import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Spinner } from '#/components/ui/spinner'
 import {
+  MAX_MCP_TOKEN_LABEL_LENGTH,
   McpTokenIssuedResponseSchema,
   McpTokenListResponseSchema,
   type McpTokenMetadata,
@@ -202,7 +203,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         >
           <Input
             aria-label="Token name"
-            maxLength={60}
+            maxLength={MAX_MCP_TOKEN_LABEL_LENGTH}
             onChange={(event) => setLabel(event.target.value)}
             placeholder="Laptop"
             value={label}

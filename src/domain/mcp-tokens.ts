@@ -7,7 +7,22 @@ import { z } from 'zod'
  */
 export const MAX_MCP_TOKENS_PER_USER = 5
 
-export const McpTokenLabelSchema = z.string().trim().min(1).max(60)
+/**
+ * A label names a machine in the Connect tab's token list ("Work laptop", "Home desktop"). It is
+ * a display name, not free text: the bound keeps one row of that list on one line, and the
+ * input that collects it carries the same number so a member cannot type past what is kept.
+ */
+export const MAX_MCP_TOKEN_LABEL_LENGTH = 60
+
+export const McpTokenLabelSchema = z.string().trim().min(1).max(MAX_MCP_TOKEN_LABEL_LENGTH)
+
+/**
+ * A token id is this many lowercase hex characters: 8 random bytes, enough that ids never
+ * collide within one member's handful of tokens and short enough to read in a list. The
+ * minting side and every request that names an id derive their shape from this one number.
+ */
+export const TOKEN_ID_HEX_LENGTH = 16
+export const TOKEN_ID_PATTERN = `[0-9a-f]{${TOKEN_ID_HEX_LENGTH}}`
 
 export const McpTokenMetadataSchema = z.strictObject({
   createdAt: z.string(),
@@ -31,7 +46,7 @@ export const McpTokenIssueRequestSchema = z.strictObject({
 })
 
 export const McpTokenRevokeRequestSchema = z.strictObject({
-  tokenId: z.string().min(1).max(64),
+  tokenId: z.string().regex(new RegExp(`^${TOKEN_ID_PATTERN}$`)),
 })
 
 export type McpTokenMetadata = z.infer<typeof McpTokenMetadataSchema>

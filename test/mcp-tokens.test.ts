@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { MAX_MCP_TOKENS_PER_USER } from '../src/domain/mcp-tokens'
+import { MAX_MCP_TOKENS_PER_USER, McpTokenRevokeRequestSchema } from '../src/domain/mcp-tokens'
 import {
   authenticateMcpToken,
   issueMcpToken,
@@ -70,6 +70,31 @@ describe('per-user MCP tokens', () => {
 
     await revokeMcpToken(store.database, 'user-a', issued[0]!.tokenMetadata.tokenId)
     await expect(issueMcpToken(store.database, 'user-a', 'replacement')).resolves.toBeDefined()
+    store.close()
+  })
+
+  it('never lets concurrent issues carry a member past the cap', async () => {
+    const store = await storeWithMembers()
+    for (let index = 0; index < MAX_MCP_TOKENS_PER_USER - 1; index += 1) {
+      await issueMcpToken(store.database, 'user-a', `machine-${index}`)
+    }
+    // Each of these would have counted one slot free before any of them inserted.
+    const outcomes = await Promise.allSettled([1, 2, 3].map((index) => issueMcpToken(store.database, 'user-a', `race-${index}`)))
+    expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1)
+    for (const outcome of outcomes) {
+      if (outcome.status === 'rejected') expect(outcome.reason).toBeInstanceOf(McpTokenLimitError)
+    }
+    await expect(listMcpTokens(store.database, 'user-a')).resolves.toHaveLength(MAX_MCP_TOKENS_PER_USER)
+    store.close()
+  })
+
+  it('accepts only a token id of the shape this server mints', async () => {
+    const store = await storeWithMembers()
+    const issued = await issueMcpToken(store.database, 'user-a', 'laptop')
+    expect(McpTokenRevokeRequestSchema.safeParse({ tokenId: issued.tokenMetadata.tokenId }).success).toBe(true)
+    for (const tokenId of ['', 'ABCDEF0123456789', '0123456789abcdef0', 'x'.repeat(64)]) {
+      expect(McpTokenRevokeRequestSchema.safeParse({ tokenId }).success).toBe(false)
+    }
     store.close()
   })
 

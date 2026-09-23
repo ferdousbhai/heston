@@ -1,6 +1,8 @@
 import {
   MAX_MCP_TOKENS_PER_USER,
   McpTokenLabelSchema,
+  TOKEN_ID_HEX_LENGTH,
+  TOKEN_ID_PATTERN,
   type McpTokenMetadata,
 } from '../domain/mcp-tokens'
 import { base64Url, sha256Base64Url } from './digest'
@@ -13,14 +15,22 @@ import { base64Url, sha256Base64Url } from './digest'
  * time. The id is not a secret and grants nothing on its own.
  */
 const TOKEN_PREFIX = 'heston_'
-const TOKEN_ID_HEX_LENGTH = 16
-const TOKEN_PATTERN = new RegExp(`^${TOKEN_PREFIX}([0-9a-f]{${TOKEN_ID_HEX_LENGTH}})_([A-Za-z0-9_-]{16,})$`)
+const TOKEN_PATTERN = new RegExp(`^${TOKEN_PREFIX}(${TOKEN_ID_PATTERN})_([A-Za-z0-9_-]{16,})$`)
 /**
  * `last_used_at` exists so a member can recognise a stale token in the Connect tab. Writing it
  * on every call would cost a D1 write per tool call for a display detail, so it is refreshed at
  * most hourly and is therefore approximate by design.
  */
 const LAST_USED_REFRESH_MS = 60 * 60_000
+
+/**
+ * Whether a presented bearer has the shape of a token this server mints. Such a string is only
+ * ever authenticated against `user_mcp_tokens`: it is not a JWT, so handing a revoked or mistyped
+ * one to the OAuth verifier would only log a misleading verification failure.
+ */
+export function isMintedMcpToken(presented: string): boolean {
+  return TOKEN_PATTERN.test(presented)
+}
 
 export type McpTokenIdentity = { tokenId: string; userId: string }
 
@@ -98,18 +108,25 @@ export async function issueMcpToken(
   now = new Date(),
 ): Promise<{ token: string; tokenMetadata: McpTokenMetadata }> {
   const parsedLabel = McpTokenLabelSchema.parse(label)
-  const live = await database.prepare(
-    'SELECT COUNT(*) AS count FROM user_mcp_tokens WHERE user_id = ?',
-  ).bind(userId).first<{ count: number }>()
-  if ((live?.count ?? 0) >= MAX_MCP_TOKENS_PER_USER) throw new McpTokenLimitError()
-
   const tokenId = randomTokenId()
   const token = `${TOKEN_PREFIX}${tokenId}_${randomSecret()}`
   const createdAt = now.toISOString()
-  await database.prepare(
+  // The cap is checked inside the insert rather than read first: two concurrent issues that
+  // each counted below the cap would otherwise both insert and leave the member over it.
+  const inserted = await database.prepare(
     `INSERT INTO user_mcp_tokens (token_id, user_id, token_digest, label, created_at)
-     VALUES (?, ?, ?, ?, ?)`,
-  ).bind(tokenId, userId, await sha256Base64Url(token), parsedLabel, createdAt).run()
+     SELECT ?, ?, ?, ?, ?
+     WHERE (SELECT COUNT(*) FROM user_mcp_tokens WHERE user_id = ?) < ?`,
+  ).bind(
+    tokenId,
+    userId,
+    await sha256Base64Url(token),
+    parsedLabel,
+    createdAt,
+    userId,
+    MAX_MCP_TOKENS_PER_USER,
+  ).run()
+  if (inserted.meta.changes === 0) throw new McpTokenLimitError()
   return { token, tokenMetadata: { createdAt, label: parsedLabel, tokenId } }
 }
 
