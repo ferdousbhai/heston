@@ -197,6 +197,10 @@ describe('brokerage action migrations', () => {
     expect(db.prepare(
       "SELECT high_water_nlv FROM portfolio_risk_state WHERE broker_id = 'tastytrade' AND account_number = 'ACCOUNT-1'",
     ).get()).toEqual({ high_water_nlv: 125000.5 })
+
+    // Retired with the drawdown guard; nothing reads it any more.
+    db.exec(await read('0046_drop_portfolio_risk_state.sql'))
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'portfolio_risk_state'").get()).toBeUndefined()
     db.close()
   })
 
