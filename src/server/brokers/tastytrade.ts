@@ -20,7 +20,7 @@ import {
   type JsonObject,
   type JsonValue,
 } from '../../domain/json-payload'
-import { MAX_HISTORY_ITEMS } from '../brokerage-read-contracts'
+import { MAX_HISTORY_ITEMS, MAX_HISTORY_ORDER_LEGS } from '../brokerage-read-contracts'
 import {
   finiteNumber,
   invalidResponse,
@@ -198,7 +198,7 @@ function historyOrderLeg(value: JsonValue): BrokerHistoryOrderLeg {
 
 function historyOrder(row: JsonObject): BrokerHistoryOrder {
   const label = 'Tastytrade order history'
-  if (!Array.isArray(row.legs) || row.legs.length < 1 || row.legs.length > 20) return invalidResponse(label)
+  if (!Array.isArray(row.legs) || row.legs.length < 1 || row.legs.length > MAX_HISTORY_ORDER_LEGS) return invalidResponse(label)
   return {
     id: requiredIdentifier(row, 'id', label),
     legs: row.legs.map(historyOrderLeg),

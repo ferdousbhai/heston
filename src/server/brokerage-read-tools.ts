@@ -5,6 +5,10 @@ import {
   ACCOUNT_SNAPSHOT_PARTS,
   AccountHistoryReadParameters,
   AccountSnapshotReadParameters,
+  DEFAULT_HISTORY_ITEMS,
+  DEFAULT_ORDER_HISTORY_DAYS,
+  DEFAULT_SEARCH_RESULTS,
+  DEFAULT_TRANSACTION_HISTORY_DAYS,
   EQUITY_SYMBOL,
   InstrumentQuoteReadParameters,
   MAX_CHAIN_ROWS,
@@ -132,9 +136,9 @@ export async function readAccountHistory(
   if (input.type === 'orders' && input.transactionType !== undefined) {
     throw new CallerVisibleError('transactionType is valid only for transaction history.')
   }
-  const defaultDays = input.type === 'transactions' ? 90 : 7
+  const defaultDays = input.type === 'transactions' ? DEFAULT_TRANSACTION_HISTORY_DAYS : DEFAULT_ORDER_HISTORY_DAYS
   const days = assertInteger(input.days ?? defaultDays, 0, undefined, 'Account history days')
-  const limit = assertInteger(input.limit ?? 25, 1, MAX_HISTORY_ITEMS, 'Account history limit')
+  const limit = assertInteger(input.limit ?? DEFAULT_HISTORY_ITEMS, 1, MAX_HISTORY_ITEMS, 'Account history limit')
   const pageOffset = assertInteger(input.pageOffset ?? 0, 0, undefined, 'Account history page offset')
   const underlyingSymbol = input.underlyingSymbol?.trim().toUpperCase()
   if (underlyingSymbol && !UNDERLYING_SYMBOL.test(underlyingSymbol)) throw new CallerVisibleError('Account history underlying symbol is invalid.')
@@ -336,7 +340,7 @@ export async function readInstrumentQuotes(
 export async function searchSymbols(
   env: AppEnv,
   requestedQuery: string,
-  requestedLimit = 10,
+  requestedLimit = DEFAULT_SEARCH_RESULTS,
   now = new Date(),
 ): Promise<SymbolSearchResult> {
   const query = requestedQuery.trim()

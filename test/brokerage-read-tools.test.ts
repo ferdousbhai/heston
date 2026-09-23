@@ -13,6 +13,14 @@ import {
 } from '../src/server/brokerage-read-tools'
 import { createPublicMarketReadTools } from '../src/server/public-market-tools'
 import { MAX_QUERY_LENGTH } from '../src/server/symbol-search'
+import {
+  AccountHistoryReadParameters,
+  DEFAULT_HISTORY_ITEMS,
+  DEFAULT_ORDER_HISTORY_DAYS,
+  DEFAULT_SEARCH_RESULTS,
+  DEFAULT_TRANSACTION_HISTORY_DAYS,
+  MAX_HISTORY_ORDER_LEGS,
+} from '../src/server/brokerage-read-contracts'
 
 const tastytrade = stubBroker()
 
@@ -241,6 +249,37 @@ describe('brokerage read tools', () => {
     )
   })
 
+  it('applies the history defaults it advertises', async () => {
+    tastytrade.tastyRequest.mockResolvedValue({ data: { items: [] }, pagination: { 'total-items': 0 } })
+    const startDate = (days: number) => new Date(now.getTime() - days * 24 * 60 * 60_000).toISOString().slice(0, 10)
+
+    await readAccountHistory({}, { type: 'transactions' }, brokerCredential, now)
+    await readAccountHistory({}, { type: 'orders' }, brokerCredential, now)
+    expect(tastytrade.tastyRequest.mock.calls.map(([, path]) => path)).toEqual([
+      `/accounts/PRIVATE123/transactions?page-offset=0&per-page=${DEFAULT_HISTORY_ITEMS}&sort=Desc&start-date=${startDate(DEFAULT_TRANSACTION_HISTORY_DAYS)}`,
+      `/accounts/PRIVATE123/orders?page-offset=0&per-page=${DEFAULT_HISTORY_ITEMS}&sort=Desc&start-date=${startDate(DEFAULT_ORDER_HISTORY_DAYS)}`,
+    ])
+    expect(AccountHistoryReadParameters).toMatchObject({ properties: {
+      days: {
+        description: `Calendar-day lookback. Defaults to ${DEFAULT_TRANSACTION_HISTORY_DAYS} for transactions and ${DEFAULT_ORDER_HISTORY_DAYS} for orders.`,
+      },
+      limit: { description: `Maximum rows to return. Defaults to ${DEFAULT_HISTORY_ITEMS}.` },
+    } })
+  })
+
+  it('refuses a history order with more legs than a row may carry rather than truncating it', async () => {
+    const leg = { action: 'Buy to Open', 'instrument-type': 'Equity Option', quantity: 1, symbol: 'SPY   260918C00700000' }
+    const order = (legs: number) => ({ data: { items: [{
+      id: 7, legs: Array.from({ length: legs }, () => leg), 'order-type': 'Limit', status: 'Filled',
+      'time-in-force': 'Day', 'underlying-instrument-type': 'Equity', 'underlying-symbol': 'SPY',
+      'updated-at': '2026-08-12T14:30:00.000Z',
+    }] } })
+    tastytrade.tastyRequest.mockResolvedValueOnce(order(MAX_HISTORY_ORDER_LEGS))
+    await expect(readAccountHistory({}, { type: 'orders' }, brokerCredential, now)).resolves.toMatchObject({ items: [{ id: '7' }] })
+    tastytrade.tastyRequest.mockResolvedValueOnce(order(MAX_HISTORY_ORDER_LEGS + 1))
+    await expect(readAccountHistory({}, { type: 'orders' }, brokerCredential, now)).rejects.toThrow('invalid response')
+  })
+
   it('rejects order-only transaction filters and malformed history envelopes', async () => {
     await expect(readAccountHistory({}, {
       transactionType: 'Trade',
@@ -360,6 +399,16 @@ describe('brokerage read tools', () => {
       listedMarket: 'NASDAQ',
       symbol: 'AAPL',
     }])
+  })
+
+  it('applies and advertises the default search size', async () => {
+    tastytrade.tastyRequest.mockResolvedValue({ data: { items: Array.from({ length: DEFAULT_SEARCH_RESULTS + 1 }, (_, index) => ({
+      symbol: `A${index}`, description: `Name ${index}`,
+    })) } })
+    await expect(searchSymbols({}, 'A')).resolves.toMatchObject({ truncated: true })
+    await expect(searchSymbols({}, 'A').then((result) => result.results.length)).resolves.toBe(DEFAULT_SEARCH_RESULTS)
+    expect(createSymbolSearchTool({}).parameters)
+      .toMatchObject({ properties: { limit: { description: `Maximum results to return. Defaults to ${DEFAULT_SEARCH_RESULTS}.` } } })
   })
 
   it('bounds the query exactly as the anonymous search_symbols does', async () => {

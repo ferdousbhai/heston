@@ -23,6 +23,21 @@ export const MAX_SEARCH_RESULTS = 20
 export const MAX_OPTION_EXPIRATIONS = 12
 export const MAX_OPTION_CONTRACTS = 60
 export const MAX_QUOTE_INSTRUMENTS = 10
+/**
+ * One history order carries its legs inline, so the row cap alone does not bound a page: this is
+ * the per-row share of the same context budget. It is far wider than any order Heston builds (at
+ * most two legs) and refuses the page rather than truncating a leg list, so an order is never shown
+ * with fewer legs than it has.
+ */
+export const MAX_HISTORY_ORDER_LEGS = 20
+// Defaults for an omitted optional input, from the same context budget: a first call returns a
+// useful page well inside its ceiling, and the agent pages or widens only when it needs to. The
+// history windows are the reads a trader asks first -- a quarter of cash and trade activity, and
+// the week of orders a working ticket or a replacement is likely to belong to.
+export const DEFAULT_HISTORY_ITEMS = 25
+export const DEFAULT_TRANSACTION_HISTORY_DAYS = 90
+export const DEFAULT_ORDER_HISTORY_DAYS = 7
+export const DEFAULT_SEARCH_RESULTS = 10
 // Provider-envelope ceilings are substantially wider than returned context. They reject
 // anomalous upstream fan-out before normalization allocates or processes arbitrary rows.
 export const MAX_SEARCH_ROWS = 200
@@ -60,11 +75,12 @@ export type AccountSnapshotReadResult = {
 
 export const AccountHistoryReadParameters = Type.Object({
   days: Type.Optional(Type.Integer({
-    description: 'Calendar-day lookback. Defaults to 90 for transactions and 7 for orders.',
+    description: `Calendar-day lookback. Defaults to ${DEFAULT_TRANSACTION_HISTORY_DAYS} for transactions `
+      + `and ${DEFAULT_ORDER_HISTORY_DAYS} for orders.`,
     minimum: 0,
   })),
   limit: Type.Optional(Type.Integer({
-    description: 'Maximum rows to return. Defaults to 25.',
+    description: `Maximum rows to return. Defaults to ${DEFAULT_HISTORY_ITEMS}.`,
     maximum: MAX_HISTORY_ITEMS,
     minimum: 1,
   })),
@@ -96,7 +112,11 @@ export const MarketMetricsReadParameters = Type.Object({
  * an agent must not find one tier accepts a query the other refuses.
  */
 export const SymbolSearchParameters = Type.Object({
-  limit: Type.Optional(Type.Integer({ maximum: MAX_SEARCH_RESULTS, minimum: 1 })),
+  limit: Type.Optional(Type.Integer({
+    description: `Maximum results to return. Defaults to ${DEFAULT_SEARCH_RESULTS}.`,
+    maximum: MAX_SEARCH_RESULTS,
+    minimum: 1,
+  })),
   query: Type.String({
     description: 'Ticker or company-name fragment.',
     maxLength: MAX_QUERY_LENGTH,
