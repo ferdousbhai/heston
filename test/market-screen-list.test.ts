@@ -1,11 +1,10 @@
 // @vitest-environment jsdom
 
-import { createElement } from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { MarketScreen } from '../src/components/market-screen'
 import { marketSnapshotFixture } from './fixtures/market'
+import { renderMarketScreen } from './fixtures/render-market-screen'
 
 afterEach(() => {
   cleanup()
@@ -22,17 +21,7 @@ function stubPhoneViewport(): void {
 }
 
 function renderMarket(onSelectTicker: (symbol: string) => void = () => undefined): void {
-  const snapshot = marketSnapshotFixture()
-  render(createElement(MarketScreen, {
-    activeWatchlist: { ...snapshot.watchlists[0]!, kind: 'public' as const },
-    catalysts: snapshot.catalysts,
-    owner: false,
-    onSelectTicker,
-    onTogglePinned: () => undefined,
-    pinnedSymbols: [],
-    selected: snapshot.tickers.find((ticker) => ticker.symbol === 'NVDA')!,
-    tickers: snapshot.tickers,
-  }))
+  renderMarketScreen({ symbol: 'NVDA', onSelectTicker })
 }
 
 describe('the phone list', () => {
@@ -122,16 +111,7 @@ describe('the phone row chart', () => {
     const snapshot = marketSnapshotFixture()
     for (const ticker of snapshot.tickers) ticker.sparkline = []
 
-    render(createElement(MarketScreen, {
-      activeWatchlist: { ...snapshot.watchlists[0]!, kind: 'public' as const },
-      catalysts: snapshot.catalysts,
-      owner: false,
-      onSelectTicker: () => undefined,
-      onTogglePinned: () => undefined,
-      pinnedSymbols: [],
-      selected: snapshot.tickers[0]!,
-      tickers: snapshot.tickers,
-    }))
+    renderMarketScreen({ tickers: snapshot.tickers })
 
     await waitFor(() => {
       expect(document.querySelector('.watch-row .year-sparkline')).not.toBeNull()

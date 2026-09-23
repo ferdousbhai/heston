@@ -1,12 +1,10 @@
 // @vitest-environment jsdom
 
-import { createElement } from 'react'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { MarketScreen } from '../src/components/market-screen'
 import { type SymbolEvidence } from '../src/domain/symbol-evidence'
-import { marketSnapshotFixture } from './fixtures/market'
+import { renderMarketScreen } from './fixtures/render-market-screen'
 
 afterEach(() => {
   cleanup()
@@ -37,17 +35,7 @@ function stubFetch(evidence: readonly SymbolEvidence[]): void {
 }
 
 function renderMarket(symbol: string): void {
-  const snapshot = marketSnapshotFixture()
-  render(createElement(MarketScreen, {
-    activeWatchlist: { ...snapshot.watchlists[0]!, kind: 'public' as const },
-    catalysts: snapshot.catalysts,
-    owner: false,
-    onSelectTicker: () => undefined,
-    onTogglePinned: () => undefined,
-    pinnedSymbols: [],
-    selected: snapshot.tickers.find((ticker) => ticker.symbol === symbol)!,
-    tickers: snapshot.tickers,
-  }))
+  renderMarketScreen({ symbol })
 }
 
 describe('evidence recorded under the selected symbol', () => {

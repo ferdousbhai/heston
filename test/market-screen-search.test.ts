@@ -1,32 +1,16 @@
 // @vitest-environment jsdom
 
-import { createElement } from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { MarketScreen } from '../src/components/market-screen'
 import { publicTickerFromTicker } from '../src/domain/market'
 import { marketSnapshotFixture } from './fixtures/market'
+import { renderMarketScreen } from './fixtures/render-market-screen'
 
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
 })
-
-function renderMarket(overrides: Partial<Parameters<typeof MarketScreen>[0]> = {}): void {
-  const snapshot = marketSnapshotFixture()
-  render(createElement(MarketScreen, {
-    activeWatchlist: { ...snapshot.watchlists[0]!, kind: 'public' as const },
-    catalysts: snapshot.catalysts,
-    owner: false,
-    onSelectTicker: () => undefined,
-    onTogglePinned: () => undefined,
-    pinnedSymbols: [],
-    selected: snapshot.tickers[0]!,
-    tickers: snapshot.tickers,
-    ...overrides,
-  }))
-}
 
 describe('searching beyond the loaded watchlist', () => {
   it('keeps exact matches first within favorites instead of reordering search by volume', () => {
@@ -37,7 +21,7 @@ describe('searching beyond the loaded watchlist', () => {
       { ...meta, volume: 10 },
       { ...meta, symbol: 'METU', name: 'Meta ETF', volume: 100 },
     ]
-    renderMarket({
+    renderMarketScreen({
       tickers,
       pinnedSymbols: ['META', 'MET'],
       activeWatchlist: { id: 'watchlist', kind: 'public', name: 'Watchlist', symbols: tickers.map((ticker) => ticker.symbol) },
@@ -71,7 +55,7 @@ describe('searching beyond the loaded watchlist', () => {
     }))
     const onSelectTicker = vi.fn()
     const onTogglePinned = vi.fn()
-    renderMarket({ tickers: [{ ...base, symbol: 'OTHER', name: `${symbol} Fund` }], onSelectTicker, onTogglePinned })
+    renderMarketScreen({ tickers: [{ ...base, symbol: 'OTHER', name: `${symbol} Fund` }], onSelectTicker, onTogglePinned })
     fireEvent.change(screen.getByLabelText('Search all symbols'), { target: { value: symbol } })
     await waitFor(() => expect(screen.getByRole('button', { name: `Pin ${symbol}` })).toBeTruthy())
     expect(requests).toEqual([`/api/public-symbol-search?q=${symbol}`])
@@ -85,7 +69,7 @@ describe('searching beyond the loaded watchlist', () => {
   it('reports a failed catalog lookup even when local fuzzy matches remain visible', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 503 })))
     const base = marketSnapshotFixture().tickers[0]!
-    renderMarket({ tickers: [{ ...base, symbol: 'MET', name: 'Metals Company' }] })
+    renderMarketScreen({ tickers: [{ ...base, symbol: 'MET', name: 'Metals Company' }] })
     fireEvent.change(screen.getByLabelText('Search all symbols'), { target: { value: 'META' } })
     await waitFor(() => expect(screen.getByText('Symbol search is unavailable. Showing the loaded list only.')).toBeTruthy())
     expect(screen.getByRole('button', { name: 'Pin MET' })).toBeTruthy()
@@ -124,7 +108,7 @@ describe('searching beyond the loaded watchlist', () => {
         watchlisted: true,
       })
     }))
-    renderMarket()
+    renderMarketScreen()
 
     fireEvent.change(screen.getByLabelText('Search all symbols'), { target: { value: 'TQQQ' } })
 
@@ -143,7 +127,7 @@ describe('searching beyond the loaded watchlist', () => {
         ? Response.json({ catalysts: [], ran: false })
         : Response.json({ error: 'nothing' }, { status: 404 })
     )))
-    renderMarket()
+    renderMarketScreen()
 
     fireEvent.change(screen.getByLabelText('Search all symbols'), { target: { value: 'ZZZZ' } })
 

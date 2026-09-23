@@ -1,13 +1,11 @@
 // @vitest-environment jsdom
 
-import { createElement } from 'react'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { MarketScreen } from '../src/components/market-screen'
 import { addDays } from '../src/domain/iso-date'
 import { marketDate, type Catalyst } from '../src/domain/catalyst'
-import { marketSnapshotFixture } from './fixtures/market'
+import { renderMarketScreen } from './fixtures/render-market-screen'
 
 afterEach(() => {
   cleanup()
@@ -31,17 +29,7 @@ function catalyst(symbol: string, daysAhead: number): Catalyst {
 }
 
 function renderMarket(symbol: string, catalysts: readonly Catalyst[], owner = false): void {
-  const snapshot = marketSnapshotFixture()
-  render(createElement(MarketScreen, {
-    activeWatchlist: { ...snapshot.watchlists[0]!, kind: 'public' as const },
-    catalysts: [...catalysts],
-    owner,
-    onSelectTicker: () => undefined,
-    onTogglePinned: () => undefined,
-    pinnedSymbols: [],
-    selected: snapshot.tickers.find((ticker) => ticker.symbol === symbol)!,
-    tickers: snapshot.tickers,
-  }))
+  renderMarketScreen({ symbol, catalysts: [...catalysts], owner })
 }
 
 describe('reviewing a symbol with an empty calendar', () => {
