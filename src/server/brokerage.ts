@@ -149,8 +149,6 @@ export function validatePlacedOrderResponse(payload: JsonValue, intended: OrderP
  */
 export type SubmissionReceipt = { detail: string; orderId: string; untrustedBrokerWarnings?: string[] }
 
-export type PlacementOutcome = SubmissionReceipt & { intent: ResolvedOrderIntent }
-
 /**
  * Resolve, guard, dry-run, and submit one order under the account's mutation lease.
  *
@@ -163,7 +161,7 @@ export async function executeOrderPlacement(
   credential: BrokerCredential | undefined,
   accountNumber: string,
   onResolved: (intent: ResolvedOrderIntent) => Promise<void> = async () => undefined,
-): Promise<PlacementOutcome> {
+): Promise<SubmissionReceipt> {
   if (!credential) throw new BrokerCredentialMissingError()
   const broker = credential.broker
   return brokerApi().withBrokerMutationLease(env, accountNumber, async (lease) => {
@@ -238,8 +236,6 @@ export async function executeOrderPlacement(
     const detail = settled
       ? receipt.detail
       : `${receipt.detail} Heston could not record this result, so this account stays quarantined until reconcile_brokerage_action confirms it.`
-    const outcome: PlacementOutcome = { detail, intent, orderId: receipt.orderId }
-    if (receipt.untrustedBrokerWarnings) outcome.untrustedBrokerWarnings = receipt.untrustedBrokerWarnings
-    return outcome
+    return { ...receipt, detail }
   })
 }

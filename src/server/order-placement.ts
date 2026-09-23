@@ -53,7 +53,7 @@ export async function placeBrokerageOrder(
   const accountNumber = await brokerApi().resolveAccountNumber(env, credential)
   // The quarantine check is the write-ahead claim inside `executeOrderPlacement`, under the
   // mutation lease and atomic in D1; a check out here would race a concurrent placement.
-  const { detail, orderId, untrustedBrokerWarnings } = await executeOrderPlacement(
+  return executeOrderPlacement(
     env,
     action,
     credential,
@@ -62,10 +62,6 @@ export async function placeBrokerageOrder(
     // becomes a trusted ticker, including price-only replacements.
     (intent) => rememberTradeIntentSymbol(env, intent.effectiveAction),
   )
-  // Broker warnings stay in their own untrusted field; see `SubmissionReceipt` in brokerage.ts.
-  const receipt: SubmissionReceipt = { detail, orderId }
-  if (untrustedBrokerWarnings) receipt.untrustedBrokerWarnings = untrustedBrokerWarnings
-  return receipt
 }
 
 /**
