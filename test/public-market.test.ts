@@ -75,8 +75,41 @@ describe('public market boundary', () => {
        VALUES (?, 'Equity', 'owner', '{}', ?, ?)`,
     )
     for (const symbol of symbols) insert.run(symbol, '2026-08-26T12:00:00.000Z', '2026-08-26T12:00:00.000Z')
-    await expect(publishInternalWatchlistUniverse({ DB: store.database })).rejects.toThrow()
+    await expect(publishInternalWatchlistUniverse({ DB: store.database }))
+      .rejects.toThrow('PublicMarketUniverse:too-many-symbols')
     expect(store.sqlite.prepare(`SELECT id FROM public_market_universe WHERE id = 'primary'`).get()).toBeUndefined()
+    store.close()
+  })
+
+  it('stores exactly the alphabetized watchlist projection in one statement', async () => {
+    const store = await migrationStore()
+    const env = { DB: store.database }
+    await publishInternalWatchlistUniverse(env)
+    expect(store.sqlite.prepare(`SELECT payload_json FROM public_market_universe WHERE id = 'primary'`).get())
+      .toEqual({ payload_json: JSON.stringify({ symbols: [] }) })
+
+    const insert = store.sqlite.prepare(
+      `INSERT INTO internal_watchlist_items
+        (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
+       VALUES (?, 'Equity', ?, '{}', ?, ?)`,
+    )
+    for (const [symbol, origin] of [['MSFT', 'owner'], ['AAPL', 'scheduled-research'], ['BRK/B', 'owner']]) {
+      insert.run(symbol, origin, '2026-08-26T12:00:00.000Z', '2026-08-26T12:00:00.000Z')
+    }
+    // Two publishes racing over a changing watchlist leave the copy of the list as it now is.
+    await Promise.all([publishInternalWatchlistUniverse(env), publishInternalWatchlistUniverse(env)])
+    store.sqlite.prepare(`DELETE FROM internal_watchlist_items WHERE symbol = 'MSFT'`).run()
+    await publishInternalWatchlistUniverse(env, new Date('2026-08-27T12:00:00.000Z'))
+
+    const watchlist = store.sqlite.prepare(`SELECT symbol FROM internal_watchlist_items ORDER BY symbol`).all()
+      .map((row) => String(row.symbol))
+    expect(store.sqlite.prepare(`SELECT payload_json, updated_at FROM public_market_universe WHERE id = 'primary'`).get())
+      .toEqual({
+        // Byte-for-byte the shape `JSON.stringify` of the schema object produced before.
+        payload_json: JSON.stringify({ symbols: watchlist }),
+        updated_at: '2026-08-27T12:00:00.000Z',
+      })
+    await expect(loadStoredPublicMarketUniverse(env)).resolves.toEqual({ symbols: ['AAPL', 'BRK/B'] })
     store.close()
   })
 
