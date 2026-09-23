@@ -106,7 +106,7 @@ export function seedMember(store: SqliteD1Store, userId: string): string {
   return userId
 }
 
-/** The default row timestamp `seedFinalizedWatchlist` writes when an item doesn't pass its own. */
+/** The default row timestamp `seedWatchlist` writes when an item doesn't pass its own. */
 const SEEDED_AT = '2026-08-26T10:00:00.000Z'
 
 type SeededWatchlistItem = {
@@ -137,7 +137,7 @@ export function seededItems(symbols: readonly string[]): SeededWatchlistItem[] {
  * An item defaults to the seed origin; a source's id follows the imported `tastytrade-<kind>-<n>`
  * shape so the ranking's joins and the provenance reads see what production holds.
  */
-export function seedFinalizedWatchlist(
+export function seedWatchlist(
   store: SqliteD1Store,
   items: readonly SeededWatchlistItem[],
   provenance: readonly SeededWatchlistSource[] = [],

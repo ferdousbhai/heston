@@ -5,7 +5,7 @@ import { type AppEnv } from '../src/server/env'
 import { MAX_DAILY_CANDLE_SYMBOLS } from '../src/server/market-feed-contracts'
 import { refreshYearCandles, yearCandleRefreshEvent } from '../src/server/scheduled-jobs'
 import { readYearAgoCloses, readYearCandleSeries, replaceYearCandles } from '../src/server/year-candle-store'
-import { migrationStore, seededItems, seedFinalizedWatchlist, type SqliteD1Store } from './sqlite-d1'
+import { migrationStore, seededItems, seedWatchlist, type SqliteD1Store } from './sqlite-d1'
 import { symbolAt } from './symbols'
 
 let store: SqliteD1Store
@@ -18,7 +18,7 @@ afterEach(() => store.close())
 
 /** Fill the watchlist to its own bound, which is five times what one feed read may subscribe. */
 function seededWatchlist(): void {
-  seedFinalizedWatchlist(store, seededItems(Array.from({ length: MAX_WATCHLIST_SYMBOLS }, (_, index) => symbolAt(index))))
+  seedWatchlist(store, seededItems(Array.from({ length: MAX_WATCHLIST_SYMBOLS }, (_, index) => symbolAt(index))))
 }
 
 describe('year candle refresh', () => {

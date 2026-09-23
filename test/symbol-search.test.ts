@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { migrationStore, seededItems, seedFinalizedWatchlist, type SqliteD1Store } from './sqlite-d1'
+import { migrationStore, seededItems, seedWatchlist, type SqliteD1Store } from './sqlite-d1'
 import {
   instrumentCatalogFromPayload,
   persistInstrumentCatalog,
@@ -87,7 +87,7 @@ describe('instrument catalog fallback search', () => {
 describe('public symbol lookup', () => {
   async function seededStore(): Promise<SqliteD1Store> {
     const store = await migrationStore()
-    seedFinalizedWatchlist(store, seededItems(['NVDA']))
+    seedWatchlist(store, seededItems(['NVDA']))
     return store
   }
 

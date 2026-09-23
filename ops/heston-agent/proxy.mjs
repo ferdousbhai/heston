@@ -36,8 +36,8 @@ const LISTEN_HOST = '127.0.0.1'
 const DEFAULT_PORT = 8787
 const UPSTREAM = process.env.HESTON_MCP_URL ?? 'https://heston.io/mcp'
 const TASTYTRADE_API_BASE = process.env.TASTYTRADE_API_BASE ?? 'https://api.tastyworks.com'
-// UPSTREAM_TIMEOUT_MS lives in token-refresh.mjs: tokenRetiresAt needs it too, and a test that
-// exercises retirement without spawning this process needs it importable on its own.
+// UPSTREAM_TIMEOUT_MS lives in token-refresh.mjs because importing this file starts the proxy
+// (`await main()`), so the retirement test takes the constant from there instead.
 const TOKEN_REQUEST_TIMEOUT_MS = 20_000
 
 /**

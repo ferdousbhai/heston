@@ -4,7 +4,7 @@ import { loadBrokerageContext } from '../src/server/brokerage-context'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { createWatchlistReadTool } from '../src/server/watchlist-tool'
 import { brokerCredential, stubBroker, tastytradeBalances } from './broker-stub'
-import { migrationStore, seededItems, seedFinalizedWatchlist, type SqliteD1Store } from './sqlite-d1'
+import { migrationStore, seededItems, seedWatchlist, type SqliteD1Store } from './sqlite-d1'
 
 const tastytrade = stubBroker()
 let store: SqliteD1Store
@@ -18,7 +18,7 @@ beforeEach(async () => {
       : { data: { items: [] } },
   ))
   store = await migrationStore()
-  seedFinalizedWatchlist(store, seededItems(['NVDA', 'SPY']), [
+  seedWatchlist(store, seededItems(['NVDA', 'SPY']), [
     {
       kind: 'private',
       name: 'Long vol',

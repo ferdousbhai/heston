@@ -3,8 +3,9 @@ function unsupported(): never {
 }
 
 /**
- * A Browser Run binding whose only working call is the markdown quick action that the
- * research `read_page` tool makes. Every other call throws, so a code path reaching for
+ * A Browser Run binding whose only working call is the markdown quick action `record_catalysts`
+ * and `record_evidence` make to re-read a cited page (src/server/research-page-retention.ts).
+ * Every other call throws, so a code path reaching for
  * more than that fails loudly instead of reading a silent stub.
  */
 export function markdownBrowser(markdown: string): BrowserRun {

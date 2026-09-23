@@ -18,7 +18,7 @@ import { publishInternalWatchlistUniverse } from '../src/server/public-market-un
 import {
   migrationStore,
   seededItems,
-  seedFinalizedWatchlist,
+  seedWatchlist,
   type SeededWatchlistSource,
   type SqliteD1Store,
 } from './sqlite-d1'
@@ -55,7 +55,7 @@ const LISTS: SeededWatchlistSource[] = [
 
 /** The finalized list those lists produced: each equity, carrying the ids of its lists. */
 function seedLists(): void {
-  seedFinalizedWatchlist(store, [
+  seedWatchlist(store, [
     { symbol: 'NVDA', metadata: { seedSourceIds: ['tastytrade-private-0', 'tastytrade-public-0'] } },
     { symbol: 'PLTR', metadata: { seedSourceIds: ['tastytrade-public-0'] } },
   ], LISTS)
@@ -108,7 +108,7 @@ describe('the maintained watchlist', () => {
   it('uses retained high-options-volume order only after personal symbols', async () => {
     const env = { DB: store.database }
     const volume = ['TSLA', 'AAPL', 'PLTR']
-    seedFinalizedWatchlist(store, seededItems(['AAPL', 'NVDA', 'PLTR', 'TSLA']), [
+    seedWatchlist(store, seededItems(['AAPL', 'NVDA', 'PLTR', 'TSLA']), [
       { kind: 'private', name: 'Long vol', entries: [{ symbol: 'NVDA' }] },
       { kind: 'public', name: 'High Options Volume', entries: volume.map((symbol) => ({ symbol })) },
     ])
@@ -129,7 +129,7 @@ describe('the maintained watchlist', () => {
     const env = { DB: store.database }
     const volume = Array.from({ length: MAX_WATCHLIST_SYMBOLS + 1 }, (_, index) => symbolAt(index))
     const deepVolume = volume.at(-1)!
-    seedFinalizedWatchlist(store, [
+    seedWatchlist(store, [
       { symbol: deepVolume },
       { symbol: 'ZZZZ', updatedAt: '2026-08-27T10:00:00.000Z' },
     ], [{ kind: 'public', name: 'High Options Volume', entries: volume.map((symbol) => ({ symbol })) }])
@@ -149,7 +149,7 @@ describe('the maintained watchlist', () => {
     const owned = ['ZZZA', 'ZZZB', 'ZZZC']
     const env = { DB: store.database }
     // The newest seed members rank first among equals, so the oldest are the ones a prune drops.
-    seedFinalizedWatchlist(store, symbols.map((symbol, index) => ({
+    seedWatchlist(store, symbols.map((symbol, index) => ({
       symbol, updatedAt: new Date(Date.UTC(2026, 7, 26, 0, 0, symbols.length - index)).toISOString(),
     })), [{ kind: 'private', name: 'Legacy private list', entries: symbols.map((symbol) => ({ symbol })) }])
 
@@ -232,7 +232,7 @@ describe('the maintained watchlist', () => {
     // Only the removed finalization wrote `position-sync`; rows it wrote stay readable and
     // outrank research, and no live caller may mint a new one.
     const env = { DB: store.database }
-    seedFinalizedWatchlist(store, [{ symbol: 'NVDA', origin: 'position-sync' }])
+    seedWatchlist(store, [{ symbol: 'NVDA', origin: 'position-sync' }])
     await ensureInternalWatchlistSymbols(env, ['NVDA'], 'scheduled-research')
     await expect(readInternalWatchlistSymbolDetails(env, 'NVDA')).resolves.toMatchObject({ origin: 'position-sync' })
     // SAFETY: the cast forges exactly the input the type forbids, to prove the runtime refuses it.
@@ -278,7 +278,7 @@ describe('a list full of reader searches', () => {
     // directly: one search per call would be `MAX_WATCHLIST_SYMBOLS` sequential batches, and the
     // behavior under test is admission against a full list, not how it filled.
     const searched = Array.from({ length: MAX_WATCHLIST_SYMBOLS }, (_, index) => symbolAt(index))
-    seedFinalizedWatchlist(store, searched.map((symbol, index) => ({
+    seedWatchlist(store, searched.map((symbol, index) => ({
       symbol, origin: 'visitor-search', updatedAt: new Date(Date.UTC(2026, 7, 27, 0, 0, index)).toISOString(),
     })))
     const full = await readInternalWatchlist(env)
@@ -302,7 +302,7 @@ describe('a list full of reader searches', () => {
 describe('delisted names', () => {
   it('keeps a name the broker no longer trades off the public universe', async () => {
     const env = { DB: store.database }
-    seedFinalizedWatchlist(store, seededItems(['ATVI', 'BE']))
+    seedWatchlist(store, seededItems(['ATVI', 'BE']))
     // ATVI was acquired: the catalog still carries the row, and must, because a citation or a
     // held position may still need to resolve it. It just may not be offered to a reader.
     await persistInstrumentCatalog(env, [

@@ -3,13 +3,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { executeWatchlistAction } from '../src/server/watchlist-actions'
 import { readInternalWatchlist } from '../src/server/internal-watchlist'
 import { WatchlistActionSchema } from '../src/server/agent-contracts'
-import { migrationStore, seededItems, seedFinalizedWatchlist, type SqliteD1Store } from './sqlite-d1'
+import { migrationStore, seededItems, seedWatchlist, type SqliteD1Store } from './sqlite-d1'
 
 let store: SqliteD1Store
 
 beforeEach(async () => {
   store = await migrationStore()
-  seedFinalizedWatchlist(store, seededItems(['SPY']), [{ kind: 'private', name: 'Long vol', entries: [{ symbol: 'SPY' }] }])
+  seedWatchlist(store, seededItems(['SPY']), [{ kind: 'private', name: 'Long vol', entries: [{ symbol: 'SPY' }] }])
 })
 
 afterEach(() => store.close())
