@@ -58,8 +58,9 @@ export async function placeBrokerageOrder(
     action,
     credential,
     accountNumber,
-    // Exact contract/order resolution is the deterministic point where a discussed trade
-    // becomes a trusted ticker, including price-only replacements.
+    // An order the broker accepted is the deterministic point where a discussed trade becomes a
+    // trusted ticker, including a price-only replacement. A refused order earns no provenance,
+    // and a failed write here is logged by `executeOrderPlacement` rather than refusing the order.
     (intent) => rememberTradeIntentSymbol(env, intent.effectiveAction),
   )
 }

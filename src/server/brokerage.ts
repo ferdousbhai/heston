@@ -153,20 +153,24 @@ export type SubmissionReceipt = { detail: string; orderId: string; untrustedBrok
  * Resolve, guard, dry-run, and submit one order under the account's mutation lease.
  *
  * The account number and the intent are resolved once, by the caller and inside the lease
- * respectively; `onResolved` runs at the point the intent becomes exact, before any guard.
+ * respectively. `onAccepted` runs only once the broker has accepted the order, after the lease
+ * is released, and it can never change the outcome: a failure there is logged under a fixed
+ * event name and the accepted receipt is returned regardless. Running it any earlier let a
+ * refused order earn the provenance it records, let a store hiccup refuse an order (a
+ * risk-reducing close included), and held the lease across writes that have nothing to do
+ * with the submission.
  */
 export async function executeOrderPlacement(
   env: AppEnv,
   action: OrderPlacement,
   credential: BrokerCredential | undefined,
   accountNumber: string,
-  onResolved: (intent: ResolvedOrderIntent) => Promise<void> = async () => undefined,
+  onAccepted: (intent: ResolvedOrderIntent) => Promise<void> = async () => undefined,
 ): Promise<SubmissionReceipt> {
   if (!credential) throw new BrokerCredentialMissingError()
   const broker = credential.broker
-  return brokerApi().withBrokerMutationLease(env, accountNumber, async (lease) => {
+  const { intent, receipt } = await brokerApi().withBrokerMutationLease(env, accountNumber, async (lease) => {
     const intent = await resolveOrderIntent(env, action, accountNumber, credential)
-    await onResolved(intent)
     await tradeGuards().assertPortfolioActionAllowed(env, intent.effectiveAction, credential, {
       accountNumber,
       optionContracts: intent.optionContracts,
@@ -236,6 +240,13 @@ export async function executeOrderPlacement(
     const detail = settled
       ? receipt.detail
       : `${receipt.detail} Heston could not record this result, so this account stays quarantined until reconcile_brokerage_action confirms it.`
-    return { ...receipt, detail }
+    return { intent, receipt: { ...receipt, detail } }
   })
+  try {
+    await onAccepted(intent)
+  } catch (error) {
+    // The order is already at the broker; bookkeeping after it must not read as a refusal.
+    console.error('TradeIntentRememberFailed', error instanceof Error ? error.name : 'UnknownError')
+  }
+  return receipt
 }

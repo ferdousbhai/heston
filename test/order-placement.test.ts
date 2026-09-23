@@ -256,6 +256,88 @@ describe('brokerage order placement', () => {
   })
 })
 
+describe('trade-intent provenance', () => {
+  function recordingWatchlist(write: () => Promise<string[]> = async () => []) {
+    const remembered: Array<{ origin: string; symbols: readonly string[] }> = []
+    setInternalWatchlistWriter({
+      ensureSymbols: async (_env, symbols, origin) => {
+        remembered.push({ origin, symbols })
+        return write()
+      },
+    })
+    return remembered
+  }
+
+  it('remembers the symbol only once the broker has accepted the order', async () => {
+    brokerSubmitting(async () => ACCEPTED_ORDER_RESPONSE)
+    const remembered = recordingWatchlist()
+    const db = await freshStore()
+
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential))
+      .resolves.toMatchObject({ orderId: '123' })
+    expect(remembered).toEqual([{ origin: 'trade-intent', symbols: ['SPY'] }])
+  })
+
+  it('gives a guard-refused order no trade-intent provenance', async () => {
+    brokerSubmitting(async () => ACCEPTED_ORDER_RESPONSE)
+    const remembered = recordingWatchlist()
+    setTradeGuards({
+      assertOrderMarketSafe: async () => ({ ask: 700, bid: 699, observedAt: new Date().toISOString(), tickSize: 0.01 }),
+      assertPortfolioActionAllowed: async () => { throw new PortfolioRiskError('This account will not open a naked or unbounded short position.') },
+    })
+
+    await expect(placeBrokerageOrder({ DB: (await freshStore()).database }, EQUITY_ORDER, brokerCredential))
+      .rejects.toBeInstanceOf(PortfolioRiskError)
+    expect(remembered).toEqual([])
+  })
+
+  it('gives a broker-rejected order no trade-intent provenance', async () => {
+    brokerSubmitting(async () => { throw apiError(422) })
+    const remembered = recordingWatchlist()
+
+    await expect(placeBrokerageOrder({ DB: (await freshStore()).database }, EQUITY_ORDER, brokerCredential))
+      .rejects.toThrow('TastytradeApi:422')
+    expect(remembered).toEqual([])
+  })
+
+  it('reports an accepted order even when the watchlist write fails, and logs a fixed event', async () => {
+    const brokerage = brokerSubmitting(async () => ACCEPTED_ORDER_RESPONSE)
+    const failure = new Error('D1 watchlist unavailable for account TEST123')
+    failure.name = 'D1Error'
+    recordingWatchlist(async () => { throw failure })
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const db = await freshStore()
+
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential))
+      .resolves.toEqual({ detail: 'Order #123 accepted by tastytrade.', orderId: '123' })
+    expect(submissions(brokerage)).toHaveLength(1)
+    expect(rows(db)).toMatchObject([{ status: 'executed' }])
+    expect(errorLog).toHaveBeenCalledWith('TradeIntentRememberFailed', 'D1Error')
+  })
+
+  it('writes the watchlist only after the mutation lease is released', async () => {
+    const brokerage = brokerSubmitting(async () => ACCEPTED_ORDER_RESPONSE)
+    let leaseHeld = false
+    brokerage.withBrokerMutationLease.mockImplementation(async (_env, _account, operation) => {
+      leaseHeld = true
+      try {
+        return await operation({ renew: brokerage.renewBrokerMutationLease })
+      } finally {
+        leaseHeld = false
+      }
+    })
+    const heldDuringWrite: boolean[] = []
+    recordingWatchlist(async () => {
+      heldDuringWrite.push(leaseHeld)
+      return []
+    })
+
+    await expect(placeBrokerageOrder({ DB: (await freshStore()).database }, EQUITY_ORDER, brokerCredential))
+      .resolves.toMatchObject({ orderId: '123' })
+    expect(heldDuringWrite).toEqual([false])
+  })
+})
+
 describe('cancelling a working order', () => {
   it('cancels through the adapter for the account the credential resolves to', async () => {
     const cancelled: Array<{ account: string; orderId: string }> = []
