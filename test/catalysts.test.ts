@@ -129,7 +129,7 @@ describe('tastytrade catalyst normalization', () => {
     }
 
     const symbols = Array.from({ length: 100 }, (_, index) => `T${index}`)
-    await expect(persistAndLoadCatalysts({ DB: database }, [], symbols, NOW)).resolves.toEqual([])
+    await expect(persistAndLoadCatalysts({ DB: database }, [], { answered: symbols, requested: symbols }, NOW)).resolves.toEqual([])
 
     expect(batch).toHaveBeenCalledOnce()
     // The delete binds one symbol each; the read that follows binds the market date, the
@@ -289,7 +289,7 @@ describe('research catalyst storage', () => {
   })
 
   it('fails when authoritative catalyst storage is unavailable', async () => {
-    await expect(persistAndLoadCatalysts({}, [], [], NOW)).rejects.toThrow('CatalystStoreUnavailable')
+    await expect(persistAndLoadCatalysts({}, [], { answered: [], requested: [] }, NOW)).rejects.toThrow('CatalystStoreUnavailable')
     await expect(persistResearchCatalysts({}, 'member-research', [], NOW)).rejects.toThrow('CatalystStoreUnavailable')
   })
 

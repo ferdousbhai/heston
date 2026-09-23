@@ -463,4 +463,81 @@ describe('public market boundary', () => {
       store.close()
     }
   })
+
+  it('retires a stored earnings date only for a symbol whose metrics row arrived', async () => {
+    // A metrics row with no upcoming earnings is the provider saying the date is gone. A symbol
+    // whose row never arrived said nothing, so its stored date must survive the build.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-08-26T13:32:00.000Z'))
+    const store = await migrationStore()
+    store.sqlite.exec(`
+      INSERT INTO internal_watchlist_seed
+        (id, status, attempt_id, started_at, seeded_at, finalized_at)
+      VALUES (
+        'primary', 'ready', 'seed-1', '2026-08-26T10:00:00.000Z',
+        '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z'
+      );
+      INSERT INTO internal_watchlist_items
+        (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
+      VALUES
+        ('AMD', 'Equity', 'owner', '{}', '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z'),
+        ('NVDA', 'Equity', 'owner', '{}', '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z');
+    `)
+    const earnings = (symbol: string) => ({
+      confidence: 'estimated' as const,
+      date: '2026-09-15',
+      id: `tastytrade:${symbol}:earnings`,
+      kind: 'earnings' as const,
+      source: 'tastytrade market metrics',
+      sourceUrl: 'https://developer.tastytrade.com/open-api-spec/market-metrics/',
+      symbol,
+      timing: 'unknown' as const,
+      title: `${symbol} earnings`,
+      updatedAt: '2026-08-26T12:00:00.000Z',
+    })
+    await store.database.batch(catalystUpsertStatements(
+      store.database, 'tastytrade', [earnings('AMD'), earnings('NVDA')], '2026-08-26T12:00:00.000Z',
+    ))
+    const quote = (symbol: string) => ({
+      symbol, mark: '100', 'previous-close': '98', description: symbol,
+      change: '2', 'change-percent': '2.0408163265',
+      'updated-at': '2026-08-26T13:31:00.000Z',
+    })
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/oauth/token')) return Response.json({ access_token: 'owner-read-token', expires_in: 900 })
+      if (url.includes('/market-time/equities/sessions/current')) {
+        return Response.json({ data: { state: 'Open', 'open-at': '2026-08-26T13:30:00.000Z' } })
+      }
+      // Only NVDA's metrics row arrives, and it carries no upcoming earnings.
+      if (url.includes('/market-metrics')) return Response.json({ data: { items: [{
+        symbol: 'NVDA',
+        'implied-volatility-index': '0.42',
+        'implied-volatility-index-rank': '0.55',
+        'implied-volatility-percentile': '0.61',
+        'liquidity-rating': '4',
+      }] } })
+      if (url.includes('/market-data/by-type')) return Response.json({ data: { items: [quote('AMD'), quote('NVDA')] } })
+      if (url.includes('/instruments/equities')) return Response.json({ data: { items: ['AMD', 'NVDA'].map((symbol) => ({
+        active: true, description: symbol, 'instrument-type': 'Equity', symbol,
+      })) } })
+      return new Response('', { status: 404 })
+    }))
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const { brokerApi } = await import('../src/server/tastytrade')
+    try {
+      const live = await brokerApi().loadMarketSnapshot({
+        BROKER_GATE: stubBrokerGate().namespace,
+        DB: store.database,
+        TASTYTRADE_CLIENT_SECRET: secret,
+        TASTYTRADE_REFRESH_TOKEN: secret,
+      })
+      expect(live.catalysts.map((catalyst) => catalyst.id)).toEqual(['tastytrade:AMD:earnings'])
+      expect(store.sqlite.prepare("SELECT symbol FROM catalysts WHERE source_provider = 'tastytrade'").all())
+        .toEqual([{ symbol: 'AMD' }])
+    } finally {
+      vi.useRealTimers()
+      store.close()
+    }
+  })
 })

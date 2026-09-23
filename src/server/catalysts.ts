@@ -246,25 +246,33 @@ export async function readUpcomingCatalystsForSymbol(
   return CatalystSchema.array().parse(result.results ?? [])
 }
 
+/**
+ * A tastytrade earnings snapshot is authoritative only for the symbols its metrics answered: a
+ * metrics row with no upcoming earnings retires the stored one, but a symbol whose row never
+ * arrived said nothing, so its stored row is kept and still read. The two sets are passed apart
+ * for that reason -- deleting for every requested symbol would turn a missing provider row into
+ * an apparently cancelled earnings date.
+ */
 export async function persistAndLoadCatalysts(
   env: AppEnv,
   observed: readonly Catalyst[],
-  refreshedSymbols: readonly string[],
+  symbols: { answered: readonly string[]; requested: readonly string[] },
   now = new Date(),
 ): Promise<Catalyst[]> {
   if (!env.DB) throw new CallerVisibleError('CatalystStoreUnavailable')
-  const normalizedSymbols = [...new Set(refreshedSymbols.map((symbol) => EquitySymbolSchema.parse(symbol)))]
+  const answered = [...new Set(symbols.answered.map((symbol) => EquitySymbolSchema.parse(symbol)))]
+  const requested = [...new Set(symbols.requested.map((symbol) => EquitySymbolSchema.parse(symbol)))]
   const statements: D1PreparedStatement[] = []
-  for (let start = 0; start < normalizedSymbols.length; start += DELETE_SYMBOL_CHUNK_SIZE) {
-    const symbols = normalizedSymbols.slice(start, start + DELETE_SYMBOL_CHUNK_SIZE)
+  for (let start = 0; start < answered.length; start += DELETE_SYMBOL_CHUNK_SIZE) {
+    const chunk = answered.slice(start, start + DELETE_SYMBOL_CHUNK_SIZE)
     statements.push(env.DB.prepare(
       `DELETE FROM catalysts
-       WHERE source_provider = 'tastytrade' AND symbol IN (${symbols.map(() => '?').join(', ')})`,
-    ).bind(...symbols))
+       WHERE source_provider = 'tastytrade' AND symbol IN (${chunk.map(() => '?').join(', ')})`,
+    ).bind(...chunk))
   }
   statements.push(...catalystUpsertStatements(env.DB, 'tastytrade', observed, now.toISOString()))
   if (statements.length) await env.DB.batch(statements)
-  return readUpcomingCatalysts(env, normalizedSymbols, now)
+  return readUpcomingCatalysts(env, requested, now)
 }
 
 /**

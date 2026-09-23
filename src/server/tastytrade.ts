@@ -386,10 +386,12 @@ async function loadMarketFacts(
     const cached = yearCandles.get(item.ticker.symbol)
     if (cached !== undefined) item.ticker.yearAgoClose = cached
   }
+  // Only a symbol whose metrics row arrived can retire its stored earnings date; the rest keep
+  // their previous row, the same as their ticker does.
   const catalysts = await persistAndLoadCatalysts(
     env,
     catalystsFromMarketMetrics(metrics),
-    symbols,
+    { answered: symbols.filter((symbol) => metricBySymbol.has(symbol)), requested: symbols },
   )
   await persistTastytradeMarketSnapshot(env, {
     metrics: normalized.map((item) => item.metricRecord),
