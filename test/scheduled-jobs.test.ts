@@ -4,7 +4,7 @@ import { MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
 import { type AppEnv } from '../src/server/env'
 import { ensureInternalWatchlistSeeded, finalizeInternalWatchlist } from '../src/server/internal-watchlist'
 import { MAX_DAILY_CANDLE_SYMBOLS } from '../src/server/market-feed-contracts'
-import { refreshYearCandles } from '../src/server/scheduled-jobs'
+import { refreshYearCandles, yearCandleRefreshEvent } from '../src/server/scheduled-jobs'
 import { readYearAgoCloses, readYearCandleSeries, replaceYearCandles } from '../src/server/year-candle-store'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 import { symbolAt } from './symbols'
@@ -49,11 +49,12 @@ describe('year candle refresh', () => {
       },
     }
 
-    const count = await refreshYearCandles(env, new Date('2026-09-07T13:30:00.000Z'))
+    const refresh = await refreshYearCandles(env, new Date('2026-09-07T13:30:00.000Z'))
 
     const requested = readDailyCandles.mock.calls[0]![0]
     expect(requested).toHaveLength(MAX_DAILY_CANDLE_SYMBOLS)
-    expect(count).toBe(MAX_DAILY_CANDLE_SYMBOLS)
+    expect(refresh).toEqual({ status: 'refreshed', symbolCount: MAX_DAILY_CANDLE_SYMBOLS })
+    expect(yearCandleRefreshEvent(refresh)).toEqual({ event: 'YearCandlesRefreshed', symbolCount: MAX_DAILY_CANDLE_SYMBOLS })
     const stored = await readYearCandleSeries(store.database, requested)
     expect(stored.asOf).toBe('2026-09-07')
     expect(stored.series.get(requested[0]!)).toEqual([100])
@@ -90,8 +91,11 @@ describe('year candle refresh', () => {
       },
     }
 
-    expect(await refreshYearCandles(env, new Date('2026-09-16T14:30:00.000Z'))).toBe(0)
+    const refresh = await refreshYearCandles(env, new Date('2026-09-16T14:30:00.000Z'))
     expect(readDailyCandles).not.toHaveBeenCalled()
+    // A skip logs as a skip, never as a refresh that stored nothing.
+    expect(refresh).toEqual({ reason: 'session-closed', status: 'skipped' })
+    expect(yearCandleRefreshEvent(refresh)).toEqual({ event: 'YearCandlesRefreshSkipped', reason: 'session-closed' })
   })
 
   it('names a missing binding instead of reporting an empty refresh', async () => {
@@ -102,6 +106,7 @@ describe('year candle refresh', () => {
     await expect(refreshYearCandles({ DB: store.database }, open))
       .rejects.toMatchObject({ name: 'BindingMissing', message: 'BindingMissing:MARKET_FEED' })
     // The off-season fire stays a deliberate no-op, binding or not.
-    await expect(refreshYearCandles({}, new Date('2026-09-16T14:30:00.000Z'))).resolves.toBe(0)
+    await expect(refreshYearCandles({}, new Date('2026-09-16T14:30:00.000Z')))
+      .resolves.toEqual({ reason: 'session-closed', status: 'skipped' })
   })
 })

@@ -49,11 +49,11 @@ export default {
     // The year chart is decoration over live prices, so a failed refresh leaves the last good
     // series in place rather than failing the tick. Record the degraded run without logging
     // symbols or provider content.
-    context.waitUntil(import('./server/scheduled-jobs').then(({ refreshYearCandles }) => refreshYearCandles(env, scheduledAt))
-      .then((symbolCount) => console.info(JSON.stringify({
-        event: 'YearCandlesRefreshed',
-        symbolCount,
-      })))
+    context.waitUntil(import('./server/scheduled-jobs')
+      .then(({ refreshYearCandles, yearCandleRefreshEvent }) => (
+        refreshYearCandles(env, scheduledAt).then(yearCandleRefreshEvent)
+      ))
+      .then((event) => console.info(JSON.stringify(event)))
       .catch((cause: unknown) => console.error(
         'YearCandleRefreshFailed',
         cause instanceof Error ? cause.name : 'UnknownError',
