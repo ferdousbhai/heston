@@ -17,7 +17,6 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "watchlist:seed": "bash ops/internal-watchlist-seed/run.sh",
     "catalog:refresh": "bash ops/instrument-catalog/run.sh"
   },
   "dependencies": {

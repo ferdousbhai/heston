@@ -12,13 +12,9 @@ import { type AppEnv } from './env'
 import { readBoundedJson } from './bounded-response'
 import { catalystsFromMarketMetrics, persistAndLoadCatalysts, readUpcomingCatalysts } from './catalysts'
 import {
-  ensureInternalWatchlistSeeded,
   ensureInternalWatchlistSymbols,
-  previewInternalWatchlistSeed,
   readInternalWatchlistCatalogCandidates,
   readInternalWatchlistFocus,
-  type InternalWatchlistSeedPayloads,
-  type InternalWatchlistSeedPreview,
 } from './internal-watchlist'
 import {
   envelopeRows,
@@ -494,34 +490,6 @@ async function refreshMissingTastytradeInstruments(
 ): Promise<void> {
   const missing = await missingInstrumentCatalogSymbols(env, symbols)
   if (missing.length) await refreshTastytradeInstrumentCatalog(env, missing, now)
-}
-
-async function loadTastytradeWatchlistSeedPayloads(
-  env: AppEnv,
-  credential: BrokerCredential,
-): Promise<InternalWatchlistSeedPayloads> {
-  const [privatePayload, publicPayload] = await Promise.all([
-    tastyRequest(env, '/watchlists', {}, credential),
-    tastyRequest(env, '/public-watchlists', {}, credential),
-  ])
-  return { privatePayload, publicPayload }
-}
-
-export async function previewInternalWatchlistFromTastytrade(
-  env: AppEnv,
-  credential?: BrokerCredential,
-): Promise<InternalWatchlistSeedPreview> {
-  if (!credential) throw new BrokerCredentialMissingError()
-  return previewInternalWatchlistSeed(await loadTastytradeWatchlistSeedPayloads(env, credential))
-}
-
-/** The only code path that reads tastytrade watchlists: the explicit one-time bootstrap Worker. */
-export async function seedInternalWatchlistFromTastytrade(
-  env: AppEnv,
-  credential?: BrokerCredential,
-): Promise<void> {
-  if (!credential) throw new BrokerCredentialMissingError()
-  await ensureInternalWatchlistSeeded(env, () => loadTastytradeWatchlistSeedPayloads(env, credential))
 }
 
 async function loadMarketSnapshot(env: AppEnv): Promise<MarketSnapshot> {

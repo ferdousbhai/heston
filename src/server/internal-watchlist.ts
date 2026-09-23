@@ -148,13 +148,6 @@ export type InternalWatchlistSeedPayloads = {
   publicPayload: JsonValue
 }
 
-export type InternalWatchlistSeedPreview = {
-  entryCount: number
-  itemCount: number
-  privateSourceCount: number
-  publicSourceCount: number
-}
-
 type InternalWatchlistSeed = {
   items: Array<{ metadataJson: string; symbol: string }>
   sources: SeedSource[]
@@ -278,16 +271,6 @@ export function internalWatchlistSeedFromPayloads(payloads: InternalWatchlistSee
     metadataJson: JSON.stringify({ seedSourceIds: sourceIds }),
   }))
   return { items, sources }
-}
-
-export function previewInternalWatchlistSeed(payloads: InternalWatchlistSeedPayloads): InternalWatchlistSeedPreview {
-  const seed = internalWatchlistSeedFromPayloads(payloads)
-  return {
-    entryCount: seed.sources.reduce((sum, source) => sum + source.entries.length, 0),
-    itemCount: seed.items.length,
-    privateSourceCount: seed.sources.filter((source) => source.kind === 'private').length,
-    publicSourceCount: seed.sources.filter((source) => source.kind === 'public').length,
-  }
 }
 
 async function runBatches(db: D1Database, statements: D1PreparedStatement[]): Promise<void> {
@@ -424,7 +407,13 @@ async function persistSeed(
   if (completed.meta.changes !== 1) throw new Error('InternalWatchlist:seed-claim-lost')
 }
 
-/** Run the tastytrade import once; a complete `ready` seed is never fetched again. */
+/**
+ * Run the tastytrade import once; a complete `ready` seed is never fetched again.
+ * No production code calls this: the one caller that could supply a broker credential
+ * (the owner's bootstrap Worker) was removed because it could never present one without
+ * storing it here, which CLAUDE.md forbids. This is now how tests — and, historically,
+ * that bootstrap — establish a finalized list; keep it for that setup role.
+ */
 export async function ensureInternalWatchlistSeeded(
   env: AppEnv,
   loadPayloads: () => Promise<InternalWatchlistSeedPayloads>,
@@ -568,6 +557,9 @@ function upsertSymbolsStatement(
  * Atomically materialize the one-time imported universe into its final bounded
  * live list. A completed finalization is immutable, so a later bootstrap rerun
  * can never resurrect an explicitly deleted seed member.
+ * No production code calls this either, for the same reason as `ensureInternalWatchlistSeeded`
+ * above: tests (and, historically, the removed owner bootstrap) are what establish a
+ * finalized list.
  */
 export async function finalizeInternalWatchlist(
   env: AppEnv,

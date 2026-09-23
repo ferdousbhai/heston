@@ -9,10 +9,10 @@ export type OwnerMarketSyncSummary = {
 }
 
 /**
- * The first owner snapshot both the seed and instrument-catalog bootstraps run
- * once their list is authoritative. Only counts and the observation time leave
- * the Worker: source watchlist names, membership, and ticker provenance stay
- * private even on an owner-only route, so the run log can never carry them.
+ * The first owner snapshot the instrument-catalog bootstrap runs once its list is
+ * authoritative. Only counts and the observation time leave the Worker: source watchlist
+ * names, membership, and ticker provenance stay private even on an owner-only route, so
+ * the run log can never carry them.
  */
 export async function summarizeOwnerMarketSync(env: AppEnv): Promise<OwnerMarketSyncSummary> {
   const snapshot = await brokerApi().loadMarketSnapshot(env)

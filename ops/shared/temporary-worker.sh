@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 
 # Cloudflare Worker names are limited to 63 characters. Prefixes remain explicit
-# at each product entrypoint; the timestamp and random suffix prevent an owner's
-# manual run from colliding with a nested bootstrap run it kicks off (the seed
-# script's own deploy alongside the instrument-catalog deploy it invokes).
+# at each product entrypoint; the timestamp and random suffix prevent one owner's
+# manual run from colliding with another concurrent run at the same entrypoint.
 readonly TEMPORARY_WORKER_MAX_NAME_LENGTH=63
 
 # Cloudflare's control plane returns transient 5xx on deploys, which can otherwise

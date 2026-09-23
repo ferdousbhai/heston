@@ -67,24 +67,6 @@ describe('request-scoped broker credential', () => {
     expect(brokerGate.namespace.getByName).not.toHaveBeenCalled()
   })
 
-  it('fails the one-time account bootstrap helpers visibly when no credential is supplied', async () => {
-    const fetchMock = vi.fn()
-    vi.stubGlobal('fetch', fetchMock)
-    const {
-      previewInternalWatchlistFromTastytrade,
-      seedInternalWatchlistFromTastytrade,
-    } = await import('../src/server/tastytrade')
-    const { BrokerCredentialMissingError } = await import('../src/server/broker-credential')
-
-    for (const operation of [
-      previewInternalWatchlistFromTastytrade,
-      seedInternalWatchlistFromTastytrade,
-    ]) {
-      await expect(operation({})).rejects.toBeInstanceOf(BrokerCredentialMissingError)
-    }
-    expect(fetchMock).not.toHaveBeenCalled()
-  })
-
   it('never reads the Worker credential for an account path', async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json({ data: {} }))
     vi.stubGlobal('fetch', fetchMock)
