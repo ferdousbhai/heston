@@ -52,10 +52,7 @@ export const CATALYST_RUN_BUDGET_MS = EXA_REQUEST_TIMEOUT_MS + RUN_OVERHEAD_ALLO
  */
 export const CATALYST_FAILED_RETRY_MS = 15 * 60_000
 
-const StoredRunSchema = z.object({
-  ran_at: z.string(),
-  status: z.enum(['running', 'complete', 'failed']),
-})
+const HeldRunSchema = z.object({ status: z.enum(['running', 'complete', 'failed']) })
 
 /**
  * Claim the run before making it. A concurrent favorite of the same symbol then sees a
@@ -67,6 +64,14 @@ const StoredRunSchema = z.object({
  * mid-flight, so it ages out within the minute rather than standing in for a search that never
  * finished for the whole window. A held `failed` receipt answers `failed`, never `fresh`: the
  * last search bound nothing, so the calendar is still unknown rather than searched and empty.
+ *
+ * The decision and the write are one statement. Reading the receipt and then upserting let two
+ * concurrent callers -- many readers on the public route, or attention and a reader at once --
+ * both see an expired receipt and both buy a search; the guard on the conflict branch lets
+ * exactly one of them change the row. `ran_at` is only ever written here, from `toISOString()`,
+ * whose fixed-width UTC form orders as text the way it orders as time, so the cutoffs compare as
+ * strings. A receipt in any other form reads as expired -- `julianday` is NULL for text it cannot
+ * parse -- because one extra search costs less than a symbol that can never be searched again.
  */
 async function claimRun(
   db: D1Database,
@@ -74,29 +79,32 @@ async function claimRun(
   now: Date,
   forced: boolean,
 ): Promise<'claimed' | 'fresh' | 'failed'> {
-  const stored = forced ? undefined : await db.prepare(
-    'SELECT ran_at, status FROM catalyst_runs WHERE symbol = ? AND source_provider = ?',
-  ).bind(symbol, CATALYST_PROVIDER).first()
-  if (stored) {
-    const receipt = StoredRunSchema.parse(stored)
-    // A receipt whose timestamp will not parse reads as expired — the comparison is false for
-    // NaN — because one extra search costs less than a symbol that can never be searched again.
-    const age = now.getTime() - Date.parse(receipt.ran_at)
-    if (receipt.status === 'failed') {
-      if (age < CATALYST_FAILED_RETRY_MS) return 'failed'
-    } else if (age < (receipt.status === 'complete'
-      ? CATALYST_REFRESH_INTERVAL_DAYS * 86_400_000
-      : CATALYST_RUN_BUDGET_MS)) {
-      return 'fresh'
-    }
-  }
-  await db.prepare(
+  const cutoff = (ms: number) => new Date(now.getTime() - ms).toISOString()
+  const claim = await db.prepare(
     `INSERT INTO catalyst_runs (symbol, source_provider, ran_at, catalyst_count, status)
      VALUES (?, ?, ?, 0, 'running')
      ON CONFLICT(symbol, source_provider) DO UPDATE SET
-       ran_at = excluded.ran_at, catalyst_count = 0, status = 'running', detail = NULL`,
-  ).bind(symbol, CATALYST_PROVIDER, now.toISOString()).run()
-  return 'claimed'
+       ran_at = excluded.ran_at, catalyst_count = 0, status = 'running', detail = NULL
+     WHERE ? = 1
+       OR julianday(catalyst_runs.ran_at) IS NULL
+       OR (catalyst_runs.status = 'complete' AND catalyst_runs.ran_at <= ?)
+       OR (catalyst_runs.status = 'running' AND catalyst_runs.ran_at <= ?)
+       OR (catalyst_runs.status = 'failed' AND catalyst_runs.ran_at <= ?)`,
+  ).bind(
+    symbol,
+    CATALYST_PROVIDER,
+    now.toISOString(),
+    forced ? 1 : 0,
+    cutoff(CATALYST_REFRESH_INTERVAL_DAYS * 86_400_000),
+    cutoff(CATALYST_RUN_BUDGET_MS),
+    cutoff(CATALYST_FAILED_RETRY_MS),
+  ).run()
+  if (claim.meta.changes === 1) return 'claimed'
+  // Nothing deletes a receipt, so the row the guard refused is still there to say why.
+  const held = HeldRunSchema.parse(await db.prepare(
+    'SELECT status FROM catalyst_runs WHERE symbol = ? AND source_provider = ?',
+  ).bind(symbol, CATALYST_PROVIDER).first())
+  return held.status === 'failed' ? 'failed' : 'fresh'
 }
 
 /**

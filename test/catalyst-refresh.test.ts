@@ -222,6 +222,45 @@ describe('catalyst coverage seeded by favorites', () => {
     store.close()
   })
 
+  it('lets exactly one of two concurrent looks buy the search', async () => {
+    // Many readers on the public route, or attention and a reader at once, reach the claim
+    // together. Deciding in one statement and writing in another let both see the same expired
+    // receipt and both pay; the claim is one guarded upsert, so only one of them changes the row.
+    const store = await storeWithCatalog()
+    const fetchMock = stubExa()
+    try {
+      const results = await Promise.all([
+        refreshCatalystsForSymbol(env(store), 'BE', NOW),
+        refreshCatalystsForSymbol(env(store), 'BE', NOW),
+      ])
+
+      expect(results.filter((result) => result.ran)).toHaveLength(1)
+      expect(results).toContainEqual({ catalysts: [], ran: false, reason: 'fresh' })
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    } finally {
+      store.close()
+    }
+  })
+
+  it('reads a receipt whose timestamp will not parse as expired', async () => {
+    // Text orders as time only in the fixed form this module writes. A receipt in any other form
+    // must not compare above every cutoff and hold its symbol unsearchable for good.
+    const store = await storeWithCatalog()
+    const fetchMock = stubExa()
+    try {
+      await store.database.prepare(
+        `INSERT INTO catalyst_runs (symbol, source_provider, ran_at, catalyst_count, status)
+         VALUES ('BE', 'exa', 'not a timestamp', 0, 'complete')`,
+      ).run()
+
+      await expect(refreshCatalystsForSymbol(env(store), 'BE', NOW))
+        .resolves.toMatchObject({ ran: true })
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    } finally {
+      store.close()
+    }
+  })
+
   it('fails closed without the run store', async () => {
     await expect(refreshCatalystsForSymbol({}, 'BE', NOW)).rejects.toThrow('CatalystRunStoreUnavailable')
   })
