@@ -1,11 +1,11 @@
 import { z } from 'zod'
 
 // dxFeed delivers history as a snapshot transaction rather than a plain run of events.
-export const DXLINK_TX_PENDING = 0x1
+const DXLINK_TX_PENDING = 0x1
 export const DXLINK_REMOVE_EVENT = 0x2
 export const DXLINK_SNAPSHOT_BEGIN = 0x4
 export const DXLINK_SNAPSHOT_END = 0x8
-export const DXLINK_SNAPSHOT_SNIP = 0x10
+const DXLINK_SNAPSHOT_SNIP = 0x10
 
 // A regular US equity session is 6.5 hours, which the 1D chart draws end to end.
 export const REGULAR_SESSION_MS = (6 * 60 + 30) * 60 * 1_000

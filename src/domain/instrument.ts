@@ -20,7 +20,12 @@ import { z } from 'zod'
  * broker 404s on it. A provider with its own rendering translates at that provider's own
  * boundary and nowhere else — `yahooSymbol` maps the slash to Yahoo's dash.
  */
-const equitySymbolBody = (characters: string): string => `${characters}{1,6}(?:/${characters}{1,3})?`
+/** The OCC root field's width, which every optionable equity's root fits. */
+const MAX_SYMBOL_ROOT = 6
+/** The share-class width of the shape described above, after the single slash. */
+const MAX_SHARE_CLASS = 3
+const equitySymbolBody = (characters: string): string =>
+  `${characters}{1,${MAX_SYMBOL_ROOT}}(?:/${characters}{1,${MAX_SHARE_CLASS}})?`
 const EQUITY_SYMBOL_BODY = equitySymbolBody('[A-Z0-9]')
 
 /**
@@ -33,7 +38,8 @@ const EQUITY_SYMBOL_BODY = equitySymbolBody('[A-Z0-9]')
 export const MODEL_TEXT_EQUITY_SYMBOL_PATTERN = `^\\$?${equitySymbolBody('[A-Za-z0-9]')}$`
 export const ModelTextEquitySymbolType = Type.String({ pattern: MODEL_TEXT_EQUITY_SYMBOL_PATTERN })
 
-export const MAX_EQUITY_SYMBOL_LENGTH = 10
+/** Root, the one slash, and the share class: derived from the pattern's bounds, never restated. */
+export const MAX_EQUITY_SYMBOL_LENGTH = MAX_SYMBOL_ROOT + '/'.length + MAX_SHARE_CLASS
 
 export const EQUITY_SYMBOL_PATTERN = `^${EQUITY_SYMBOL_BODY}$`
 export const EQUITY_SYMBOL_REGEX = new RegExp(EQUITY_SYMBOL_PATTERN)

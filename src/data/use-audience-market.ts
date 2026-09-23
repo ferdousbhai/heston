@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { QueryClient, QueryObserver } from '@tanstack/query-core'
 import { useLiveQuery } from '@tanstack/react-db'
 
+import { PUBLIC_RESPONSE_MAX_AGE_SECONDS } from '../domain/deployment'
 import { toError } from '../domain/failure'
 import { type MarketSnapshot, type PublicSymbolLookup, type Ticker } from '../domain/market'
 import { DeploymentMismatchError, reloadForDeployment } from './deployment'
@@ -16,8 +17,8 @@ import {
   type SnapshotAudience,
 } from './collections'
 
-/** Public snapshot max-age is 30s. A visible tab refetches on that bound so a new observation lands. */
-export const SNAPSHOT_REFETCH_MS = 30 * 1_000
+/** A visible tab refetches on the public snapshot's max-age, so a new observation lands. */
+export const SNAPSHOT_REFETCH_MS = PUBLIC_RESPONSE_MAX_AGE_SECONDS * 1_000
 
 export function snapshotSyncQueryOptions(audience: SnapshotAudience) {
   return {

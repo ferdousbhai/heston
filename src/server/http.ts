@@ -1,7 +1,7 @@
 import { type JsonValue } from '../domain/json-payload'
 import { toError } from '../domain/failure'
 import { HESTON_DEPLOYMENT_ID } from '../deployment'
-import { HESTON_DEPLOYMENT_ID_HEADER } from '../domain/deployment'
+import { HESTON_DEPLOYMENT_ID_HEADER, PUBLIC_RESPONSE_MAX_AGE_SECONDS } from '../domain/deployment'
 import { hasStoragePurge, STORAGE_PURGE_COOKIE, STORAGE_PURGE_GENERATION } from '../domain/storage-purge'
 import {
   getAuthenticatedIdentity,
@@ -19,7 +19,7 @@ const CANONICAL_ORIGIN = 'https://heston.io'
  * a member has to re-point the config, and a visible 401 is how they find out.
  */
 const NON_CANONICAL_HOSTS = new Set(['www.heston.io', 'tryspice.xyz', 'www.tryspice.xyz'])
-export const PUBLIC_RESPONSE_CACHE_CONTROL = 'public, max-age=30, s-maxage=60'
+export const PUBLIC_RESPONSE_CACHE_CONTROL = `public, max-age=${PUBLIC_RESPONSE_MAX_AGE_SECONDS}, s-maxage=60`
 /**
  * An archived page is finite and replaced only by a republish of its own date, so it may be
  * kept for an hour by a browser and a day at the edge.
