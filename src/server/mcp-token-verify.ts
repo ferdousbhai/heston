@@ -1,19 +1,6 @@
 import { createLocalJWKSet, jwtVerify } from 'jose'
 import { z } from 'zod'
 
-/**
- * Verify an OAuth access token against this server's own signing keys, in process.
- *
- * `requireMcpAuth` verifies by fetching the published JWKS over HTTP. On Workers that URL is this
- * very Worker, and a Worker cannot reliably call itself: every verification failed with
- * `Jwks failed`, so a token the authorization flow had just issued authenticated nothing. The
- * whole point of the flow is the token, and it did not work.
- *
- * The keys are already here. `auth.api.getJwks()` is the same endpoint the published document
- * serves, called directly, so this verifies against exactly what a remote verifier would fetch
- * without leaving the isolate. Issuer and audience are still checked, and the audience is the MCP
- * resource, so a token minted for something else that trusts the same issuer is refused.
- */
 const JwksSchema = z.object({ keys: z.array(z.record(z.string(), z.unknown())).min(1) })
 
 const ClaimsSchema = z.object({
@@ -41,6 +28,19 @@ export class McpTokenVerificationError extends Error {
  */
 type JwksReader = { api: { getJwks: () => Promise<{ keys: unknown[] }> } }
 
+/**
+ * Verify an OAuth access token against this server's own signing keys, in process.
+ *
+ * `requireMcpAuth` verifies by fetching the published JWKS over HTTP. On Workers that URL is this
+ * very Worker, and a Worker cannot reliably call itself: every verification failed with
+ * `Jwks failed`, so a token the authorization flow had just issued authenticated nothing. The
+ * whole point of the flow is the token, and it did not work.
+ *
+ * The keys are already here. `auth.api.getJwks()` is the same endpoint the published document
+ * serves, called directly, so this verifies against exactly what a remote verifier would fetch
+ * without leaving the isolate. Issuer and audience are still checked, and the audience is the MCP
+ * resource, so a token minted for something else that trusts the same issuer is refused.
+ */
 export async function verifyMcpAccessToken(
   auth: JwksReader,
   token: string,

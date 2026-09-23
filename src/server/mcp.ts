@@ -102,7 +102,8 @@ export function createHestonMcpServer(
         createBrokerageReconciliationTool(env, credential),
         // Writing research back to the site: dated events for every reader's calendar, and the
         // passages a member's agent read them in. Both are bound against pages this Worker
-        // re-reads, so what the tier adds is a name behind the row.
+        // re-reads. Evidence also records which member kept it; a catalyst is stored under the
+        // shared member-research producer, so the tier adds no name behind that row.
         createCatalystRecordTool(env),
         createSymbolEvidenceTool(env, caller.userId),
         // Placement and cancellation need a broker credential, which needs a member. Advertising
@@ -282,9 +283,10 @@ export async function resolveMcpCaller(request: Request, env: AppEnv): Promise<M
 }
 
 /**
- * All the stateless MCP handler ever reads from the platform context is `props`, which carries
- * OAuth material this server does not use. Naming that slice lets a test hand in a plain object
- * instead of imitating the whole platform type.
+ * The slice of the platform context this module touches. The stateless MCP handler reads only
+ * `props`, which carries OAuth material this server does not use; `waitUntil` is this module's
+ * own, for scheduling the attention-driven search after a tool answers. Naming the slice lets a
+ * test hand in a plain object instead of imitating the whole platform type.
  */
 export type McpExecutionContext = Pick<ExecutionContext, 'props' | 'waitUntil'>
 
@@ -308,8 +310,9 @@ function serveMcp(
   caller: McpCaller,
 ): Promise<Response> {
   const credential = brokerCredentialFromHeaders(request.headers)
-  // SAFETY: the handler reads only `props` from the context (verified against its dist), which
-  // McpExecutionContext carries; the platform type's other members are never touched.
+  // SAFETY: the handler reads only `props` from the context (verified against its dist) and this
+  // module calls only `waitUntil`, both of which McpExecutionContext carries; the platform type's
+  // other members are never touched.
   return createMcpHandler(() => createHestonMcpServer(env, caller, credential, (task) => ctx.waitUntil(task)), {
     route: '/mcp',
     // Out-of-band failures — a rejected request, an error raised after the response is under
@@ -317,6 +320,19 @@ function serveMcp(
     // provider or caller content, so only the error's own name is recorded.
     onerror: (error: Error) => console.error('McpHandlerError', error.name),
   })(request, env, ctx as ExecutionContext)
+}
+
+/**
+ * RFC 9728 §3.1: the metadata for resource `<origin>/mcp` is published at the well-known name with
+ * the resource path appended. `handleWellKnownDiscovery` serves it at exactly this path.
+ */
+const PROTECTED_RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource/mcp'
+
+/** A 401 `invalid_token` challenge that names the discovery document, for every refusal below. */
+function authChallenge(request: Request, description: string): Response {
+  return bearerAuthChallengeResponse(new OAuthError('invalid_token', description), {
+    resourceMetadataUrl: new URL(PROTECTED_RESOURCE_METADATA_PATH, request.url).toString(),
+  })
 }
 
 /**
@@ -335,19 +351,6 @@ function serveMcp(
  * `resource_metadata` parameter naming the discovery document. That parameter is what makes the
  * OAuth flow self-starting: a client holding a stale or foreign token learns where to begin.
  */
-/**
- * RFC 9728 §3.1: the metadata for resource `<origin>/mcp` is published at the well-known name with
- * the resource path appended. `handleWellKnownDiscovery` serves it at exactly this path.
- */
-const PROTECTED_RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource/mcp'
-
-/** A 401 `invalid_token` challenge that names the discovery document, for every refusal below. */
-function authChallenge(request: Request, description: string): Response {
-  return bearerAuthChallengeResponse(new OAuthError('invalid_token', description), {
-    resourceMetadataUrl: new URL(PROTECTED_RESOURCE_METADATA_PATH, request.url).toString(),
-  })
-}
-
 export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpExecutionContext): Promise<Response> {
   // No credential at all is a caller, not a refusal. The public market surface has always been
   // readable without an account through the website, and an agent asking the same question should
