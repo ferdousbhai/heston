@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { LogOut } from 'lucide-react'
 
@@ -214,6 +214,8 @@ export function TopBar({
   const status = marketState
     ? marketStatusLabel(marketState, marketOpensAt, now, marketClosesAt)
     : undefined
+  const [statusOpen, setStatusOpen] = useState(false)
+  const statusPinned = useRef(false)
   return (
     <header className="top-bar">
       <Link aria-label="Heston home" className="brand" to="/">
@@ -222,11 +224,27 @@ export function TopBar({
       <div className="top-actions">
         {status && (
           <>
-            <Tooltip>
+            {/* A tooltip opens on hover and focus, which a touch screen has neither of, so a tap
+                toggles it too: this is the only place the session, clock and countdown appear. */}
+            <Tooltip
+              onOpenChange={(next, details) => {
+                // A tap on a touch screen is followed by a synthetic hover-leave; while the tap
+                // is what opened it, only another tap, an outside press or Escape closes it.
+                if (!next && statusPinned.current && details.reason === 'trigger-hover') return
+                if (!next) statusPinned.current = false
+                setStatusOpen(next)
+              }}
+              open={statusOpen}
+            >
               <TooltipTrigger
                 aria-label={status.detail.replaceAll('\n', '. ')}
                 className="market-status"
+                closeOnClick={false}
                 data-tone={status.tone}
+                onClick={() => {
+                  statusPinned.current = !statusOpen
+                  setStatusOpen(!statusOpen)
+                }}
                 type="button"
               />
               <TooltipContent className="market-status-tip" side="bottom">

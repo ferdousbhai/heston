@@ -1,31 +1,19 @@
 import * as React from "react"
-import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "#/lib/utils.ts"
 
-const cardVariants = cva(
-  "group/card flex flex-col gap-(--card-spacing) overflow-hidden py-(--card-spacing) text-sm [--card-spacing:--spacing(4)] has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
-  {
-    variants: {
-      variant: {
-        default: "rounded-xl bg-card text-card-foreground ring-1 ring-foreground/10",
-        flat: "rounded-none bg-transparent text-foreground ring-0",
-      },
-    },
-    defaultVariants: { variant: "default" },
-  }
-)
+// Heston's one card is the flat focus panel, so the flat treatment is the card's only style.
+const CARD_CLASSES =
+  "group/card flex flex-col gap-(--card-spacing) overflow-hidden py-(--card-spacing) text-sm [--card-spacing:--spacing(4)] has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl rounded-none bg-transparent text-foreground ring-0"
 
 function Card({
   className,
-  variant = "default",
   ...props
-}: React.ComponentProps<"div"> & VariantProps<typeof cardVariants>) {
+}: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card"
-      data-variant={variant}
-      className={cn(cardVariants({ variant }), className)}
+      className={cn(CARD_CLASSES, className)}
       {...props}
     />
   )

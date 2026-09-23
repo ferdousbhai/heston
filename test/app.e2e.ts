@@ -194,6 +194,11 @@ test('unauthenticated visitors can read market data but connecting an agent need
   await expect(page.locator('.market-status')).toBeVisible()
   await expect(page.locator('.market-status')).toHaveAttribute('aria-label', /Open/)
   await expect(page.locator('.market-status')).toHaveAttribute('aria-label', /Closes in/)
+  // A phone has no hover: a tap is how a reader sees the session, the clock and the countdown.
+  await page.locator('.market-status').tap()
+  await expect(page.locator('.market-status-tip')).toContainText('Closes in')
+  await page.locator('.market-status').tap()
+  await expect(page.locator('.market-status-tip')).toHaveCount(0)
   await expect(page.getByText('Premium looks')).toHaveCount(0)
   await expect(page.locator('.intent-label')).toHaveCount(0)
   await expect(page.locator('.watch-list [data-slot="badge"]')).toHaveCount(0)

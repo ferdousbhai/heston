@@ -921,7 +921,7 @@ export function MarketScreen({
   const selectedRank = formatIfReported(selected.ivRank, formatMarketMetric)
 
   const focusCard = (
-      <Card className={cn('instrument-focus', selectedVerdict)} variant="flat" aria-labelledby="selected-instrument-title">
+      <Card className={cn('instrument-focus', selectedVerdict)} aria-labelledby="selected-instrument-title">
         <CardHeader>
           <div className="selected-summary">
             <div className="selected-instrument">
