@@ -534,7 +534,7 @@ async function loadMarketSnapshot(env: AppEnv): Promise<MarketSnapshot> {
  * Resolve a symbol the loaded watchlist does not carry yet: the instrument catalog
  * answers first, an unknown ticker is put to the broker once, and whatever resolves is
  * admitted to the maintained list so the row keeps arriving with every later snapshot.
- * Account-free like the public snapshot around it — `position` is always false.
+ * Account-free like the public snapshot around it.
  */
 async function lookupPublicMarketSymbol(
   env: AppEnv,
@@ -612,7 +612,7 @@ async function resolveSearchedSymbol(env: AppEnv, query: string): Promise<string
 
 /**
  * Account-free public surface. Its read-only watchlist universe is published by owner/server sync;
- * this path never calls account, position, or private-watchlist endpoints. `position` is always false.
+ * this path never calls account, position, or private-watchlist endpoints.
  */
 export async function loadPublicMarketSnapshot(
   env: AppEnv,
@@ -748,10 +748,7 @@ async function loadStoredPublicMarketSnapshot(env: AppEnv): Promise<StoredPublic
   return { lastWrittenAt: parts.latestObservedAt, snapshot }
 }
 
-/**
- * The owner's default view, served entirely from the market store. The legacy `position` field
- * is now always false and is scheduled for removal.
- */
+/** The owner's default view, served entirely from the market store. */
 async function loadStoredMarketSnapshot(env: AppEnv): Promise<MarketSnapshot | undefined> {
   if (!env.DB) return undefined
   const focusSymbols = await readInternalWatchlistFocus(env, [], MAX_WATCHLIST_SYMBOLS)
