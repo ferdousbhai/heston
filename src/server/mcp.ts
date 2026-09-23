@@ -58,12 +58,17 @@ const MAX_THESIS_LENGTH = 2_000
  *
  * Every tool here is stateless per call; all state lives in D1 and at the broker, which is
  * why the stateless handler lane fits and no Durable Object is involved.
+ *
+ * `waitUntil` is the platform's: the attention search and an accepted order's trade-intent write
+ * are scheduled on it rather than awaited, so work the caller did not ask for never lengthens
+ * their turn. It is required because there is no honest fallback -- dropping the promise would
+ * leave that work running detached and unawaited, not done inline.
  */
 export function createHestonMcpServer(
   env: AppEnv,
   caller: McpCaller,
-  credential?: BrokerCredential,
-  scheduleTask?: (task: Promise<unknown>) => void,
+  credential: BrokerCredential | undefined,
+  waitUntil: (task: Promise<unknown>) => void,
 ): McpServer {
   // `instructions` reaches the caller's agent as system context, so it is assembled only from
   // this repository's own constants and never from anything a provider or model supplied. It is
@@ -73,9 +78,6 @@ export function createHestonMcpServer(
     { name: 'heston', version: '1.0.0' },
     { instructions: hestonMcpInstructions(caller.signedIn) },
   )
-  // Scheduling rather than awaiting: a search the caller did not ask for must not lengthen the
-  // turn they did ask for. Absent in a test harness, where doing the work inline is correct.
-  const waitUntil = (task: Promise<unknown>) => { scheduleTask?.(task) }
 
   const tools: AgentTool<TSchema>[] = [
     // Price history is the only historical read there is: quotes, metrics, chains and Greeks
