@@ -120,8 +120,10 @@ export const HESTON_GUIDE = `
 What is not obvious from the tool list:
 
 - \`read_price_history\` is the only historical read. Every other market tool is current-only.
-- \`search_symbols\` has a side effect: a name the tracked universe does not carry is admitted by
-  being searched for, and is followed from then on.
+- \`search_symbols\` differs by tier. With no credential it is the website's own search, and a
+  name it resolves that the tracked universe does not carry is admitted and followed from then on.
+  Signed in, it is a plain broker lookup that admits nothing; \`remember_symbols\` is how a name a
+  conversation developed is kept.
 - An empty \`read_catalysts\` result distinguishes "not searched yet" from "searched, found
   nothing". Reader attention is what pays for a search, so an untouched name stays unsearched.
 - \`find_option_contracts\` lists expirations when given no expiry, contracts when given one.

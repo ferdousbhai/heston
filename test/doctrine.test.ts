@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 /** The per-turn ceiling `test/mcp.test.ts` holds the whole advertised surface to. */
 const HESTON_MCP_INSTRUCTIONS_CHAR_BUDGET = 1_500
-import { PLACE_BROKERAGE_ORDER_DESCRIPTION, hestonMcpInstructions } from '../src/server/doctrine'
+import { HESTON_GUIDE, PLACE_BROKERAGE_ORDER_DESCRIPTION, hestonMcpInstructions } from '../src/server/doctrine'
 import {
   createInstrumentQuoteReadTool,
   createOptionContractFindTool,
@@ -66,6 +66,16 @@ describe('server instructions', () => {
     }
   })
 
+})
+
+describe('the guide', () => {
+  it('ties the search side effect to the tier that has it', () => {
+    // The guide is one text for every caller, and only the anonymous search admits a name. A
+    // member told their lookup grows the universe would skip the tool that actually does.
+    expect(HESTON_GUIDE).not.toContain('`search_symbols` has a side effect')
+    expect(HESTON_GUIDE).toContain('plain broker lookup that admits nothing')
+    expect(HESTON_GUIDE).toContain('`remember_symbols`')
+  })
 })
 
 describe('rules that ride on the tool they govern', () => {
