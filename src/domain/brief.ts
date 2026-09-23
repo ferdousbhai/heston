@@ -5,9 +5,9 @@ import { EquitySymbolSchema } from './instrument'
 import { IsoDateSchema } from './iso-date'
 
 /*
- * The daily brief as the Long Vol channel published it: a trade line and a thesis per name, and
- * the morning's market-moving links. It is produced by exactly one writer, the private long-vol
- * Workflow, and delivered through `BriefPublisher`; this schema is the contract that boundary
+ * The daily brief: a trade line and a thesis per name, and the morning's market-moving links. It
+ * is produced by exactly one writer, the private long-vol Workflow, and delivered through
+ * `BriefPublisher`; this schema is the contract that boundary
  * holds the submission to, and the shape every reader of a stored brief gets back. It carries
  * what the site renders and nothing the producer keeps for itself: the structured legs stay in
  * the producer's ledger, and the trade line is the producer's own rendering of them.
@@ -16,7 +16,10 @@ import { IsoDateSchema } from './iso-date'
  */
 
 export const BRIEF_DIRECTIONS = ['bullish', 'bearish', 'neutral'] as const
-/** One Telegram message was the channel's envelope for a thesis; the site keeps that measure. */
+/**
+ * A thesis is untrusted model markdown rendered in full on the brief card, so this is its
+ * rendering envelope: room for an argued page, not an essay the card was never laid out for.
+ */
 export const MAX_THESIS_LENGTH = 4_096
 /** A trade line is one short line: `NVDA 1/16/26: Buy 150c Sell 170c` is the long case. */
 export const MAX_TRADE_LABEL_LENGTH = 80
@@ -30,7 +33,7 @@ export const MAX_BRIEF_MODEL_LENGTH = 80
 export const BriefRecommendationSchema = z.strictObject({
   symbol: EquitySymbolSchema,
   direction: z.enum(BRIEF_DIRECTIONS),
-  /** The channel's one-line trade, as the producer rendered it from the legs it keeps. */
+  /** The brief's one-line trade, as the producer rendered it from the legs it keeps. */
   trade: z.string().min(1).max(MAX_TRADE_LABEL_LENGTH),
   /** Markdown, rendered by the site's own subset renderer; never HTML. */
   thesis: z.string().min(1).max(MAX_THESIS_LENGTH),

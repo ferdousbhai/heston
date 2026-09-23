@@ -5,9 +5,11 @@ import { CitedSourceUrlSchema, HttpsSourceUrlSchema } from './https-url'
 import { addDays, IsoDateSchema } from './iso-date'
 
 /**
- * How far ahead a catalyst may be scheduled and still be worth carrying. The write
- * boundary refuses a finding dated past it, and every read asks for nothing beyond it; each
- * boundary reads this rather than restating the number.
+ * How far ahead a catalyst may be scheduled and still be worth carrying. Every research producer
+ * refuses a finding dated past it at its write boundary, and the agent's catalyst read admits no
+ * wider window, since nothing a research producer bound lies beyond it. The site's own reads bound
+ * rows per symbol rather than by date, and the broker's earnings feed is stored as reported -- a
+ * next quarterly report falls well inside this window anyway.
  */
 export const CATALYST_HORIZON_DAYS = 180
 /**
@@ -179,7 +181,7 @@ export function nextCatalystsBySymbol(
   return next
 }
 
-export function daysUntilCatalyst(catalyst: Catalyst, now = new Date()): number {
+function daysUntilCatalyst(catalyst: Catalyst, now = new Date()): number {
   return epochDay(catalyst.date) - epochDay(marketDate(now))
 }
 
@@ -199,7 +201,7 @@ export function upcomingCatalystsForSymbol(
  * A calendar that is empty for the next month is the honest trigger for going and looking:
  * either nothing is scheduled, or nobody has searched this symbol yet.
  */
-export const CATALYST_NEAR_TERM_DAYS = 30
+const CATALYST_NEAR_TERM_DAYS = 30
 
 export function hasNearTermCatalyst(
   symbol: string,

@@ -12,6 +12,17 @@ export const MAX_PRICE_HISTORY_PROVIDER_ROWS = 4_000
 export const MAX_PRICE_HISTORY_RETURNED_ROWS = 250
 export const MAX_PRICE_STUDIES = 5
 /**
+ * What an omitted `limit` returns: about six months of daily bars, the recent trend a first read
+ * is for, at under half the returned-row budget. A caller that wants the rest asks for it.
+ */
+export const DEFAULT_PRICE_HISTORY_ROWS = 120
+/**
+ * What an omitted `startDate` reaches back: one calendar year, roughly 250 sessions, so the
+ * default rows arrive with a warm-up behind them for the default study periods, and a weekly or
+ * monthly interval still has a year of bars to aggregate.
+ */
+export const DEFAULT_PRICE_HISTORY_LOOKBACK_DAYS = 365
+/**
  * A study period wider than the rows the tool will ever return describes a window no part of
  * which is in the answer: the caller sees at most `MAX_PRICE_HISTORY_RETURNED_ROWS` rows, and
  * the warm-up behind a longer period is neither returned nor checkable against anything that
@@ -68,7 +79,7 @@ export const PriceHistoryReadParameters = Type.Object({
   })),
   interval: Type.Optional(StringEnum(['1d', '1wk', '1mo'], { description: 'Daily by default.' })),
   limit: Type.Optional(Type.Integer({
-    description: 'Most recent rows to return. Defaults to 120.',
+    description: `Most recent rows to return. Defaults to ${DEFAULT_PRICE_HISTORY_ROWS}.`,
     maximum: MAX_PRICE_HISTORY_RETURNED_ROWS,
     minimum: 1,
   })),

@@ -72,7 +72,7 @@ const EM = /(?<![\w*])[*_]([^*_\n]+)[*_](?![\w*])/
 const CODE = /`([^`]+)`/
 
 /** Earliest match wins; a tag that never closes stays literal. */
-export function parseInlines(text: string): ThesisInline[] {
+function parseInlines(text: string): ThesisInline[] {
   const out: ThesisInline[] = []
   let rest = text
   while (rest.length) {
@@ -106,14 +106,4 @@ function mergeText(inlines: ThesisInline[]): ThesisInline[] {
     else merged.push(inline)
   }
   return merged
-}
-
-/** The thesis with its markup removed: what a search index or a screen reader summary gets. */
-export function thesisPlainText(text: string): string {
-  const flatten = (inlines: ThesisInline[]): string => inlines
-    .map((inline) => inline.kind === 'text' ? inline.text : flatten(inline.children))
-    .join('')
-  return parseThesisMarkdown(text)
-    .map((block) => block.kind === 'list' ? block.items.map(flatten).join('\n') : flatten(block.inlines))
-    .join('\n\n')
 }

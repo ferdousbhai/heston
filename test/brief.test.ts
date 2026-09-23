@@ -6,7 +6,7 @@ import {
   DailyBriefSubmissionSchema,
   MAX_THESIS_LENGTH,
 } from '../src/domain/brief'
-import { parseThesisMarkdown, thesisPlainText } from '../src/domain/thesis-markdown'
+import { parseThesisMarkdown } from '../src/domain/thesis-markdown'
 import { dailyBriefFixture } from './fixtures/market'
 
 describe('brief contract', () => {
@@ -43,9 +43,5 @@ describe('thesis markdown', () => {
     expect(JSON.stringify(risk)).toContain('[bad](javascript:alert(1))')
     expect(JSON.stringify(risk)).not.toContain('"href":"javascript')
     expect(blocks[4]).toEqual({ kind: 'paragraph', inlines: [{ kind: 'text', text: 'code stays text' }] })
-  })
-
-  it('flattens to plain text for summaries', () => {
-    expect(thesisPlainText('**A** b\n\n- c\n- d')).toBe('A b\n\nc\nd')
   })
 })

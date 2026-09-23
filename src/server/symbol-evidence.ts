@@ -33,7 +33,7 @@ export type SymbolEvidenceRecord = {
  * the same convention a catalyst row carries: a row says what wrote it, and can be retracted
  * as a set on that basis.
  */
-export async function symbolEvidenceId(symbol: string, sourceUrl: string, quote: string): Promise<string> {
+async function symbolEvidenceId(symbol: string, sourceUrl: string, quote: string): Promise<string> {
   const identity = [symbol, sourceUrl, normalizedCitationText(quote)].join('\n')
   return `member-evidence:${await sha256Base64Url(identity)}`
 }
@@ -66,7 +66,6 @@ export async function upsertSymbolEvidence(db: D1Database, record: SymbolEvidenc
 export async function readSymbolEvidence(
   db: D1Database,
   symbol: string,
-  limit = MAX_SYMBOL_EVIDENCE_CARDS,
 ): Promise<SymbolEvidence[]> {
   const result = await db.prepare(
     `SELECT id, symbol, quote, note, source_url AS "sourceUrl", source_title AS "sourceTitle",
@@ -75,6 +74,6 @@ export async function readSymbolEvidence(
        WHERE symbol = ?
        ORDER BY recorded_at DESC, id ASC
        LIMIT ?`,
-  ).bind(EquitySymbolSchema.parse(symbol), limit).all()
+  ).bind(EquitySymbolSchema.parse(symbol), MAX_SYMBOL_EVIDENCE_CARDS).all()
   return SymbolEvidenceSchema.array().parse(result.results ?? [])
 }

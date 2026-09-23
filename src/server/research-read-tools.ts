@@ -1,9 +1,10 @@
 import { type AgentTool } from '../domain/agent-tool'
 import { Type } from 'typebox'
 
-import { CatalystSchema, distinctCatalysts, marketDate, type Catalyst } from '../domain/catalyst'
+import { CATALYST_HORIZON_DAYS, CatalystSchema, distinctCatalysts, marketDate, type Catalyst } from '../domain/catalyst'
 import { equitySymbolsFromModelText, EquitySymbolSchema, ModelTextEquitySymbolType } from '../domain/instrument'
 import { type DailyBrief } from '../domain/brief'
+import { addDays } from '../domain/iso-date'
 import { type AppEnv } from './env'
 import { textResult } from './agent-tool-result'
 import { MAX_MARKET_SYMBOLS } from './brokerage-read-contracts'
@@ -11,8 +12,9 @@ import { CURRENT_CATALYSTS } from './catalysts'
 import { readLatestDailyBrief } from './daily-brief-store'
 
 // A catalyst call shares the normal market-read batch budget. The row ceiling is a model-context
-// budget and is observable through `truncated`; the one-year horizon keeps "upcoming" scheduled
-// events actionable. The agent can issue a narrower follow-up instead of receiving an archive.
+// budget and is observable through `truncated`. The horizon is the store's own: no research producer may
+// write an event past `CATALYST_HORIZON_DAYS`, so a wider read could only ever return the same
+// rows, and an omitted horizon asks for all of them. The agent can narrow it for a follow-up.
 const MAX_CATALYST_SYMBOLS = MAX_MARKET_SYMBOLS
 /**
  * Measured, not guessed: a stored row with its title, description and source URL serializes to
@@ -22,12 +24,11 @@ const MAX_CATALYST_SYMBOLS = MAX_MARKET_SYMBOLS
  * furthest out and least actionable. `truncated` still says when the horizon held more.
  */
 const MAX_CATALYSTS = 60
-const MAX_CATALYST_HORIZON_DAYS = 365
 
 const CatalystReadParameters = Type.Object({
   horizonDays: Type.Optional(Type.Integer({
-    description: 'Calendar days ahead; default 90.',
-    maximum: MAX_CATALYST_HORIZON_DAYS,
+    description: `Calendar days ahead; default and maximum ${CATALYST_HORIZON_DAYS}.`,
+    maximum: CATALYST_HORIZON_DAYS,
     minimum: 1,
   })),
   symbols: Type.Array(ModelTextEquitySymbolType, {
@@ -59,12 +60,6 @@ export type CatalystReadResult = {
   truncated: boolean
 }
 
-function endDate(start: string, horizonDays: number): string {
-  const [year, month, day] = start.split('-').map(Number)
-  const date = new Date(Date.UTC(year!, month! - 1, day! + horizonDays))
-  return date.toISOString().slice(0, 10)
-}
-
 const BriefReadParameters = Type.Object({}, { additionalProperties: false })
 
 export type DailyBriefReadResult = {
@@ -72,7 +67,7 @@ export type DailyBriefReadResult = {
   source: 'heston-brief-store'
 } & ({ brief: DailyBrief; status: 'ok' } | { status: 'not_found' })
 
-export async function readLatestDailyBriefState(env: AppEnv, now = new Date()): Promise<DailyBriefReadResult> {
+async function readLatestDailyBriefState(env: AppEnv, now = new Date()): Promise<DailyBriefReadResult> {
   if (!env.DB) throw new Error('Daily brief is unavailable.')
   const brief = await readLatestDailyBrief(env.DB)
   const fetchedAt = now.toISOString()
@@ -82,7 +77,7 @@ export async function readLatestDailyBriefState(env: AppEnv, now = new Date()): 
 export async function readCatalysts(
   env: AppEnv,
   requestedSymbols: readonly string[],
-  horizonDays = 90,
+  horizonDays = CATALYST_HORIZON_DAYS,
   now = new Date(),
 ): Promise<CatalystReadResult> {
   if (!env.DB) throw new Error('Catalyst data is unavailable.')
@@ -96,8 +91,9 @@ export async function readCatalysts(
     normalized.push(parsed)
   }
   const symbols = [...new Set(normalized)]
-  const boundedHorizon = Math.trunc(horizonDays)
-  if (boundedHorizon < 1 || boundedHorizon > MAX_CATALYST_HORIZON_DAYS) {
+  // Refused rather than rounded: a caller that sent 30.5 asked for something this read does not
+  // answer, and quietly answering a different question is the failure to avoid.
+  if (!Number.isInteger(horizonDays) || horizonDays < 1 || horizonDays > CATALYST_HORIZON_DAYS) {
     throw new Error('Catalyst horizon is invalid.')
   }
   const start = marketDate(now)
@@ -109,7 +105,7 @@ export async function readCatalysts(
        AND event_date BETWEEN ? AND ?
      ORDER BY event_date ASC, symbol ASC
      LIMIT ?`,
-  ).bind(...symbols, start, endDate(start, boundedHorizon), MAX_CATALYSTS + 1).all()
+  ).bind(...symbols, start, addDays(start, horizonDays), MAX_CATALYSTS + 1).all()
   if (!Array.isArray(result.results)) throw new Error('Catalyst data returned an invalid response.')
   const allCatalysts = CatalystSchema.array().parse(result.results)
   // Truncation is judged on the rows the query returned, before one event's several sightings
@@ -120,20 +116,21 @@ export async function readCatalysts(
   return {
     catalysts,
     fetchedAt: now.toISOString(),
-    horizonDays: boundedHorizon,
+    horizonDays,
     source: 'heston-catalyst-store',
     symbols,
     truncated,
   }
 }
 
-export function createResearchReadTools(env: AppEnv, now = new Date()) {
+/** Each call reads the clock itself: a tool list is built once and answers for many calls. */
+export function createResearchReadTools(env: AppEnv) {
   const catalysts: AgentTool<typeof CatalystReadParameters, CatalystReadResult | { error: string }> = {
     description: 'Stored upcoming catalysts; excludes dividends.',
     execute: async (_toolCallId, params) => {
       const parsed = equitySymbolsFromModelText(params.symbols)
       if ('unreadable' in parsed) return textResult({ error: `not a ticker symbol: ${parsed.unreadable.slice(0, 12)}` })
-      return textResult(await readCatalysts(env, parsed.symbols, params.horizonDays, now))
+      return textResult(await readCatalysts(env, parsed.symbols, params.horizonDays, new Date()))
     },
     label: 'Reading catalysts',
     name: 'read_catalysts',
@@ -141,7 +138,7 @@ export function createResearchReadTools(env: AppEnv, now = new Date()) {
   }
   const brief: AgentTool<typeof BriefReadParameters, DailyBriefReadResult> = {
     description: 'The standing daily brief: trade lines, theses and the day\'s links, as the site shows them.',
-    execute: async () => textResult(await readLatestDailyBriefState(env, now)),
+    execute: async () => textResult(await readLatestDailyBriefState(env, new Date())),
     label: 'Reading the daily brief',
     name: 'read_daily_brief',
     parameters: BriefReadParameters,

@@ -35,6 +35,7 @@ const EXA_SEARCH_URL = 'https://api.exa.ai/search'
 const MAX_EXA_RESPONSE_BYTES = 2 * 1024 * 1024
 const MAX_EXA_RESULTS = 8
 const MAX_RESULT_CHARACTERS = 4_000
+/** An allocation bound on the untrusted events array; the response is already byte-bounded above. */
 const MAX_EXA_EVENTS = 50
 const EXA_REQUEST_TIMEOUT_MS = 30_000
 

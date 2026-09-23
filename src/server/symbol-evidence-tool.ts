@@ -115,7 +115,6 @@ export async function recordSymbolEvidence(
 export function createSymbolEvidenceTool(
   env: AppEnv,
   recordedByUserId: string,
-  now?: Date,
 ): AgentTool<typeof EvidenceParameters, EvidenceRecording> {
   return {
     description: 'Attach a quoted passage from a page to a symbol, for every reader of this '
@@ -126,7 +125,7 @@ export function createSymbolEvidenceTool(
     // SAFETY: `recordSymbolEvidence` re-parses its input with this same schema at the trust
     // boundary regardless of what the transport already checked.
     execute: async (_toolCallId, params) => textResult(
-      await recordSymbolEvidence(env, recordedByUserId, params as never, { now }),
+      await recordSymbolEvidence(env, recordedByUserId, params as never),
     ),
     label: 'Recording evidence',
     name: 'record_evidence',

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { CATALYST_HORIZON_DAYS } from '../src/domain/catalyst'
 import { readUpcomingCatalysts } from '../src/server/catalysts'
 import {
   readCatalysts,
@@ -97,6 +98,17 @@ describe('Dan research read tools', () => {
     const db = d1WithResults([])
     await expect(readCatalysts(db.env, ['nvda'])).rejects.toThrow('symbols are invalid')
     await expect(readCatalysts(db.env, Array.from({ length: 21 }, (_, index) => `A${index}`))).rejects.toThrow('symbols are invalid')
+    // A horizon is refused rather than rounded or widened past what any producer may write.
+    await expect(readCatalysts(db.env, ['NVDA'], 30.5)).rejects.toThrow('horizon is invalid')
+    await expect(readCatalysts(db.env, ['NVDA'], CATALYST_HORIZON_DAYS + 1)).rejects.toThrow('horizon is invalid')
     expect(db.prepare).not.toHaveBeenCalled()
+  })
+
+  it('reads the whole horizon a producer may write when none is asked for', async () => {
+    const db = d1WithResults([])
+    const result = await readCatalysts(db.env, ['NVDA'], undefined, new Date('2026-08-13T12:00:00.000Z'))
+
+    expect(result.horizonDays).toBe(CATALYST_HORIZON_DAYS)
+    expect(db.bind).toHaveBeenCalledWith('NVDA', '2026-08-13', '2027-02-09', 61)
   })
 })

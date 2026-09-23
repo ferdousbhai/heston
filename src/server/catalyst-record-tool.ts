@@ -18,7 +18,7 @@ import { zodTypeBoxSchema } from './zod-typebox'
  * about the page that nothing here checks.
  */
 const CatalystSubmissionSchema = zodTypeBoxSchema(ResearchCatalystCandidateSchema)
-const NativeSearchSource = Type.Object({
+const CitedSource = Type.Object({
   sourceUrl: Type.String({ minLength: 1, maxLength: MAX_CITED_SOURCE_URL_LENGTH }),
 }, { additionalProperties: false })
 
@@ -52,7 +52,7 @@ const CatalystRecordParameters = Type.Object({
     maxItems: MAX_RECORDED_CATALYSTS,
     minItems: 1,
   }),
-  sources: Type.Array(NativeSearchSource, {
+  sources: Type.Array(CitedSource, {
     description: 'The pages the events were read from. The server reads each one itself.',
     minItems: 1,
   }),
@@ -109,7 +109,7 @@ export async function recordResearchCatalysts(
   }
 }
 
-export function createCatalystRecordTool(env: AppEnv, now?: Date): AgentTool<typeof CatalystRecordParameters, CatalystRecording> {
+export function createCatalystRecordTool(env: AppEnv): AgentTool<typeof CatalystRecordParameters, CatalystRecording> {
   return {
     description: 'Record dated catalysts you researched, for every reader of this site. The '
       + 'server reads each cited page itself and refuses any event whose date it cannot find in '
@@ -118,7 +118,7 @@ export function createCatalystRecordTool(env: AppEnv, now?: Date): AgentTool<typ
       + 'and never cancel another producer\'s.',
     // SAFETY: `recordResearchCatalysts` re-parses its input with this same schema at the trust
     // boundary regardless of what the transport already checked.
-    execute: async (_toolCallId, params) => textResult(await recordResearchCatalysts(env, params as never, { now })),
+    execute: async (_toolCallId, params) => textResult(await recordResearchCatalysts(env, params as never)),
     label: 'Recording catalysts',
     name: 'record_catalysts',
     parameters: CatalystRecordParameters,

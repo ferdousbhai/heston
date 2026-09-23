@@ -646,7 +646,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   .top-actions .last-updated { display: none; }
 }
 
-/* The daily brief: the channel's trade lines and theses, one issue at a time. */
+/* The daily brief the long-vol Workflow publishes: its trade lines and theses, one issue at a time. */
 .brief-screen { max-width: 760px; margin-inline: auto; animation: enter .35s var(--ease) both; }
 .brief-navigation { min-height: 42px; padding: 7px 14px; border-bottom: 1px solid var(--hairline); display: flex; align-items: center; justify-content: space-between; }
 .brief-navigation [data-slot="button"]:only-child { margin-right: auto; }

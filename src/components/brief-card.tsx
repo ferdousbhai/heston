@@ -3,7 +3,7 @@ import { Button } from '#/components/ui/button'
 import { type BriefRecommendation } from '../domain/brief'
 import { ThesisMarkdown } from './thesis-markdown'
 
-/** One trade as the channel posted it: the bold trade line, the direction, and the thesis. */
+/** One trade as the published brief carries it: the bold trade line, the direction, and the thesis. */
 export function RecommendationCard({ onSymbol, recommendation }: { onSymbol?: (symbol: string) => void; recommendation: BriefRecommendation }) {
   const badgeVariant = recommendation.direction === 'neutral' ? 'default' : recommendation.direction
   return (

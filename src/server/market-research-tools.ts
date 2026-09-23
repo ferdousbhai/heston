@@ -4,8 +4,10 @@ import chart, { type ChartResultArray } from 'yahoo-finance2/modules/chart'
 
 import { marketDate } from '../domain/catalyst'
 import { EQUITY_SYMBOL_REGEX } from '../domain/instrument'
-import { ISO_DATE_REGEX, isValidIsoDate } from '../domain/iso-date'
+import { addDays, ISO_DATE_REGEX, isValidIsoDate } from '../domain/iso-date'
 import {
+  DEFAULT_PRICE_HISTORY_LOOKBACK_DAYS,
+  DEFAULT_PRICE_HISTORY_ROWS,
   MAX_PRICE_HISTORY_PROVIDER_ROWS,
   MAX_PRICE_HISTORY_RETURNED_ROWS,
   PriceHistoryReadParameters,
@@ -46,12 +48,6 @@ function dateString(value: Date | null | undefined): string | undefined {
 
 function finite(value: number | null | undefined): number | undefined {
   return value !== null && value !== undefined && Number.isFinite(value) ? value : undefined
-}
-
-function shiftDate(value: string, days: number): string {
-  const date = new Date(`${value}T00:00:00.000Z`)
-  date.setUTCDate(date.getUTCDate() + days)
-  return date.toISOString().slice(0, 10)
 }
 
 function normalizeSymbol(value: string): string {
@@ -122,7 +118,7 @@ export function createYahooPriceHistoryProvider(
           interval: '1d',
           // Yahoo treats period2 as exclusive, so extend it to keep the requested end date inclusive.
           period1: range.startDate,
-          period2: shiftDate(range.endDate, 1),
+          period2: addDays(range.endDate, 1),
         })
       } catch {
         throw new ResearchProviderError('unavailable', 'yahoo')
@@ -162,7 +158,6 @@ export function createYahooPriceHistoryProvider(
   }
 }
 
-/** `PRICE_DECIMAL_PLACES` carries why; volume is a count and keeps every digit it arrived with. */
 /** One array per field, in the order a reader of the note above expects to find them. */
 function priceColumns(rows: readonly PriceHistoryRow[]): PriceHistoryColumns {
   return {
@@ -176,6 +171,7 @@ function priceColumns(rows: readonly PriceHistoryRow[]): PriceHistoryColumns {
   }
 }
 
+/** `PRICE_DECIMAL_PLACES` carries why; volume is a count and keeps every digit it arrived with. */
 function roundedRow(row: PriceHistoryRow): PriceHistoryRow {
   return {
     adjustedClose: roundPrice(row.adjustedClose),
@@ -191,7 +187,7 @@ function roundedRow(row: PriceHistoryRow): PriceHistoryRow {
 function requestedHistoryRange(input: PriceHistoryReadInput, now: Date) {
   const endDate = input.endDate ?? marketDate(now)
   if (!isValidIsoDate(endDate)) throw new Error('Price history end date is invalid.')
-  const startDate = input.startDate ?? shiftDate(endDate, -365)
+  const startDate = input.startDate ?? addDays(endDate, -DEFAULT_PRICE_HISTORY_LOOKBACK_DAYS)
   if (!isValidIsoDate(startDate)) throw new Error('Price history start date is invalid.')
   const start = Date.parse(`${startDate}T00:00:00.000Z`)
   const end = Date.parse(`${endDate}T00:00:00.000Z`)
@@ -240,7 +236,7 @@ export async function readPriceHistory(
   const symbol = normalizeSymbol(input.symbol)
   const interval = input.interval ?? '1d'
   if (interval !== '1d' && interval !== '1wk' && interval !== '1mo') throw new Error('Price history interval is invalid.')
-  const limit = boundedInteger(input.limit, 120, 1, MAX_PRICE_HISTORY_RETURNED_ROWS, 'Price history limit')
+  const limit = boundedInteger(input.limit, DEFAULT_PRICE_HISTORY_ROWS, 1, MAX_PRICE_HISTORY_RETURNED_ROWS, 'Price history limit')
   const requestedRange = requestedHistoryRange(input, now)
   const studyInputs = normalizeStudies(input.studies)
   const providerResult = await provider.readDaily(symbol, requestedRange)
