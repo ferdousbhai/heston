@@ -23,6 +23,19 @@ const PROXY_GROK_COMMAND = `grok mcp add --transport http heston ${PROXY_URL}`
 /** The shape every failing handler in api.mcp-tokens returns. */
 const ErrorResponseSchema = z.object({ error: z.string() })
 
+/**
+ * A 2xx body that is not the documented shape is a server or deploy mismatch, not something the
+ * member can act on, and a Zod issue list is not something they can read. Named once so all
+ * three reads refuse it the same way.
+ */
+const UNEXPECTED_RESPONSE = 'Agent tokens returned an unexpected response.'
+
+function parseResponse<T>(schema: z.ZodType<T>, body: unknown): T {
+  const parsed = schema.safeParse(body)
+  if (!parsed.success) throw new Error(UNEXPECTED_RESPONSE)
+  return parsed.data
+}
+
 async function readJson(response: Response) {
   const body: unknown = await response.json().catch(() => null)
   if (!response.ok) {
@@ -37,6 +50,8 @@ function useAgentTokens() {
   const [tokens, setTokens] = useState<McpTokenMetadata[]>()
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
+  /** True only while the first read is in flight, so a failed read does not spin forever. */
+  const [loading, setLoading] = useState(true)
   /** Shown once, held only in this component's state, never re-fetchable. */
   const [issued, setIssued] = useState<string>()
 
@@ -48,19 +63,20 @@ function useAgentTokens() {
     void fetch('/api/mcp-tokens', { credentials: 'same-origin', signal: controller.signal })
       .then(readJson)
       .then((body) => {
-        setTokens(McpTokenListResponseSchema.parse(body).tokens)
+        setTokens(parseResponse(McpTokenListResponseSchema, body).tokens)
         setError(undefined)
       })
       .catch((cause: unknown) => {
         if (controller.signal.aborted) return
         setError(toError(cause)?.message ?? 'Agent tokens are unavailable')
       })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
   }, [])
 
   const reload = useCallback(async () => {
     const body = await readJson(await fetch('/api/mcp-tokens', { credentials: 'same-origin' }))
-    setTokens(McpTokenListResponseSchema.parse(body).tokens)
+    setTokens(parseResponse(McpTokenListResponseSchema, body).tokens)
   }, [])
 
   // Reports whether the token was created, so the caller can keep what the member typed when
@@ -74,7 +90,7 @@ function useAgentTokens() {
         headers: { 'content-type': 'application/json' },
         method: 'POST',
       }))
-      setIssued(McpTokenIssuedResponseSchema.parse(body).token)
+      setIssued(parseResponse(McpTokenIssuedResponseSchema, body).token)
       setError(undefined)
       await reload()
       return true
@@ -104,11 +120,11 @@ function useAgentTokens() {
     }
   }, [reload])
 
-  return { busy, error, issue, issued, revoke, tokens }
+  return { busy, error, issue, issued, loading, revoke, tokens }
 }
 
 export function ConnectScreen({ owner }: { owner: boolean }) {
-  const { busy, error, issue, issued, revoke, tokens } = useAgentTokens()
+  const { busy, error, issue, issued, loading, revoke, tokens } = useAgentTokens()
   const [label, setLabel] = useState('')
 
   // While a freshly issued token is on screen, both blocks carry it. A placeholder here made the
@@ -225,7 +241,9 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
           </>
         )}
 
-        {tokens === undefined && <Spinner />}
+        {/* Only while the first read is in flight: once it has failed, the alert above is the
+            answer, and a spinner beside it would claim a read that is no longer happening. */}
+        {loading && <Spinner />}
         {tokens?.length === 0 && <p className="connect-empty">No tokens yet.</p>}
         {tokens && tokens.length > 0 && (
           <ul className="connect-tokens">
