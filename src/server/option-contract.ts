@@ -59,6 +59,12 @@ export interface EquityOptionContract {
 }
 
 type ResolutionOptions = {
+  /**
+   * Which listed contract a tuple names, without asking whether it can still be traded: activity
+   * and opening status are skipped. Only for reading back an order already sent, where the
+   * question is its identity, never for anything about to be submitted.
+   */
+  identityOnly?: boolean
   opening?: boolean
   requireStreamerSymbol?: boolean
 }
@@ -93,8 +99,8 @@ export function equityOptionContractFromChainTuple(
     const symbol = jsonTextOrEmpty(row.symbol)
     const streamerSymbol = jsonTextOrEmpty(row['streamer-symbol'])
     const sharesPerContract = jsonNumber(row['shares-per-contract'])
-    if (row.active !== true
-      || (options.opening && row['is-closing-only'] !== false)
+    if ((!options.identityOnly && row.active !== true)
+      || (!options.identityOnly && options.opening && row['is-closing-only'] !== false)
       || !symbol
       || sharesPerContract === undefined
       || !Number.isSafeInteger(sharesPerContract)

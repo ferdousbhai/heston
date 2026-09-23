@@ -1,20 +1,28 @@
+import { z } from 'zod'
+
 import { type FreshOrderPlacement } from './agent-contracts'
 import { type BrokerOrderRecord } from '../domain/broker'
 import { CallerVisibleError } from './caller-visible-error'
 
-export type OrderPayload = {
-  'advanced-instructions'?: { 'strict-position-effect-validation': true }
-  'order-type': 'Limit'
-  'price-effect': 'Credit' | 'Debit'
-  'time-in-force': 'Day'
-  legs: Array<{
-    action: string
-    'instrument-type': 'Equity' | 'Equity Option'
-    quantity: number
-    symbol: string
-  }>
-  price: string
-}
+/**
+ * The order body Heston sends, as a schema so a stored copy can be read back at the D1 boundary
+ * rather than trusted. Exact literals where the builder only ever writes one value.
+ */
+export const OrderPayloadSchema = z.strictObject({
+  'advanced-instructions': z.strictObject({ 'strict-position-effect-validation': z.literal(true) }).optional(),
+  'order-type': z.literal('Limit'),
+  'price-effect': z.enum(['Credit', 'Debit']),
+  'time-in-force': z.literal('Day'),
+  legs: z.array(z.strictObject({
+    action: z.string().min(1),
+    'instrument-type': z.enum(['Equity', 'Equity Option']),
+    quantity: z.number().int().positive(),
+    symbol: z.string().min(1),
+  })).min(1),
+  price: z.string().min(1),
+})
+
+export type OrderPayload = z.infer<typeof OrderPayloadSchema>
 
 export function buildOrderPayload(
   action: FreshOrderPlacement,
@@ -76,5 +84,24 @@ export function echoesOrderPayload(record: BrokerOrderRecord, intended: OrderPay
         && actual.instrumentType === leg['instrument-type']
         && actual.symbol === leg.symbol
         && actual.quantity === leg.quantity
+    })
+}
+
+/** Field-by-field equality of two built orders; key order in a stored copy is irrelevant. */
+export function sameOrderPayload(left: OrderPayload, right: OrderPayload): boolean {
+  return left['order-type'] === right['order-type']
+    && left['price-effect'] === right['price-effect']
+    && left['time-in-force'] === right['time-in-force']
+    && left.price === right.price
+    && left['advanced-instructions']?.['strict-position-effect-validation']
+      === right['advanced-instructions']?.['strict-position-effect-validation']
+    && left.legs.length === right.legs.length
+    && left.legs.every((leg, index) => {
+      const other = right.legs[index]
+      return other !== undefined
+        && leg.action === other.action
+        && leg['instrument-type'] === other['instrument-type']
+        && leg.quantity === other.quantity
+        && leg.symbol === other.symbol
     })
 }

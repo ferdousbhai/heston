@@ -190,7 +190,12 @@ export async function executeOrderPlacement(
     // Everything that can fail without sending anything happens before the claim and the try
     // below: a lost lease here is a plain failure, never an ambiguous submission.
     await lease.renew()
-    const submissionId = await claimSubmission(env, { accountNumber, broker, storedAction: intent.storedAction })
+    const submissionId = await claimSubmission(env, {
+      accountNumber,
+      broker,
+      resolvedPayload: intent.payload,
+      storedAction: intent.storedAction,
+    })
     let placed: JsonValue
     try {
       placed = await brokerApi().tastyRequest(env, orderPath, {

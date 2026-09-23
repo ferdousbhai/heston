@@ -145,6 +145,29 @@ describe('brokerage action migrations', () => {
     db.close()
   })
 
+  it('adds the resolved order beside the action, leaving existing rows without one', async () => {
+    const db = new DatabaseSync(':memory:')
+    db.exec(await read('0001_spice.sql'))
+    db.exec(await read('0029_broker_submission_quarantine.sql'))
+    db.prepare(
+      `INSERT INTO broker_submissions (id, broker_id, account_number, payload_json, submitted_at, status)
+       VALUES ('legacy', 'tastytrade', 'ACCOUNT-1', '{}', '2026-09-03T13:30:00.000Z', 'unresolved')`,
+    ).run()
+
+    db.exec(await read('0047_broker_submission_resolved_payload.sql'))
+
+    // A row claimed before the column existed has no resolved order; reconciliation falls back.
+    expect(db.prepare('SELECT resolved_payload_json FROM broker_submissions').all())
+      .toEqual([{ resolved_payload_json: null }])
+    const insert = db.prepare(
+      `INSERT INTO broker_submissions (id, broker_id, account_number, payload_json, resolved_payload_json, submitted_at, status)
+       VALUES (?, 'tastytrade', 'ACCOUNT-2', '{}', ?, '2026-09-03T13:30:00.000Z', 'failed')`,
+    )
+    expect(() => insert.run('stored', '{"legs":[]}')).not.toThrow()
+    expect(() => insert.run('garbled', '{not json')).toThrow(/CHECK constraint/)
+    db.close()
+  })
+
   it('carries executed orders forward so a pre-deploy order stays replaceable', async () => {
     const initial = await read('0001_spice.sql')
     const inFlight = await read('0005_brokerage_action_state.sql')

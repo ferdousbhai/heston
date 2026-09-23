@@ -9,7 +9,13 @@ import { type AppEnv } from './env'
 import { type JsonValue } from '../domain/json-payload'
 import { type BrokerOrderRecord } from '../domain/broker'
 import { brokerAdapterFor } from './brokers'
-import { buildOrderPayload, echoesOrderPayload, type OrderPayload } from './order-payload'
+import {
+  buildOrderPayload,
+  echoesOrderPayload,
+  OrderPayloadSchema,
+  sameOrderPayload,
+  type OrderPayload,
+} from './order-payload'
 import {
   resolveEquityOptionContract,
   resolveEquityOptionTuples,
@@ -30,21 +36,33 @@ function effectiveStoredOrder(action: StoredOrderPlacement): FreshOrderPlacement
   return action.kind === 'replace_order' ? action.replacementOrder : action
 }
 
+/**
+ * `execution` resolves a contract that can be traded now: active, and not closing-only for an
+ * opening leg. `identity` only names which listed contract a tuple meant, for reading back an
+ * order that was already sent; it is never used to build anything submitted.
+ */
+type ResolutionMode = 'execution' | 'identity'
+
 async function resolveFreshOrder(
   env: AppEnv,
   action: FreshOrderPlacement,
+  mode: ResolutionMode = 'execution',
 ): Promise<{ optionContracts: EquityOptionContract[]; payload: OrderPayload }> {
   if (action.kind === 'place_equity_order') {
     return { optionContracts: [], payload: buildOrderPayload(action, [action.symbol]) }
   }
   if (action.kind === 'place_option_order') {
-    const contract = await resolveEquityOptionContract(env, action)
+    const contract = mode === 'execution'
+      ? await resolveEquityOptionContract(env, action)
+      : (await resolveEquityOptionTuples(env, [
+        { underlying: action.underlying, expiry: action.expiry, optionType: action.optionType, strike: action.strike },
+      ], { identityOnly: true }))[0]!
     return { optionContracts: [contract], payload: buildOrderPayload(action, [contract.symbol]) }
   }
   const contracts = await resolveEquityOptionTuples(env, [
     { underlying: action.underlying, expiry: action.expiry, optionType: action.optionType, strike: action.longStrike },
     { underlying: action.underlying, expiry: action.expiry, optionType: action.optionType, strike: action.shortStrike },
-  ], { opening: true })
+  ], mode === 'execution' ? { opening: true } : { identityOnly: true })
   if (contracts[0]!.sharesPerContract !== contracts[1]!.sharesPerContract) {
     throw new CallerVisibleError('OrderIntent:spread-multiplier-mismatch')
   }
@@ -125,12 +143,36 @@ export async function resolveOrderIntent(
   return { effectiveAction: action, ...resolved, storedAction: action }
 }
 
-/** Build the exact submitted fingerprint for reconciliation without requiring the replaced order to remain live. */
+/**
+ * The exact order a claimed submission sent, for reconciliation, with no live-chain lookup.
+ *
+ * Claimed rows store the resolved order beside the action. It is rebuilt from the stored action
+ * and the stored leg symbols and must equal the stored order field for field, so the two columns
+ * cannot disagree about what was sent; a row where they do is refused, never repaired. Resolving
+ * from today's chain instead would fail forever for a contract that has since expired, gone
+ * closing-only, or left the chain -- which is exactly when an ambiguous 0DTE order is reconciled.
+ *
+ * A row claimed before the resolved order was stored has only the action. Its contract is
+ * re-resolved by identity alone (listed, standard, exact tuple), without the activity and
+ * opening checks that only matter for an order about to be sent. A contract no longer listed at
+ * all cannot be identified that way, and that row stays quarantined.
+ */
 export async function resolveStoredOrderFingerprint(
   env: AppEnv,
   untrustedAction: JsonValue,
+  untrustedResolvedPayload: JsonValue | undefined,
 ): Promise<{ action: StoredOrderPlacement; payload: OrderPayload }> {
   const action = StoredOrderPlacementSchema.parse(untrustedAction)
-  const resolved = await resolveFreshOrder(env, effectiveStoredOrder(action))
-  return { action, payload: resolved.payload }
+  const effective = effectiveStoredOrder(action)
+  if (untrustedResolvedPayload === undefined) {
+    const resolved = await resolveFreshOrder(env, effective, 'identity')
+    return { action, payload: resolved.payload }
+  }
+  const stored = OrderPayloadSchema.safeParse(untrustedResolvedPayload)
+  if (!stored.success) throw new CallerVisibleError('TastytradeReconciliation:invalid-stored-order')
+  const rebuilt = buildOrderPayload(effective, stored.data.legs.map((leg) => leg.symbol))
+  if (!sameOrderPayload(rebuilt, stored.data)) {
+    throw new CallerVisibleError('TastytradeReconciliation:stored-order-disagrees-with-action')
+  }
+  return { action, payload: stored.data }
 }

@@ -16,6 +16,8 @@ import { CallerVisibleError } from './caller-visible-error'
 type StoredUnknownAction = {
   id: string
   payload_json: string
+  /** Null only on a row claimed before the resolved order was stored (migration 0047). */
+  resolved_payload_json: string | null
   submitted_at: string
 }
 
@@ -27,7 +29,7 @@ export async function unresolvedSubmission(
 ): Promise<StoredUnknownAction | null> {
   if (!env.DB) throw new CallerVisibleError('TastytradeReconciliation:store-unavailable')
   return env.DB.prepare(
-    `SELECT id, payload_json, submitted_at
+    `SELECT id, payload_json, resolved_payload_json, submitted_at
        FROM broker_submissions
       WHERE broker_id = ? AND account_number = ? AND status = 'unresolved'
       LIMIT 1`,
@@ -45,25 +47,30 @@ export async function unresolvedSubmission(
  * first and writing after the broker answered left a window -- the lease is not held across both
  * -- in which a concurrent placement could slip through before the quarantine landed.
  *
- * The stored payload is the server-resolved order, which is what the reconciliation fingerprint
- * needs; a model-supplied one would let a wrong order clear the quarantine.
+ * Two things are stored. `payload_json` is the server-parsed action -- the tuple a price-only
+ * replacement later rebuilds the order's shape from. `resolved_payload_json` is the exact order
+ * body built from the contracts resolved inside this lease, which is what the reconciliation
+ * fingerprint needs: re-resolving the tuple later would ask a chain that may no longer list the
+ * contract (an expired 0DTE, one gone closing-only), and a model-supplied order would let a wrong
+ * order clear the quarantine.
  */
 export async function claimSubmission(
   env: AppEnv,
-  submission: { accountNumber: string; broker: string; storedAction: JsonValue },
+  submission: { accountNumber: string; broker: string; resolvedPayload: OrderPayload; storedAction: JsonValue },
 ): Promise<string> {
   if (!env.DB) throw new PortfolioRiskError('The brokerage submission store is unavailable, so nothing was submitted.')
   const id = crypto.randomUUID()
   try {
     await env.DB.prepare(
       `INSERT INTO broker_submissions
-         (id, broker_id, account_number, payload_json, submitted_at, status, error_code)
-       VALUES (?, ?, ?, ?, ?, 'unresolved', 'BrokerageSubmissionUnknown')`,
+         (id, broker_id, account_number, payload_json, resolved_payload_json, submitted_at, status, error_code)
+       VALUES (?, ?, ?, ?, ?, ?, 'unresolved', 'BrokerageSubmissionUnknown')`,
     ).bind(
       id,
       submission.broker,
       submission.accountNumber,
       JSON.stringify(submission.storedAction),
+      JSON.stringify(submission.resolvedPayload),
       new Date().toISOString(),
     ).run()
     return id
@@ -178,7 +185,11 @@ export async function reconcileUnknownBrokerageAction(
   if (!Number.isFinite(submittedAt.getTime())) {
     return { actionId: stored.id, detail: 'The local submission timestamp is invalid; the quarantine remains in place.', status: 'unresolved' }
   }
-  const fingerprint = await resolveStoredOrderFingerprint(env, JSON.parse(stored.payload_json))
+  const fingerprint = await resolveStoredOrderFingerprint(
+    env,
+    JSON.parse(stored.payload_json),
+    stored.resolved_payload_json === null ? undefined : JSON.parse(stored.resolved_payload_json),
+  )
   const intended = fingerprint.payload
   const replacedOrderId = fingerprint.action.kind === 'replace_order' ? fingerprint.action.orderId : undefined
   const startDate = new Date(submittedAt.getTime() - ORDER_HISTORY_DATE_MARGIN_MS).toISOString().slice(0, 10)

@@ -73,7 +73,7 @@ function submissions(brokerage: ReturnType<typeof stubBroker>) {
 
 function rows(store: SqliteD1Store) {
   return store.sqlite.prepare(
-    'SELECT account_number, broker_id, error_code, payload_json, provider_order_id, status FROM broker_submissions',
+    'SELECT account_number, broker_id, error_code, payload_json, provider_order_id, resolved_payload_json, status FROM broker_submissions',
   ).all()
 }
 
@@ -173,8 +173,13 @@ describe('brokerage order placement', () => {
       .rejects.toBeInstanceOf(BrokerageSubmissionUnknownError)
     const [row] = rows(db)
     expect(row).toMatchObject({ account_number: 'TEST123', broker_id: 'tastytrade', status: 'unresolved' })
-    // The server-resolved order, not the caller's: reconciliation fingerprints against this.
+    // The server-parsed action, and beside it the exact order built from it: reconciliation
+    // fingerprints against the second, never against anything the caller supplied.
     expect(JSON.parse(String(row?.payload_json))).toMatchObject({ kind: 'place_equity_order', symbol: 'SPY' })
+    expect(JSON.parse(String(row?.resolved_payload_json))).toMatchObject({
+      legs: [{ action: 'Buy to Open', 'instrument-type': 'Equity', quantity: 1, symbol: 'SPY' }],
+      price: '700.00',
+    })
   })
 
   it('keeps a 5xx submission quarantined', async () => {
