@@ -105,11 +105,19 @@ export class BrokerageSubmissionUnknownError extends CallerVisibleError {
 // The broker's own words for a refusal are untrusted and stay out of the message: the check is
 // named here, and the bounded `messagePacket` goes to the caller only in the labelled field.
 class TastytradeOrderRejectedError extends BrokerRefusalError {
-  constructor(messages: readonly string[]) {
-    super('broker-rejected', 'Tastytrade rejected this order, so it was not placed.', { messages })
+  constructor(readonly messages: readonly string[], addendum?: string) {
+    const refused = 'Tastytrade rejected this order, so it was not placed.'
+    super('broker-rejected', addendum ? `${refused} ${addendum}` : refused, { messages })
     this.name = 'TastytradeOrderRejectedError'
   }
 }
+
+/**
+ * Said beside any verified result whose settlement could not be written. The claimed row then
+ * stays `unresolved`, which quarantines the account, so the caller must hear why the next
+ * placement will be refused and what clears it.
+ */
+const UNRECORDED_RESULT = 'Heston could not record this result, so this account stays quarantined until reconcile_brokerage_action confirms it.'
 
 export class TastytradeOrderWarningError extends BrokerRefusalError {
   constructor(warnings: readonly string[]) {
@@ -235,7 +243,10 @@ export async function executeOrderPlacement(
     } catch (error) {
       // A provider 4xx: the broker positively refused the request, so nothing was placed.
       if (error instanceof Error && error.name === 'TastytradeApiError') {
-        await settleSubmission(env, submissionId, { errorCode: 'TastytradeApiError', status: 'failed' })
+        const settled = await settleSubmission(env, submissionId, { errorCode: 'TastytradeApiError', status: 'failed' })
+        if (!settled) {
+          throw new CallerVisibleError(`Tastytrade refused this order (${error.name}), so it was not placed. ${UNRECORDED_RESULT}`)
+        }
         throw error
       }
       // Ambiguous: the claimed row stays `unresolved`, which is the quarantine.
@@ -258,7 +269,8 @@ export async function executeOrderPlacement(
       }
     } catch (error) {
       if (error instanceof TastytradeOrderRejectedError) {
-        await settleSubmission(env, submissionId, { errorCode: 'TastytradeOrderRejected', status: 'failed' })
+        const settled = await settleSubmission(env, submissionId, { errorCode: 'TastytradeOrderRejected', status: 'failed' })
+        if (!settled) throw new TastytradeOrderRejectedError(error.messages, UNRECORDED_RESULT)
       }
       throw error
     }
@@ -267,7 +279,7 @@ export async function executeOrderPlacement(
     // the account quarantined until reconciliation finds this order in broker history.
     const detail = settled
       ? receipt.detail
-      : `${receipt.detail} Heston could not record this result, so this account stays quarantined until reconcile_brokerage_action confirms it.`
+      : `${receipt.detail} ${UNRECORDED_RESULT}`
     return { intent, receipt: { ...receipt, detail } }
   })
   if (onAccepted) {

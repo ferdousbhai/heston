@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { BrokerageSubmissionUnknownError } from '../src/server/brokerage'
 import { BrokerCredentialMissingError } from '../src/server/broker-credential'
+import { BrokerRefusalError, CallerVisibleError } from '../src/server/caller-visible-error'
 import { BrokerCancellationAmbiguousError, resetBrokerAdapters, setBrokerAdapters } from '../src/server/brokers'
 import { cancelBrokerageOrder, placeBrokerageOrder } from '../src/server/order-placement'
 import { PortfolioRiskError } from '../src/server/portfolio-risk'
@@ -255,20 +256,54 @@ describe('brokerage order placement', () => {
     expect(errorLog).toHaveBeenCalledWith('BrokerageSubmissionClaimFailed')
   })
 
-  it('reports an accepted order whose settlement could not be recorded, and stays quarantined', async () => {
-    brokerSubmitting(async () => ACCEPTED_ORDER_RESPONSE)
-    const db = await freshStore()
-    const database: D1Database = {
+  /** The store answers every read, but no settlement write lands, so the claimed row stays unresolved. */
+  function unsettleable(db: SqliteD1Store): D1Database {
+    return {
       ...unsupportedDatabase(),
       prepare: (sql: string) => {
         if (sql.startsWith('UPDATE broker_submissions')) throw new Error('D1 persistence unavailable')
         return db.database.prepare(sql)
       },
     }
+  }
+
+  it('reports an accepted order whose settlement could not be recorded, and stays quarantined', async () => {
+    brokerSubmitting(async () => ACCEPTED_ORDER_RESPONSE)
+    const db = await freshStore()
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    await expect(placeBrokerageOrder({ DB: database }, EQUITY_ORDER, brokerCredential, waitUntil))
+    await expect(placeBrokerageOrder({ DB: unsettleable(db) }, EQUITY_ORDER, brokerCredential, waitUntil))
       .resolves.toMatchObject({ detail: expect.stringContaining('stays quarantined'), orderId: '123' })
+    expect(rows(db)).toMatchObject([{ status: 'unresolved' }])
+  })
+
+  it('says a 4xx refusal it could not record leaves the account quarantined', async () => {
+    // Told only "refused", the caller would meet the next placement's quarantine with no reason.
+    brokerSubmitting(async () => { throw apiError(422) })
+    const db = await freshStore()
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const refusal = placeBrokerageOrder({ DB: unsettleable(db) }, EQUITY_ORDER, brokerCredential, waitUntil)
+    await expect(refusal).rejects.toBeInstanceOf(CallerVisibleError)
+    await expect(refusal).rejects.toThrow(
+      'Tastytrade refused this order (TastytradeApiError), so it was not placed. Heston could not record this result, so this account stays quarantined until reconcile_brokerage_action confirms it.',
+    )
+    expect(rows(db)).toMatchObject([{ status: 'unresolved' }])
+  })
+
+  it('says a rejected echo it could not record leaves the account quarantined', async () => {
+    const rejected = { data: { ...ACCEPTED_ORDER_RESPONSE.data, order: { ...ACCEPTED_ORDER_RESPONSE.data.order, status: 'Rejected' } } }
+    brokerSubmitting(async () => rejected)
+    const db = await freshStore()
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const refusal = placeBrokerageOrder({ DB: unsettleable(db) }, EQUITY_ORDER, brokerCredential, waitUntil)
+    await expect(refusal).rejects.toMatchObject({
+      check: 'broker-rejected',
+      message: 'Tastytrade rejected this order, so it was not placed. Heston could not record this result, so this account stays quarantined until reconcile_brokerage_action confirms it.',
+      untrustedBrokerData: { messages: [] },
+    })
+    await expect(refusal).rejects.toBeInstanceOf(BrokerRefusalError)
     expect(rows(db)).toMatchObject([{ status: 'unresolved' }])
   })
 
