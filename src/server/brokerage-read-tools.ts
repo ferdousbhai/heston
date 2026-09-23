@@ -1,4 +1,5 @@
 import { type AgentTool } from '../domain/agent-tool'
+import { MAX_EQUITY_SYMBOL_LENGTH } from '../domain/instrument'
 
 import { type AppEnv } from './env'
 import {
@@ -184,7 +185,7 @@ function optionalCapitalization(row: JsonObject, label: string): number | undefi
 
 function compactMetric(row: JsonObject): CompactMarketMetric {
   const label = 'Tastytrade market metrics'
-  const symbol = requiredText(row, ['symbol'], label, 8).toUpperCase()
+  const symbol = requiredText(row, ['symbol'], label, MAX_EQUITY_SYMBOL_LENGTH).toUpperCase()
   if (!EQUITY_SYMBOL.test(symbol)) return invalidResponse(label)
   const rawEarnings = row.earnings
   let earnings: JsonObject | undefined

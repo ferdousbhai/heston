@@ -364,6 +364,18 @@ describe('brokerage read tools', () => {
     ).toBe(metric.impliedHistoricalVolatility30DayDifference)
   })
 
+  it('reads a metrics row for a symbol as wide as the grammar admits', async () => {
+    // Nine and ten characters: a full six-character root with a two- and three-character class.
+    tastytrade.tastyRequest.mockResolvedValue({ data: { items: [
+      { symbol: 'ABCDEF/GH', 'updated-at': '2026-08-13T11:55:00.000Z' },
+      { symbol: 'ABCDEF/GHI', 'updated-at': '2026-08-13T11:55:00.000Z' },
+    ] } })
+
+    const result = await readMarketMetrics({}, ['ABCDEF/GH', 'ABCDEF/GHI'], now)
+
+    expect(result.metrics.map((metric) => metric.symbol)).toEqual(['ABCDEF/GH', 'ABCDEF/GHI'])
+  })
+
   it('leaves the capitalization tastytrade reports as zero out of the row', async () => {
     tastytrade.tastyRequest.mockResolvedValue({ data: { items: [{
       symbol: 'TQQQ',
