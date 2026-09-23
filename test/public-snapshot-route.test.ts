@@ -10,7 +10,6 @@ import {
   type PublicSnapshotCache,
   PRE_SESSION_REFRESH_MS,
   providerRefreshDue,
-  publicSessionStatus,
   quoteCatchUpDue,
   QUOTE_CATCH_UP_MS,
   refreshDue,
@@ -18,9 +17,6 @@ import {
   sessionRefreshDue,
   SNAPSHOT_CACHED_AT_HEADER,
   SNAPSHOT_GENERATED_AT_HEADER,
-  SNAPSHOT_MARKET_CLOSES_AT_HEADER,
-  SNAPSHOT_MARKET_OPENS_AT_HEADER,
-  SNAPSHOT_MARKET_STATE_HEADER,
   snapshotEtag,
 } from '../src/server/public-snapshot-cache'
 import { resetBrokerApi, setBrokerApi, type StoredPublicMarketSnapshot } from '../src/server/tastytrade'
@@ -136,40 +132,14 @@ describe('public snapshot route cache', () => {
     ])
   })
 
-  it('validates the session projection when an older cache copy has no session headers', async () => {
+  it('ignores a query it does not define and serves the whole retained copy', async () => {
+    // The session-only projection had one consumer, since deleted; a query the route does not
+    // define neither shards the retained copy nor reshapes the answer.
     const snapshot = agedPublicSnapshot(30_000, { marketState: 'pre', marketOpensAt: '2026-08-28T13:30:00.000Z' })
     const headers = retainedCopy(30_000, 'legacy').headers
     const cache = new MemoryPublicSnapshotCache(Response.json(snapshot, { headers }))
     const response = await servePublicSnapshot(new Request(`${SNAPSHOT_URL}?fields=session`), {}, cache, () => undefined, NOW)
-    await expect(response.json()).resolves.toEqual(publicSessionStatus(snapshot))
-
-    const invalidCache = new MemoryPublicSnapshotCache(Response.json({ ...snapshot, marketState: 'invalid' }, { headers }))
-    await expect(servePublicSnapshot(new Request(`${SNAPSHOT_URL}?fields=session`), {}, invalidCache, () => undefined, NOW)).rejects.toThrow()
-  })
-
-  it('answers fields=session from retained headers without reading the body', async () => {
-    const snapshot = agedPublicSnapshot(30_000, {
-      marketOpensAt: '2026-08-28T13:30:00.000Z',
-      marketState: 'open',
-    })
-    const cache = new MemoryPublicSnapshotCache(new Response('not-json', {
-      headers: {
-        'Cache-Control': 'public, max-age=900',
-        [SNAPSHOT_CACHED_AT_HEADER]: new Date(NOW).toISOString(),
-        [SNAPSHOT_GENERATED_AT_HEADER]: snapshot.syncedAt,
-        [SNAPSHOT_MARKET_STATE_HEADER]: 'open',
-        [SNAPSHOT_MARKET_OPENS_AT_HEADER]: '2026-08-28T13:30:00.000Z',
-      },
-    }))
-    const response = await servePublicSnapshot(
-      new Request(`${SNAPSHOT_URL}?fields=session`),
-      {},
-      cache,
-      new Background().schedule,
-      NOW,
-    )
-    await expect(response.json()).resolves.toEqual(publicSessionStatus(snapshot))
-    expect(cache.putCalls).toBe(0)
+    await expect(response.json()).resolves.toEqual(snapshot)
   })
 
   it('answers 304 when the observation has not changed', async () => {
@@ -185,9 +155,6 @@ describe('public snapshot route cache', () => {
         'Cache-Control': 'public, max-age=900',
         [SNAPSHOT_CACHED_AT_HEADER]: new Date(NOW).toISOString(),
         [SNAPSHOT_GENERATED_AT_HEADER]: snapshot.syncedAt,
-        [SNAPSHOT_MARKET_STATE_HEADER]: 'open',
-        [SNAPSHOT_MARKET_OPENS_AT_HEADER]: '2026-08-28T13:30:00.000Z',
-        [SNAPSHOT_MARKET_CLOSES_AT_HEADER]: '2026-08-28T20:00:00.000Z',
       },
     }))
     const response = await servePublicSnapshot(
@@ -199,8 +166,8 @@ describe('public snapshot route cache', () => {
     )
     expect(response.status).toBe(304)
     expect(await response.text()).toBe('')
-    expect(response.headers.get(SNAPSHOT_MARKET_OPENS_AT_HEADER)).toBe('2026-08-28T13:30:00.000Z')
-    expect(response.headers.get(SNAPSHOT_MARKET_CLOSES_AT_HEADER)).toBe('2026-08-28T20:00:00.000Z')
+    expect(response.headers.get(SNAPSHOT_GENERATED_AT_HEADER)).toBe(snapshot.syncedAt)
+    expect(response.headers.get(SNAPSHOT_CACHED_AT_HEADER)).toBe(new Date(NOW).toISOString())
     expect(cache.putCalls).toBe(0)
   })
 

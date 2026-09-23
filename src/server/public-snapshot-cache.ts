@@ -1,6 +1,4 @@
 import {
-  MarketStateSchema,
-  PublicMarketSnapshotSchema,
   slimPublicSnapshot,
   type MarketSnapshot,
   type PublicMarketSnapshot,
@@ -34,38 +32,11 @@ export const SNAPSHOT_GENERATED_AT_HEADER = 'X-Snapshot-Generated-At'
  * says whether the store has been re-read for it lately.
  */
 export const SNAPSHOT_CACHED_AT_HEADER = 'X-Snapshot-Cached-At'
-export const SNAPSHOT_MARKET_STATE_HEADER = 'X-Market-State'
-export const SNAPSHOT_MARKET_OPENS_AT_HEADER = 'X-Market-Opens-At'
-export const SNAPSHOT_MARKET_CLOSES_AT_HEADER = 'X-Market-Closes-At'
 
 /** How far before the named open we will ask the provider for session state only. */
 export const PRE_SESSION_REFRESH_MS = 6 * 60 * 60 * 1_000
 /** Closed quotes older than this get one catch-up rebuild so a missed cash session does not stick. */
 export const QUOTE_CATCH_UP_MS = 6 * 60 * 60 * 1_000
-
-const PublicSessionStatusSchema = PublicMarketSnapshotSchema.pick({
-  marketClosesAt: true,
-  marketOpensAt: true,
-  marketState: true,
-  source: true,
-  syncedAt: true,
-}).strip()
-
-type PublicSessionStatus = Pick<PublicMarketSnapshot, 'marketClosesAt' | 'marketOpensAt' | 'marketState' | 'source' | 'syncedAt'>
-
-/** Query on `/api/public-snapshot`. The Cache API key discards the query, so this does not shard the retained copy. */
-export function publicSessionStatus(
-  snapshot: PublicSessionStatus,
-) {
-  const status: PublicSessionStatus = {
-    marketState: snapshot.marketState,
-    source: snapshot.source,
-    syncedAt: snapshot.syncedAt,
-  }
-  if (snapshot.marketOpensAt !== undefined) status.marketOpensAt = snapshot.marketOpensAt
-  if (snapshot.marketClosesAt !== undefined) status.marketClosesAt = snapshot.marketClosesAt
-  return status
-}
 
 /**
  * A weak validator over the whole snapshot. Quotes, session, catalysts and the brief are
@@ -90,38 +61,6 @@ export function snapshotEtag(snapshot: MarketSnapshot | PublicMarketSnapshot): s
   return `W/"${hash.toString(36)}"`
 }
 
-function sessionFromHeaders(response: Response) {
-  const state = MarketStateSchema.safeParse(response.headers.get(SNAPSHOT_MARKET_STATE_HEADER))
-  const syncedAt = response.headers.get(SNAPSHOT_GENERATED_AT_HEADER)
-  if (!state.success || !syncedAt) return undefined
-  const marketOpensAt = response.headers.get(SNAPSHOT_MARKET_OPENS_AT_HEADER)
-  const marketClosesAt = response.headers.get(SNAPSHOT_MARKET_CLOSES_AT_HEADER)
-  return publicSessionStatus({
-    marketClosesAt: marketClosesAt || undefined,
-    marketOpensAt: marketOpensAt || undefined,
-    marketState: state.data,
-    source: 'tastytrade',
-    syncedAt,
-  })
-}
-
-async function projectVisitorResponse(request: Request, response: Response): Promise<Response> {
-  if (new URL(request.url).searchParams.get('fields') !== 'session' || !response.ok) return response
-  const fromHeaders = sessionFromHeaders(response)
-  const snapshot = fromHeaders ?? publicSessionStatus(PublicSessionStatusSchema.parse(await response.json()))
-  const headers = new Headers()
-  const cachedAt = response.headers.get(SNAPSHOT_CACHED_AT_HEADER)
-  const generatedAt = response.headers.get(SNAPSHOT_GENERATED_AT_HEADER) ?? snapshot.syncedAt
-  const etag = response.headers.get('ETag')
-  if (cachedAt) headers.set(SNAPSHOT_CACHED_AT_HEADER, cachedAt)
-  if (generatedAt) headers.set(SNAPSHOT_GENERATED_AT_HEADER, generatedAt)
-  if (etag) headers.set('ETag', etag)
-  if (response.headers.get(SNAPSHOT_MARKET_STATE_HEADER)) {
-    headers.set(SNAPSHOT_MARKET_STATE_HEADER, response.headers.get(SNAPSHOT_MARKET_STATE_HEADER)!)
-  }
-  return jsonPublic(snapshot, { headers })
-}
-
 function notModified(request: Request, stored: Response): Response | undefined {
   const etag = stored.headers.get('ETag')
   const inm = request.headers.get('If-None-Match')
@@ -132,13 +71,7 @@ function notModified(request: Request, stored: Response): Response | undefined {
   headers.set('Cache-Control', PUBLIC_RESPONSE_CACHE_CONTROL)
   headers.set('ETag', etag)
   headers.set(HESTON_DEPLOYMENT_ID_HEADER, HESTON_DEPLOYMENT_ID)
-  for (const name of [
-    SNAPSHOT_CACHED_AT_HEADER,
-    SNAPSHOT_GENERATED_AT_HEADER,
-    SNAPSHOT_MARKET_STATE_HEADER,
-    SNAPSHOT_MARKET_OPENS_AT_HEADER,
-    SNAPSHOT_MARKET_CLOSES_AT_HEADER,
-  ]) {
+  for (const name of [SNAPSHOT_CACHED_AT_HEADER, SNAPSHOT_GENERATED_AT_HEADER]) {
     const value = stored.headers.get(name)
     if (value) headers.set(name, value)
   }
@@ -295,10 +228,7 @@ async function retain(
     ETag: snapshotEtag(snapshot),
     [SNAPSHOT_CACHED_AT_HEADER]: new Date(now).toISOString(),
     [SNAPSHOT_GENERATED_AT_HEADER]: snapshot.syncedAt,
-    [SNAPSHOT_MARKET_STATE_HEADER]: snapshot.marketState,
   })
-  if (snapshot.marketOpensAt !== undefined) headers.set(SNAPSHOT_MARKET_OPENS_AT_HEADER, snapshot.marketOpensAt)
-  if (snapshot.marketClosesAt !== undefined) headers.set(SNAPSHOT_MARKET_CLOSES_AT_HEADER, snapshot.marketClosesAt)
   const response = jsonPublic(slimPublicSnapshot(snapshot), { headers })
   const stored = response.clone()
   // This header governs only the distinct Cache API copy. Visitor cache policy is restored
@@ -380,7 +310,7 @@ export async function servePublicSnapshot(
       if (task) schedule(task)
     }
     const visitor = responseForVisitor(retained)
-    return notModified(request, visitor) ?? projectVisitorResponse(request, visitor)
+    return notModified(request, visitor) ?? visitor
   }
 
   try {
@@ -391,12 +321,9 @@ export async function servePublicSnapshot(
         if (task) schedule(task)
       }
       const visitor = await retain(edgeCache, cacheKey, stored.snapshot, now)
-      return notModified(request, visitor) ?? projectVisitorResponse(request, visitor)
+      return notModified(request, visitor) ?? visitor
     }
-    return projectVisitorResponse(
-      request,
-      await retain(edgeCache, cacheKey, await buildFromColdStore(env), now),
-    )
+    return await retain(edgeCache, cacheKey, await buildFromColdStore(env), now)
   } catch (error) {
     console.error('PublicMarketSnapshotUnavailable', error instanceof Error ? error.name : 'UnknownError')
     return jsonNoStore({ error: 'Public market sync is temporarily unavailable' }, { status: 502 })
