@@ -59,8 +59,17 @@ export function readsSymbols(toolName: string): boolean {
   return ATTENTION_TOOLS.has(toolName)
 }
 
-/** Bounded so one call cannot fan out into a sweep of the whole universe. */
-const MAX_ATTENTION_SYMBOLS = 5
+/**
+ * How many paid searches one tool call may buy: a spend policy, not a platform limit. Each name
+ * can cost one Exa search, and they run one after another inside the call's `waitUntil`, which
+ * the runtime ends about 30 seconds after the response -- less than one search's own worst case
+ * (`CATALYST_RUN_BUDGET_MS`), so no count is derivable from it; a name the invocation does not
+ * reach keeps a `running` receipt only for that run budget. Five is the product's choice of how
+ * many names one agent call may put searches behind, so one call cannot fan out into a sweep of
+ * the universe. The names past it are counted in the log, not searched, and buy their search the
+ * next time a call names them.
+ */
+export const MAX_ATTENTION_SYMBOLS = 5
 
 /**
  * The slice of a tool call this reads. A tool in `ATTENTION_TOOLS` names an equity with `symbol`
@@ -70,7 +79,8 @@ const MAX_ATTENTION_SYMBOLS = 5
  */
 export type SymbolNamingCall = z.infer<typeof AttentionParametersSchema>
 
-export function symbolsFromToolCall(call: SymbolNamingCall): string[] {
+/** Every distinct ticker the call names, in the order it names them. */
+function namedSymbols(call: SymbolNamingCall): string[] {
   const parsed = AttentionParametersSchema.safeParse(call)
   if (!parsed.success) return []
   const named = [
@@ -82,12 +92,20 @@ export function symbolsFromToolCall(call: SymbolNamingCall): string[] {
   const resolved = named
     .map((symbol) => equitySymbolFromModelText(symbol))
     .filter((symbol) => symbol !== undefined)
-  return [...new Set(resolved)].slice(0, MAX_ATTENTION_SYMBOLS)
+  return [...new Set(resolved)]
+}
+
+export function symbolsFromToolCall(call: SymbolNamingCall): string[] {
+  return namedSymbols(call).slice(0, MAX_ATTENTION_SYMBOLS)
 }
 
 export async function noteSymbolAttention(env: AppEnv, call: SymbolNamingCall): Promise<void> {
   if (!env.DB) return
-  for (const symbol of symbolsFromToolCall(call)) {
+  const named = namedSymbols(call)
+  if (named.length > MAX_ATTENTION_SYMBOLS) {
+    console.warn('SymbolAttentionSymbolsDropped', named.length - MAX_ATTENTION_SYMBOLS)
+  }
+  for (const symbol of named.slice(0, MAX_ATTENTION_SYMBOLS)) {
     try {
       await refreshCatalystsForSymbol(env, symbol)
     } catch (error) {

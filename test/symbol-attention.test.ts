@@ -1,6 +1,16 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { readsSymbols, symbolsFromToolCall } from '../src/server/symbol-attention'
+import {
+  MAX_ATTENTION_SYMBOLS,
+  noteSymbolAttention,
+  readsSymbols,
+  symbolsFromToolCall,
+} from '../src/server/symbol-attention'
+import { migrationStore } from './sqlite-d1'
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 describe('symbol attention', () => {
   it('reads the symbols a caller chose to look at', () => {
@@ -33,6 +43,28 @@ describe('symbol attention', () => {
   it('bounds one call so it cannot sweep the universe', () => {
     const many = Array.from({ length: 40 }, (_, index) => `SYM${index}`)
     expect(symbolsFromToolCall({ symbols: many }).length).toBeLessThanOrEqual(5)
+  })
+
+  it('counts the names a call named past the search budget instead of dropping them silently', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const many = Array.from({ length: 40 }, (_, index) => `SYM${index}`)
+
+    // An empty catalog names none of them, so no search is bought; only the count is observed.
+    const store = await migrationStore()
+    await noteSymbolAttention({ DB: store.database }, { symbols: many })
+    store.close()
+
+    expect(warn).toHaveBeenCalledWith('SymbolAttentionSymbolsDropped', 40 - MAX_ATTENTION_SYMBOLS)
+  })
+
+  it('logs nothing when a call stays inside the budget', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    const store = await migrationStore()
+    await noteSymbolAttention({ DB: store.database }, { symbols: ['NVDA', 'AAPL'] })
+    store.close()
+
+    expect(warn).not.toHaveBeenCalled()
   })
 
   it('does not treat the whole-universe read as attention on every name in it', () => {
