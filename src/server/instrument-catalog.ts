@@ -15,9 +15,6 @@ import {
 import { type AppEnv } from './env'
 import { D1_MAX_BOUND_PARAMETERS, rowsPerD1Statement } from './d1-limits'
 
-// One refresh chunk: the symbols a loader may carry in a single provider request, and
-// the rows one D1 batch persists. The stored catalog is far larger than either.
-const CATALOG_REFRESH_CHUNK_SIZE = 100
 const SQL_SYMBOL_CHUNK_SIZE = D1_MAX_BOUND_PARAMETERS
 // The one-time seed can retain far more provenance than the live watchlist;
 // this rejects an unexpected provider fan-out before it consumes a Worker isolate.
@@ -225,20 +222,22 @@ function catalogUpserts(
   return statements
 }
 
+/**
+ * One atomic batch. Each statement is sized by D1's bound-parameter limit through
+ * `rowsPerD1Statement`; paging the items into several batches bought no fewer statements, only a
+ * partial write when a later batch failed.
+ */
 export async function persistInstrumentCatalog(env: AppEnv, items: readonly InstrumentCatalogRecord[]): Promise<void> {
   if (!env.DB) throw new Error('InstrumentCatalog:store-unavailable')
   if (!items.length) return
-  for (let start = 0; start < items.length; start += CATALOG_REFRESH_CHUNK_SIZE) {
-    const chunk = items.slice(start, start + CATALOG_REFRESH_CHUNK_SIZE)
-    const resolved = chunk.filter((item) => item.resolutionStatus === 'resolved')
-    const unresolved = chunk.filter((item) => item.resolutionStatus === 'unresolved')
-    // A missing provider row is evidence only that this refresh could not resolve
-    // the symbol. It must never erase a previously resolved identity or tick table.
-    await env.DB.batch([
-      ...catalogUpserts(env.DB, resolved, resolvedConflictClause),
-      ...catalogUpserts(env.DB, unresolved, 'ON CONFLICT(symbol) DO NOTHING'),
-    ])
-  }
+  const resolved = items.filter((item) => item.resolutionStatus === 'resolved')
+  const unresolved = items.filter((item) => item.resolutionStatus === 'unresolved')
+  // A missing provider row is evidence only that this refresh could not resolve the symbol.
+  // It must never erase a previously resolved identity.
+  await env.DB.batch([
+    ...catalogUpserts(env.DB, resolved, resolvedConflictClause),
+    ...catalogUpserts(env.DB, unresolved, 'ON CONFLICT(symbol) DO NOTHING'),
+  ])
 }
 
 const StoredCatalogRowSchema = z.object({
@@ -315,28 +314,25 @@ export async function readInstrumentCatalog(
   }))
 }
 
-export async function refreshInstrumentCatalog(
-  env: AppEnv,
-  requestedSymbols: readonly string[],
-  load: InstrumentCatalogLoader,
-  now = new Date(),
-): Promise<InstrumentCatalogRefresh> {
-  const { items, missingSymbols, requestedCount } = await loadInstrumentCatalog(requestedSymbols, load, now)
-  await persistInstrumentCatalog(env, items)
-  return { missingSymbols, receivedCount: items.length, requestedCount }
-}
-
+/**
+ * Resolve symbols through `load`, one provider request per `symbolsPerRequest` symbols. The page
+ * size is the provider's to name, so the caller that owns the provider passes it in.
+ */
 export async function loadInstrumentCatalog(
   requestedSymbols: readonly string[],
   load: InstrumentCatalogLoader,
+  symbolsPerRequest: number,
   now = new Date(),
 ): Promise<{ items: InstrumentCatalogRecord[]; missingSymbols: string[]; requestedCount: number }> {
   const symbols = [...new Set(requestedSymbols.map((symbol) => EquitySymbolSchema.parse(symbol)))]
   if (symbols.length > MAX_INSTRUMENT_CATALOG_ITEMS) throw new Error('InstrumentCatalog:too-many-symbols')
   if (!symbols.length) return { items: [], missingSymbols: [], requestedCount: 0 }
   const received: InstrumentCatalogRecord[] = []
-  for (let start = 0; start < symbols.length; start += CATALOG_REFRESH_CHUNK_SIZE) {
-    const chunk = symbols.slice(start, start + CATALOG_REFRESH_CHUNK_SIZE)
+  if (!Number.isSafeInteger(symbolsPerRequest) || symbolsPerRequest < 1) {
+    throw new Error('InstrumentCatalog:invalid-request-size')
+  }
+  for (let start = 0; start < symbols.length; start += symbolsPerRequest) {
+    const chunk = symbols.slice(start, start + symbolsPerRequest)
     received.push(...instrumentCatalogFromPayload(await load(chunk), chunk, now))
   }
   const receivedSymbols = new Set(received.map((item) => item.symbol))
@@ -351,15 +347,6 @@ export async function missingInstrumentCatalogSymbols(env: AppEnv, symbols: read
   const normalized = [...new Set(symbols.map((symbol) => EquitySymbolSchema.parse(symbol)))]
   const stored = await readInstrumentCatalog(env, normalized)
   return normalized.filter((symbol) => !stored.has(symbol))
-}
-
-export async function instrumentCatalogSymbolsNeedingResolution(
-  env: AppEnv,
-  symbols: readonly string[],
-): Promise<string[]> {
-  const normalized = [...new Set(symbols.map((symbol) => EquitySymbolSchema.parse(symbol)))]
-  const stored = await readInstrumentCatalog(env, normalized)
-  return normalized.filter((symbol) => stored.get(symbol)?.resolutionStatus !== 'resolved')
 }
 
 /** Honest placeholder for a tastytrade watchlist Equity absent from its instrument endpoints. */

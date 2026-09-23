@@ -74,11 +74,6 @@ export function stubBroker() {
     loadPublicMarketSnapshot: vi.fn(),
     lookupPublicMarketSymbol: vi.fn<BrokerApi['lookupPublicMarketSymbol']>(async () => undefined),
     loadQuoteToken: vi.fn(),
-    resolveResearchInstrumentCatalogFromTastytrade: vi.fn<BrokerApi['resolveResearchInstrumentCatalogFromTastytrade']>(async () => ({
-      missingSymbols: [],
-      receivedCount: 0,
-      requestedCount: 0,
-    })),
     resolveAccountNumber: vi.fn(),
     renewBrokerMutationLease,
     tastyRequest: vi.fn(),

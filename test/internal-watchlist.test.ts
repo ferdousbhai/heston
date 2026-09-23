@@ -8,11 +8,10 @@ import {
   internalWatchlistSeedFromPayloads,
   readInternalWatchlist,
   readInternalWatchlistCatalogCandidates,
+  readInternalWatchlistFocus,
   readInternalWatchlistSeedAudit,
   readInternalWatchlistSymbolDetails,
-  pruneInternalWatchlistToFocus,
   removeInternalWatchlistSymbols,
-  selectInternalWatchlistFocus,
 } from '../src/server/internal-watchlist'
 import { MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
 import {
@@ -173,7 +172,7 @@ describe('one-time tastytrade watchlist seed', () => {
     await finalizeInternalWatchlist(env, [], new Date('2026-08-26T10:01:00.000Z'))
     await ensureInternalWatchlistSymbols(env, ['ZZZ'], 'owner', new Date('2026-08-26T11:00:00.000Z'))
 
-    const focus = selectInternalWatchlistFocus(await readInternalWatchlist(env), ['PLTR'], 3)
+    const focus = await readInternalWatchlistFocus(env, ['PLTR'], 3)
 
     expect(focus).toEqual(['PLTR', 'ZZZ', 'NVDA'])
     expect(JSON.stringify(focus)).not.toContain('private')
@@ -182,36 +181,56 @@ describe('one-time tastytrade watchlist seed', () => {
 
   it('uses retained high-options-volume order only after personal symbols', async () => {
     const env = { DB: store.database }
-    await ensureInternalWatchlistSeeded(env, async () => payloads(), new Date('2026-08-26T10:00:00.000Z'))
-    await finalizeInternalWatchlist(env, [], new Date('2026-08-26T10:01:00.000Z'))
-    const [nvda, pltr] = await readInternalWatchlist(env)
-    const publicSeedItem = (symbol: string) => ({
-      ...pltr!,
-      metadata: { seedSourceIds: ['tastytrade-public-0'] },
-      symbol,
-    })
-    const hestonItem = (symbol: string, origin: 'owner' | 'scheduled-research') => ({
-      ...pltr!,
-      origin,
-      symbol,
-      updatedAt: '2026-08-25T10:00:00.000Z',
-    })
-
-    const focus = selectInternalWatchlistFocus(
-      [
-        nvda!,
-        pltr!,
-        publicSeedItem('AAPL'),
-        publicSeedItem('TSLA'),
-        hestonItem('MSFT', 'owner'),
-        hestonItem('GOOG', 'scheduled-research'),
-      ],
-      [],
-      4,
+    await ensureInternalWatchlistSeeded(env, async () => ({
+      privatePayload: [{ name: 'Long vol', 'watchlist-entries': [{ symbol: 'NVDA', 'instrument-type': 'Equity' }] }],
+      publicPayload: [{
+        name: 'High Options Volume',
+        'watchlist-entries': ['TSLA', 'AAPL', 'PLTR'].map((symbol) => ({ symbol, 'instrument-type': 'Equity' })),
+      }],
+    }), new Date('2026-08-26T10:00:00.000Z'))
+    await persistInstrumentCatalog(env, instrumentCatalogFromPayload(
+      ['TSLA', 'AAPL', 'PLTR'].map((symbol) => ({ active: true, 'instrument-type': 'Equity', symbol })),
       ['TSLA', 'AAPL', 'PLTR'],
-    )
+    ))
+    await finalizeInternalWatchlist(env, [], new Date('2026-08-26T10:01:00.000Z'))
+    await ensureInternalWatchlistSymbols(env, ['MSFT'], 'owner', new Date('2026-08-25T10:00:00.000Z'))
+    await ensureInternalWatchlistSymbols(env, ['GOOG'], 'scheduled-research', new Date('2026-08-25T10:00:00.000Z'))
 
-    expect(focus).toEqual(['MSFT', 'GOOG', 'NVDA', 'TSLA'])
+    await expect(readInternalWatchlistFocus(env, [], 4)).resolves.toEqual(['MSFT', 'GOOG', 'NVDA', 'TSLA'])
+  })
+
+  // The prune and the focus used to rank separately, and only the focus capped the volume list at
+  // `MAX_WATCHLIST_SYMBOLS`: a seed member ranked past it kept its volume tier in the prune and
+  // lost it in the focus, where it fell behind a seed member with no volume rank at all.
+  it('ranks a volume member past the list bound the same way in the prune and the focus', async () => {
+    const env = { DB: store.database }
+    const volume = Array.from({ length: MAX_WATCHLIST_SYMBOLS + 1 }, (_, index) => symbolAt(index))
+    const deepVolume = volume.at(-1)!
+    store.sqlite.exec(`
+      INSERT INTO internal_watchlist_seed (id, status, attempt_id, started_at, seeded_at, finalized_at)
+      VALUES ('primary', 'ready', 'seed-1', '2026-08-26T10:00:00.000Z',
+        '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z');
+      INSERT INTO internal_watchlist_seed_sources (id, source_kind, source_index, name, metadata_json)
+      VALUES ('tastytrade-public-0', 'public', 0, 'High Options Volume', '{}');
+      INSERT INTO internal_watchlist_items (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
+      VALUES
+        ('${deepVolume}', 'Equity', 'tastytrade-seed', '{}', '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z'),
+        ('ZZZZ', 'Equity', 'tastytrade-seed', '{}', '2026-08-26T10:00:00.000Z', '2026-08-27T10:00:00.000Z');
+    `)
+    const entry = store.sqlite.prepare(
+      `INSERT INTO internal_watchlist_seed_entries (source_id, entry_index, broker_symbol, instrument_type, metadata_json)
+       VALUES ('tastytrade-public-0', ?, ?, 'Equity', '{}')`,
+    )
+    volume.forEach((symbol, index) => entry.run(index, symbol))
+    await persistInstrumentCatalog(env, instrumentCatalogFromPayload(
+      volume.map((symbol) => ({ active: true, 'instrument-type': 'Equity', symbol })),
+      volume,
+    ))
+
+    await expect(readInternalWatchlistFocus(env, [], 1)).resolves.toEqual([deepVolume])
+    // An addition runs the prune in the same batch; it ranks the same way and drops nothing.
+    await ensureInternalWatchlistSymbols(env, ['MSFT'], 'owner')
+    await expect(readInternalWatchlistFocus(env, [], 2)).resolves.toEqual(['MSFT', deepVolume])
   })
 
   it('prunes only the maintained list and does not repopulate an explicit deletion', async () => {
@@ -231,10 +250,8 @@ describe('one-time tastytrade watchlist seed', () => {
       .toEqual({ count: MAX_WATCHLIST_SYMBOLS + 5 })
 
     await removeInternalWatchlistSymbols(env, [symbols[0]!])
-    await expect(pruneInternalWatchlistToFocus(env, MAX_WATCHLIST_SYMBOLS)).resolves.toMatchObject({
-      kept: expect.not.arrayContaining([symbols[0]!]),
-      removedCount: 0,
-    })
+    await expect(readInternalWatchlistFocus(env, [], MAX_WATCHLIST_SYMBOLS))
+      .resolves.toEqual(expect.not.arrayContaining([symbols[0]!]))
     expect(await readInternalWatchlist(env)).toHaveLength(MAX_WATCHLIST_SYMBOLS - 1)
   })
 

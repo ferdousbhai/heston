@@ -6,7 +6,6 @@ import {
   type MarketSnapshot,
   type Ticker,
 } from '../domain/market'
-import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 import {
   envelopeRows,
   jsonNumber,
@@ -192,11 +191,15 @@ export function strictTastytradeRows(payload: JsonValue, label: string): JsonObj
   return rows
 }
 
+/**
+ * Index provider rows by the symbol they answer for. A row for a symbol nobody asked for, or a
+ * second row for one, is a broken response and throws; a requested symbol with no row is left
+ * absent, and the caller counts it.
+ */
 export function tastytradeRowsByRequestedSymbol(
   rows: readonly JsonObject[],
   requestedSymbols: readonly string[],
   label: string,
-  requireAll = true,
 ): Map<string, JsonObject> {
   const requested = new Set(requestedSymbols)
   const bySymbol = new Map<string, JsonObject>()
@@ -208,7 +211,6 @@ export function tastytradeRowsByRequestedSymbol(
     if (bySymbol.has(symbol)) throw new Error(`${label}:duplicate-symbol`)
     bySymbol.set(symbol, row)
   }
-  if (requireAll && bySymbol.size !== requested.size) throw new Error(`${label}:missing-symbol`)
   return bySymbol
 }
 
@@ -347,15 +349,6 @@ export function normalizeTastytradeMarketTicker(
   } }
 }
 
-export function liveTickerFromRecords(
-  symbol: string,
-  metrics: JsonObject | undefined,
-  quote: JsonObject | undefined,
-  instrument?: JsonObject,
-): Ticker {
-  return normalizeTastytradeMarketTicker(symbol, metrics, quote, instrument).ticker
-}
-
 /**
  * Rebuild the UI read model from what the store already holds, so a visitor can be served a
  * snapshot without any call reaching the provider. The stored records are the normalized facts
@@ -459,20 +452,6 @@ export function marketClosesAtFromTastytradeSession(payload: JsonValue, now = ne
   const close = Date.parse(jsonText(session['close-at']) ?? '')
   if (!Number.isFinite(close) || close <= now.getTime()) return undefined
   return new Date(close).toISOString()
-}
-
-export function selectSnapshotSymbols(
-  positionSymbols: readonly string[],
-  requestedSymbols: readonly string[],
-  internalWatchlistSymbols: readonly string[],
-): string[] {
-  const symbols = [...new Set([
-    ...requestedSymbols,
-    ...positionSymbols,
-    ...internalWatchlistSymbols,
-  ].map((symbol) => EquitySymbolSchema.parse(symbol)))]
-  if (symbols.length > MAX_WATCHLIST_SYMBOLS) throw new Error('TastytradeSnapshot:too-many-symbols')
-  return symbols
 }
 
 export function activeEquityPositionSymbols(positions: readonly JsonObject[]): string[] {

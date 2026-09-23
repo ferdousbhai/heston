@@ -10,12 +10,13 @@ import {
   PublicMarketSnapshotSchema,
   volatilityVerdict,
 } from '../src/domain/market'
-import { MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
 import { marketSnapshotFixture } from './fixtures/market'
-import {
-  liveTickerFromRecords,
-  selectSnapshotSymbols,
-} from '../src/server/tastytrade-market-normalization'
+import { normalizeTastytradeMarketTicker } from '../src/server/tastytrade-market-normalization'
+
+/** The ticker the live snapshot path builds, without the stored records it persists beside it. */
+function liveTicker(...args: Parameters<typeof normalizeTastytradeMarketTicker>) {
+  return normalizeTastytradeMarketTicker(...args).ticker
+}
 
 describe('volatility classification', () => {
   it('formats market metrics with at most one decimal place', () => {
@@ -119,24 +120,8 @@ describe('snapshot contract', () => {
 })
 
 describe('tastytrade normalization', () => {
-  it('keeps requested symbols and positions ahead of the bounded internal focus', () => {
-    expect(selectSnapshotSymbols(
-      ['ZZPOS'],
-      ['AAREQ'],
-      ['MMWATC', 'ZZPOS'],
-    )).toEqual(['AAREQ', 'ZZPOS', 'MMWATC'])
-  })
-
-  it('rejects a snapshot symbol overflow instead of slicing it', () => {
-    const symbols = Array.from(
-      { length: MAX_WATCHLIST_SYMBOLS + 1 },
-      (_, index) => `A${index.toString(36).toUpperCase()}`,
-    )
-    expect(() => selectSnapshotSymbols([], symbols, [])).toThrow('too-many-symbols')
-  })
-
   it('preserves present optional volatility observations without plausibility caps', () => {
-    const ticker = liveTickerFromRecords('BE', {
+    const ticker = liveTicker('BE', {
       symbol: 'BE',
       'historical-volatility-30-day': '0',
       'implied-volatility-index': '0.18',
@@ -157,7 +142,7 @@ describe('tastytrade normalization', () => {
   })
 
   it('keeps the provider term observation without an arbitrary volatility ceiling', () => {
-    const ticker = liveTickerFromRecords('BE', {
+    const ticker = liveTicker('BE', {
       symbol: 'BE', 'implied-volatility-index': '0.18',
       'implied-volatility-index-rank': '0.25', 'implied-volatility-percentile': '0.3',
       'liquidity-rating': '5',
@@ -184,31 +169,31 @@ describe('tastytrade normalization', () => {
       'implied-volatility-index-rank': '0.25', 'implied-volatility-percentile': '0.3',
       'liquidity-rating': '5', 'market-cap': '900000000000',
     }
-    expect(liveTickerFromRecords('SPY', metrics, quote)).toMatchObject({
+    expect(liveTicker('SPY', metrics, quote)).toMatchObject({
       symbol: 'SPY', price: 700, ivIndex: 18, ivRank: 25, ivPercentile: 30,
       marketCap: 900_000_000_000, volume: 12_345_678,
       updatedAt: '2026-08-13T13:31:00.000Z',
     })
-    expect(liveTickerFromRecords('SPY', metrics, quote).sparkline).toEqual([])
-    expect(liveTickerFromRecords('SPY', { ...metrics, 'market-cap': '0' }, quote).marketCap)
+    expect(liveTicker('SPY', metrics, quote).sparkline).toEqual([])
+    expect(liveTicker('SPY', { ...metrics, 'market-cap': '0' }, quote).marketCap)
       .toBeUndefined()
-    expect(liveTickerFromRecords('SPCX', metrics, quote, {
+    expect(liveTicker('SPCX', metrics, quote, {
       symbol: 'SPCX', description: 'SpaceX Corporation',
     })).toMatchObject({ assetType: undefined, name: 'SpaceX Corporation' })
-    expect(liveTickerFromRecords('SPCX', metrics, quote, {
+    expect(liveTicker('SPCX', metrics, quote, {
       symbol: 'SPCX', description: 'SpaceX Corporation', 'is-etf': false, 'is-index': false,
     }).assetType).toBe('stock')
-    expect(liveTickerFromRecords('SPY', metrics, {
+    expect(liveTicker('SPY', metrics, {
       symbol: 'SPY', mark: '700', prevDayClose: '695',
       updatedAt: '2026-08-13T13:31:00.000Z',
     }).change).toBe(5)
-    expect(() => liveTickerFromRecords('SPY', undefined, quote)).toThrow('missing-metrics')
-    expect(() => liveTickerFromRecords('SPY', metrics, { ...quote, 'updated-at': undefined }))
+    expect(() => liveTicker('SPY', undefined, quote)).toThrow('missing-metrics')
+    expect(() => liveTicker('SPY', metrics, { ...quote, 'updated-at': undefined }))
       .toThrow('invalid-updated-at')
-    const projected = liveTickerFromRecords('SPY', metrics, quote)
+    const projected = liveTicker('SPY', metrics, quote)
     expect(projected.change).toBe(5)
     expect(projected.changePercent).toBeCloseTo(0.7194244604)
-    expect(liveTickerFromRecords('SPY', {
+    expect(liveTicker('SPY', {
       symbol: 'SPY',
       'implied-volatility-index': null,
       'implied-volatility-percentile': null,
@@ -220,12 +205,12 @@ describe('tastytrade normalization', () => {
       ivRank: undefined,
       liquidity: undefined,
     })
-    expect(() => liveTickerFromRecords('SPY', metrics, { ...quote, volume: 'many' }))
+    expect(() => liveTicker('SPY', metrics, { ...quote, volume: 'many' }))
       .toThrow('invalid-volume')
   })
 
   it('normalizes optional volatility, instrument, borrow, and 52-week enrichment', () => {
-    const ticker = liveTickerFromRecords('SPY', {
+    const ticker = liveTicker('SPY', {
       symbol: 'SPY',
       'historical-volatility-30-day': '14',
       'implied-volatility-index': '0.18',

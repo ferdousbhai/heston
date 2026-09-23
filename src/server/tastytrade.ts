@@ -1,4 +1,3 @@
-import { EquitySymbolSchema } from '../domain/instrument'
 import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 import {
   MarketSnapshotSchema,
@@ -16,9 +15,8 @@ import {
   ensureInternalWatchlistSeeded,
   ensureInternalWatchlistSymbols,
   previewInternalWatchlistSeed,
-  pruneInternalWatchlistToFocus,
-  readInternalWatchlist,
   readInternalWatchlistCatalogCandidates,
+  readInternalWatchlistFocus,
   type InternalWatchlistSeedPayloads,
   type InternalWatchlistSeedPreview,
 } from './internal-watchlist'
@@ -33,7 +31,6 @@ import {
 } from '../domain/json-payload'
 import { readStoredSecret } from './secrets'
 import {
-  instrumentCatalogSymbolsNeedingResolution,
   missingInstrumentCatalogSymbols,
   loadInstrumentCatalog,
   persistInstrumentCatalog,
@@ -50,7 +47,6 @@ import {
   marketStateFromTastytradeSession,
   tickerFromStoredRecords,
   normalizeTastytradeMarketTicker,
-  selectSnapshotSymbols,
   strictTastytradeRows,
   tastytradeRowsByRequestedSymbol,
 } from './tastytrade-market-normalization'
@@ -72,10 +68,27 @@ import {
 } from './tastytrade-market-store'
 
 const USER_AGENT = 'Heston/0.1'
-// tastytrade names every requested symbol in the query string. This is the symbol count
-// one such request carries, and it is deliberately independent of how long the
-// watchlist grows: the list is paged into requests, never sent as one URL.
+/**
+ * The symbols one tastytrade request names. tastytrade's market-data endpoint documents a
+ * combined limit of 100 symbols per request, and every symbol-listing read here — metrics,
+ * quotes, the equity instruments catalog — pages by this one figure. It is deliberately
+ * independent of how long the watchlist grows: the list is paged into requests, never sent as
+ * one URL. D1 persistence does not borrow it; storage chunks by `d1-limits`.
+ */
 export const BROKER_SYMBOL_CHUNK_SIZE = 100
+/**
+ * How long one tastytrade request may take before it is abandoned. A named budget rather than a
+ * provider figure: it keeps one hung request inside the public refresh claim, which assumes a
+ * slow provider answers well within its lease.
+ */
+const TASTYTRADE_REQUEST_TIMEOUT_MS = 20_000
+// An OAuth token response is a handful of fields; this bounds the buffered parse of one.
+const MAX_TASTYTRADE_AUTH_RESPONSE_BYTES = 256_000
+// A cached token must outlive any request it is handed to, so it is retired one request timeout
+// before the provider's expiry — or a tenth of its life, for a token too short-lived to spare a
+// whole timeout and still be worth caching.
+const TOKEN_EXPIRY_SKEW_MS = TASTYTRADE_REQUEST_TIMEOUT_MS
+const MAX_TOKEN_EXPIRY_SKEW_FRACTION = 0.1
 // Provider JSON is buffered for strict parsing; stay within the Worker isolate memory budget
 // while allowing the catalog endpoints, which are substantially larger than normal reads.
 const MAX_TASTYTRADE_RESPONSE_BYTES = 16 * 1024 * 1024
@@ -104,13 +117,13 @@ async function refreshAccessToken(env: AppEnv): Promise<string> {
       client_secret: clientSecret,
       refresh_token: refreshToken,
     }),
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(TASTYTRADE_REQUEST_TIMEOUT_MS),
   })
   if (!response.ok) {
     await response.body?.cancel()
     throw new Error(`TastytradeAuth:${response.status}`)
   }
-  const payload = jsonObjectOrEmpty(await readBoundedJson(response, 256_000, 'TastytradeAuth'))
+  const payload = jsonObjectOrEmpty(await readBoundedJson(response, MAX_TASTYTRADE_AUTH_RESPONSE_BYTES, 'TastytradeAuth'))
   const token = jsonText(payload.access_token)
   if (!token) throw new Error('TastytradeAuth:missing-token')
   const lifetimeSeconds = jsonNumber(payload.expires_in)
@@ -118,7 +131,7 @@ async function refreshAccessToken(env: AppEnv): Promise<string> {
     throw new Error('TastytradeAuth:invalid-token-lifetime')
   }
   const lifetimeMs = lifetimeSeconds * 1_000
-  const skewMs = Math.min(30_000, lifetimeMs * 0.1)
+  const skewMs = Math.min(TOKEN_EXPIRY_SKEW_MS, lifetimeMs * MAX_TOKEN_EXPIRY_SKEW_FRACTION)
   cachedAccess = { token, expiresAt: Date.now() + lifetimeMs - skewMs }
   return token
 }
@@ -220,7 +233,7 @@ async function authorizedRequest(
   headers.set('Authorization', `Bearer ${token}`)
   headers.set('User-Agent', USER_AGENT)
   if (init.body) headers.set('Content-Type', 'application/json')
-  const timeout = AbortSignal.timeout(20_000)
+  const timeout = AbortSignal.timeout(TASTYTRADE_REQUEST_TIMEOUT_MS)
   const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout
   return fetch(`${apiBase(env)}${path}`, { ...init, headers, signal })
 }
@@ -291,10 +304,6 @@ async function loadStoredBrief(env: AppEnv): Promise<MarketSnapshot['brief']> {
   return readLatestDailyBrief(env.DB)
 }
 
-type MarketSnapshotOptions = {
-  symbols?: readonly string[]
-}
-
 /** Both market reads name every symbol in the query string, so a long watchlist is
  *  fetched in request-sized chunks rather than in one URL the provider would reject. */
 async function loadMarketRows(
@@ -340,8 +349,8 @@ async function loadMarketFacts(
     loadMarketRows(env, symbols),
     readInstrumentCatalog(env, symbols),
   ])
-  const metricBySymbol = tastytradeRowsByRequestedSymbol(metrics, symbols, 'TastytradeMetrics', false)
-  const quoteBySymbol = tastytradeRowsByRequestedSymbol(quotes, symbols, 'TastytradeMarketData', false)
+  const metricBySymbol = tastytradeRowsByRequestedSymbol(metrics, symbols, 'TastytradeMetrics')
+  const quoteBySymbol = tastytradeRowsByRequestedSymbol(quotes, symbols, 'TastytradeMarketData')
   const normalized = symbols.flatMap((symbol) => {
     const metricsRow = metricBySymbol.get(symbol)
     const quoteRow = quoteBySymbol.get(symbol)
@@ -349,6 +358,12 @@ async function loadMarketFacts(
     if (!metricsRow || !quoteRow || !instrument) return []
     return [normalizeTastytradeMarketTicker(symbol, metricsRow, quoteRow, catalogTickerInstrument(instrument))]
   })
+  // A symbol the provider or catalog could not answer for is left out of this build and keeps
+  // its previous stored row. That is the product's best-effort contract, so the drop is counted
+  // rather than hidden: a name that never normalizes shows up here long before a reader notices.
+  if (normalized.length < symbols.length) {
+    console.warn('MarketSymbolsDropped', symbols.length - normalized.length)
+  }
   if (!normalized.length) throw new Error('TastytradeSnapshot:empty')
   // Read-only: the year series is refreshed on the schedule, so a symbol the refresh has not
   // reached yet simply carries no year chart rather than delaying the whole market read.
@@ -386,6 +401,7 @@ async function loadTastytradeInstrumentCatalog(
   return loadInstrumentCatalog(
     symbols,
     (chunk) => tastyRequest(env, equityInstrumentPath(chunk)),
+    BROKER_SYMBOL_CHUNK_SIZE,
     now,
   )
 }
@@ -405,15 +421,6 @@ export async function refreshTastytradeInstrumentCatalog(
     receivedCount: result.items.length,
     requestedCount: result.requestedCount,
   }
-}
-
-export async function resolveResearchInstrumentCatalogFromTastytrade(
-  env: AppEnv,
-  now = new Date(),
-): Promise<InstrumentCatalogRefresh> {
-  const symbols = (await readInternalWatchlist(env)).map((item) => item.symbol)
-  const unresolved = await instrumentCatalogSymbolsNeedingResolution(env, symbols)
-  return refreshTastytradeInstrumentCatalog(env, unresolved, now)
 }
 
 export type InternalInstrumentCatalogChunkRefresh = InstrumentCatalogRefresh & {
@@ -504,27 +511,20 @@ export async function seedInternalWatchlistFromTastytrade(
   await ensureInternalWatchlistSeeded(env, () => loadTastytradeWatchlistSeedPayloads(env, credential))
 }
 
-async function loadMarketSnapshot(
-  env: AppEnv,
-  options: MarketSnapshotOptions = {},
-): Promise<MarketSnapshot> {
+async function loadMarketSnapshot(env: AppEnv): Promise<MarketSnapshot> {
   const sessionPayload = await tastyRequest(env, '/market-time/equities/sessions/current')
-  // Held names reach the watchlist through the trade-intent write at placement;
-  // snapshots no longer read positions. This prune remains because it reduces the
-  // one-time seed to the cap and republishes the public universe.
-  // Pruning already returns the retained list, so reading it back would repeat
-  // the same three queries against a table nothing has touched in between.
-  const { kept: focusSymbols } = await pruneInternalWatchlistToFocus(env, MAX_WATCHLIST_SYMBOLS)
+  // Held names reach the watchlist through the trade-intent write at placement; snapshots no
+  // longer read positions. Every write to the list already holds it to its cap in the same
+  // batch, so this path only reads the focus. The one publish of the public universe is below,
+  // after the build succeeds.
+  const symbols = await readInternalWatchlistFocus(env, [], MAX_WATCHLIST_SYMBOLS)
   const privateWatchlist: Watchlist = {
     id: 'watchlist',
     kind: 'private',
     name: 'Watchlist',
-    symbols: focusSymbols,
+    symbols,
   }
   const watchlists = [privateWatchlist]
-  const requestedSymbols = (options.symbols ?? [])
-    .map((symbol) => EquitySymbolSchema.parse(symbol))
-  const symbols = selectSnapshotSymbols([], requestedSymbols, privateWatchlist.symbols)
   // New owner and agent symbols get an authoritative name immediately; a later market-open
   // snapshot retries the honest unresolved rows.
   await refreshMissingTastytradeInstruments(env, symbols)
@@ -679,7 +679,7 @@ async function cacheProviderSession(env: AppEnv, payload: JsonValue, now = new D
   try {
     await persistMarketSession(env, session.marketState, session.marketOpensAt, session.marketClosesAt)
   } catch (error) {
-    console.error('MarketSessionCacheWriteFailed', error instanceof Error ? error.message : 'UnknownError')
+    console.error('MarketSessionCacheWriteFailed', error instanceof Error ? error.name : 'UnknownError')
   }
   return session
 }
@@ -750,8 +750,8 @@ async function loadStoredPublicMarketSnapshot(env: AppEnv): Promise<PublicMarket
  */
 async function loadStoredMarketSnapshot(env: AppEnv): Promise<MarketSnapshot | undefined> {
   if (!env.DB) return undefined
-  const { kept: focusSymbols } = await pruneInternalWatchlistToFocus(env, MAX_WATCHLIST_SYMBOLS)
-  const parts = await storedSnapshotParts(env, selectSnapshotSymbols([], [], focusSymbols))
+  const focusSymbols = await readInternalWatchlistFocus(env, [], MAX_WATCHLIST_SYMBOLS)
+  const parts = await storedSnapshotParts(env, focusSymbols)
   if (!parts) return undefined
   return MarketSnapshotSchema.parse({
     source: 'tastytrade',
@@ -782,7 +782,6 @@ const brokerApiSeam = defineSeam(() => ({
   lookupStoredMarketSymbol,
   loadQuoteToken,
   refreshPublicMarketSession,
-  resolveResearchInstrumentCatalogFromTastytrade,
   resolveAccountNumber,
   tastyRequest,
   withBrokerMutationLease,

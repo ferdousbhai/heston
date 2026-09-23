@@ -40,7 +40,6 @@ const forbiddenBrokerApi = {
   lookupPublicMarketSymbol: forbidden,
   lookupStoredMarketSymbol: forbidden,
   resolveAccountNumber: forbidden,
-  resolveResearchInstrumentCatalogFromTastytrade: forbidden,
   tastyRequest: forbidden,
   withBrokerMutationLease: forbidden,
 } satisfies BrokerApi

@@ -1,14 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
+import { type JsonValue } from '../src/domain/json-payload'
+import { type AppEnv } from '../src/server/env'
 import {
-  instrumentCatalogSymbolsNeedingResolution,
   instrumentCatalogFromPayload,
+  loadInstrumentCatalog,
   persistInstrumentCatalog,
   readInstrumentCatalog,
-  refreshInstrumentCatalog,
   unresolvedInstrumentCatalogItem,
 } from '../src/server/instrument-catalog'
+import { BROKER_SYMBOL_CHUNK_SIZE } from '../src/server/tastytrade'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
+
+/** The load-then-persist pair the tastytrade catalog refresh runs, with the provider stubbed. */
+async function refreshCatalog(env: AppEnv, symbols: string[], payload: JsonValue, now: Date): Promise<void> {
+  const { items } = await loadInstrumentCatalog(symbols, async () => payload, BROKER_SYMBOL_CHUNK_SIZE, now)
+  await persistInstrumentCatalog(env, items)
+}
 
 let store: SqliteD1Store
 
@@ -86,13 +94,13 @@ describe('typed tastytrade instrument catalog', () => {
 
   it('updates provider identity and status with stable creation time', async () => {
     const env = { DB: store.database }
-    await refreshInstrumentCatalog(env, ['SPCX'], async () => ({ data: { items: [providerRow()] } }),
+    await refreshCatalog(env, ['SPCX'], { data: { items: [providerRow()] } },
       new Date('2026-08-26T12:00:00.000Z'))
     const updated = providerRow()
     updated.description = 'Space Exploration Technologies Corp.'
     updated.active = false
     updated['option-tick-sizes'] = []
-    await refreshInstrumentCatalog(env, ['SPCX'], async () => [updated],
+    await refreshCatalog(env, ['SPCX'], [updated],
       new Date('2026-08-27T12:00:00.000Z'))
 
     const item = (await readInstrumentCatalog(env, ['SPCX'])).get('SPCX')
@@ -132,7 +140,7 @@ describe('typed tastytrade instrument catalog', () => {
 
   it('does not let a definitive unresolved result erase resolved identity', async () => {
     const env = { DB: store.database }
-    await refreshInstrumentCatalog(env, ['SPCX'], async () => [providerRow()],
+    await refreshCatalog(env, ['SPCX'], [providerRow()],
       new Date('2026-08-26T12:00:00.000Z'))
     await persistInstrumentCatalog(env, [
       unresolvedInstrumentCatalogItem('SPCX', new Date('2026-08-27T12:00:00.000Z')),
@@ -148,17 +156,6 @@ describe('typed tastytrade instrument catalog', () => {
       description: null,
       resolutionStatus: 'unresolved',
     })
-  })
-
-  it('selects only absent or unresolved identities for a later resolution attempt', async () => {
-    const env = { DB: store.database }
-    await persistInstrumentCatalog(env, [
-      instrumentCatalogFromPayload([providerRow('SPCX')], ['SPCX'])[0]!,
-      unresolvedInstrumentCatalogItem('VXD'),
-    ])
-
-    await expect(instrumentCatalogSymbolsNeedingResolution(env, ['SPCX', 'VXD', 'NVDA']))
-      .resolves.toEqual(['VXD', 'NVDA'])
   })
 
   it('uses D1-sized multi-row writes across persistence chunks', async () => {

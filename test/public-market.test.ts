@@ -3,11 +3,6 @@ import { stubBrokerGate } from './broker-stub'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
 import { migrationStore } from './sqlite-d1'
 import { symbolAt } from './symbols'
-import {
-  instrumentCatalogFromPayload,
-  persistInstrumentCatalog,
-  unresolvedInstrumentCatalogItem,
-} from '../src/server/instrument-catalog'
 import { ensureInternalWatchlistSeeded, finalizeInternalWatchlist } from '../src/server/internal-watchlist'
 import { MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
 import {
@@ -120,71 +115,6 @@ describe('public market boundary', () => {
     }, ['SPCX'])).resolves.toMatchObject({ missingSymbols: ['SPCX'], receivedCount: 0 })
     expect(store.sqlite.prepare('SELECT resolution_status FROM instrument_catalog WHERE symbol = ?').get('SPCX'))
       .toEqual({ resolution_status: 'unresolved' })
-    store.close()
-  })
-
-  it('retries only unresolved internal-watchlist identities for research', async () => {
-    const store = await migrationStore()
-    store.sqlite.exec(`
-      INSERT INTO internal_watchlist_seed
-        (id, status, attempt_id, started_at, seeded_at, finalized_at)
-      VALUES (
-        'primary', 'ready', 'seed-1', '2026-08-26T10:00:00.000Z',
-        '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z'
-      );
-      INSERT INTO internal_watchlist_items
-        (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
-      VALUES
-        ('NVDA', 'Equity', 'owner', '{}', '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z'),
-        ('SPCX', 'Equity', 'owner', '{}', '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z'),
-        ('VXD', 'Equity', 'owner', '{}', '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z');
-    `)
-    const env = { DB: store.database }
-    await persistInstrumentCatalog(env, [
-      instrumentCatalogFromPayload([{
-        active: true,
-        description: 'SpaceX Corporation',
-        'instrument-type': 'Equity',
-        symbol: 'SPCX',
-      }], ['SPCX'])[0]!,
-      unresolvedInstrumentCatalogItem('VXD'),
-    ])
-    const catalogRequests: URL[] = []
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = new URL(String(input))
-      if (url.pathname.endsWith('/oauth/token')) {
-        return Response.json({ access_token: 'catalog-token', expires_in: 900 })
-      }
-      if (url.pathname.endsWith('/instruments/equities')) {
-        catalogRequests.push(url)
-        return Response.json({ data: { items: url.searchParams.getAll('symbol[]').map((symbol) => ({
-          active: true,
-          description: symbol,
-          'instrument-type': 'Equity',
-          symbol,
-        })) } })
-      }
-      return new Response('', { status: 404 })
-    })
-    vi.stubGlobal('fetch', fetchMock)
-    const { resolveResearchInstrumentCatalogFromTastytrade } = await import('../src/server/tastytrade')
-
-    await expect(resolveResearchInstrumentCatalogFromTastytrade({
-      BROKER_GATE: stubBrokerGate().namespace,
-      DB: store.database,
-      TASTYTRADE_CLIENT_SECRET: secret,
-      TASTYTRADE_REFRESH_TOKEN: secret,
-    })).resolves.toMatchObject({ missingSymbols: [], receivedCount: 2, requestedCount: 2 })
-
-    expect(catalogRequests).toHaveLength(1)
-    expect(catalogRequests[0]?.searchParams.getAll('symbol[]')).toEqual(['NVDA', 'VXD'])
-    expect(store.sqlite.prepare(
-      'SELECT symbol, resolution_status FROM instrument_catalog ORDER BY symbol',
-    ).all()).toEqual([
-      { resolution_status: 'resolved', symbol: 'NVDA' },
-      { resolution_status: 'resolved', symbol: 'SPCX' },
-      { resolution_status: 'resolved', symbol: 'VXD' },
-    ])
     store.close()
   })
 

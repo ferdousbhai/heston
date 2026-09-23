@@ -11,25 +11,47 @@ import {
 } from '../domain/json-payload'
 import { EquitySymbolSchema } from '../domain/instrument'
 import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
-import { D1_MAX_BOUND_PARAMETERS } from './d1-limits'
 import { type AppEnv } from './env'
 import { MAX_INSTRUMENT_CATALOG_ITEMS } from './instrument-catalog'
 import { publishInternalWatchlistUniverse } from './public-market-universe'
 import { defineSeam, type SeamValue } from './seam'
 
 // The seed import is a one-time parse of untrusted provider collections. These ceilings are
-// isolate-memory and D1-write budgets; they do not constrain the finalized 100-symbol product list.
+// isolate-memory and D1-write budgets; they do not constrain the finalized product list, whose
+// bound is `MAX_WATCHLIST_SYMBOLS`.
 const MAX_SOURCE_LISTS_PER_KIND = 100
 const MAX_ENTRIES_PER_SOURCE = 5_000
 const MAX_TOTAL_SEED_ENTRIES = 50_000
 
 /**
- * One definition of an eligible High Options Volume seed member. Pruning uses
- * this rank to decide which rows survive the cap and the focus read uses it to
- * order what is shown, so the two drifting apart would be a silent correctness
- * bug rather than a visible failure.
+ * The one ranking of the maintained list. Pruning keeps the head of it and the focus read
+ * returns the head of it, so both are built from this text: two rankings had already drifted
+ * (one capped the options-volume list, the other did not) and the drift was a silent
+ * correctness bug rather than a visible failure. Lower tiers rank first:
+ *
+ *   0  a priority symbol the caller names (held positions at finalization)
+ *   1  an owner addition
+ *   2  any other Heston origin — research, discussion, trade intent
+ *   3  a seed member of one of the owner's private broker lists
+ *   4  a seed member of the public High Options Volume list, by its rank there
+ *   5  a reader's search, which earns its place but yields to every curated name
+ *   6  any other seed member
+ *
+ * Ties break by options-volume rank, then most recently touched, then symbol. The one bound
+ * parameter is a JSON array of priority symbols, so its length is not capped by D1's
+ * bound-parameter limit.
  */
-const HIGH_OPTIONS_VOLUME_SOURCE = `
+const RANKED_ITEMS_CTE = `WITH priority AS (
+       SELECT value AS symbol FROM json_each(?)
+     ),
+     private_symbols AS (
+       SELECT DISTINCT upper(e.broker_symbol) AS symbol
+       FROM internal_watchlist_seed_entries e
+       JOIN internal_watchlist_seed_sources s ON s.id = e.source_id
+       WHERE e.instrument_type = 'Equity' AND s.source_kind = 'private'
+     ),
+     volume_symbols AS (
+       SELECT upper(e.broker_symbol) AS symbol, min(e.entry_index) AS volume_rank
        FROM internal_watchlist_seed_entries e
        JOIN internal_watchlist_seed_sources s ON s.id = e.source_id
        JOIN instrument_catalog c ON c.symbol = upper(e.broker_symbol)
@@ -38,7 +60,25 @@ const HIGH_OPTIONS_VOLUME_SOURCE = `
          AND c.resolution_status = 'resolved' AND c.active = 1
          AND coalesce(c.is_etf, 0) = 0 AND coalesce(c.is_index, 0) = 0
          AND coalesce(c.is_illiquid, 0) = 0 AND coalesce(c.is_closing_only, 0) = 0
-         AND coalesce(c.is_options_closing_only, 0) = 0`
+         AND coalesce(c.is_options_closing_only, 0) = 0
+       GROUP BY upper(e.broker_symbol)
+     ),
+     ranked AS (
+       SELECT i.symbol, i.updated_at, v.volume_rank,
+         CASE
+           WHEN i.symbol IN (SELECT symbol FROM priority) THEN 0
+           WHEN i.origin = 'owner' THEN 1
+           WHEN i.origin = 'visitor-search' THEN 5
+           WHEN i.origin <> 'tastytrade-seed' THEN 2
+           WHEN p.symbol IS NOT NULL THEN 3
+           WHEN v.volume_rank IS NOT NULL THEN 4
+           ELSE 6
+         END AS tier
+       FROM internal_watchlist_items i
+       LEFT JOIN private_symbols p ON p.symbol = i.symbol
+       LEFT JOIN volume_symbols v ON v.symbol = i.symbol
+     )`
+const RANK_ORDER = 'tier ASC, coalesce(volume_rank, 9223372036854775807) ASC, updated_at DESC, symbol ASC'
 const MAX_CATALOG_CANDIDATES = MAX_INSTRUMENT_CATALOG_ITEMS
 const MAX_SOURCE_METADATA_BYTES = 256_000
 const MAX_ENTRY_METADATA_BYTES = 64_000
@@ -451,38 +491,14 @@ function restoreSeedStatement(db: D1Database, timestamp: string): D1PreparedStat
   ).bind(timestamp, timestamp)
 }
 
+/** Drop the automatically admitted rows that fall past `MAX_WATCHLIST_SYMBOLS` in the ranking. */
 function pruneStatement(
   db: D1Database,
-  limit: number,
   prioritySymbols: readonly string[],
   onlyWhileUnfinalized = false,
 ): D1PreparedStatement {
-  const boundedLimit = Math.min(MAX_WATCHLIST_SYMBOLS, Math.max(1, Math.trunc(limit)))
-  // Every priority symbol is a bound parameter, so this list is capped by D1 rather
-  // than by the watchlist: the rest still rank by origin and recency.
-  const priority = normalizedSymbols(prioritySymbols).slice(0, D1_MAX_BOUND_PARAMETERS)
-  const dynamicPriority = priority.length
-    ? `WHEN symbol IN (${priority.map(() => '?').join(', ')}) THEN 0`
-    : ''
   return db.prepare(
-    `WITH private_symbols AS (
-       SELECT DISTINCT upper(e.broker_symbol) AS symbol
-       FROM internal_watchlist_seed_entries e
-       JOIN internal_watchlist_seed_sources s ON s.id = e.source_id
-       WHERE e.instrument_type = 'Equity' AND s.source_kind = 'private'
-     ),
-     volume_symbols AS (
-       SELECT upper(e.broker_symbol) AS symbol, min(e.entry_index) AS volume_rank
-       ${HIGH_OPTIONS_VOLUME_SOURCE}
-       GROUP BY upper(e.broker_symbol)
-     ),
-     ranked AS (
-       SELECT i.symbol, i.origin, i.updated_at,
-         p.symbol IS NOT NULL AS private_member, v.volume_rank
-       FROM internal_watchlist_items i
-       LEFT JOIN private_symbols p ON p.symbol = i.symbol
-       LEFT JOIN volume_symbols v ON v.symbol = i.symbol
-     )
+    `${RANKED_ITEMS_CTE}
      DELETE FROM internal_watchlist_items
      WHERE origin IN ('tastytrade-seed', 'visitor-search')
        ${onlyWhileUnfinalized ? `AND EXISTS (
@@ -490,20 +506,9 @@ function pruneStatement(
          WHERE id = 'primary' AND status = 'ready' AND finalized_at IS NULL
        )` : ''}
        AND symbol NOT IN (
-       SELECT symbol FROM ranked
-       ORDER BY CASE
-         ${dynamicPriority}
-         WHEN origin = 'owner' THEN 1
-         WHEN origin = 'visitor-search' THEN 5
-         WHEN origin <> 'tastytrade-seed' THEN 2
-         WHEN private_member THEN 3
-         WHEN volume_rank IS NOT NULL THEN 4
-         ELSE 6
-       END,
-       coalesce(volume_rank, 9223372036854775807), updated_at DESC, symbol ASC
-       LIMIT ${boundedLimit}
-     )`,
-  ).bind(...priority)
+         SELECT symbol FROM ranked ORDER BY ${RANK_ORDER} LIMIT ${MAX_WATCHLIST_SYMBOLS}
+       )`,
+  ).bind(JSON.stringify(normalizedSymbols(prioritySymbols)))
 }
 
 function originPriority(origin: InternalWatchlistOrigin): number {
@@ -588,7 +593,7 @@ export async function finalizeInternalWatchlist(
     ...(positions.length ? [
       upsertSymbolsStatement(db, positions, 'position-sync', timestamp, true),
     ] : []),
-    pruneStatement(db, MAX_WATCHLIST_SYMBOLS, positions, true),
+    pruneStatement(db, positions, true),
     db.prepare(
       `UPDATE internal_watchlist_seed SET finalized_at = ?
        WHERE id = 'primary' AND status = 'ready' AND finalized_at IS NULL
@@ -622,13 +627,14 @@ export async function ensureInternalWatchlistSymbols(
   if (normalized.length > MAX_WATCHLIST_SYMBOLS) throw new Error('InternalWatchlist:too-many-symbols')
   const timestamp = now.toISOString()
   const parsedOrigin = InternalWatchlistMutationOriginSchema.parse(origin)
-  // D1 batch executes transactionally. Ranking inside the same batch prevents
-  // concurrent additions from observing 99 rows and jointly exceeding the cap.
+  // D1 batch executes transactionally. Ranking inside the same batch prevents concurrent
+  // additions from each observing one free slot below `MAX_WATCHLIST_SYMBOLS` and jointly
+  // exceeding the cap.
   // New symbols are admitted in input order up to the protected-row capacity;
   // the only automatic eviction target remains a retained broker-seed row.
   await db.batch([
     upsertSymbolsStatement(db, normalized, parsedOrigin, timestamp),
-    pruneStatement(db, MAX_WATCHLIST_SYMBOLS, []),
+    pruneStatement(db, []),
   ])
   const kept = await focusFromStore(db, [], MAX_WATCHLIST_SYMBOLS)
   await publishInternalWatchlistUniverse(env, now)
@@ -697,51 +703,10 @@ async function readItems(db: D1Database): Promise<InternalWatchlistItem[]> {
   })
 }
 
-function hasPrivateSeedMembership(item: InternalWatchlistItem): boolean {
-  const sourceIds = JsonArraySchema.safeParse(item.metadata.seedSourceIds).data ?? []
-  return sourceIds.some((sourceId) => jsonText(sourceId)?.startsWith('tastytrade-private-'))
-}
-
 /**
- * Full broker provenance stays private. The public sees only the alphabetized
- * result of this bounded working set, never the priority that selected a symbol.
- */
-export function selectInternalWatchlistFocus(
-  items: readonly InternalWatchlistItem[],
-  positionSymbols: readonly string[],
-  limit = MAX_WATCHLIST_SYMBOLS,
-  highOptionsVolumeSymbols: readonly string[] = [],
-): string[] {
-  const positions = new Set(normalizedSymbols(positionSymbols))
-  const volumeRank = new Map(normalizedSymbols(highOptionsVolumeSymbols)
-    .map((symbol, index) => [symbol, index]))
-  const priority = (item: InternalWatchlistItem) => positions.has(item.symbol)
-    ? 0
-    : item.origin === 'owner'
-      ? 1
-      : item.origin === 'visitor-search'
-        // A reader's lookup earns its place on the list but yields to every curated
-        // name on it, so trimming the list back drops the searches first.
-        ? 5
-        : item.origin !== 'tastytrade-seed'
-          ? 2
-          : hasPrivateSeedMembership(item)
-            ? 3
-            : volumeRank.has(item.symbol) ? 4 : 6
-  return [...items]
-    .sort((left, right) => priority(left) - priority(right)
-      || (volumeRank.get(left.symbol) ?? Number.MAX_SAFE_INTEGER)
-        - (volumeRank.get(right.symbol) ?? Number.MAX_SAFE_INTEGER)
-      || right.updatedAt.localeCompare(left.updatedAt)
-      || left.symbol.localeCompare(right.symbol))
-    .slice(0, Math.max(0, limit))
-    .map((item) => item.symbol)
-}
-
-/**
- * Select the source-neutral 100-name working set. The one-time retained broker
- * provenance supplies an options-volume rank, but neither the rank nor its
- * source crosses the server boundary.
+ * Select the source-neutral working set: the head of the one ranking, at most `limit` names.
+ * The retained broker provenance supplies the ranking, but neither the rank nor its source
+ * crosses the server boundary — the caller gets bare symbols.
  */
 export async function readInternalWatchlistFocus(
   env: AppEnv,
@@ -758,37 +723,12 @@ async function focusFromStore(
   positionSymbols: readonly string[],
   limit: number,
 ): Promise<string[]> {
-  const [items, result] = await Promise.all([
-    readItems(db),
-    db.prepare(
-      `SELECT upper(e.broker_symbol) AS symbol
-       ${HIGH_OPTIONS_VOLUME_SOURCE}
-       GROUP BY upper(e.broker_symbol)
-       ORDER BY min(e.entry_index) ASC
-       LIMIT ${MAX_WATCHLIST_SYMBOLS}`,
-    ).all<{ symbol: string }>(),
-  ])
-  const highOptionsVolumeSymbols = z.array(z.object({ symbol: SymbolSchema }))
-    .max(MAX_WATCHLIST_SYMBOLS)
-    .parse(result.results)
-    .map((row) => row.symbol)
-  return selectInternalWatchlistFocus(items, positionSymbols, limit, highOptionsVolumeSymbols)
-}
-
-/**
- * Remove only live maintained-list rows. The full one-time broker provenance and
- * instrument catalog remain intact, so this bounded operation is recoverable.
- */
-export async function pruneInternalWatchlistToFocus(
-  env: AppEnv,
-  limit = MAX_WATCHLIST_SYMBOLS,
-): Promise<{ kept: string[]; removedCount: number }> {
-  const db = requiredDatabase(env)
-  await requireFinalizedSeed(db)
-  const result = await pruneStatement(db, limit, []).run()
-  const retained = await focusFromStore(db, [], limit)
-  await publishInternalWatchlistUniverse(env)
-  return { kept: retained, removedCount: result.meta.changes }
+  if (!Number.isSafeInteger(limit) || limit < 0) throw new Error('InternalWatchlist:invalid-focus-limit')
+  const result = await db.prepare(
+    `${RANKED_ITEMS_CTE}
+     SELECT symbol FROM ranked ORDER BY ${RANK_ORDER} LIMIT ?`,
+  ).bind(JSON.stringify(normalizedSymbols(positionSymbols)), limit).all<{ symbol: string }>()
+  return z.array(z.object({ symbol: SymbolSchema })).max(limit).parse(result.results).map((row) => row.symbol)
 }
 
 export async function readInternalWatchlistSymbolDetails(

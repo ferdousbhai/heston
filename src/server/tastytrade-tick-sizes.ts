@@ -16,7 +16,7 @@ export type TastytradeTickSize = {
   value: number
 }
 
-/** Normalize the two provider forms before catalog storage or order validation. */
+/** Normalize the two provider forms of a tick schedule before order-price validation. */
 export function tastytradeTickSizes(value: JsonValue, label: string): TastytradeTickSize[] {
   if (value === undefined || value === null) return []
   const rows = JsonArraySchema.safeParse(value).data ?? [value]
