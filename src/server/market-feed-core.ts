@@ -91,7 +91,7 @@ const DAILY_CANDLE_TIMEOUT_MS = 60_000
 /**
  * A quote token outlives a single connection, and re-fetching one on every reconnect turns a
  * dropped websocket into a REST call. Held well inside the provider's documented lifetime, and
- * discarded the moment the upstream rejects it, so a stale token costs one failed handshake.
+ * discarded whenever a handshake ends before authorizing, so a stale token costs one failed handshake.
  */
 const QUOTE_TOKEN_TTL_MS = 12 * 60 * 60 * 1_000
 /**
@@ -616,9 +616,6 @@ export class MarketFeedCore {
     this.clearSetupTimeout()
     this.setupTimeout = setTimeout(() => {
       if (socket !== this.upstream || this.demandIsConfigured()) return
-      // A handshake that never authorized leaves the token suspect, so the retry buys a fresh
-      // one. A timeout after authorization is a channel problem and keeps the working token.
-      if (this.upstreamAuthorization !== 'authorized') this.quoteToken = undefined
       this.track(this.closeUpstream(socket, 1013, 'Upstream setup timed out'))
     }, UPSTREAM_SETUP_TIMEOUT_MS)
     socket.addEventListener('open', () => this.track(this.handleUpstreamOpen(socket, credentials.token)))
@@ -900,6 +897,10 @@ export class MarketFeedCore {
 
   private async handleUpstreamClose(socket: WebSocket): Promise<void> {
     if (socket !== this.upstream) return
+    // However a handshake ends before AUTHORIZED -- a second UNAUTHORIZED, an ERROR frame, the
+    // upstream closing, or setup timing out -- the token is suspect, so the retry buys a fresh
+    // one. A connection that authorized and then dropped keeps its working token.
+    if (this.upstreamAuthorization !== 'authorized') this.quoteToken = undefined
     this.resetUpstreamState()
     // A half-delivered snapshot cannot be resumed across a reconnect; the resubscribe replays
     // it from the beginning, so the partial run is dropped rather than spliced onto the new one.

@@ -717,6 +717,27 @@ describe('MarketFeed option Greeks RPC', () => {
     await context.drain()
   })
 
+  it('buys a fresh quote token when the upstream closes before authorizing', async () => {
+    const context = new FakeContext([downstream(['SPY'])])
+    const feed = new MarketFeedCore(context, liveEnvironment())
+    await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(1))
+
+    const socket = FakeUpstreamWebSocket.instances[0]!
+    socket.open()
+    await context.drain()
+    socket.message({ type: 'AUTH_STATE', channel: 0, state: 'UNAUTHORIZED' })
+    await context.drain()
+    // Rejected by closing rather than by a second AUTH_STATE.
+    socket.close()
+    await context.drain()
+    await feed.alarm()
+    await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(2))
+
+    expect(tasty.loadQuoteToken).toHaveBeenCalledTimes(2)
+    FakeUpstreamWebSocket.instances[1]!.close()
+    await context.drain()
+  })
+
   it('buys a fresh quote token only when setup timed out before authorization', async () => {
     vi.useFakeTimers()
     const context = new FakeContext([downstream(['SPY'])])
