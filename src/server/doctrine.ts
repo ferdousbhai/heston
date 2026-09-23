@@ -130,11 +130,13 @@ What is not obvious from the tool list:
   Contract rows carry open interest and volume and are ranked by those unless a strike target
   is given. A contract exists only if the chain lists it -- never name one the lookup did not
   return.
-- There are three tiers and they are cumulative. With no credential you get the website's cached
-  public snapshot and the rows behind it -- quotes are a snapshot price, not a live bid and ask.
-  Signing in adds live broker quotes, chains, Greeks, and writing to the shared watchlist.
-- Account tools need a broker credential on the request, held on the user's own machine and never
-  here. Placement runs its guards server-side and its refusal is authoritative.
+- What a caller can do depends on what it presents, and the surfaces differ rather than stack.
+  With no credential: reads of the website's cached public snapshot and the rows behind it --
+  quotes are a snapshot price, not a live bid and ask -- and a search that admits names. Signed
+  in: live broker quotes, chains and Greeks, \`remember_symbols\`, and the research writes below.
+  The account tools answer only to a broker credential on the request, never to a sign-in.
+- That credential is held on the user's own machine and never here, and it reaches only the
+  account it resolves to. Placement runs its guards server-side and its refusal is authoritative.
 - \`read_account_snapshot\` is the current account: balances, positions, and working orders. Omit
   include for all three; pass a subset when only one of those is needed. History is
   \`read_account_history\`.
