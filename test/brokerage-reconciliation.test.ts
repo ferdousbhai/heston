@@ -207,6 +207,36 @@ describe('brokerage submission reconciliation', () => {
     })
   })
 
+  it('names an incomplete history, not a past instant, when absence cannot yet be concluded', async () => {
+    store = await migrationStore()
+    const longAgo = new Date(Date.now() - 24 * 60 * 60_000).toISOString()
+    store.sqlite.prepare(
+      `INSERT INTO broker_submissions (id, broker_id, account_number, payload_json, resolved_payload_json, submitted_at, status)
+       VALUES ('row-1', 'tastytrade', 'TEST123', ?, ?, ?, 'unresolved')`,
+    ).run(
+      JSON.stringify({
+        action: 'Buy to Open', expiry: '2026-09-18', kind: 'place_option_order', limitPrice: 2.5,
+        optionType: 'C', priceEffect: 'Debit', quantity: 2, strike: 600, underlying: 'SPY',
+      }),
+      JSON.stringify(intended),
+      longAgo,
+    )
+    setBrokerApi(stubBroker())
+    setBrokerAdapters({
+      tastytrade: {
+        ...tastytradeAdapter,
+        readOrderHistory: async () => ({ complete: false, orders: [] }),
+        resolveAccountRef: async () => ({ accountNumber: 'TEST123', broker: 'tastytrade' }),
+      },
+    })
+
+    const result = await reconcileUnknownBrokerageAction({ DB: store.database }, brokerCredential)
+    expect(result).toMatchObject({ status: 'unresolved' })
+    expect(result.detail).toContain('came back incomplete')
+    expect(result.detail).not.toContain('can be concluded from')
+    expect(store.sqlite.prepare('SELECT status FROM broker_submissions').all()).toEqual([{ status: 'unresolved' }])
+  })
+
   it('refuses a stored order that disagrees with its stored action rather than trusting either', async () => {
     store = await migrationStore()
     store.sqlite.prepare(

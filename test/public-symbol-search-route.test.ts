@@ -64,7 +64,7 @@ function sharedLease() {
     held.set(id, now.getTime() + leaseMs)
     return true
   })
-  broker.releaseMarketRefresh.mockImplementation(async (_env, leaseMs, claimedAt, id = 'public-snapshot') => {
+  broker.releaseMarketRefresh.mockImplementation(async (_env, leaseMs, claimedAt, id) => {
     if (held.get(id) === claimedAt.getTime() + leaseMs) held.delete(id)
   })
   return held

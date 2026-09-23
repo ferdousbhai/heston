@@ -262,7 +262,9 @@ async function reconcileUnderLease(
     const absenceFinalAt = new Date(submittedAt.getTime() + FINAL_ABSENCE_DELAY_MS).toISOString()
     const reason = matches.length > 1
       ? 'More than one exact broker match was found.'
-      : `No exact broker match is visible yet; if none appears, absence can be concluded from ${absenceFinalAt}.`
+      : !history.complete
+        ? 'The broker\'s order history came back incomplete, so absence cannot be concluded until a complete read.'
+        : `No exact broker match is visible yet; if none appears, absence can be concluded from ${absenceFinalAt}.`
     return { actionId: stored.id, detail: `${reason} The quarantine remains in place.`, status: 'unresolved' }
   }
 

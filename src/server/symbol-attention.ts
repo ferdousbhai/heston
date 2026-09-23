@@ -75,7 +75,7 @@ export function readsSymbols(toolName: string): boolean {
  * the sixth searched at all. The names past the budget are counted in the log, not visited, and
  * buy their search the next time a call names them.
  */
-export const MAX_ATTENTION_SYMBOLS = 5
+export const MAX_ATTENTION_SEARCHES = 5
 
 /**
  * The slice of a tool call this reads. A tool in `ATTENTION_TOOLS` names an equity with `symbol`
@@ -106,7 +106,7 @@ export async function noteSymbolAttention(env: AppEnv, call: SymbolNamingCall): 
   const named = namedSymbols(call)
   let searches = 0
   let visited = 0
-  while (visited < named.length && searches < MAX_ATTENTION_SYMBOLS) {
+  while (visited < named.length && searches < MAX_ATTENTION_SEARCHES) {
     const symbol = named[visited]!
     visited += 1
     try {
@@ -122,5 +122,5 @@ export async function noteSymbolAttention(env: AppEnv, call: SymbolNamingCall): 
     }
   }
   const unvisited = named.length - visited
-  if (unvisited > 0) console.warn('SymbolAttentionSymbolsDropped', unvisited)
+  if (unvisited > 0) console.warn('SymbolAttentionSymbolsUnvisited', unvisited)
 }

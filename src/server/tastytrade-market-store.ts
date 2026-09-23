@@ -325,7 +325,9 @@ export async function releaseMarketRefresh(
   env: AppEnv,
   leaseMs: number,
   claimedAt: Date,
-  id = 'public-snapshot',
+  // Required: the public-snapshot claim is never released, so a default could only free it by
+  // accident.
+  id: string,
 ): Promise<void> {
   if (!env.DB) return
   const claimedUntil = new Date(claimedAt.getTime() + leaseMs).toISOString()

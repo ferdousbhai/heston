@@ -43,7 +43,8 @@ const RUN_OVERHEAD_ALLOWANCE_MS = EXA_REQUEST_TIMEOUT_MS
  * search, against a symbol left unsearched for a month. Its late persist cannot undo the newer
  * run: a row write never moves a sighting backwards (`catalystUpsertStatements`), and its receipt
  * lands nowhere (`recordRun`). What it adds is rows the newer run did not report, stamped with its
- * older instant, which `CURRENT_CATALYSTS` already reads as superseded.
+ * older instant: a row of a kind the newer run also reported reads as superseded, and a kind it
+ * did not report stands, exactly as an earlier run's would.
  */
 export const CATALYST_RUN_BUDGET_MS = EXA_REQUEST_TIMEOUT_MS + RUN_OVERHEAD_ALLOWANCE_MS
 /**

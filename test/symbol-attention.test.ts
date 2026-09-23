@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
-  MAX_ATTENTION_SYMBOLS,
+  MAX_ATTENTION_SEARCHES,
   noteSymbolAttention,
   readsSymbols,
   type SymbolNamingCall,
@@ -121,9 +121,9 @@ describe('symbol attention', () => {
 
     // The unknown names are visited for free; the budget is spent only on the tracked names that
     // claimed a run -- a search that failed was still bought -- and the rest are counted.
-    expect(attempted).toEqual([...unknown, ...tracked.slice(0, MAX_ATTENTION_SYMBOLS)])
-    expect(fetchMock).toHaveBeenCalledTimes(MAX_ATTENTION_SYMBOLS)
-    expect(warn).toHaveBeenCalledWith('SymbolAttentionSymbolsDropped', tracked.length - MAX_ATTENTION_SYMBOLS)
+    expect(attempted).toEqual([...unknown, ...tracked.slice(0, MAX_ATTENTION_SEARCHES)])
+    expect(fetchMock).toHaveBeenCalledTimes(MAX_ATTENTION_SEARCHES)
+    expect(warn).toHaveBeenCalledWith('SymbolAttentionSymbolsUnvisited', tracked.length - MAX_ATTENTION_SEARCHES)
   })
 
   it('does not spend the budget on a name a recent failure is holding back', async () => {
