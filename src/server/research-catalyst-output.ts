@@ -74,11 +74,11 @@ export function bindCatalystCandidates(
   const horizon = addDays(today, CATALYST_HORIZON_DAYS)
 
   for (const [position, untrusted] of candidates.entries()) {
-    const index = (candidateNumbers?.[position] ?? position + 1) - 1
+    const number = candidateNumbers?.[position] ?? position + 1
     const parsed = ResearchCatalystCandidateSchema.safeParse(untrusted)
     if (!parsed.success) {
       rejected.push(...parsed.error.issues.map((issue) => (
-        `catalyst ${index + 1}: ${issue.message}`
+        `catalyst ${number}: ${issue.message}`
       )))
       continue
     }
@@ -87,24 +87,24 @@ export function bindCatalystCandidates(
     const sourceUrl = source ? citedPageKey(source.sourceUrl) : undefined
     const page = sourceUrl ? retained.get(sourceUrl) : undefined
     if (!sourceUrl || !page) {
-      rejected.push(`catalyst ${index + 1}: source was not read this run`)
+      rejected.push(`catalyst ${number}: source was not read this run`)
       continue
     }
     if (candidate.date < today || candidate.date > horizon) {
-      rejected.push(`catalyst ${index + 1}: date is outside the ${CATALYST_HORIZON_DAYS}-day horizon`)
+      rejected.push(`catalyst ${number}: date is outside the ${CATALYST_HORIZON_DAYS}-day horizon`)
       continue
     }
     if (!textMentionsDateWithinHorizon(page.markdown, candidate.date, today, horizon)) {
       // Year-less mentions bind within the horizon, so what remains missing is the date itself --
       // or, on a page read only in part, the date may sit past what was read.
       rejected.push(page.truncated
-        ? `catalyst ${index + 1}: ${candidate.date} ${TRUNCATED_READ_MISS} its source page`
-        : `catalyst ${index + 1}: ${candidate.date} does not appear on its source page`)
+        ? `catalyst ${number}: ${candidate.date} ${TRUNCATED_READ_MISS} its source page`
+        : `catalyst ${number}: ${candidate.date} does not appear on its source page`)
       continue
     }
     const id = `${provider}:${candidate.symbol}:${candidate.kind}:${candidate.date}`
     if (ids.has(id)) {
-      rejected.push(`catalyst ${index + 1}: duplicates ${id}`)
+      rejected.push(`catalyst ${number}: duplicates ${id}`)
       continue
     }
     ids.add(id)

@@ -94,8 +94,6 @@ const ExaEventSchema = z.object({
   title: z.string().min(1).max(MAX_CATALYST_TITLE_LENGTH),
 })
 
-export type ExaCatalystRun = CatalystCandidateBinding
-
 // The window the query asks about is the one the binder enforces, so the search is not spent on
 // events the binder would refuse.
 function catalystQuery(symbol: string, name: string): string {
@@ -140,7 +138,7 @@ export async function runExaCatalystSearch(
   untrustedSymbol: string,
   name: string,
   now = new Date(),
-): Promise<ExaCatalystRun> {
+): Promise<CatalystCandidateBinding> {
   const symbol = EquitySymbolSchema.parse(untrustedSymbol)
   const payload = await requestExaSearch(env, symbol, name)
   // Keyed by the canonical address every citation here is bound by, so an event citing a page
