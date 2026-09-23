@@ -295,7 +295,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         </p>
         {owner && (
           <p className="connect-owner-note">
-            Your account also carries the owner&apos;s watchlist reach: <code>read_watchlist</code>
+            Your account also carries the owner&apos;s watchlist reach: <code>read_watchlist</code>{' '}
             takes a symbol and names where it came from, and <code>manage_watchlist</code> adds to or
             removes from the shared watchlist.
           </p>

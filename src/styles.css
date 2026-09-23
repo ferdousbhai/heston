@@ -156,7 +156,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .instrument-focus.fair .premium-verdict { color: var(--fair-tone); }
 .instrument-focus.rich .premium-verdict { color: var(--rich); }
 
-/* One column reads runway → tape; the wide layout instead dissolves this grid into the
+/* One column reads recommendation → runway → evidence → tape; the wide layout instead dissolves this grid into the
    panel's own columns. */
 .focus-narrative { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--hairline); display: grid; gap: 22px; }
 .focus-eyebrow { min-height: 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -270,7 +270,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .ticker-table-button > small { width: 100%; overflow: hidden; color: var(--ink-faint); font-size: var(--type-caption); text-overflow: ellipsis; white-space: nowrap; font-weight: 400; line-height: 1.3; }
 .ticker-table-button > small:last-child:not(:nth-child(2)) { color: var(--brand); }
 /* The year chart is the one column that only earns its width on a laptop, so it is absent
-   rather than cramped below the breakpoint where the focus panel also goes three-column. */
+   rather than cramped below the widest breakpoint. */
 .premium-data-table .year-cell { display: none; }
 .premium-data-table .volume-cell { width: 10%; min-width: 84px; text-align: right; }
 .premium-data-table .premium-cell, .premium-data-table .liquidity-cell { width: 11%; min-width: 92px; text-align: right; }
@@ -390,10 +390,10 @@ button { -webkit-tap-highlight-color: transparent; }
   .focus-tape { margin-top: 24px; padding: 20px 0 0; }
   .focus-freshness { margin-top: 12px; }
   .instrument-focus [data-slot="card-footer"] { grid-column: 1; grid-row: 3; }
-  /* The last column line puts the research column right of the rail in both the two- and
-     three-column arrangements, and it stretches so its rule runs the full height. Evidence stacks
-     inside it directly under the runway, however short the runway is against the rail. */
-  .focus-research { display: block; grid-column: -2; grid-row: 1 / -1; align-self: stretch; padding: 0 0 0 clamp(22px, 2.4vw, 40px); border-left: 1px solid var(--hairline); }
+  /* The research column is the second column, beside the rail, and it stretches so its rule runs
+     the full height. Evidence stacks inside it directly under the runway, however short the
+     runway is against the rail. */
+  .focus-research { display: block; grid-column: 2; grid-row: 1 / -1; align-self: stretch; padding: 0 0 0 clamp(22px, 2.4vw, 40px); border-left: 1px solid var(--hairline); }
   .focus-runway + .focus-evidence { padding-top: 18px; border-top: 0; }
   .runway { margin-top: 0; }
   .runway-event { grid-template-columns: 68px 10px minmax(0, 1fr); padding-bottom: 13px; }
@@ -626,6 +626,9 @@ button { -webkit-tap-highlight-color: transparent; }
 .thesis-heading { color: var(--text); }
 .thesis strong { color: var(--text); }
 .thesis ul, .thesis ol { margin: 0 0 10px; padding-left: 1.3em; }
+/* Tailwind's preflight strips list markers, and a thesis list is content, not navigation. */
+.thesis ul { list-style: disc; }
+.thesis ol { list-style: decimal; }
 .thesis li { margin: 3px 0; }
 .thesis a { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
 .brief-empty { padding: 26px 22px; }
@@ -636,4 +639,8 @@ button { -webkit-tap-highlight-color: transparent; }
 @media (max-width: 959px) {
   .focus-recommendation + .focus-research > .focus-runway { padding-top: 20px; border-top: 1px solid var(--hairline); }
 }
-.focus-recommendation .brief-card { padding-top: 10px; border-top: 0; }
+.focus-recommendation .brief-card { padding: 10px 0 0; border-top: 0; }
+/* Small controls on a phone still take a full touch target. */
+@media (max-width: 959px) {
+  .connect-code-head button, .connect-issue button, .brief-navigation button, .brief-card-head button { min-height: var(--touch-target); }
+}
