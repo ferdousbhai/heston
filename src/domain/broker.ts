@@ -10,8 +10,9 @@ import { z } from 'zod'
 
 /**
  * Every broker Heston can read an account from. Adding one means adding it here and
- * registering its adapter — the header parser and the registry both derive from this list,
- * so a new id cannot be half-added and silently accepted by one and refused by the other.
+ * registering its adapter — the header parser parses against this list and the production
+ * registry is type-checked against it (`satisfies Record<BrokerId, BrokerAdapter>`), so a new
+ * id cannot be half-added and silently accepted by one and refused by the other.
  */
 export const BrokerIdSchema = z.enum(['tastytrade'])
 

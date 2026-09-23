@@ -1,3 +1,4 @@
+import { type BrokerId } from '../../domain/broker'
 import { type BrokerCredential, BrokerCredentialMissingError } from '../broker-credential'
 import { defineSeam } from '../seam'
 import { UnknownBrokerError, type BrokerAdapter } from './contract'
@@ -12,7 +13,10 @@ import { tastytradeAdapter } from './tastytrade'
  */
 const brokerAdaptersSeam = defineSeam<Readonly<Record<string, BrokerAdapter>>>(() => ({
   tastytrade: tastytradeAdapter,
-}))
+  // Checked against `BrokerIdSchema`: an id added there without an adapter here, or an adapter
+  // registered under an id the header parser would refuse, fails to compile. The seam's own type
+  // stays a string record only so a test can register a stub broker outside the union.
+} satisfies Record<BrokerId, BrokerAdapter>))
 
 const brokerAdapters = brokerAdaptersSeam.current
 

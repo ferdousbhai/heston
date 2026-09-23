@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { type JsonValue } from '../src/domain/json-payload'
+import { BrokerIdSchema } from '../src/domain/broker'
 
 import {
   brokerAdapterFor,
@@ -126,6 +127,12 @@ describe('broker adapter seam', () => {
 })
 
 describe('registered adapters', () => {
+  it('registers an adapter under every broker id the header parser accepts', () => {
+    for (const broker of BrokerIdSchema.options) {
+      expect(brokerAdapterFor({ accessToken: 'token', broker }).id).toBe(broker)
+    }
+  })
+
   it('routes a tastytrade credential to the tastytrade adapter', () => {
     expect(brokerAdapterFor(brokerCredential)).toBe(tastytradeAdapter)
     expect(tastytradeAdapter.id).toBe('tastytrade')
