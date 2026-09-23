@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { EquitySymbolSchema } from './instrument'
-import { HttpsSourceUrlSchema } from './https-url'
+import { CitedSourceUrlSchema, HttpsSourceUrlSchema } from './https-url'
 import { addDays, IsoDateSchema } from './iso-date'
 
 /**
@@ -46,6 +46,15 @@ export const CatalystSchema = z.object({
 })
 
 export type Catalyst = z.infer<typeof CatalystSchema>
+
+/**
+ * What a producer may write: a recorded catalyst is a citation like any other, so its page
+ * address is held to the same envelope an evidence card or a brief link is. Only the write is:
+ * Exa's addresses were stored as given, with no length bound, and a read that refused one
+ * overlong legacy row would fail every visitor's snapshot rather than that row. Reads keep
+ * `CatalystSchema`'s https rule, and every row written from here on meets both.
+ */
+export const RecordedCatalystSchema = CatalystSchema.extend({ sourceUrl: CitedSourceUrlSchema.optional() })
 
 /** Calendar fields every visitor needs for stories and the runway. Description and source
  *  ride a per-symbol fetch, the same way year closes left the snapshot. */

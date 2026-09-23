@@ -3,16 +3,18 @@ import { z } from 'zod'
 import {
   CATALYST_HORIZON_DAYS,
   CatalystKindSchema,
-  CatalystSchema,
   marketDate,
   MAX_CATALYST_DESCRIPTION_LENGTH,
   MAX_CATALYST_TITLE_LENGTH,
+  RecordedCatalystSchema,
   type Catalyst,
 } from '../domain/catalyst'
+import { CitedSourceUrlSchema } from '../domain/https-url'
 import { EquitySymbolSchema } from '../domain/instrument'
 import { addDays, IsoDateSchema, textMentionsDateWithinHorizon } from '../domain/iso-date'
 import { readBoundedJson } from './bounded-response'
 import { type AppEnv } from './env'
+import { citedPageKey } from './research-url'
 import { readStoredSecret } from './secrets'
 
 /**
@@ -134,7 +136,17 @@ export async function runExaCatalystSearch(
 ): Promise<ExaCatalystRun> {
   const symbol = EquitySymbolSchema.parse(untrustedSymbol)
   const payload = await requestExaSearch(env, symbol, name)
-  const pages = new Map(payload.results.map((result) => [result.url, result.text ?? '']))
+  // Keyed by the canonical address every citation here is bound by, so an event citing a page
+  // with a tracking parameter or fragment Exa's result lacks still finds the text it was read
+  // from, and what is stored is the one address a reader is given for that page. Two results
+  // that canonicalize to one page are both text this run read from it.
+  const pages = new Map<string, string>()
+  for (const result of payload.results) {
+    const key = citedPageKey(result.url)
+    if (key === undefined) continue
+    const read = pages.get(key)
+    pages.set(key, read === undefined ? result.text ?? '' : `${read}\n${result.text ?? ''}`)
+  }
   const events = payload.output?.content?.events
   if (!events) return { catalysts: [], rejected: ['Exa returned no structured events'] }
 
@@ -151,9 +163,13 @@ export async function runExaCatalystSearch(
       continue
     }
     const event = parsed.data
-    const sourceUrl = new URL(event.sourceUrl)
-    const page = pages.get(event.sourceUrl)
-    if (sourceUrl.protocol !== 'https:' || page === undefined) {
+    const sourceUrl = citedPageKey(event.sourceUrl)
+    if (sourceUrl === undefined || !CitedSourceUrlSchema.safeParse(sourceUrl).success) {
+      rejected.push(`event ${index + 1}: source is not a citable https page address`)
+      continue
+    }
+    const page = pages.get(sourceUrl)
+    if (page === undefined) {
       rejected.push(`event ${index + 1}: source was not read this run`)
       continue
     }
@@ -171,15 +187,15 @@ export async function runExaCatalystSearch(
       continue
     }
     ids.add(id)
-    catalysts.push(CatalystSchema.parse({
+    catalysts.push(RecordedCatalystSchema.parse({
       // A searched finding is never `confirmed`: only the broker's own calendar is.
       confidence: 'estimated',
       date: event.date,
       description: event.description ?? null,
       id,
       kind: event.kind,
-      source: `Exa search · ${sourceUrl.hostname.replace(/^www\./, '')}`,
-      sourceUrl: event.sourceUrl,
+      source: `Exa search · ${new URL(sourceUrl).hostname.replace(/^www\./, '')}`,
+      sourceUrl,
       symbol,
       timing: event.timing ?? 'unknown',
       title: event.title,

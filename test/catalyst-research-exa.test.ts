@@ -152,6 +152,29 @@ describe('exa catalyst search', () => {
     expect(run.rejected).toEqual(['event 1: date is outside the 180-day horizon'])
   })
 
+  it('binds and stores the canonical address, and refuses one no citation may carry', async () => {
+    stubExa(Response.json({
+      output: {
+        content: {
+          events: [
+            { ...investorDay, sourceUrl: 'https://ir.bloomenergy.com/events?utm_source=exa#calendar' },
+            { ...investorDay, date: '2026-10-15', sourceUrl: 'http://ir.bloomenergy.com/events' },
+            { ...investorDay, date: '2026-10-16', sourceUrl: `https://ir.bloomenergy.com/${'a'.repeat(2_000)}` },
+          ],
+        },
+      },
+      results: [{ text: page('2026-10-14'), url: 'https://ir.bloomenergy.com/events' }],
+    }))
+
+    const run = await runExaCatalystSearch(env, 'BE', 'Bloom Energy', NOW)
+
+    expect(run.catalysts.map((catalyst) => catalyst.sourceUrl)).toEqual(['https://ir.bloomenergy.com/events'])
+    expect(run.rejected).toEqual([
+      'event 2: source is not a citable https page address',
+      'event 3: source is not a citable https page address',
+    ])
+  })
+
   it('reports a search that synthesized nothing instead of inventing an event', async () => {
     stubExa(Response.json({ results: [] }))
 

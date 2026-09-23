@@ -4,6 +4,7 @@ import {
   CatalystSchema,
   marketDate,
   MAX_CATALYSTS_PER_SYMBOL,
+  RecordedCatalystSchema,
   type Catalyst,
 } from '../domain/catalyst'
 import { EquitySymbolSchema } from '../domain/instrument'
@@ -22,8 +23,12 @@ const CATALYST_ROWS_PER_STATEMENT = rowsPerD1Statement(CATALYST_BOUND_PARAMETERS
  * adding one costs a value rather than a table, an upsert, and an arm on the view. A row's id
  * carries its producer too, which is what keeps it traceable to something that can refresh or
  * retract it — the property migration 0019 retired two tables for lacking.
+ *
+ * Only the producers that write today. The table's CHECK still admits the retired `dan` and
+ * `daily-research` values because their rows remain on the calendar and are read like any other;
+ * nothing here writes under either again.
  */
-export type CatalystProvider = 'tastytrade' | 'daily-research' | 'dan' | 'exa' | 'member-research'
+export type CatalystProvider = 'tastytrade' | 'exa' | 'member-research'
 
 export function catalystUpsertStatements(
   db: D1Database,
@@ -31,9 +36,11 @@ export function catalystUpsertStatements(
   catalysts: readonly Catalyst[],
   observedAt: string,
 ): D1PreparedStatement[] {
+  // Every producer writes through here, so this is the one place the write envelope is held.
+  const rows = catalysts.map((catalyst) => RecordedCatalystSchema.parse(catalyst))
   const statements: D1PreparedStatement[] = []
-  for (let start = 0; start < catalysts.length; start += CATALYST_ROWS_PER_STATEMENT) {
-    const chunk = catalysts.slice(start, start + CATALYST_ROWS_PER_STATEMENT)
+  for (let start = 0; start < rows.length; start += CATALYST_ROWS_PER_STATEMENT) {
+    const chunk = rows.slice(start, start + CATALYST_ROWS_PER_STATEMENT)
     statements.push(db.prepare(
       `INSERT INTO catalysts
         (id, source_provider, symbol, kind, title, description, event_date, timing, confidence, source_label, source_url, updated_at, last_seen_at)
@@ -149,8 +156,8 @@ export function earningsDateFromMetric(metric: JsonObject | undefined, now = new
  *
  * Only for a producer that answers for the whole symbol, which is what a `catalyst_runs`
  * receipt records: a search buys coverage of one name, so its later answer supersedes its
- * earlier one. A producer with no receipt is not one voice — `member-research` and
- * `daily-research` are whichever member's agent wrote that row — so a second member recording
+ * earlier one. A producer with no receipt is not one voice — `member-research`, like the retired
+ * `daily-research` rows still stored, is whichever member's agent wrote that row — so a second member recording
  * a date is not the first one looking again, and nothing there retires anything. A later
  * producer earns this by writing a receipt, not by being named here.
  *
@@ -171,23 +178,27 @@ export const CURRENT_CATALYSTS =
         ))`
 
 /*
- * Every producer's upcoming rows, nearest first, and at most `MAX_CATALYSTS_PER_SYMBOL` of them
- * per symbol. The window ranks each symbol's own events by date before the cap applies, so a
- * name with a crowded calendar spends its ten on its nearest ten rather than on whichever rows
- * a global limit happened to reach first. Ties inside a date fall to the id, which is stable;
- * display order beyond the date is the reader's own sort, not this query's.
+ * Every producer's upcoming rows, nearest first, for at most `MAX_CATALYSTS_PER_SYMBOL` events
+ * per symbol. The cap counts events, not rows: two producers that saw one event wrote two rows,
+ * which `distinctCatalysts` folds into one for a reader, and a cap on rows spent a symbol's ten
+ * on its duplicates and dropped real events off the far end. So the window ranks by the fold's
+ * own event identity -- symbol, date and kind -- and every sighting of a kept event is returned
+ * for the reader to fold. A dense rank gives each event one number however many rows share it,
+ * and orders a symbol's events by date first, so the cap still drops only the far end.
  */
+const EVENT_RANK = 'DENSE_RANK() OVER (PARTITION BY symbol ORDER BY event_date ASC, kind ASC)'
+
 const UPCOMING_CATALYSTS_QUERY =
   `SELECT id, symbol, kind, title, description, date, timing, confidence, source, "sourceUrl", "updatedAt"
      FROM (
        SELECT id, symbol, kind, title, description, event_date AS date, timing, confidence,
            source_label AS source, source_url AS "sourceUrl", updated_at AS "updatedAt",
-           ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY event_date ASC, id ASC) AS nearest
+           ${EVENT_RANK} AS nearest
          FROM ${CURRENT_CATALYSTS}
          WHERE event_date >= ?
      )
      WHERE nearest <= ?
-     ORDER BY date ASC, symbol ASC`
+     ORDER BY date ASC, symbol ASC, id ASC`
 
 /** The upcoming-catalyst read, for a caller that must not write. */
 export async function readUpcomingCatalysts(env: AppEnv, now = new Date()): Promise<Catalyst[]> {
@@ -197,13 +208,18 @@ export async function readUpcomingCatalysts(env: AppEnv, now = new Date()): Prom
   return CatalystSchema.array().parse(result.results ?? [])
 }
 
+/** One symbol's events under the same event-counted cap as the snapshot. */
 const SYMBOL_CATALYSTS_QUERY =
-  `SELECT id, symbol, kind, title, description, event_date AS date, timing, confidence,
-      source_label AS source, source_url AS "sourceUrl", updated_at AS "updatedAt"
-     FROM ${CURRENT_CATALYSTS}
-     WHERE event_date >= ? AND symbol = ?
-     ORDER BY event_date ASC, id ASC
-     LIMIT ?`
+  `SELECT id, symbol, kind, title, description, date, timing, confidence, source, "sourceUrl", "updatedAt"
+     FROM (
+       SELECT id, symbol, kind, title, description, event_date AS date, timing, confidence,
+           source_label AS source, source_url AS "sourceUrl", updated_at AS "updatedAt",
+           ${EVENT_RANK} AS nearest
+         FROM ${CURRENT_CATALYSTS}
+         WHERE event_date >= ? AND symbol = ?
+     )
+     WHERE nearest <= ?
+     ORDER BY date ASC, id ASC`
 
 /** Full rows for one symbol, including description and source, for the focused runway. */
 export async function readUpcomingCatalystsForSymbol(

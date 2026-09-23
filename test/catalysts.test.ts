@@ -68,6 +68,47 @@ describe('tastytrade catalyst normalization', () => {
     }
   })
 
+  it('counts events against the cap, not every producer\'s sighting of one', async () => {
+    // Two producers seeing the same ten events write twenty rows. A cap on rows kept five
+    // events and dropped the other five, which the reader's fold then could not bring back.
+    const store = await migrationStore()
+    try {
+      const events = Array.from({ length: MAX_CATALYSTS_PER_SYMBOL + 2 }, (_, index) => {
+        const date = `2026-09-${String(14 + index).padStart(2, '0')}`
+        return {
+          confidence: 'estimated' as const,
+          date,
+          id: `member-research:NVDA:investor-event:${date}`,
+          kind: 'investor-event' as const,
+          source: 'Member research · investors.example.com',
+          sourceUrl: 'https://investors.example.com/events',
+          symbol: 'NVDA',
+          timing: 'unknown' as const,
+          title: `NVDA event ${index}`,
+          updatedAt: NOW.toISOString(),
+        }
+      })
+      const env = { DB: store.database }
+      await persistResearchCatalysts(env, 'member-research', events, NOW)
+      await persistResearchCatalysts(env, 'exa', events.map((event) => ({
+        ...event,
+        id: event.id.replace('member-research:', 'exa:'),
+        source: 'Exa search · investors.example.com',
+      })), NOW)
+      const nearest = events.slice(0, MAX_CATALYSTS_PER_SYMBOL).map((event) => event.date)
+
+      for (const rows of [
+        await readUpcomingCatalysts(env, NOW),
+        await readUpcomingCatalystsForSymbol(env, 'NVDA', NOW),
+      ]) {
+        expect(rows).toHaveLength(MAX_CATALYSTS_PER_SYMBOL * 2)
+        expect(upcomingCatalystsForSymbol('NVDA', rows, NOW).map((row) => row.date)).toEqual(nearest)
+      }
+    } finally {
+      store.close()
+    }
+  })
+
   it('stays within the D1 parameter limit when refreshing 100 symbols', async () => {
     const boundParameterCounts: number[] = []
     const batch = vi.fn(async () => [])
@@ -218,9 +259,38 @@ describe('what a catalyst shows a reader', () => {
 })
 
 describe('research catalyst storage', () => {
+  it('holds every write to the citation envelope, while reads still admit older rows', async () => {
+    const store = await migrationStore()
+    try {
+      const row: Catalyst = {
+        confidence: 'estimated',
+        date: '2026-09-15',
+        id: 'exa:NVDA:conference:2026-09-15',
+        kind: 'conference',
+        source: 'Exa search · example.com',
+        sourceUrl: `https://example.com/${'a'.repeat(2_000)}`,
+        symbol: 'NVDA',
+        timing: 'unknown',
+        title: 'NVDA conference',
+        updatedAt: NOW.toISOString(),
+      }
+      await expect(persistResearchCatalysts({ DB: store.database }, 'exa', [row], NOW)).rejects.toThrow()
+      // A row stored before the bound existed is still read, rather than failing the snapshot.
+      store.sqlite.prepare(
+        `INSERT INTO catalysts (id, source_provider, symbol, kind, title, event_date, timing,
+           confidence, source_label, source_url, updated_at, last_seen_at)
+         VALUES (?, 'exa', 'NVDA', 'conference', ?, ?, 'unknown', 'estimated', ?, ?, ?, ?)`,
+      ).run(row.id, row.title, row.date, row.source!, row.sourceUrl!, row.updatedAt, row.updatedAt)
+      expect((await readUpcomingCatalystsForSymbol({ DB: store.database }, 'NVDA', NOW)).map((read) => read.id))
+        .toEqual([row.id])
+    } finally {
+      store.close()
+    }
+  })
+
   it('fails when authoritative catalyst storage is unavailable', async () => {
     await expect(persistAndLoadCatalysts({}, [], [], NOW)).rejects.toThrow('CatalystStoreUnavailable')
-    await expect(persistResearchCatalysts({}, 'daily-research', [], NOW)).rejects.toThrow('CatalystStoreUnavailable')
+    await expect(persistResearchCatalysts({}, 'member-research', [], NOW)).rejects.toThrow('CatalystStoreUnavailable')
   })
 
   it('keeps the maximum accepted bootstrap below D1 query and bind limits', async () => {
@@ -255,7 +325,7 @@ describe('research catalyst storage', () => {
       updatedAt: NOW.toISOString(),
     }))
 
-    await persistResearchCatalysts({ DB: database }, 'daily-research', catalysts, NOW)
+    await persistResearchCatalysts({ DB: database }, 'member-research', catalysts, NOW)
 
     expect(batch).toHaveBeenCalledOnce()
     expect(batchStatementCount).toBe(143)

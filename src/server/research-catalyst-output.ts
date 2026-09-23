@@ -3,10 +3,10 @@ import { z } from 'zod'
 import {
   CATALYST_HORIZON_DAYS,
   CatalystKindSchema,
-  CatalystSchema,
   marketDate,
   MAX_CATALYST_DESCRIPTION_LENGTH,
   MAX_CATALYST_TITLE_LENGTH,
+  RecordedCatalystSchema,
   type Catalyst,
 } from '../domain/catalyst'
 import { EquitySymbolSchema } from '../domain/instrument'
@@ -39,7 +39,6 @@ export interface CatalystCandidateBinding {
  * it says which surface produced the date, beside the host it was read from.
  */
 const BOUND_CATALYST_LABELS = {
-  'daily-research': 'Daily research',
   'member-research': 'Member research',
 } satisfies Partial<Record<CatalystProvider, string>>
 
@@ -52,8 +51,8 @@ export type BoundCatalystProvider = keyof typeof BOUND_CATALYST_LABELS
  * where a month-day can name only one date.
  *
  * The provider is a parameter so any producer of model-authored dates is bound under the same
- * rules. A member's recording is the one producer left; `daily-research` stays in the label map
- * because rows it wrote are still on the calendar.
+ * rules. A member's recording is the one such producer today. A label only names rows as they
+ * are written -- a stored row carries its own -- so a retired producer needs no entry here.
  */
 export function bindCatalystCandidates(
   candidates: readonly ResearchCatalystCandidate[],
@@ -100,7 +99,7 @@ export function bindCatalystCandidates(
     }
     ids.add(id)
     const { sourceIndex: _sourceIndex, ...publicFields } = candidate
-    catalysts.push(CatalystSchema.parse({
+    catalysts.push(RecordedCatalystSchema.parse({
       ...publicFields,
       confidence: 'estimated',
       id,
