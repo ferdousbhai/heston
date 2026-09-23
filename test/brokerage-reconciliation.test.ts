@@ -64,7 +64,12 @@ describe('brokerage submission reconciliation', () => {
     await expect(reconcileUnknownBrokerageAction({}, brokerCredential)).rejects.toThrow('store-unavailable')
   })
 
-  it('reconciles an ambiguous option order after its contract has left the chain', async () => {
+  // The adapter, not this layer, reads the provider's status word: a Rejected row settles the
+  // claim as failed and anything else found in history settles it as executed.
+  it.each([
+    { brokerStatus: 'Filled', outcome: 'executed', stored: { provider_order_id: '42', status: 'executed' } },
+    { brokerStatus: 'Rejected', outcome: 'failed', stored: { provider_order_id: null, status: 'failed' } },
+  ])('reconciles an ambiguous option order after its contract has left the chain ($brokerStatus)', async ({ brokerStatus, outcome, stored }) => {
     const contract = 'SPY   260918C00600000'
     const optionOrder = {
       action: 'Buy to Open' as const, expiry: '2026-09-18', kind: 'place_option_order' as const, limitPrice: 2.5,
@@ -114,7 +119,7 @@ describe('brokerage submission reconciliation', () => {
     const chainReadsBefore = brokerage.tastyRequest.mock.calls.length
     const submittedAt = String(claimed?.submitted_at)
     const brokerRow: BrokerOrderRecord = tastytradeOrderRecord({
-      ...orderBody, 'received-at': submittedAt, status: 'Filled', 'updated-at': submittedAt,
+      ...orderBody, 'received-at': submittedAt, status: brokerStatus, 'updated-at': submittedAt,
     })
     setBrokerAdapters({
       tastytrade: {
@@ -125,10 +130,10 @@ describe('brokerage submission reconciliation', () => {
     })
 
     await expect(reconcileUnknownBrokerageAction(env, brokerCredential))
-      .resolves.toMatchObject({ providerOrderId: '42', status: 'executed' })
+      .resolves.toMatchObject({ providerOrderId: '42', status: outcome })
     expect(brokerage.tastyRequest.mock.calls.length).toBe(chainReadsBefore)
     expect(store.sqlite.prepare('SELECT status, provider_order_id FROM broker_submissions').all())
-      .toEqual([{ provider_order_id: '42', status: 'executed' }])
+      .toEqual([stored])
   })
 
   it('refuses a stored order that disagrees with its stored action rather than trusting either', async () => {

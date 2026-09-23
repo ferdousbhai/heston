@@ -210,9 +210,8 @@ export async function reconcileUnknownBrokerageAction(
 
   const match = matches[0]!
   const providerOrderId = match.id
-  const status = match.status?.toLowerCase()
-  if (!providerOrderId || !status) throw new CallerVisibleError('TastytradeReconciliation:invalid-match')
-  const rejected = status === 'rejected'
+  if (!providerOrderId || !match.status) throw new CallerVisibleError('TastytradeReconciliation:invalid-match')
+  const rejected = match.rejected
   // An executed match stores the broker's order id: this row is the only source a later
   // price-only replacement can resolve the order's shape from, exactly as if the placement had
   // settled it directly.

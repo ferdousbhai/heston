@@ -317,6 +317,7 @@ export function tastytradeOrderRecord(row: JsonObject): BrokerOrderRecord {
     price: jsonNumber(row.price),
     priceEffect: jsonLooseText(row['price-effect']),
     receivedAt: jsonLooseText(row['received-at']),
+    rejected: jsonLooseText(row.status)?.toLowerCase() === 'rejected',
     replacesOrderId: jsonLooseText(row['replaces-order-id']),
     status: jsonLooseText(row.status),
     terminal: !isWorkingOrderRecord(row),

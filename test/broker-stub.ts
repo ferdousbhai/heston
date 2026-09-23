@@ -131,7 +131,7 @@ export function stubAdapter(): BrokerAdapter & { calls: string[] } {
     },
     readOrder: async (): Promise<BrokerOrderRecord> => {
       calls.push('readOrder')
-      return { editable: false, terminal: false }
+      return { editable: false, rejected: false, terminal: false }
     },
     readOrderHistory: async (): Promise<BrokerOrderHistoryPage> => {
       calls.push('readOrderHistory')

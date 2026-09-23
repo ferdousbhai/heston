@@ -111,6 +111,8 @@ export interface BrokerOrderRecord {
   price?: number
   priceEffect?: string
   receivedAt?: string
+  /** True when the broker positively refused the order. Decided in the adapter, as `terminal` is. */
+  rejected: boolean
   replacesOrderId?: string
   status?: string
   /**

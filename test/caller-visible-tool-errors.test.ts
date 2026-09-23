@@ -41,7 +41,7 @@ const cases: [string, string, () => Promise<void> | void][] = [
   ['order-intent', 'OrderReplacement:order-changed-or-not-editable', async () => {
     const { assertReplaceableOrder } = await import('../src/server/order-intent')
     const { buildOrderPayload } = await import('../src/server/order-payload')
-    assertReplaceableOrder({ editable: false, id: '1', terminal: false }, '1', buildOrderPayload(equityOrder, ['AAPL']))
+    assertReplaceableOrder({ editable: false, id: '1', rejected: false, terminal: false }, '1', buildOrderPayload(equityOrder, ['AAPL']))
   }],
   ['option-greeks-tool', 'Option expiry is invalid.', async () => {
     const { readExactOptionGreeks } = await import('../src/server/option-greeks-tool')
