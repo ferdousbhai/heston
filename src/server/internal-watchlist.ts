@@ -105,6 +105,17 @@ const INTERNAL_WATCHLIST_ORIGINS = [
   'owner',
 ] as const
 const InternalWatchlistOriginSchema = z.enum(INTERNAL_WATCHLIST_ORIGINS)
+
+/**
+ * The origins an automatic prune may evict: the broker seed and a reader's search, the two
+ * provenances the ranking places below every curated name (tiers 3-6). Every other origin is a
+ * protected row that only an explicit removal deletes. Admission and pruning read this one list:
+ * when admission counted only the seed as evictable, visitor searches filled the protected
+ * capacity and refused an owner or trade-intent addition while the prune could still have
+ * evicted every one of them.
+ */
+const PRUNABLE_ORIGINS = ['tastytrade-seed', 'visitor-search'] as const satisfies readonly InternalWatchlistOrigin[]
+const PRUNABLE_ORIGINS_SQL = `(${PRUNABLE_ORIGINS.map((origin) => `'${origin}'`).join(', ')})`
 const InternalWatchlistMutationOriginSchema = InternalWatchlistOriginSchema.exclude(['tastytrade-seed'])
 
 export type InternalWatchlistOrigin = z.infer<typeof InternalWatchlistOriginSchema>
@@ -490,7 +501,7 @@ function pruneStatement(
   return db.prepare(
     `${RANKED_ITEMS_CTE}
      DELETE FROM internal_watchlist_items
-     WHERE origin IN ('tastytrade-seed', 'visitor-search')
+     WHERE origin IN ${PRUNABLE_ORIGINS_SQL}
        ${onlyWhileUnfinalized ? `AND EXISTS (
          SELECT 1 FROM internal_watchlist_seed
          WHERE id = 'primary' AND status = 'ready' AND finalized_at IS NULL
@@ -525,7 +536,7 @@ function upsertSymbolsStatement(
        SELECT input_index, symbol,
          CASE WHEN EXISTS (
            SELECT 1 FROM internal_watchlist_items i
-           WHERE i.symbol = input.symbol AND i.origin <> 'tastytrade-seed'
+           WHERE i.symbol = input.symbol AND i.origin NOT IN ${PRUNABLE_ORIGINS_SQL}
          ) THEN 0 ELSE 1 END AS needs_slot
        FROM input
      ), admitted AS (
@@ -535,7 +546,7 @@ function upsertSymbolsStatement(
          FROM ranked_input
        )
        WHERE needs_slot = 0 OR slot_number <= max(0, ${MAX_WATCHLIST_SYMBOLS} - (
-         SELECT count(*) FROM internal_watchlist_items WHERE origin <> 'tastytrade-seed'
+         SELECT count(*) FROM internal_watchlist_items WHERE origin NOT IN ${PRUNABLE_ORIGINS_SQL}
        ))
      )
      INSERT INTO internal_watchlist_items
@@ -623,8 +634,8 @@ export async function ensureInternalWatchlistSymbols(
   // D1 batch executes transactionally. Ranking inside the same batch prevents concurrent
   // additions from each observing one free slot below `MAX_WATCHLIST_SYMBOLS` and jointly
   // exceeding the cap.
-  // New symbols are admitted in input order up to the protected-row capacity;
-  // the only automatic eviction target remains a retained broker-seed row.
+  // New symbols are admitted in input order up to the protected-row capacity; the only
+  // automatic eviction targets are rows of a `PRUNABLE_ORIGINS` origin.
   await db.batch([
     upsertSymbolsStatement(db, normalized, parsedOrigin, timestamp),
     pruneStatement(db, []),

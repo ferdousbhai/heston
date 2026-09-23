@@ -348,6 +348,39 @@ describe('one-time tastytrade watchlist seed', () => {
   })
 })
 
+describe('a list full of reader searches', () => {
+  it('admits a protected addition by evicting a search instead of refusing it', async () => {
+    // Admission and the prune must agree on what is evictable: a search the prune would drop
+    // cannot be allowed to hold a protected slot against an owner or trade-intent addition.
+    const env = { DB: store.database }
+    await ensureInternalWatchlistSeeded(env, async () => payloads())
+    await finalizeInternalWatchlist(env, [])
+    // With the seed gone, searches alone fill the list to its bound.
+    await removeInternalWatchlistSymbols(env, ['NVDA', 'PLTR'])
+    const searched = Array.from({ length: MAX_WATCHLIST_SYMBOLS }, (_, index) => symbolAt(index))
+    for (const [index, symbol] of searched.entries()) {
+      await ensureInternalWatchlistSymbols(
+        env, [symbol], 'visitor-search', new Date(Date.UTC(2026, 7, 27, 0, 0, index)),
+      )
+    }
+    const full = await readInternalWatchlist(env)
+    expect(full).toHaveLength(MAX_WATCHLIST_SYMBOLS)
+    expect(full.every((item) => item.origin === 'visitor-search')).toBe(true)
+
+    await expect(ensureInternalWatchlistSymbols(env, ['ZZZ'], 'owner')).resolves.toEqual(['ZZZ'])
+    await expect(ensureInternalWatchlistSymbols(env, ['ZZY'], 'trade-intent')).resolves.toEqual(['ZZY'])
+    // Promoting a search to a protected origin takes a protected slot too, and is admitted.
+    await expect(ensureInternalWatchlistSymbols(env, [searched[0]!], 'owner')).resolves.toEqual([searched[0]])
+
+    const items = await readInternalWatchlist(env)
+    expect(items).toHaveLength(MAX_WATCHLIST_SYMBOLS)
+    expect(items.find((item) => item.symbol === 'ZZZ')?.origin).toBe('owner')
+    expect(items.find((item) => item.symbol === 'ZZY')?.origin).toBe('trade-intent')
+    expect(items.find((item) => item.symbol === searched[0])?.origin).toBe('owner')
+    expect(items.filter((item) => item.origin === 'visitor-search')).toHaveLength(MAX_WATCHLIST_SYMBOLS - 3)
+  })
+})
+
 describe('delisted names', () => {
   it('keeps a name the broker no longer trades off the public universe', async () => {
     const env = { DB: store.database }
