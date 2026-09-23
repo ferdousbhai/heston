@@ -18,7 +18,7 @@ function d1WithResults(results: unknown[]) {
   return { all, bind, env: { DB }, first, prepare }
 }
 
-describe('Dan research read tools', () => {
+describe('research read tools', () => {
   it('queries bounded symbols for catalyst results', async () => {
     const catalyst = {
       id: 'tastytrade:NVDA:earnings', symbol: 'NVDA', kind: 'earnings', title: 'NVDA earnings',
