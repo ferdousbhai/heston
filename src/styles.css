@@ -622,7 +622,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .trade-line { color: var(--brand); font: 700 17px/1.2 var(--sans); }
 .thesis { max-width: 60ch; margin-top: 10px; color: var(--ink-muted); font-size: var(--type-secondary); line-height: 1.6; }
 .thesis p { margin: 0 0 10px; white-space: pre-line; }
-.thesis p:last-child { margin-bottom: 0; }
+.thesis > :last-child { margin-bottom: 0; }
 .thesis-heading { color: var(--text); }
 .thesis strong { color: var(--text); }
 .thesis ul, .thesis ol { margin: 0 0 10px; padding-left: 1.3em; }
