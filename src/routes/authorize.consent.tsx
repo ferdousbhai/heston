@@ -71,6 +71,13 @@ function ConsentPage() {
     <main className="authorize-page">
       <h1>Approve access</h1>
       {viewer.phase === 'checking' && <Spinner />}
+      {/* Mid-OAuth, an unanswered session check must still say something: without this the
+          page stopped at its heading, and the member could not tell whether to wait or retry. */}
+      {viewer.phase === 'error' && (
+        <p className="authorize-error">
+          Heston could not check whether you are signed in. Reload to try again.
+        </p>
+      )}
       {viewer.phase === 'ready' && viewer.user === null && (
         <p>You are not signed in. Start the connection again from your agent.</p>
       )}
