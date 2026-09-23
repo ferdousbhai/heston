@@ -456,10 +456,7 @@ export class MarketFeedCore {
    * while there is room: a reader's searched or selected symbol may legitimately be one.
    */
   private relayedDownstream() {
-    const demand = new Map<string, number>()
-    for (const socket of this.ctx.getWebSockets()) {
-      for (const symbol of this.socketSymbols(socket)) demand.set(symbol, (demand.get(symbol) ?? 0) + 1)
-    }
+    const demand = this.downstreamDemand()
     if (demand.size <= MAX_RELAYED_SYMBOLS) return { dropped: 0, symbols: new Set(demand.keys()) }
     const universe = this.publishedUniverse?.symbols
     const ranked = [...demand].sort(([left, leftCount], [right, rightCount]) => (
@@ -473,17 +470,27 @@ export class MarketFeedCore {
     }
   }
 
-  /**
-   * Refresh the universe copy the cut ranks by, only when there is a cut to rank. A failed read
-   * keeps the previous copy (or none, which ranks by demand alone) and is logged, and it waits
-   * the same interval before retrying so a missing store does not cost a read per reconcile.
-   */
+  /** How many sockets ask for each symbol: the union the relay cut applies to. */
+  private downstreamDemand(): Map<string, number> {
+    const demand = new Map<string, number>()
+    for (const socket of this.ctx.getWebSockets()) {
+      for (const symbol of this.socketSymbols(socket)) demand.set(symbol, (demand.get(symbol) ?? 0) + 1)
+    }
+    return demand
+  }
+
+  /** Whether the universe copy needs a read: only when the union is cut, so there is a cut to rank. */
   private publishedUniverseDue(): boolean {
-    if (this.relayedDownstream().dropped === 0) return false
+    if (this.downstreamDemand().size <= MAX_RELAYED_SYMBOLS) return false
     const cached = this.publishedUniverse
     return !cached || Date.now() - cached.loadedAt >= PUBLISHED_UNIVERSE_REFRESH_MS
   }
 
+  /**
+   * Refresh the universe copy the cut ranks by. A failed read keeps the previous copy (or none,
+   * which ranks by demand alone) and is logged, and it waits the same interval before retrying so
+   * a missing store does not cost a read per reconcile.
+   */
   private async refreshPublishedUniverse(): Promise<void> {
     const cached = this.publishedUniverse
     try {
