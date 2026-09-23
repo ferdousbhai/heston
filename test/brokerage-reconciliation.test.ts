@@ -99,7 +99,7 @@ describe('brokerage submission reconciliation', () => {
     setInternalWatchlistWriter({ ensureSymbols: async () => [] })
     setTradeGuards({
       assertOrderMarketSafe: async () => ({ ask: 2.6, bid: 2.4, observedAt: new Date().toISOString(), tickSize: 0.01 }),
-      assertPortfolioActionAllowed: async () => ({ allowed: true }),
+      assertPortfolioActionAllowed: async () => undefined,
     })
     store = await migrationStore()
     const env = { DB: store.database }

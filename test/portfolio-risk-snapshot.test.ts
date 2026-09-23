@@ -37,8 +37,8 @@ function respondWith(overrides: Overrides = {}) {
   })
 }
 
-function guard(env = { DB: untouchedDb() }, resolved = {}) {
-  return assertPortfolioActionAllowed(env, openEquityOrder, brokerCredential, resolved)
+function guard(env = { DB: untouchedDb() }) {
+  return assertPortfolioActionAllowed(env, openEquityOrder, brokerCredential, { accountNumber: 'TEST123', optionContracts: [] })
 }
 
 beforeEach(() => {
@@ -51,7 +51,20 @@ afterEach(() => resetBrokerApi())
 
 describe('portfolio guard over the merged account snapshot', () => {
   it('allows a bounded opening debit against a complete, long-only account', async () => {
-    await expect(guard()).resolves.toMatchObject({ allowed: true })
+    await expect(guard()).resolves.toBeUndefined()
+  })
+
+  it('judges only the contract placement resolved, and never resolves one of its own', async () => {
+    const optionOrder = {
+      kind: 'place_option_order', underlying: 'SPY', optionType: 'C', strike: 700, expiry: '2026-09-18',
+      action: 'Buy to Open', quantity: 1, limitPrice: 1, priceEffect: 'Debit',
+    } as const
+    await expect(assertPortfolioActionAllowed({ DB: untouchedDb() }, optionOrder, brokerCredential, {
+      accountNumber: 'TEST123', optionContracts: [],
+    })).rejects.toThrow('The guard could not verify the option contract.')
+    expect(tastytrade.tastyRequest.mock.calls.map(([, path]) => String(path)))
+      .not.toContainEqual(expect.stringContaining('/option-chains/'))
+    expect(tastytrade.resolveAccountNumber).not.toHaveBeenCalled()
   })
 
   it('names the incomplete read rather than under-reporting the account', async () => {
@@ -138,7 +151,7 @@ describe('live orders do not veto a new ticket', () => {
 
   it('allows a new order while another is live', async () => {
     respondWith({ orders: { data: { items: [liveOrder] } } })
-    await expect(guard()).resolves.toMatchObject({ allowed: true })
+    await expect(guard()).resolves.toBeUndefined()
   })
 
   it('lists no working order for a complex order whose children have all gone terminal', async () => {
@@ -148,7 +161,7 @@ describe('live orders do not veto a new ticket', () => {
     }] } }
     respondWith({ complex })
 
-    await expect(guard()).resolves.toMatchObject({ allowed: true })
+    await expect(guard()).resolves.toBeUndefined()
     const context = await loadBrokerageContext({}, brokerCredential)
     expect(context.orders).toEqual([])
   })

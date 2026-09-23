@@ -1,7 +1,7 @@
 import { type FreshOrderPlacement } from './agent-contracts'
 import { type AppEnv } from './env'
 import { CallerVisibleError } from './caller-visible-error'
-import { resolveEquityOptionContract, type EquityOptionContract } from './option-contract'
+import { type EquityOptionContract } from './option-contract'
 import { type BrokerAccountRef, type BrokerAccountSnapshot } from '../domain/broker'
 import { brokerAdapterFor, BrokerSnapshotError, describeSnapshotError } from './brokers'
 import { BrokerCredentialMissingError, type BrokerCredential } from './broker-credential'
@@ -116,21 +116,20 @@ export async function assertPortfolioActionAllowed(
   env: AppEnv,
   action: FreshOrderPlacement,
   credential: BrokerCredential | undefined,
-  resolved: { accountNumber?: string; optionContracts?: readonly EquityOptionContract[] } = {},
-): Promise<PortfolioActionAssessment> {
-  const adapter = brokerAdapterFor(credential)
-  const ref = resolved.accountNumber
-    ? { accountNumber: resolved.accountNumber, broker: adapter.id }
-    : await adapter.resolveAccountRef(env, credential)
+  resolved: { accountNumber: string; optionContracts: readonly EquityOptionContract[] },
+): Promise<void> {
+  // Both are resolved once, by placement, before the guard runs: the account inside the caller's
+  // credential check and the contracts from the live chain inside the mutation lease. The guard
+  // judges exactly those, never a second resolution that could disagree with what is submitted.
+  const ref = { accountNumber: resolved.accountNumber, broker: brokerAdapterFor(credential).id }
   const account = await loadRiskAccount(env, ref, credential)
-  let optionContracts = resolved.optionContracts ?? []
-  if (action.kind === 'place_option_order' && !optionContracts.length) {
-    optionContracts = [await resolveEquityOptionContract(env, action)]
+  const { optionContracts } = resolved
+  if (action.kind === 'place_option_order' && optionContracts.length !== 1) {
+    throw new PortfolioRiskError('The guard could not verify the option contract.')
   }
   if (action.kind === 'place_vertical_spread_order' && optionContracts.length !== 2) {
     throw new PortfolioRiskError('The guard could not verify both spread contracts.')
   }
   const assessment = assessPortfolioAction(action, account, optionContracts)
   if (!assessment.allowed) throw new PortfolioRiskError(assessment.reason ?? 'This trade was rejected at the portfolio boundary.')
-  return assessment
 }

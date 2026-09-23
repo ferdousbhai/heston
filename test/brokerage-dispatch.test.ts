@@ -67,7 +67,7 @@ describe('brokerage dispatch warnings', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.resolveAccountNumber.mockResolvedValue('TEST123')
-    mocks.assertPortfolioActionAllowed.mockResolvedValue({ allowed: true })
+    mocks.assertPortfolioActionAllowed.mockResolvedValue(undefined)
     mocks.assertOrderMarketSafe.mockResolvedValue({})
   })
 

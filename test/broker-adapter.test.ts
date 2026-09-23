@@ -67,11 +67,10 @@ describe('broker adapter seam', () => {
       positions: [{ symbol: 'SPY' }],
     })
 
-    const assessment = await assertPortfolioActionAllowed({ DB: untouchedDb() }, {
+    await expect(assertPortfolioActionAllowed({ DB: untouchedDb() }, {
       kind: 'place_equity_order', symbol: 'SPY', action: 'Buy to Open',
       quantity: 1, limitPrice: 700, priceEffect: 'Debit',
-    }, stubBrokerCredential)
-    expect(assessment).toMatchObject({ allowed: true })
+    }, stubBrokerCredential, { accountNumber: 'STUB-1', optionContracts: [] })).resolves.toBeUndefined()
 
     const history = await readAccountHistory({}, { type: 'transactions' }, stubBrokerCredential)
     expect(history).toMatchObject({ source: STUB_BROKER_ID, totalItemCount: 1, truncated: false })
@@ -88,7 +87,7 @@ describe('broker adapter seam', () => {
     expect(adapter.calls).toEqual([
       'resolveAccountRef',
       'loadAccountSnapshot',
-      'resolveAccountRef',
+      // The guard is handed the account placement already resolved; it does not resolve its own.
       'loadAccountSnapshot',
       'resolveAccountRef',
       'readAccountHistory',
