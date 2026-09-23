@@ -247,4 +247,13 @@ describe('stored market read model', () => {
       state: 'closed',
     })
   })
+  it('logs a stored session row it cannot read instead of dropping it silently', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    store.sqlite.prepare(
+      `INSERT INTO market_session (id, state, observed_at) VALUES ('equities', 'halted', '2026-08-28T11:00:00.000Z')`,
+    ).run()
+
+    await expect(readStoredMarketSession({ DB: store.database })).resolves.toBeUndefined()
+    expect(warn).toHaveBeenCalledWith('MarketSessionRowSkipped')
+  })
 })

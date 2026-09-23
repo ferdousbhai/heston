@@ -335,10 +335,14 @@ export async function readStoredMarketSession(env: AppEnv): Promise<StoredMarket
     "SELECT state, observed_at, opens_at, closes_at FROM market_session WHERE id = 'equities'",
   ).first()
   if (!result) return undefined
+  // An unreadable row is served as no cached session -- the reader falls back to asking the
+  // provider -- but never silently: the event says the stored copy was refused.
   const row = StoredSessionRowSchema.safeParse(result)
-  if (!row.success) return undefined
-  const state = MarketStateSchema.safeParse(row.data.state)
-  if (!state.success) return undefined
+  const state = MarketStateSchema.safeParse(row.data?.state)
+  if (!row.success || !state.success) {
+    console.warn('MarketSessionRowSkipped')
+    return undefined
+  }
   return {
     closesAt: row.data.closes_at ?? undefined,
     observedAt: row.data.observed_at,
