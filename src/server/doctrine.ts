@@ -133,8 +133,10 @@ What is not obvious from the tool list:
   name it resolves that the tracked universe does not carry is admitted and followed from then on.
   Signed in, it is a plain broker lookup that admits nothing; \`remember_symbols\` is how a name a
   conversation developed is kept.
-- An empty \`read_catalysts\` result distinguishes "not searched yet" from "searched, found
-  nothing". Reader attention is what pays for a search, so an untouched name stays unsearched.
+- \`read_catalysts\` carries a searches entry per symbol, so an empty calendar can be told
+  apart: "unsearched" (not searched yet), "complete" (searched, found nothing), "failed" (still
+  unknown), or "running". Reader attention is what pays for a search, so an untouched name stays
+  unsearched -- and reading it is attention that may buy one for the next read.
 - \`find_option_contracts\`: ${FIND_OPTION_CONTRACTS_MODES}
   Contract rows carry open interest and volume and, within an expiration, are ranked by those
   unless a strike target is given. A contract exists only if the chain lists it -- never name one the lookup did not

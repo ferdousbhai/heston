@@ -13,7 +13,9 @@ function d1WithResults(results: unknown[]) {
   const all = vi.fn().mockResolvedValue({ results })
   const bind = vi.fn(() => ({ ...unsupportedStatement(), all }))
   const first = vi.fn().mockResolvedValue(results[0])
-  const prepare = vi.fn(() => ({ ...unsupportedStatement(), bind, first }))
+  // The search receipts are a second read; these fakes have none, so every symbol is unsearched.
+  const noRuns = { ...unsupportedStatement(), bind: () => ({ ...unsupportedStatement(), all: vi.fn().mockResolvedValue({ results: [] }) }) }
+  const prepare = vi.fn((sql: string) => sql.includes('status AS state') ? noRuns : { ...unsupportedStatement(), bind, first })
   const DB: D1Database = { ...unsupportedDatabase(), prepare }
   return { all, bind, env: { DB }, first, prepare }
 }
@@ -89,6 +91,33 @@ describe('research read tools', () => {
 
       const result = await readCatalysts(env, ['INTC'], 60, new Date('2026-09-21T18:00:00.000Z'))
       expect(result.catalysts.map((catalyst) => catalyst.date)).toEqual(['2026-10-23'])
+    } finally {
+      store.close()
+    }
+  })
+
+  it('tells an unsearched symbol from one searched empty and one whose search failed', async () => {
+    const store = await migrationStore()
+    try {
+      const env = { DB: store.database }
+      const receipt = store.sqlite.prepare(
+        `INSERT INTO catalyst_runs (symbol, source_provider, ran_at, catalyst_count, status, detail)
+         VALUES (?, 'exa', ?, 0, ?, ?)`,
+      )
+      receipt.run('AMD', '2026-09-20T10:00:00.000Z', 'complete', null)
+      receipt.run('MU', '2026-09-21T11:00:00.000Z', 'failed', 'provider said: secret note')
+      receipt.run('ARM', '2026-09-21T17:59:00.000Z', 'running', null)
+
+      const result = await readCatalysts(env, ['NVDA', 'AMD', 'MU', 'ARM'], 60, new Date('2026-09-21T18:00:00.000Z'))
+      expect(result.catalysts).toEqual([])
+      expect(result.searches).toEqual([
+        { state: 'unsearched', symbol: 'NVDA' },
+        { ranAt: '2026-09-20T10:00:00.000Z', state: 'complete', symbol: 'AMD' },
+        { ranAt: '2026-09-21T11:00:00.000Z', state: 'failed', symbol: 'MU' },
+        { ranAt: '2026-09-21T17:59:00.000Z', state: 'running', symbol: 'ARM' },
+      ])
+      // The receipt's failure note is the owner's; it never reaches a caller of any tier.
+      expect(JSON.stringify(result)).not.toContain('secret note')
     } finally {
       store.close()
     }

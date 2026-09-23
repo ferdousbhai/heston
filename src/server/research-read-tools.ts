@@ -1,5 +1,6 @@
 import { type AgentTool } from '../domain/agent-tool'
 import { Type } from 'typebox'
+import { z } from 'zod'
 
 import { CATALYST_HORIZON_DAYS, CatalystSchema, distinctCatalysts, marketDate, type Catalyst } from '../domain/catalyst'
 import { EquitySymbolSchema, ModelTextEquitySymbolType } from '../domain/instrument'
@@ -53,10 +54,33 @@ function agentCatalyst(catalyst: Catalyst): AgentCatalyst {
   return row
 }
 
+/**
+ * Where the site's own catalyst search stands for one requested symbol, read from its receipt in
+ * `catalyst_runs`. An empty calendar means nothing on its own: a name nobody has looked at has no
+ * receipt (`unsearched`), and a name whose search came back empty has a `complete` one. `failed`
+ * is a search that bound nothing, so its calendar is still unknown; `running` is a claimed search
+ * that has not reported, and one whose `ranAt` is past the run budget died mid-flight.
+ *
+ * Only the state and the instant cross this boundary. The receipt's `detail` is a failure note
+ * written for the owner's eyes and never leaves the server, and nothing here is per-caller, so the
+ * same answer is safe for every tier that can call the tool.
+ */
+export type CatalystSearchState =
+  | { state: 'unsearched'; symbol: string }
+  | { ranAt: string; state: 'complete' | 'failed' | 'running'; symbol: string }
+
+const CatalystRunRowSchema = z.object({
+  ranAt: z.string().datetime(),
+  state: z.enum(['complete', 'failed', 'running']),
+  symbol: z.string(),
+})
+
 export type CatalystReadResult = {
   catalysts: AgentCatalyst[]
   fetchedAt: string
   horizonDays: number
+  /** One entry per requested symbol, in the order of `symbols`. */
+  searches: CatalystSearchState[]
   source: 'heston-catalyst-store'
   symbols: string[]
   truncated: boolean
@@ -115,10 +139,23 @@ export async function readCatalysts(
   // it has the whole calendar when it does not is the one wrong answer here.
   const truncated = allCatalysts.length > MAX_CATALYSTS
   const catalysts = distinctCatalysts(allCatalysts).slice(0, MAX_CATALYSTS).map(agentCatalyst)
+  // The receipts of the one producer that answers for a whole symbol. `detail` is not selected.
+  const runs = await env.DB.prepare(
+    `SELECT symbol, status AS state, ran_at AS "ranAt"
+     FROM catalyst_runs
+     WHERE source_provider = 'exa' AND symbol IN (${symbols.map(() => '?').join(', ')})`,
+  ).bind(...symbols).all()
+  if (!Array.isArray(runs.results)) throw new CallerVisibleError('Catalyst data returned an invalid response.')
+  const receipts = new Map(CatalystRunRowSchema.array().parse(runs.results).map((run) => [run.symbol, run]))
+  const searches = symbols.map((symbol): CatalystSearchState => {
+    const run = receipts.get(symbol)
+    return run ? { ranAt: run.ranAt, state: run.state, symbol } : { state: 'unsearched', symbol }
+  })
   return {
     catalysts,
     fetchedAt: now.toISOString(),
     horizonDays,
+    searches,
     source: 'heston-catalyst-store',
     symbols,
     truncated,
@@ -128,7 +165,9 @@ export async function readCatalysts(
 /** Each call reads the clock itself: a tool list is built once and answers for many calls. */
 export function createResearchReadTools(env: AppEnv) {
   const catalysts: AgentTool<typeof CatalystReadParameters> = {
-    description: 'Stored upcoming catalysts; excludes dividends.',
+    description: 'Stored upcoming catalysts; excludes dividends. `searches` says, per symbol, whether '
+      + 'the site\'s own search has run: unsearched, running, complete (an empty calendar is a real '
+      + 'answer) or failed (still unknown).',
     execute: async (params) => textResult(
       await readCatalysts(env, tickerSymbolsArgument(params.symbols), params.horizonDays, new Date()),
     ),
