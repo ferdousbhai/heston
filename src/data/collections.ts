@@ -134,13 +134,15 @@ type PersistedMutation = { isPersisted: { promise: Promise<unknown> } }
 
 export function selectLiveMarketSymbols(
   selectedSymbol: string | undefined,
+  pinnedSymbols: readonly string[],
   watchlistSymbols: readonly string[],
   loadedSymbols: Iterable<string>,
 ): string[] {
   const loaded = new Set(loadedSymbols)
-  // The watchlist may hold more names than one browser should subscribe to. The
-  // selected symbol leads, so the row the reader is actually reading always streams.
-  return [...new Set([...(selectedSymbol ? [selectedSymbol] : []), ...watchlistSymbols])]
+  // The watchlist may hold more names than one browser should subscribe to, and it is stored
+  // alphabetized, so its order says nothing about what this reader watches. The selected symbol
+  // leads, then the reader's favorites -- the rows the table puts on top -- then the rest.
+  return [...new Set([...(selectedSymbol ? [selectedSymbol] : []), ...pinnedSymbols, ...watchlistSymbols])]
     .filter((symbol) => loaded.has(symbol))
     .slice(0, MAX_LIVE_STREAM_SYMBOLS)
 }

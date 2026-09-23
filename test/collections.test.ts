@@ -221,7 +221,7 @@ describe('offline snapshot boundary', () => {
 describe('live market subscriptions', () => {
   it('keeps the selected loaded symbol first, drops unloaded symbols, and deduplicates', () => {
     const loaded = Array.from({ length: MAX_LIVE_STREAM_SYMBOLS }, (_, index) => `S${index}`)
-    const symbols = selectLiveMarketSymbols('S10', ['S1', 'MISSING', 'S10', ...loaded], loaded)
+    const symbols = selectLiveMarketSymbols('S10', [], ['S1', 'MISSING', 'S10', ...loaded], loaded)
 
     expect(symbols).toHaveLength(MAX_LIVE_STREAM_SYMBOLS)
     expect(symbols.slice(0, 3)).toEqual(['S10', 'S1', 'S0'])
@@ -230,11 +230,20 @@ describe('live market subscriptions', () => {
 
   it('subscribes to the selected symbol first when the watchlist outgrows the stream limit', () => {
     const loaded = Array.from({ length: MAX_WATCHLIST_SYMBOLS }, (_, index) => `S${index}`)
-    const symbols = selectLiveMarketSymbols('S499', loaded, loaded)
+    const symbols = selectLiveMarketSymbols('S499', [], loaded, loaded)
 
     expect(symbols).toHaveLength(MAX_LIVE_STREAM_SYMBOLS)
     expect(symbols[0]).toBe('S499')
     expect(symbols).toContain('S0')
+  })
+
+  it('streams the reader\'s favorites ahead of the alphabetized rest of an oversized watchlist', () => {
+    const loaded = Array.from({ length: MAX_WATCHLIST_SYMBOLS }, (_, index) => `S${index}`)
+    const symbols = selectLiveMarketSymbols('S499', ['S498', 'S497', 'UNLOADED'], loaded, loaded)
+
+    expect(symbols).toHaveLength(MAX_LIVE_STREAM_SYMBOLS)
+    expect(symbols.slice(0, 3)).toEqual(['S499', 'S498', 'S497'])
+    expect(symbols).not.toContain('UNLOADED')
   })
 
   it('keeps the newest quote and recomputes the daily move from the prior close', async () => {
