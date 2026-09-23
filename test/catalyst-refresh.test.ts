@@ -49,11 +49,6 @@ function stubExa(): ReturnType<typeof vi.fn> {
           title: 'Bloom Energy investor day',
         }],
       },
-      grounding: [{
-        citations: [{ url: 'https://ir.bloomenergy.com/events' }],
-        confidence: 'high',
-        field: 'events[0].date',
-      }],
     },
     results: [{
       text: 'The investor day is scheduled for Oct. 14.',

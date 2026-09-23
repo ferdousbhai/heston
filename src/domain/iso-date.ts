@@ -37,7 +37,7 @@ const MONTHS = [
  * two-digit years) matches unrelated dates on a page that lists many, and a narrower
  * one rejects sources that simply spell the month out.
  */
-export function isoDateRenderings(date: string): string[] {
+function isoDateRenderings(date: string): string[] {
   if (!isValidIsoDate(date)) return []
   const [year, month, day] = date.split('-').map(Number)
   const monthName = MONTHS[month - 1]!
@@ -66,12 +66,23 @@ export function isoDateRenderings(date: string): string[] {
  */
 const DATE_PROXIMITY_CHARS = 60
 
+/**
+ * One rendering as a whole date rather than a substring of one. A bare `includes` let
+ * "11/5/2026" vouch for 1/5/2026, "21 September 2026" for 1 September 2026, and
+ * "2026-01-050" for 2026-01-05: a date is not bound by a longer number that happens to end or
+ * begin with it. A letter or slash before the rendering, or a digit after it, is that longer
+ * number or word.
+ */
+function renderingPattern(rendering: string): RegExp {
+  const escaped = rendering.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(?<![0-9A-Za-z/])${escaped}(?![0-9])`, 'i')
+}
+
 /** Case- and whitespace-insensitive: served HTML wraps and pads dates unpredictably. */
 export function textMentionsIsoDate(text: string, date: string): boolean {
   if (!isValidIsoDate(date)) return false
   const haystack = text.replace(/\s+/g, ' ')
-  const lowered = haystack.toLowerCase()
-  if (isoDateRenderings(date).some((rendering) => lowered.includes(rendering.toLowerCase()))) {
+  if (isoDateRenderings(date).some((rendering) => renderingPattern(rendering).test(haystack))) {
     return true
   }
   const [year, month, day] = date.split('-').map(Number)
@@ -95,8 +106,9 @@ function spelledMonthDay(monthName: string, day: number): RegExp {
  * Reporting routinely prints an upcoming date without its year — "Sept. 9" for an event next
  * week — and demanding the year rejected real findings a live run read. Inside a horizon
  * shorter than a year a month-day names exactly one date, so when the claimed date falls
- * within [today, horizon] the year is redundant; a different year printed beside the mention
- * still refuses the match, so "September 9, 2025" cannot vouch for 2026-09-09.
+ * within [today, horizon] the year is redundant. A different year printed beside the mention,
+ * on either side, still refuses the match: "September 9, 2025" and "In 2025, on September 9"
+ * are both about another year and cannot vouch for 2026-09-09.
  */
 export function textMentionsDateWithinHorizon(
   text: string,
@@ -107,10 +119,14 @@ export function textMentionsDateWithinHorizon(
   if (textMentionsIsoDate(text, date)) return true
   if (!isValidIsoDate(date) || date < today || date > horizon) return false
   const haystack = text.replace(/\s+/g, ' ')
-  const [, month, day] = date.split('-').map(Number)
+  const [year, month, day] = date.split('-').map(Number)
   const anyYear = /\b(?:19|20)\d{2}\b/
+  const printedYears = /\b(?:19|20)\d{2}\b/g
   for (const match of haystack.matchAll(spelledMonthDay(MONTHS[month! - 1]!, day!))) {
-    if (!anyYear.test(haystack.slice(match.index, match.index + DATE_PROXIMITY_CHARS))) return true
+    if (anyYear.test(haystack.slice(match.index, match.index + DATE_PROXIMITY_CHARS))) continue
+    const before = haystack.slice(Math.max(0, match.index - DATE_PROXIMITY_CHARS), match.index)
+    if ([...before.matchAll(printedYears)].some(([printed]) => Number(printed) !== year)) continue
+    return true
   }
   return false
 }

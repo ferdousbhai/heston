@@ -35,6 +35,8 @@ describe('provenance date matching', () => {
     ['2026-09-24', 'scheduled for sep 24 2026'],
     ['2026-09-24', 'Held 24 September 2026 in Hawthorne'],
     ['2026-09-24', 'Starts 9/24/2026'],
+    ['2026-01-05', 'Due (1/5/2026) per the notice'],
+    ['2026-09-01', 'Held 1 September 2026 in Hawthorne'],
     // Multi-day events, which no single rendering can match.
     ['2026-09-22', 'SEPTEMBER 22-24 2026 | CAESARS FORUM'],
     ['2026-08-31', 'August 31 - September 3, 2026, more than 10,000 attendees'],
@@ -50,6 +52,12 @@ describe('provenance date matching', () => {
     ['2026-09-24', 'Upcoming events will be announced'],
     ['2026-09-24', 'September 25, 2026'],
     ['2026-09-24', 'September 24, 2027'],
+    // A longer number or date that merely contains a rendering is a different date.
+    ['2026-01-05', 'Rescheduled to 11/5/2026 after the vote'],
+    ['2026-02-01', 'Results follow on 12/1/2026'],
+    ['2026-09-01', 'Held 21 September 2026 in Hawthorne'],
+    ['2026-09-01', 'Held 21 Sep 2026 in Hawthorne'],
+    ['2026-01-05', 'Reference 2026-01-050 in the filing'],
   ])('refuses %s against %s', (date, text) => {
     expect(textMentionsIsoDate(text, date)).toBe(false)
   })
@@ -75,6 +83,18 @@ describe('horizon-scoped date matching', () => {
       'Back on September 9, 2025 the company said otherwise.',
       '2026-09-09', TODAY, HORIZON,
     )).toBe(false)
+  })
+
+  it('refuses a mention whose different year is printed just before it', () => {
+    expect(textMentionsDateWithinHorizon(
+      'In 2025, on September 9 the firm reported otherwise.',
+      '2026-09-09', TODAY, HORIZON,
+    )).toBe(false)
+    // The claimed year before the mention is no reason to refuse it.
+    expect(textMentionsDateWithinHorizon(
+      'In 2026, on September 9 the firm takes the stage.',
+      '2026-09-09', TODAY, HORIZON,
+    )).toBe(true)
   })
 
   it('never relaxes the year outside the horizon', () => {

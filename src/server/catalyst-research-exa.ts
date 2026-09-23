@@ -10,7 +10,7 @@ import {
   type Catalyst,
 } from '../domain/catalyst'
 import { EquitySymbolSchema } from '../domain/instrument'
-import { addDays, IsoDateSchema, textMentionsIsoDate } from '../domain/iso-date'
+import { addDays, IsoDateSchema, textMentionsDateWithinHorizon } from '../domain/iso-date'
 import { readBoundedJson } from './bounded-response'
 import { type AppEnv } from './env'
 import { readStoredSecret } from './secrets'
@@ -18,14 +18,16 @@ import { readStoredSecret } from './secrets'
 /**
  * Exa searches the web and, given a JSON schema, synthesizes one structured answer from the
  * pages it read. That is the whole catalyst producer: a symbol goes in, dated events with
- * the page each came from come back, under `output.content`, alongside an `output.grounding`
- * list naming the pages that support each synthesized field (`events[0].date` and so on).
+ * the page each came from come back under `output.content`, beside the text Exa returned for
+ * every page it read.
  *
  * A synthesized answer is still model text, so an event is kept only when its date is bound
- * to a page this run actually read: either Exa's own grounding cites that page for that
- * event's date, or the page text Exa returned states the date outright. A live run showed
- * why both are needed — reporting routinely writes "Sept. 1" where the event says
- * 2026-09-01, so a text scan alone would silently reject every real finding.
+ * to a page this run actually read: the text Exa returned for the cited page has to state that
+ * date. Exa also returns an `output.grounding` list naming the pages that support each field,
+ * and it is deliberately not read: it is the same model vouching for its own answer, and model
+ * output never establishes a citation here. Reporting routinely writes "Sept. 1" where the
+ * event says 2026-09-01, which is why the text is read the way every other catalyst binder
+ * reads it -- a year-less month-day binds inside the horizon, where it can name only one date.
  */
 const EXA_SEARCH_URL = 'https://api.exa.ai/search'
 const MAX_EXA_RESPONSE_BYTES = 2 * 1024 * 1024
@@ -67,17 +69,9 @@ const ExaResultSchema = z.object({
   url: z.string(),
 })
 
-/** `field` names the synthesized value these pages support, e.g. `events[0].date`. */
-const ExaGroundingSchema = z.object({
-  citations: z.array(z.object({ url: z.string() })).default([]),
-  confidence: z.string().optional(),
-  field: z.string(),
-})
-
 const ExaResponseSchema = z.object({
   output: z.object({
     content: z.object({ events: z.array(z.unknown()).max(MAX_EXA_EVENTS) }).optional(),
-    grounding: z.array(ExaGroundingSchema).default([]),
   }).optional(),
   results: z.array(ExaResultSchema).default([]),
 })
@@ -143,9 +137,6 @@ export async function runExaCatalystSearch(
   const pages = new Map(payload.results.map((result) => [result.url, result.text ?? '']))
   const events = payload.output?.content?.events
   if (!events) return { catalysts: [], rejected: ['Exa returned no structured events'] }
-  const groundedDateSources = new Map(payload.output?.grounding
-    .filter((entry) => entry.confidence !== 'low')
-    .map((entry) => [entry.field, new Set(entry.citations.map((citation) => citation.url))]))
 
   const today = marketDate(now)
   const horizon = addDays(today, CATALYST_HORIZON_DAYS)
@@ -166,13 +157,12 @@ export async function runExaCatalystSearch(
       rejected.push(`event ${index + 1}: source was not read this run`)
       continue
     }
-    const grounded = groundedDateSources.get(`events[${index}].date`)?.has(event.sourceUrl) === true
-    if (!grounded && !textMentionsIsoDate(page, event.date)) {
-      rejected.push(`event ${index + 1}: ${event.date} is not bound to its source page`)
-      continue
-    }
     if (event.date < today || event.date > horizon) {
       rejected.push(`event ${index + 1}: date is outside the ${CATALYST_HORIZON_DAYS}-day horizon`)
+      continue
+    }
+    if (!textMentionsDateWithinHorizon(page, event.date, today, horizon)) {
+      rejected.push(`event ${index + 1}: ${event.date} is not bound to its source page`)
       continue
     }
     const id = `exa:${symbol}:${event.kind}:${event.date}`

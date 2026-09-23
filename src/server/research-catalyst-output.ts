@@ -47,7 +47,9 @@ export type BoundCatalystProvider = keyof typeof BOUND_CATALYST_LABELS
 
 /**
  * Turn model-authored catalyst candidates into application-owned rows. A candidate survives
- * only when this run retained its HTTPS page and the page contains the exact event date.
+ * only when this run retained its HTTPS page and the page states the event date -- in full, or
+ * as a month-day with no conflicting year printed beside it while the date is inside the horizon,
+ * where a month-day can name only one date.
  *
  * The provider is a parameter so any producer of model-authored dates is bound under the same
  * rules. A member's recording is the one producer left; `daily-research` stays in the label map
