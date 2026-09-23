@@ -1,9 +1,9 @@
 {
   "name": "Heston",
   "short_name": "Heston",
-  "description": "Public options intelligence and market research with owner-gated order placement.",
-  "theme_color": "#0d0e13",
-  "background_color": "#0d0e13",
+  "description": "Public options intelligence and market research with guarded order placement through your own brokerage credentials.",
+  "theme_color": "#09090b",
+  "background_color": "#09090b",
   "display": "standalone",
   "orientation": "portrait",
   "icons": [

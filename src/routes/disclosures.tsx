@@ -28,8 +28,8 @@ function DisclosuresPage() {
         <p>Quotes, Greeks, volatility measures, news, catalysts, balances, and order status may be delayed, estimated, incomplete, or wrong. Automated and artificial-intelligence outputs can omit context or make errors. Confirm prices, contract details, buying power, disclosures, and order status with the relevant primary source before acting.</p>
       </section>
       <section>
-        <h2>Confirmations are safeguards, not guarantees</h2>
-        <p>Heston requires explicit confirmation before order placement and may apply risk boundaries. Cancellations and watchlist changes do not require that extra step when explicitly requested. Those controls reduce accidental actions but do not make a trade safe, profitable, appropriate, or certain to execute. Network and provider failures can leave outcomes uncertain; reconcile directly with the broker before retrying.</p>
+        <h2>Guards are safeguards, not guarantees</h2>
+        <p>Heston places an order only through your own brokerage credentials, and it does not hold orders for a separate confirmation step. Before submitting, it resolves the exact contract from the live option chain, applies its portfolio drawdown and market guards, and requires a clean dry-run from your broker. Any confirmation prompt comes from the agent you run on your own machine, not from Heston. Cancellations are not guarded, because they only reduce exposure. None of this makes a trade safe, profitable, appropriate, or certain to execute. When a network or provider failure leaves a submission's outcome uncertain, Heston does not retry it and refuses further orders on that account until the submission is reconciled against the broker's order history; check with your broker directly before placing the order again.</p>
       </section>
       <section>
         <h2>Your responsibility</h2>

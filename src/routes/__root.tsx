@@ -18,7 +18,7 @@ export const Route = createRootRoute({
       },
       {
         name: 'theme-color',
-        content: '#0d0e13',
+        content: '#09090b',
       },
       {
         name: 'apple-mobile-web-app-capable',
@@ -33,7 +33,7 @@ export const Route = createRootRoute({
       },
       {
         name: 'description',
-        content: 'Public options intelligence and market research with owner-gated order placement.',
+        content: 'Public options intelligence and market research with guarded order placement through your own brokerage credentials.',
       },
     ],
     links: [

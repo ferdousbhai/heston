@@ -8,7 +8,7 @@ export const Route = createFileRoute('/support')({
   head: () => ({
     meta: [
       { title: 'Support | Heston' },
-      { name: 'description', content: 'Get help with the public market page or the private Heston owner workspace.' },
+      { name: 'description', content: 'Get help with the public market page or the Heston member workspace.' },
     ],
   }),
 })
@@ -16,7 +16,7 @@ export const Route = createFileRoute('/support')({
 function SupportPage() {
   return (
     <SitePage
-      intro="Help with the public market page or the private owner workspace."
+      intro="Help with the public market page or the member workspace."
       title="Support"
     >
       <section>

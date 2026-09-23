@@ -26,7 +26,7 @@ function PrivacyPage() {
       </section>
       <section>
         <h2>Local and cloud storage</h2>
-        <p>Some preferences and validated market snapshots are stored on your device for responsiveness and offline access. If you sign in, ticker favorites are also stored with your account so they can sync across devices. Public and owner snapshots carry separate audience markers so signed-out pages do not render owner-cached rows. Server-side application state is hosted on Cloudflare. Clearing browser storage removes local data but may not remove server records or data held by connected providers.</p>
+        <p>Some preferences and validated market snapshots are stored on your device for responsiveness. If you sign in, ticker favorites are also stored with your account so they can sync across devices. Public and owner snapshots carry separate audience markers so signed-out pages do not render owner-cached rows. Server-side application state is hosted on Cloudflare. Clearing browser storage removes local data but may not remove server records or data held by connected providers.</p>
       </section>
       <section>
         <h2>Service providers</h2>

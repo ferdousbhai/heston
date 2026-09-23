@@ -26,7 +26,7 @@ function TermsPage() {
       </section>
       <section>
         <h2>3. Market and brokerage connections</h2>
-        <p>Heston can display information from third parties and prepare instructions for a connected brokerage account. Those providers control their own services, data, executions, fees, and terms. A draft, preview, or confirmation in Heston is not a guarantee that an order was accepted, filled, cancelled, or priced as shown. Verify material activity with the broker.</p>
+        <p>Heston can display information from third parties and prepare instructions for a connected brokerage account. Those providers control their own services, data, executions, fees, and terms. A confirmation in Heston is not a guarantee that an order was accepted, filled, cancelled, or priced as shown. Verify material activity with the broker.</p>
       </section>
       <section>
         <h2>4. No investment advice</h2>
