@@ -107,20 +107,32 @@ function normalizeChartQuote(quote: ChartResultArray['quotes'][number]): PriceHi
   return { adjustedClose, close, date, high, low, open, volume }
 }
 
+/**
+ * The chart endpoint takes epoch seconds; the client converts a date string to them as
+ * `Math.floor(new Date(value).getTime() / 1000)`. The source link repeats that conversion so it
+ * is the request the client made, not a restatement of it in another unit.
+ */
+function yahooEpochSeconds(isoDate: string): number {
+  return Math.floor(Date.parse(isoDate) / 1_000)
+}
+
 export function createYahooPriceHistoryProvider(
   client: Pick<ResearchYahooClient, 'chart'>,
 ): PriceHistoryProvider {
   return {
     async readDaily(symbol, range) {
       const providerSymbol = yahooSymbol(symbol)
+      // Yahoo treats period2 as exclusive, so extend it to keep the requested end date inclusive.
+      // One definition feeds both the request and the source link, so the link names the window
+      // actually asked for.
+      const request = {
+        interval: '1d' as const,
+        period1: range.startDate,
+        period2: addDays(range.endDate, 1),
+      }
       let raw: ChartResultArray
       try {
-        raw = await client.chart(providerSymbol, {
-          interval: '1d',
-          // Yahoo treats period2 as exclusive, so extend it to keep the requested end date inclusive.
-          period1: range.startDate,
-          period2: addDays(range.endDate, 1),
-        })
+        raw = await client.chart(providerSymbol, request)
       } catch {
         throw new ResearchProviderError('unavailable', 'yahoo')
       }
@@ -140,9 +152,9 @@ export function createYahooPriceHistoryProvider(
       if (new Set(prices.map((row) => row.date)).size !== prices.length) return invalidHistory()
 
       const source = new URL(`https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(providerSymbol)}`)
-      source.searchParams.set('interval', '1d')
-      source.searchParams.set('period1', range.startDate)
-      source.searchParams.set('period2', range.endDate)
+      source.searchParams.set('interval', request.interval)
+      source.searchParams.set('period1', String(yahooEpochSeconds(request.period1)))
+      source.searchParams.set('period2', String(yahooEpochSeconds(request.period2)))
       return {
         adjustmentMethodology: 'OHLCV is split-adjusted; adjustedClose additionally applies dividend adjustments. Both are provider-calculated.',
         currency,
@@ -289,7 +301,7 @@ function createPriceHistoryReadTool(
   return {
     // The alignment sentence is the one thing a model cannot infer from the payload and must not
     // guess at: a study read one row out is worse than no study at all.
-    description: 'Dividend-adjusted Yahoo history with optional local SMA, EMA, RSI, MACD, or Bollinger studies; not a current quote. A study series carries only the values it has: values[i] is for prices[firstPriceIndex + i].',
+    description: `Dividend-adjusted Yahoo history with optional local SMA, EMA, RSI, MACD, or Bollinger studies; not a current quote. A study series carries only the values it has. ${STUDY_ALIGNMENT_NOTE}`,
     execute: async (params) => textResult(await readPriceHistory(params, provider)),
     name: 'read_price_history',
     parameters: PriceHistoryReadParameters,

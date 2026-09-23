@@ -9,6 +9,7 @@ import {
   type PriceHistoryReadResult,
 } from '../src/server/market-research-contracts'
 import {
+  createMarketResearchTools,
   createYahooPriceHistoryProvider,
   type PriceHistoryProvider,
   type PriceHistoryRow,
@@ -132,6 +133,13 @@ describe('market research tools', () => {
       expect(series.values).toHaveLength(5)
     }
     expect(result.studyAlignment).toContain('prices.date[firstPriceIndex + i]')
+  })
+
+  it('describes study alignment against the columns the payload actually carries', () => {
+    // `prices` is columns, so `prices[firstPriceIndex + i]` names no bar at all.
+    const [tool] = createMarketResearchTools(priceProvider(historyRows(1)))
+    expect(tool!.description).toContain('prices.date[firstPriceIndex + i]')
+    expect(tool!.description).not.toContain('prices[firstPriceIndex')
   })
 
   it('states a study that has no value in the returned window instead of padding it', async () => {
@@ -306,6 +314,10 @@ describe('market research tools', () => {
       period1: '2026-08-12',
       period2: '2026-08-15',
     })
+    // The link names the request the client made: epoch seconds, with the exclusive end.
+    const source = new URL(result.sourceUrl)
+    expect(source.searchParams.get('period1')).toBe(String(Date.parse('2026-08-12') / 1_000))
+    expect(source.searchParams.get('period2')).toBe(String(Date.parse('2026-08-15') / 1_000))
     expect(result).toMatchObject({
       currency: 'USD',
       exchange: 'NMS',
