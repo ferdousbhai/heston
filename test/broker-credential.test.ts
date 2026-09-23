@@ -52,7 +52,7 @@ describe('request-scoped broker credential', () => {
     expect(brokerCredentialFromHeaders(new Headers(values))).toBeUndefined()
   })
 
-  it('throws the owner-visible missing-credential error for an account path', async () => {
+  it('throws the caller-visible missing-credential error for an account path', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
     const { tastyRequest } = await import('../src/server/tastytrade')

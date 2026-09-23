@@ -65,7 +65,7 @@ function detail(cause: unknown): string {
 
 /**
  * `completeAccountRows` names its own failure (`TastytradeAccount:incomplete-positions`
- * and friends). Those names reach an owner-visible message through the portfolio guard and
+ * and friends). Those names reach a caller-visible message through the portfolio guard and
  * the account snapshot tool, so they are carried verbatim and only tagged with which read
  * they came from.
  */
@@ -322,7 +322,7 @@ export function tastytradeOrderFromPayload(payload: JsonValue): BrokerOrderRecor
   const body = jsonObject(payload)
   const data = jsonObject(body?.data ?? payload)
   // A collection where one order was asked for is ambiguous, never the first row.
-  // The failure name is preserved verbatim: it is the existing owner-visible one.
+  // The failure name is preserved verbatim: it is the existing caller-visible one.
   if (!data || JsonArraySchema.safeParse(data.items).success) throw new Error('OrderReplacement:invalid-order')
   return tastytradeOrderRecord(data)
 }

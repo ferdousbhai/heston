@@ -1,6 +1,6 @@
 import { type FreshOrderPlacement } from './agent-contracts'
 import { type AppEnv } from './env'
-import { OwnerVisibleError } from './owner-visible-error'
+import { CallerVisibleError } from './caller-visible-error'
 import { resolveEquityOptionContract, type EquityOptionContract } from './option-contract'
 import { type BrokerAccountRef, type BrokerAccountSnapshot } from '../domain/broker'
 import { brokerAdapterFor, BrokerSnapshotError, describeSnapshotError } from './brokers'
@@ -22,9 +22,9 @@ export interface PortfolioActionAssessment {
   reason?: string
 }
 
-export class PortfolioRiskError extends OwnerVisibleError {
+export class PortfolioRiskError extends CallerVisibleError {
   constructor(message: string) {
-    super('portfolio-risk', message)
+    super(message)
     this.name = 'PortfolioRiskError'
   }
 }

@@ -1,5 +1,5 @@
 import { BrokerIdSchema, type BrokerId } from '../domain/broker'
-import { OwnerVisibleError } from './owner-visible-error'
+import { CallerVisibleError } from './caller-visible-error'
 
 export type BrokerCredential = {
   /** Short-lived broker access token supplied per request. Never persisted, never logged. */
@@ -8,10 +8,9 @@ export type BrokerCredential = {
   broker: BrokerId
 }
 
-export class BrokerCredentialMissingError extends OwnerVisibleError {
+export class BrokerCredentialMissingError extends CallerVisibleError {
   constructor() {
     super(
-      'broker-credential',
       'No brokerage is connected for this request. Connect a brokerage from the Connect tab in the Heston web app, then try again.',
     )
     this.name = 'BrokerCredentialMissingError'

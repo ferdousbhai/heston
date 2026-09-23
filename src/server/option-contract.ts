@@ -10,15 +10,15 @@ import {
   type JsonValue,
 } from '../domain/json-payload'
 import { brokerApi } from './tastytrade'
-import { OwnerVisibleError } from './owner-visible-error'
+import { CallerVisibleError } from './caller-visible-error'
 
 type OptionAction = Extract<OrderPlacement, { kind: 'place_option_order' }>
 // Error details show enough alternatives to correct a tuple without echoing a full option chain.
 const MAX_RESOLUTION_SUGGESTIONS = 8
 
-export class OptionContractUnavailableError extends OwnerVisibleError {
+export class OptionContractUnavailableError extends CallerVisibleError {
   constructor(detail: string) {
-    super('option-contract', `Requested option contract is not available. ${detail}`)
+    super(`Requested option contract is not available. ${detail}`)
     this.name = 'OptionContractUnavailableError'
   }
 }

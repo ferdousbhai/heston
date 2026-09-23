@@ -12,7 +12,7 @@ import { type AppEnv } from '../env'
 /**
  * Which of the four account reads a snapshot failed on, and whether it failed reading the
  * page itself or one record inside it. The portfolio guard and the account snapshot tool turn
- * this into owner-visible wording through `describeSnapshotError`, so the distinction has to
+ * this into caller-visible wording through `describeSnapshotError`, so the distinction has to
  * survive the adapter boundary rather than collapsing into one opaque "the account could not
  * be read".
  */
@@ -21,7 +21,7 @@ export type BrokerSnapshotStage = 'page' | 'record'
 
 /**
  * A broker account snapshot that could not be normalized. `message` is the adapter's own
- * failure name, which is what reaches an owner-visible message, so it must stay specific.
+ * failure name, which is what reaches a caller-visible message, so it must stay specific.
  * A transport failure is deliberately NOT wrapped in this: callers distinguish "the broker
  * would not answer" from "the broker answered something we refuse to believe".
  */
@@ -54,7 +54,7 @@ export function describeSnapshotError(error: BrokerSnapshotError, subject: strin
 
 /**
  * A cancellation whose outcome the broker did not make knowable. The caller turns this into
- * its own owner-visible warning; what matters here is that an adapter must raise it rather
+ * its own caller-visible warning; what matters here is that an adapter must raise it rather
  * than retrying, because the broker may already have accepted the cancellation.
  */
 export class BrokerCancellationAmbiguousError extends Error {
