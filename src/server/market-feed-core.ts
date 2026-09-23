@@ -28,6 +28,7 @@ import {
 // dxFeed COMPACT rows encode absent numeric slots as null or empty strings, which
 // `jsonNumber` already reads back as absent.
 import { JsonArraySchema, jsonNumber, JsonObjectSchema, type JsonObject, type JsonValue } from '../domain/json-payload'
+import { loadStoredPublicMarketUniverse } from './public-market-universe'
 import { brokerApi } from './tastytrade'
 
 const SocketAttachmentSchema = z.object({
@@ -68,6 +69,14 @@ const CLIENT_IDLE_TIMEOUT_MS = 3 * CLIENT_HEARTBEAT_MS
  * past it is cut, logged, and reported to the readers who lost symbols as `degraded`.
  */
 const MAX_RELAYED_SYMBOLS = MAX_WATCHLIST_SYMBOLS
+/**
+ * How long the relay trusts its copy of the published universe when ranking a crowded union. The
+ * copy is read only while the union exceeds `MAX_RELAYED_SYMBOLS`, so an uncrowded relay never
+ * reads D1 for it. The universe changes only when the maintained list is written, and a stale copy
+ * can only misorder names on a relay that is already cutting — it never refuses a symbol — so one
+ * read per this interval per crowded relay is the whole cost.
+ */
+const PUBLISHED_UNIVERSE_REFRESH_MS = 5 * 60 * 1_000
 // These bound one interactive read/setup attempt; the persistent relay reconnects separately.
 const OPTION_GREEKS_TIMEOUT_MS = 10_000
 const UPSTREAM_SETUP_TIMEOUT_MS = 15_000
@@ -341,6 +350,7 @@ export class MarketFeedCore {
   private readonly dailyRequests = new DailyCandleRequestRegistry()
   private feedState: MarketFeedStatus['state'] = 'connecting'
   private droppedSymbolCount = 0
+  private publishedUniverse?: { loadedAt: number; symbols: ReadonlySet<string> }
 
   constructor(
     private readonly ctx: FeedContext,
@@ -438,18 +448,50 @@ export class MarketFeedCore {
   /**
    * Each socket is capped on its own, but the union across them was not, so enough readers on
    * different watchlists could put an unbounded number of subscriptions on the one upstream
-   * connection. Sorting before the cut keeps the retained set stable across reconciles, so a
-   * crowded relay does not churn subscriptions on and off every time a socket joins or leaves.
+   * connection. The socket is open to any caller that sends a matching Origin, which a
+   * non-browser client can forge, so the cut must not be won by whoever names the most
+   * early-alphabet symbols: names in the published universe — what every reader's market screen
+   * lists — are kept first, then names more sockets ask for, then alphabetical order so the
+   * retained set stays stable across reconciles. A name outside the universe is still relayed
+   * while there is room: a reader's searched or selected symbol may legitimately be one.
    */
   private relayedDownstream() {
-    const symbols = new Set<string>()
+    const demand = new Map<string, number>()
     for (const socket of this.ctx.getWebSockets()) {
-      for (const symbol of this.socketSymbols(socket)) symbols.add(symbol)
+      for (const symbol of this.socketSymbols(socket)) demand.set(symbol, (demand.get(symbol) ?? 0) + 1)
     }
-    if (symbols.size <= MAX_RELAYED_SYMBOLS) return { dropped: 0, symbols }
+    if (demand.size <= MAX_RELAYED_SYMBOLS) return { dropped: 0, symbols: new Set(demand.keys()) }
+    const universe = this.publishedUniverse?.symbols
+    const ranked = [...demand].sort(([left, leftCount], [right, rightCount]) => (
+      Number(universe?.has(right) ?? false) - Number(universe?.has(left) ?? false)
+      || rightCount - leftCount
+      || (left < right ? -1 : left > right ? 1 : 0)
+    ))
     return {
-      dropped: symbols.size - MAX_RELAYED_SYMBOLS,
-      symbols: new Set([...symbols].sort().slice(0, MAX_RELAYED_SYMBOLS)),
+      dropped: demand.size - MAX_RELAYED_SYMBOLS,
+      symbols: new Set(ranked.slice(0, MAX_RELAYED_SYMBOLS).map(([symbol]) => symbol)),
+    }
+  }
+
+  /**
+   * Refresh the universe copy the cut ranks by, only when there is a cut to rank. A failed read
+   * keeps the previous copy (or none, which ranks by demand alone) and is logged, and it waits
+   * the same interval before retrying so a missing store does not cost a read per reconcile.
+   */
+  private publishedUniverseDue(): boolean {
+    if (this.relayedDownstream().dropped === 0) return false
+    const cached = this.publishedUniverse
+    return !cached || Date.now() - cached.loadedAt >= PUBLISHED_UNIVERSE_REFRESH_MS
+  }
+
+  private async refreshPublishedUniverse(): Promise<void> {
+    const cached = this.publishedUniverse
+    try {
+      const universe = await loadStoredPublicMarketUniverse(this.env)
+      this.publishedUniverse = { loadedAt: Date.now(), symbols: new Set(universe.symbols) }
+    } catch (error) {
+      this.logError('MarketFeedUniverseReadFailed', toError(error))
+      this.publishedUniverse = { loadedAt: Date.now(), symbols: cached?.symbols ?? new Set() }
     }
   }
 
@@ -515,6 +557,8 @@ export class MarketFeedCore {
   }
 
   private async reconcileOnce(): Promise<void> {
+    // Checked synchronously so an uncrowded reconcile does not yield before it subscribes.
+    if (this.publishedUniverseDue()) await this.refreshPublishedUniverse()
     if (!this.hasDemand()) {
       await this.stopUpstream(1000, 'No subscribers')
       return

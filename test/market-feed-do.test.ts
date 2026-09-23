@@ -11,6 +11,7 @@ import {
 } from '../src/server/market-feed-core'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
+import { migrationStore } from './sqlite-d1'
 import { symbolAt } from './symbols'
 
 const tasty = stubBroker()
@@ -119,6 +120,32 @@ function liveEnvironment(): AppEnv {
     TASTYTRADE_CLIENT_SECRET: secret,
     TASTYTRADE_REFRESH_TOKEN: secret,
   }
+}
+
+/** Open the one upstream socket and walk it through auth and every channel's configuration. */
+async function openConfiguredUpstream(context: FakeContext): Promise<FakeUpstreamWebSocket> {
+  await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(1))
+  const socket = FakeUpstreamWebSocket.instances[0]!
+  socket.open()
+  await context.drain()
+  socket.message({ type: 'AUTH_STATE', channel: 0, state: 'AUTHORIZED' })
+  await context.drain()
+  const handshake = [
+    [1, 'Quote', QUOTE_FIELDS],
+    [3, 'Trade', TRADE_FIELDS],
+    [5, 'Candle', CANDLE_FIELDS],
+    [7, 'Greeks', GREEKS_FIELDS],
+  ] as const
+  for (const [channel, type, fields] of handshake) {
+    socket.message({ type: 'CHANNEL_OPENED', channel, service: 'FEED', parameters: { contract: 'AUTO' } })
+    await context.drain()
+    socket.message({
+      type: 'FEED_CONFIG', channel, aggregationPeriod: 0.25,
+      dataFormat: 'COMPACT', eventFields: { [type]: fields },
+    })
+    await context.drain()
+  }
+  return socket
 }
 
 afterEach(() => {
@@ -398,33 +425,15 @@ describe('MarketFeed option Greeks RPC', () => {
   // to be silent: the readers who lost symbols were told the feed was live.
   it('logs a cut subscription union and tells only the readers who lost symbols', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    // No store here, so the cut ranks by demand alone and says it could not read the universe.
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const lists = Array.from({ length: 6 }, (_, reader) => (
       Array.from({ length: 100 }, (_, index) => symbolAt(reader * 100 + index))
     ))
     const clients = lists.map((symbols) => downstream(symbols))
     const context = new FakeContext(clients)
     new MarketFeedCore(context, liveEnvironment())
-    await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(1))
-    const socket = FakeUpstreamWebSocket.instances[0]!
-    socket.open()
-    await context.drain()
-    socket.message({ type: 'AUTH_STATE', channel: 0, state: 'AUTHORIZED' })
-    await context.drain()
-    const handshake = [
-      [1, 'Quote', QUOTE_FIELDS],
-      [3, 'Trade', TRADE_FIELDS],
-      [5, 'Candle', CANDLE_FIELDS],
-      [7, 'Greeks', GREEKS_FIELDS],
-    ] as const
-    for (const [channel, type, fields] of handshake) {
-      socket.message({ type: 'CHANNEL_OPENED', channel, service: 'FEED', parameters: { contract: 'AUTO' } })
-      await context.drain()
-      socket.message({
-        type: 'FEED_CONFIG', channel, aggregationPeriod: 0.25,
-        dataFormat: 'COMPACT', eventFields: { [type]: fields },
-      })
-      await context.drain()
-    }
+    const socket = await openConfiguredUpstream(context)
 
     expect(warn).toHaveBeenCalledWith('MarketFeedSubscriptionsTruncated', 100)
     expect(warn.mock.calls.filter(([event]) => event === 'MarketFeedSubscriptionsTruncated')).toHaveLength(1)
@@ -450,6 +459,38 @@ describe('MarketFeed option Greeks RPC', () => {
     expect(truncatedReaders).toBeGreaterThan(0)
     socket.close()
     await context.drain()
+  })
+
+  // The stream accepts any caller with a matching Origin, which a script can forge. Anonymous
+  // sockets naming early-alphabet junk used to take every relay slot from the listed names.
+  it('keeps published-universe names and shared demand ahead of junk subscriptions', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const store = await migrationStore()
+    try {
+      store.sqlite.prepare(
+        `INSERT INTO public_market_universe (id, payload_json, updated_at) VALUES ('primary', ?, ?)`,
+      ).run(JSON.stringify({ symbols: ['ZZZA', 'ZZZB'] }), new Date().toISOString())
+      const reader = downstream(['ZZZA', 'ZZZB', 'ZZZY'])
+      // A name outside the universe that two readers want outranks one nobody else names.
+      const secondReader = downstream(['ZZZY'])
+      const junk = Array.from({ length: 5 }, (_, socket) => (
+        downstream(Array.from({ length: 100 }, (_, index) => symbolAt(socket * 100 + index)))
+      ))
+      const context = new FakeContext([...junk, reader, secondReader])
+      new MarketFeedCore(context, { ...liveEnvironment(), DB: store.database })
+      const socket = await openConfiguredUpstream(context)
+
+      for (const client of [reader, secondReader]) {
+        const statuses = vi.mocked(client.send).mock.calls
+          .map(([frame]) => JsonObjectSchema.parse(JSON.parse(frame)))
+          .filter((frame) => frame.type === 'feed-status')
+        expect(statuses.at(-1)).toMatchObject({ state: 'live' })
+      }
+      socket.close()
+      await context.drain()
+    } finally {
+      store.close()
+    }
   })
 
   it('keeps a reader that is still announcing itself', async () => {
