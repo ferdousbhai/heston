@@ -23,14 +23,16 @@ export default {
   async fetch(request: Request, env: AppEnv, ctx: ExecutionContext) {
     const canonicalRedirect = canonicalHostRedirect(request)
     if (canonicalRedirect) return canonicalRedirect
-    // The tool surface for the agent on the owner's machine. Bearer-authed inside the
-    // handler; the session/cookie path stays untouched and the token opens nothing else.
-    // An MCP client reads these before it can authenticate at all, and only ever at the origin.
     const url = new URL(request.url)
+    // OAuth discovery. An MCP client reads these before it can authenticate at all, and only
+    // ever at the origin.
     if (url.pathname.startsWith('/.well-known/')) {
       const discovery = await (await authSurface()).handleWellKnownDiscovery(request, env)
       if (discovery) return discovery
     }
+    // The tool surface for the agent each caller runs on their own machine -- the owner, any
+    // member, or an anonymous caller at the public tier. Bearer-authed inside the handler; the
+    // session/cookie path stays untouched and the token opens nothing else.
     if (url.pathname === '/mcp') return (await mcpSurface()).handleMcpRequest(request, env, ctx)
     // An agent aimed at the site rather than at `/mcp` would otherwise be handed the web app's
     // HTML with a 200 and fail inside its JSON parser, saying nothing useful to anyone. The

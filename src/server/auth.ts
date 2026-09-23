@@ -112,6 +112,8 @@ const MIN_AUTH_SECRET_LENGTH = 32
 type AuthRuntime = {
   auth: ReturnType<typeof configureAuth>
   authIssuer: string
+  /** The store the auth server reads, and so the one its tokens' subjects are users in. */
+  database: D1Database
   mcpResource: string
 }
 
@@ -127,7 +129,7 @@ async function createAuthRuntime(env: AppEnv): Promise<AuthRuntime> {
 
   const auth = configureAuth(env.DB, baseURL, secret, googleClientId, googleClientSecret)
 
-  return { auth, authIssuer: authIssuerFor(baseURL), mcpResource: mcpResourceIdentifier(baseURL) }
+  return { auth, authIssuer: authIssuerFor(baseURL), database: env.DB, mcpResource: mcpResourceIdentifier(baseURL) }
 }
 
 /** A failed build must not stay cached, so the next request retries from scratch. */

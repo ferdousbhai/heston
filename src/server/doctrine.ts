@@ -56,7 +56,28 @@ correlated exposure and the largest single-name risk. End with the one action mo
 or say plainly that nothing is worth doing today.
 `.trim()
 
-export function tradeIdeaPrompt(symbol: string, thesis: string): string {
+/**
+ * What the placement guards admit, stated as they are in `portfolio-risk.ts`, `order-market.ts`
+ * and the broker dry-run. There is no drawdown budget any more: the limit is the debit, and
+ * buying power is the broker's own check. Only a signed-in caller can place anything, so only
+ * their prompt describes this.
+ */
+const ADMISSIBLE_ORDERS = `The server opens only a debit position -- a long equity or option bought
+to open, or a debit vertical -- so the most a new position can lose is the debit paid, and it
+opens nothing while the account holds short or unsupported exposure. A close may not exceed the
+verified position. The limit must sit on the tick grid inside the live bid and ask, and the
+broker's dry-run, which checks buying power, must come back clean. Treat the debit as the worst
+case you are choosing to accept, and weigh it against the balances and positions
+\`read_account_snapshot\` returns.`
+
+/**
+ * The trade-idea workflow for this caller's tier. An anonymous caller holds no account and no
+ * account tools, so their version names neither; it stops at the structure and its worst case.
+ */
+export function tradeIdeaPrompt(symbol: string, thesis: string, signedIn: boolean): string {
+  const close = signedIn
+    ? `Only if it clears, propose a concrete structure with a named worst case.\n\n${ADMISSIBLE_ORDERS}`
+    : 'Only if it clears, propose a concrete structure with a named worst case.'
   return `
 Evaluate this idea for ${symbol}: ${thesis}
 
@@ -76,8 +97,7 @@ any protection by its actual payoff net of premium, carry, basis and monetizatio
 to recover an entry, or chase what recently rose.
 
 If the case does not clear that bar, say so and stop -- do not soften it into a smaller position.
-Only if it clears, propose a concrete structure with a named worst case and check it against the
-account's remaining loss budget.
+${close}
 `.trim()
 }
 
@@ -124,6 +144,6 @@ What is not obvious from the tool list:
   site shows them. It is prior work argued here, not a current read of anything, and nothing on
   this server writes one.
 
-\`portfolio_review\` and \`evaluate_trade_idea\` are registered prompts the user invokes. If a
-question is really one of those, say the workflow exists.
+\`evaluate_trade_idea\` and, once signed in, \`portfolio_review\` are registered prompts the user
+invokes. If a question is really one of those, say the workflow exists.
 `.trim()

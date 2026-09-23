@@ -3,14 +3,15 @@ import {
   OAuthError,
   bearerAuthChallengeResponse,
   fromJsonSchema,
-  type JsonSchemaType,
 } from '@modelcontextprotocol/server'
 import { createMcpHandler } from 'agents/mcp/server'
 import { type AgentTool } from '../domain/agent-tool'
+import { EquitySymbolSchema } from '../domain/instrument'
 import { type TSchema } from 'typebox'
 import { z } from 'zod'
 
 import { CancelOrderParameters, CancelOrderSchema, OrderPlacementParameters } from './agent-contracts'
+import { textResult } from './agent-tool-result'
 import { cancelBrokerageOrder, placeBrokerageOrder } from './order-placement'
 import { createBrokerageReconciliationTool } from './brokerage-reconciliation'
 import { createCatalystRecordTool } from './catalyst-record-tool'
@@ -30,26 +31,28 @@ import {
   tradeIdeaPrompt,
 } from './doctrine'
 import { toolAnnotations } from './mcp-annotations'
-import { authenticateMcpToken } from './mcp-tokens'
+import { authenticateMcpToken, isMintedMcpToken } from './mcp-tokens'
 import { getAuthRuntime, isOwnerEmail } from './auth'
 import { verifyMcpAccessToken } from './mcp-token-verify'
-import { createRememberSymbolsTool, createWatchlistManageTool, createWatchlistReadTool } from './watchlist-tool'
 import {
-  BrokerCredentialMissingError,
-  brokerCredentialFromHeaders,
-  type BrokerCredential,
-} from './broker-credential'
-
-function asJsonSchema(schema: TSchema): JsonSchemaType {
-  // SAFETY: a TypeBox schema is a plain JSON Schema object at runtime. `TUnsafe` (which the
-  // order-placement union uses) merely hides the structural properties from the type system,
-  // not from the wire, so this asserts nothing that is not already true.
-  return schema as JsonSchemaType
-}
+  createRememberSymbolsTool,
+  createWatchlistIndexTool,
+  createWatchlistManageTool,
+  createWatchlistReadTool,
+} from './watchlist-tool'
+import { brokerCredentialFromHeaders, type BrokerCredential } from './broker-credential'
 
 /**
- * The web app as a tool surface for an agent that runs on the owner's machine. Agent loops do
- * not run in this Worker any more — a year of closes, a grown conversation, and a 128 MB
+ * A thesis is the user's own words for one idea, pasted into a prompt the agent then works from.
+ * The bound is a budget on that injected context, not a policy about ideas: a few paragraphs,
+ * which is what the prompt's own reasoning steps are sized for.
+ */
+const MAX_THESIS_LENGTH = 2_000
+
+/**
+ * The web app as a tool surface for whatever agent a caller runs on their own machine: every
+ * member, the owner, and an anonymous caller at the public tier. Agent loops do not run in this
+ * Worker any more — a year of closes, a grown conversation, and a 128 MB
  * isolate were a bad fit three failed runs proved — so the Worker keeps what it is good at:
  * authoritative reads, the deterministic guards, and the stores.
  *
@@ -83,7 +86,9 @@ export function createHestonMcpServer(
     ...createMarketResearchTools(),
     // D1 reads. Already public through the website, and free of any per-call provider cost.
     ...createResearchReadTools(env),
-    createWatchlistReadTool(env),
+    // One name at every tier. Only the owner may ask for a symbol's provenance: it names the
+    // provider watchlists that seeded it, which are the owner's brokerage data and never public.
+    caller.owner ? createWatchlistReadTool(env) : createWatchlistIndexTool(env),
     // Quotes and metrics exist at both tiers and mean different things: a signed-in caller asks
     // the broker on every call, an anonymous one reads the website's cached snapshot. They share
     // a name, so the tier chooses which is registered rather than both colliding.
@@ -100,6 +105,10 @@ export function createHestonMcpServer(
         // re-reads, so what the tier adds is a name behind the row.
         createCatalystRecordTool(env),
         createSymbolEvidenceTool(env, caller.userId),
+        // Placement and cancellation need a broker credential, which needs a member. Advertising
+        // them to a caller who presented nothing would offer a destructive tool that can only
+        // ever refuse -- the same reason the owner tools are absent from a member's list.
+        ...createOrderTools(env, credential),
       ]
       : createPublicMarketReadTools(env, waitUntil)),
     // Removing a name from the shared watchlist is an owner act. A member is not shown a surface
@@ -115,60 +124,57 @@ export function createHestonMcpServer(
         // TypeBox parameter schemas are plain JSON Schema, which is what MCP advertises.
         inputSchema: fromJsonSchema(tool.parameters),
       },
+      // A throw -- a missing broker credential included -- needs no handling here: the SDK answers
+      // any tool failure as a result with `isError` and the error's message, which is what the
+      // spec asks for so the model can act on it rather than seeing a transport failure.
       async (params) => {
-        try {
-          // SAFETY: the SDK validated `params` against this very tool's own JSON Schema before
-          // dispatch, which is exactly the contract `execute` states for its parameters.
-          const result = await tool.execute(crypto.randomUUID(), params as never)
-          // Reading a symbol is the same signal a reader opening it on the site is, and buys the
-          // same bounded catalyst search for everyone. Scheduled after the answer, never blocking
-          // it; `symbol-attention.ts` carries the reasoning and the bound.
-          if (readsSymbols(tool.name)) {
-            // SAFETY: `noteSymbolAttention` re-parses this with its own schema and ignores a call
-            // that names no symbol, so a shape it does not expect costs nothing.
-            waitUntil(noteSymbolAttention(env, params as SymbolNamingCall))
-          }
-          // AgentToolResult content is already MCP CallToolResult content for text parts.
-          return { content: result.content.filter((part) => part.type === 'text') }
-        } catch (error) {
-          // A disconnected brokerage is a tool execution error, not a protocol error: the spec
-          // asks servers to return these with `isError` so the model can act on them, and the
-          // message names the setup step rather than looking like a transport failure.
-          if (error instanceof BrokerCredentialMissingError) {
-            return { content: [{ text: error.message, type: 'text' as const }], isError: true }
-          }
-          throw error
+        // SAFETY: the SDK validated `params` against this very tool's own JSON Schema before
+        // dispatch, which is exactly the contract `execute` states for its parameters.
+        const result = await tool.execute(crypto.randomUUID(), params as never)
+        // Reading a symbol is the same signal a reader opening it on the site is, and buys the
+        // same bounded catalyst search for everyone. Scheduled after the answer, never blocking
+        // it; `symbol-attention.ts` carries the reasoning and the bound.
+        if (readsSymbols(tool.name)) {
+          // SAFETY: `noteSymbolAttention` re-parses this with its own schema and ignores a call
+          // that names no symbol, so a shape it does not expect costs nothing.
+          waitUntil(noteSymbolAttention(env, params as SymbolNamingCall))
         }
+        // AgentToolResult content is already MCP CallToolResult content for text parts.
+        return { content: result.content.filter((part) => part.type === 'text') }
       },
     )
   }
 
-  // Placement and cancellation need a broker credential, which needs a member. Advertising them
-  // to a caller who presented nothing would offer a destructive tool that can only ever refuse --
-  // the same reason the owner tools are absent from a member's list rather than present.
-  if (caller.signedIn) registerOrderTools(server, env, credential)
-
-  server.registerPrompt(
-    'portfolio_review',
-    {
-      description: 'Review every open position against the account\'s risk posture.',
-      title: 'Portfolio review',
-    },
-    () => ({ messages: [{ content: { text: PORTFOLIO_REVIEW_PROMPT, type: 'text' as const }, role: 'user' as const }] }),
-  )
+  // Reviewing positions reads the account, which only a signed-in caller's tools can do; offering
+  // the workflow to anyone else would walk their agent to a tool it was never given.
+  if (caller.signedIn) {
+    server.registerPrompt(
+      'portfolio_review',
+      {
+        description: 'Review every open position against the account\'s risk posture.',
+        title: 'Portfolio review',
+      },
+      () => ({ messages: [{ content: { text: PORTFOLIO_REVIEW_PROMPT, type: 'text' as const }, role: 'user' as const }] }),
+    )
+  }
 
   server.registerPrompt(
     'evaluate_trade_idea',
     {
       argsSchema: z.object({
-        symbol: z.string().min(1).max(16).describe('Underlying ticker'),
-        thesis: z.string().min(1).max(2_000).describe('The case to test, in the user\'s own words'),
+        symbol: EquitySymbolSchema.describe('Underlying ticker'),
+        thesis: z.string().min(1).max(MAX_THESIS_LENGTH).describe('The case to test, in the user\'s own words'),
       }),
-      description: 'Test a trade idea against evidence, timing, and the account\'s loss budget.',
+      description: caller.signedIn
+        ? 'Test a trade idea against evidence, timing, and what the order guards will admit.'
+        : 'Test a trade idea against evidence and timing.',
       title: 'Evaluate a trade idea',
     },
     ({ symbol, thesis }) => ({
-      messages: [{ content: { text: tradeIdeaPrompt(symbol, thesis), type: 'text' as const }, role: 'user' as const }],
+      messages: [{
+        content: { text: tradeIdeaPrompt(symbol, thesis, caller.signedIn), type: 'text' as const },
+        role: 'user' as const,
+      }],
     }),
   )
 
@@ -187,63 +193,40 @@ export function createHestonMcpServer(
 }
 
 
-/** The guarded mutations. Registered only for a caller who could hold a broker credential. */
-function registerOrderTools(
-  server: McpServer,
-  env: AppEnv,
-  credential: BrokerCredential | undefined,
-): void {
-  server.registerTool(
-    'place_brokerage_order',
+/** The guarded mutations. Offered only to a caller who could hold a broker credential. */
+function createOrderTools(env: AppEnv, credential: BrokerCredential | undefined): AgentTool<TSchema>[] {
+  return [
     {
       description: PLACE_BROKERAGE_ORDER_DESCRIPTION,
-      inputSchema: fromJsonSchema(asJsonSchema(OrderPlacementParameters)),
-      // Annotated destructive and non-idempotent so a client can see that calling this twice
-      // places two orders. Annotations are hints a client may ignore, and the spec says to
-      // treat them as untrusted anyway — they inform a confirmation prompt, they are not one.
-      // What bounds the damage is the guard chain below.
-      annotations: toolAnnotations('place_brokerage_order'),
-    },
-    async (params) => {
-      try {
+      // Annotated destructive and non-idempotent (see `mcp-annotations.ts`) so a client can see
+      // that calling this twice places two orders. Annotations are hints a client may ignore,
+      // and the spec says to treat them as untrusted anyway -- they inform a confirmation
+      // prompt, they are not one. What bounds the damage is the guard chain it runs.
+      execute: async (_toolCallId, params) => {
         // SAFETY: `placeBrokerageOrder` re-parses its input with OrderPlacementSchema at the
         // trust boundary regardless of what the transport already checked.
-        const receipt = await placeBrokerageOrder(env, params as never, credential)
-        return { content: [{ text: JSON.stringify(receipt), type: 'text' as const }] }
-      } catch (error) {
-        if (error instanceof BrokerCredentialMissingError) {
-          return { content: [{ text: error.message, type: 'text' as const }], isError: true }
-        }
-        throw error
-      }
+        return textResult(await placeBrokerageOrder(env, params as never, credential))
+      },
+      label: 'Placing order',
+      name: 'place_brokerage_order',
+      parameters: OrderPlacementParameters,
     },
-  )
-
-  server.registerTool(
-    'cancel_brokerage_order',
     {
       description: 'Cancel one working order on the connected brokerage account. An ambiguous '
         + 'result is reported as ambiguous and is never retried: read the account history to '
         + 'find out what happened before doing anything else.',
-      inputSchema: fromJsonSchema(asJsonSchema(CancelOrderParameters)),
       // Destructive but idempotent: cancelling an order already cancelled changes nothing
       // further, which is the useful thing for a client to know after an ambiguous result.
-      annotations: toolAnnotations('cancel_brokerage_order'),
-    },
-    async (params) => {
-      try {
-        // SAFETY: re-parsed here at the trust boundary regardless of what the transport checked.
+      execute: async (_toolCallId, params) => {
+        // Re-parsed here at the trust boundary regardless of what the transport checked.
         const { orderId } = CancelOrderSchema.parse(params)
-        const receipt = await cancelBrokerageOrder(env, orderId, credential)
-        return { content: [{ text: JSON.stringify(receipt), type: 'text' as const }] }
-      } catch (error) {
-        if (error instanceof BrokerCredentialMissingError) {
-          return { content: [{ text: error.message, type: 'text' as const }], isError: true }
-        }
-        throw error
-      }
+        return textResult(await cancelBrokerageOrder(env, orderId, credential))
+      },
+      label: 'Cancelling order',
+      name: 'cancel_brokerage_order',
+      parameters: CancelOrderParameters,
     },
-  )
+  ]
 }
 
 /**
@@ -260,7 +243,6 @@ export type McpCaller = {
   owner: boolean
   /** False for a caller who presented no credential at all. */
   signedIn: boolean
-  tokenId: string
   userId: string
 }
 
@@ -272,19 +254,28 @@ export type McpCaller = {
  * the same cost. Everything that spends a per-call broker request, writes to shared state, or
  * touches an account stays behind a credential.
  */
-export const ANONYMOUS_CALLER: McpCaller = { owner: false, signedIn: false, tokenId: '', userId: '' }
+export const ANONYMOUS_CALLER: McpCaller = { owner: false, signedIn: false, userId: '' }
 
+/**
+ * The credential in an `Authorization: Bearer` header, parsed once for both ways in. The scheme
+ * is case-insensitive (RFC 9110 §11.1), so `bearer` is the same claim as `Bearer`. Undefined for
+ * a header that is absent, carries another scheme, or carries nothing after it.
+ */
+function presentedBearer(request: Request): string | undefined {
+  const match = /^Bearer\s+(.+)$/i.exec(request.headers.get('Authorization') ?? '')
+  return match?.[1]?.trim() || undefined
+}
+
+/** A minted `user_mcp_tokens` credential, resolved to its caller; undefined for anything else. */
 export async function resolveMcpCaller(request: Request, env: AppEnv): Promise<McpCaller | undefined> {
-  const header = request.headers.get('Authorization')
-  if (!header?.startsWith('Bearer ')) return undefined
-  const presented = header.slice('Bearer '.length).trim()
-  if (!presented) return undefined
+  const presented = presentedBearer(request)
+  if (!presented || !isMintedMcpToken(presented)) return undefined
 
   // No store means no way to recognise anyone: no access, never open access.
   if (!env.DB) return undefined
   const identity = await authenticateMcpToken(env.DB, presented)
   if (!identity) return undefined
-  return callerForUser(env, identity.userId, identity.tokenId)
+  return callerForUser(env.DB, identity.userId)
 }
 
 /**
@@ -294,17 +285,17 @@ export async function resolveMcpCaller(request: Request, env: AppEnv): Promise<M
  */
 export type McpExecutionContext = Pick<ExecutionContext, 'props' | 'waitUntil'>
 
-/** Ownership is decided by the same `isOwnerEmail` the cookie surface uses, in one place. */
-async function callerForUser(
-  env: AppEnv,
-  userId: string,
-  tokenId: string,
-): Promise<McpCaller | undefined> {
-  if (!env.DB) return undefined
-  const row = await env.DB.prepare('SELECT email FROM "user" WHERE id = ?')
+/**
+ * The member a verified credential names, or undefined when no such user exists. A signed token
+ * outlives the account it was issued to until it expires, so a deleted user must resolve to
+ * nobody here rather than keep member access. Ownership is decided by the same `isOwnerEmail`
+ * the cookie surface uses, in one place.
+ */
+async function callerForUser(database: D1Database, userId: string): Promise<McpCaller | undefined> {
+  const row = await database.prepare('SELECT email FROM "user" WHERE id = ?')
     .bind(userId).first<{ email: string }>()
-  // A row without an email cannot be the owner; absence is never elevated.
-  return { owner: Boolean(row?.email) && isOwnerEmail(row?.email ?? ''), signedIn: true, tokenId, userId }
+  if (!row) return undefined
+  return { owner: isOwnerEmail(row.email), signedIn: true, userId }
 }
 
 function serveMcp(
@@ -334,22 +325,34 @@ function serveMcp(
  * `user_mcp_tokens` row stays the non-interactive path. Both resolve to the same user id, so
  * nothing downstream can tell them apart, which is the point.
  *
- * The minted token is tried first because recognising one is a regex and a single indexed read.
- * Anything else is handed to the provider, which verifies the signature, issuer, audience and
+ * A minted token is recognised by its shape alone, so it is decided by one indexed read and never
+ * reaches the JWT verifier, whether it authenticates or not. Anything else is handed to the provider, which verifies the signature, issuer, audience and
  * expiry against the published JWKS and answers an unauthenticated caller with the RFC 9728
  * challenge naming the discovery document. That challenge is what makes the flow self-starting,
  * and it is why this no longer hand-writes one.
  */
 export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpExecutionContext): Promise<Response> {
-  const minted = await resolveMcpCaller(request, env)
-  if (minted) return serveMcp(request, env, ctx, minted)
-
   // No credential at all is a caller, not a refusal. The public market surface has always been
   // readable without an account through the website, and an agent asking the same question should
   // not need more than a visitor does. A credential that is *present* and does not verify still
   // gets the challenge below: that is a caller trying to authenticate and failing, which they can
   // act on, rather than one who never claimed to be anybody.
   if (!request.headers.get('Authorization')) return serveMcp(request, env, ctx, ANONYMOUS_CALLER)
+
+  const presented = presentedBearer(request)
+  if (!presented) {
+    return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'Send the token as a bearer credential.'))
+  }
+
+  // A string shaped like a minted token is only ever that. A revoked or mistyped one is refused
+  // here, and never handed to the JWT verifier, where it could only fail and be logged as an
+  // OAuth verification failure it never was.
+  if (isMintedMcpToken(presented)) {
+    const minted = await resolveMcpCaller(request, env)
+    if (minted) return serveMcp(request, env, ctx, minted)
+    console.error('McpTokenRejected')
+    return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'This agent token is not live. Issue a new one from the Connect tab.'))
+  }
 
   let runtime
   try {
@@ -364,10 +367,6 @@ export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpEx
     return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'Heston could not verify this request.'))
   }
 
-  const presented = request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '').trim()
-  if (!presented) {
-    return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'Send the token as a bearer credential.'))
-  }
   let claims
   try {
     claims = await verifyMcpAccessToken(runtime.auth, presented, {
@@ -382,7 +381,7 @@ export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpEx
     return bearerAuthChallengeResponse(new OAuthError('invalid_token', 'Heston could not verify this token.'))
   }
 
-  const caller = await callerForUser(env, claims.sub, `oauth:${claims.jti ?? claims.sub}`)
+  const caller = await callerForUser(runtime.database, claims.sub)
   // A token whose subject is not a user this server knows authenticates nothing.
   if (!caller) {
     console.error('McpAuthRejected')

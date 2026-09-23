@@ -44,26 +44,29 @@ export const WatchlistReadParameters = Type.Object({
   })),
 }, { additionalProperties: false })
 
+/** The index alone: no parameter a caller could use to ask for provenance. */
+export const WatchlistIndexParameters = Type.Object({}, { additionalProperties: false })
+
+async function readWatchlistIndex(env: AppEnv): Promise<WatchlistReadResult> {
+  // Symbols only, in the store's alphabetical order, which reveals nothing about which source
+  // put a name there or how strongly. Provenance and instrument type are the detail mode's.
+  const symbols = (await readInternalWatchlist(env)).map((item) => item.symbol)
+  return { fetchedAt: new Date().toISOString(), mode: 'index', source: 'heston', status: 'ok', symbols }
+}
+
 async function readWatchlist(env: AppEnv, symbol?: string): Promise<WatchlistReadResult> {
+  if (!symbol) return readWatchlistIndex(env)
   const fetchedAt = new Date().toISOString()
-  if (!symbol) {
-    // Symbols only. The index answers "what is loaded" for up to 500 names; provenance and
-    // instrument type are what the per-symbol mode below exists to return.
-    const symbols = (await readInternalWatchlist(env)).map((item) => item.symbol)
-    return {
-      fetchedAt,
-      symbols,
-      mode: 'index',
-      source: 'heston',
-      status: 'ok',
-    }
-  }
   const details = await readInternalWatchlistSymbolDetails(env, symbol)
   return details
     ? { details, fetchedAt, mode: 'detail', source: 'heston', status: 'ok' }
     : { fetchedAt, mode: 'detail', source: 'heston', status: 'not_found', symbol }
 }
 
+/**
+ * The owner's read: the index, or one symbol's retained provenance -- its origin and the provider
+ * watchlists that seeded it, which are the owner's own account data.
+ */
 export function createWatchlistReadTool(env: AppEnv): AgentTool<typeof WatchlistReadParameters, WatchlistReadResult> {
   return {
     description: 'Private watchlist; optional symbol returns retained provenance.',
@@ -71,6 +74,21 @@ export function createWatchlistReadTool(env: AppEnv): AgentTool<typeof Watchlist
     label: 'Reading watchlist',
     name: 'read_watchlist',
     parameters: WatchlistReadParameters,
+  }
+}
+
+/**
+ * Everyone else's read, under the same name. Provider watchlist provenance is never public and
+ * is not a member's either -- it names the owner's brokerage watchlists -- so this tier is
+ * offered no `symbol` parameter at all rather than one that is refused.
+ */
+export function createWatchlistIndexTool(env: AppEnv): AgentTool<typeof WatchlistIndexParameters, WatchlistReadResult> {
+  return {
+    description: 'Every symbol Heston keeps loaded, alphabetized.',
+    execute: async () => textResult(await readWatchlistIndex(env)),
+    label: 'Reading watchlist',
+    name: 'read_watchlist',
+    parameters: WatchlistIndexParameters,
   }
 }
 

@@ -64,6 +64,13 @@ describe('MCP bearer authentication', () => {
     store.close()
   })
 
+  it('reads the bearer scheme case-insensitively, as RFC 9110 defines it', async () => {
+    const { env, store, token } = await harness('member@example.com')
+    const request = new Request('https://heston.io/mcp', { headers: { Authorization: `bearer  ${token}` } })
+    await expect(resolveMcpCaller(request, env)).resolves.toMatchObject({ owner: false, userId: 'member-1' })
+    store.close()
+  })
+
   it('is no access, never open access, when there is no store to recognise anyone', async () => {
     const { store, token } = await ownerHarness()
     // The shared secret that used to authenticate as the owner is gone; without the token
@@ -258,6 +265,57 @@ describe('MCP tool tiers', () => {
   })
 })
 
+describe('watchlist provenance', () => {
+  async function readWatchlistSchema(token: string | undefined, env: { DB: D1Database }) {
+    const listed = await handleMcpRequest(mcpRequest({
+      id: 40, jsonrpc: '2.0', method: 'tools/list', params: {},
+    }, token), env, executionContext)
+    const tools = z.object({
+      result: z.object({ tools: z.array(z.object({ inputSchema: z.unknown(), name: z.string() })) }),
+    }).parse(await mcpPayload(listed)).result.tools
+    return tools.find((tool) => tool.name === 'read_watchlist')?.inputSchema
+  }
+
+  async function askForProvenance(token: string | undefined, env: { DB: D1Database }) {
+    const called = await handleMcpRequest(mcpRequest({
+      id: 41, jsonrpc: '2.0', method: 'tools/call', params: { arguments: { symbol: 'NVDA' }, name: 'read_watchlist' },
+    }, token), env, executionContext)
+    return z.object({
+      result: z.object({ content: z.array(z.object({ text: z.string() })), isError: z.boolean().optional() }),
+    }).parse(await mcpPayload(called)).result
+  }
+
+  it('offers neither a member nor an anonymous caller a way to ask for a symbol\'s provenance', async () => {
+    const { env, store, token } = await harness('member@example.com')
+    setBrokerApi(stubBroker())
+    try {
+      for (const caller of [token, undefined]) {
+        // Absent from the schema rather than present and refused...
+        expect(JSON.stringify(await readWatchlistSchema(caller, env))).not.toContain('symbol')
+        // ...and a call that names one anyway is rejected before it reaches the store.
+        const result = await askForProvenance(caller, env)
+        expect(result.isError).toBe(true)
+        expect(result.content[0]?.text).toContain('must NOT have additional properties')
+        expect(JSON.stringify(result)).not.toMatch(/seedMemberships|seedSourceIds|origin/)
+      }
+    } finally {
+      resetBrokerApi()
+      store.close()
+    }
+  })
+
+  it('keeps the per-symbol detail mode for the owner', async () => {
+    const { env, store, token } = await ownerHarness()
+    setBrokerApi(stubBroker())
+    try {
+      expect(JSON.stringify(await readWatchlistSchema(token, env))).toContain('symbol')
+    } finally {
+      resetBrokerApi()
+      store.close()
+    }
+  })
+})
+
 describe('MCP guidance surface', () => {
   it('publishes the doctrine as server instructions and the workflows as prompts', async () => {
     const { env, store, token } = await ownerHarness()
@@ -284,6 +342,28 @@ describe('MCP guidance surface', () => {
       expect(names).not.toContain('daily_research')
     } finally {
       resetBrokerApi()
+      store.close()
+    }
+  })
+
+  it('offers an anonymous caller no workflow that reads an account', async () => {
+    const { env, store } = await ownerHarness()
+    try {
+      const prompts = await handleMcpRequest(mcpRequest({
+        id: 42, jsonrpc: '2.0', method: 'prompts/list', params: {},
+      }), env, executionContext)
+      const names = z.object({ result: z.object({ prompts: z.array(z.object({ name: z.string() })) }) })
+        .parse(await mcpPayload(prompts)).result.prompts.map((prompt) => prompt.name)
+      expect(names).toEqual(['evaluate_trade_idea'])
+
+      const prompt = await handleMcpRequest(mcpRequest({
+        id: 43,
+        jsonrpc: '2.0',
+        method: 'prompts/get',
+        params: { arguments: { symbol: 'NVDA', thesis: 'Supply eases' }, name: 'evaluate_trade_idea' },
+      }), env, executionContext)
+      expect(JSON.stringify(await mcpPayload(prompt))).not.toMatch(/read_account|account's/)
+    } finally {
       store.close()
     }
   })
