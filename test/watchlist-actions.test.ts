@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { executeWatchlistAction } from '../src/server/watchlist-actions'
 import { readInternalWatchlist } from '../src/server/internal-watchlist'
-import { WatchlistMutationSchema } from '../src/domain/watchlist'
+import { WatchlistActionSchema } from '../src/server/agent-contracts'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 
 let store: SqliteD1Store
@@ -26,10 +26,10 @@ afterEach(() => store.close())
 
 describe('internal watchlist mutation boundary', () => {
   it('rejects punctuation-only and leading-dot values before the D1 write boundary', () => {
-    expect(WatchlistMutationSchema.safeParse({
+    expect(WatchlistActionSchema.safeParse({
       kind: 'add_watchlist_symbols', symbols: ['.SPY'],
     }).success).toBe(false)
-    expect(WatchlistMutationSchema.safeParse({
+    expect(WatchlistActionSchema.safeParse({
       kind: 'add_watchlist_symbols', symbols: ['....'],
     }).success).toBe(false)
   })
