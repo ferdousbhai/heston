@@ -36,6 +36,10 @@ export interface AgentTool<TParameters extends TSchema = TSchema, TDetails = unk
   description: string
   name: string
   parameters: TParameters
-  /** Throw on failure rather than encoding an error in `content`. */
+  /**
+   * Throw on failure rather than encoding an error in `content`. The MCP boundary decides what
+   * of a throw the caller sees (`toolErrorResult`): a `CallerVisibleError` passes its message,
+   * anything else reaches the caller as its error name alone.
+   */
   execute: (params: Static<TParameters>) => Promise<AgentToolResult<TDetails>>
 }

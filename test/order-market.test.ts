@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { BrokerRefusalError } from '../src/server/caller-visible-error'
 import { orderMarketFromPayloads, spreadOrderMarketFromPayloads } from '../src/server/order-market'
 
 const option = {
@@ -16,6 +17,16 @@ const instrument = { data: {
   symbol: 'SPY', 'option-tick-sizes': [{ value: '0.01' }],
 } }
 const now = new Date('2026-08-13T13:31:00.000Z')
+
+function refusal(attempt: () => void): BrokerRefusalError {
+  try {
+    attempt()
+  } catch (error) {
+    if (error instanceof BrokerRefusalError) return error
+    throw error
+  }
+  throw new Error('expected a broker refusal')
+}
 
 function optionQuote(bid: number, ask: number) {
   return { data: { items: [{
@@ -71,10 +82,16 @@ describe('order market boundary', () => {
     expect(() => orderMarketFromPayloads(option, {
       data: { items: [{ ...quote.data.items[0], symbol: 'OTHER' }] },
     }, instrument, contract, now)).toThrow('invalid-or-stale')
-    expect(() => orderMarketFromPayloads({ ...option, limitPrice: 5.03 }, quote, {
+    const offTick = refusal(() => orderMarketFromPayloads({ ...option, limitPrice: 5.03 }, quote, {
       data: { symbol: 'SPY', 'option-tick-sizes': [{ value: '0.05' }] },
-    }, contract, now)).toThrow('limit-must-use')
-    expect(() => orderMarketFromPayloads({ ...option, limitPrice: 5.2 }, quote, instrument, contract, now)).toThrow('limit-outside')
+    }, contract, now))
+    expect(offTick).toMatchObject({ check: 'limit-off-tick', untrustedBrokerData: { tickSize: 0.05 } })
+    expect(offTick.message).not.toContain('0.05')
+    // The quote the limit fell outside is the broker's figure: in the labelled field, not the message.
+    const outside = refusal(() => orderMarketFromPayloads({ ...option, limitPrice: 5.2 }, quote, instrument, contract, now))
+    expect(outside).toMatchObject({ check: 'limit-outside-quote', untrustedBrokerData: { ask: 5.1, bid: 5 } })
+    expect(outside.message).toContain('limit-outside-quote')
+    expect(outside.message).not.toMatch(/5\.0|5\.1/)
   })
 
   it('uses exclusive upper thresholds and accepts both provider unbounded forms', () => {
@@ -91,9 +108,9 @@ describe('order market boundary', () => {
     expect(orderMarketFromPayloads(
       { ...option, limitPrice: 3 }, optionQuote(2.9, 3.1), infinityTier, contract, now,
     ).tickSize).toBe(0.1)
-    expect(() => orderMarketFromPayloads(
+    expect(refusal(() => orderMarketFromPayloads(
       { ...option, limitPrice: 5.05 }, quote, infinityTier, contract, now,
-    )).toThrow('limit-must-use-0.1-tick')
+    ))).toMatchObject({ check: 'limit-off-tick', untrustedBrokerData: { tickSize: 0.1 } })
 
     const missingThresholdTier = { data: {
       symbol: 'SPY',

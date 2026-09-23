@@ -86,9 +86,11 @@ describe('brokerage dispatch warnings', () => {
       .mockResolvedValueOnce(response())
       .mockResolvedValueOnce(response([{ message: 'Order queued for review' }]))
 
+    // The broker's warning text travels in its own untrusted field, never inside our detail.
     await expect(place()).resolves.toMatchObject({
-      detail: 'Order #123 accepted by tastytrade. Broker warning: Order queued for review',
+      detail: 'Order #123 accepted by tastytrade with broker warnings.',
       orderId: '123',
+      untrustedBrokerWarnings: ['Order queued for review'],
     })
     expect(mocks.withBrokerMutationLease).toHaveBeenCalledTimes(1)
     expect(mocks.renewBrokerMutationLease).toHaveBeenCalledTimes(2)

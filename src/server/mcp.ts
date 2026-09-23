@@ -11,7 +11,7 @@ import { type TSchema } from 'typebox'
 import { z } from 'zod'
 
 import { CancelOrderParameters, CancelOrderSchema, OrderPlacementParameters } from './agent-contracts'
-import { textResult } from './agent-tool-result'
+import { textResult, toolErrorResult } from './agent-tool-result'
 import { cancelBrokerageOrder, placeBrokerageOrder } from './order-placement'
 import { createBrokerageReconciliationTool } from './brokerage-reconciliation'
 import { createCatalystRecordTool } from './catalyst-record-tool'
@@ -124,13 +124,18 @@ export function createHestonMcpServer(
         // TypeBox parameter schemas are plain JSON Schema, which is what MCP advertises.
         inputSchema: fromJsonSchema(tool.parameters),
       },
-      // A throw -- a missing broker credential included -- needs no handling here: the SDK answers
-      // any tool failure as a result with `isError` and the error's message, which is what the
-      // spec asks for so the model can act on it rather than seeing a transport failure.
+      // A throw is answered here, as a result with `isError`, rather than left to the SDK: the
+      // SDK would send the error's message verbatim, and only a message this repository wrote
+      // for the caller may reach their agent. `toolErrorResult` is that redaction boundary.
       async (params) => {
-        // SAFETY: the SDK validated `params` against this very tool's own JSON Schema before
-        // dispatch, which is exactly the contract `execute` states for its parameters.
-        const result = await tool.execute(params as never)
+        let result
+        try {
+          // SAFETY: the SDK validated `params` against this very tool's own JSON Schema before
+          // dispatch, which is exactly the contract `execute` states for its parameters.
+          result = await tool.execute(params as never)
+        } catch (error) {
+          return toolErrorResult(tool.name, error instanceof Error ? error : undefined)
+        }
         // Reading a symbol is the same signal a reader opening it on the site is, and buys the
         // same bounded catalyst search for everyone. Scheduled after the answer, never blocking
         // it; `symbol-attention.ts` carries the reasoning and the bound.

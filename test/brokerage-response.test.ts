@@ -7,7 +7,18 @@ import {
   validatePlacedOrderResponse,
   validateReplacementReceipt,
 } from '../src/server/brokerage'
+import { BrokerRefusalError } from '../src/server/caller-visible-error'
 import { buildOrderPayload, replacementOrderPayload } from '../src/server/order-payload'
+
+function brokerRefusal(attempt: () => void): BrokerRefusalError {
+  try {
+    attempt()
+  } catch (error) {
+    if (error instanceof BrokerRefusalError) return error
+    throw error
+  }
+  throw new Error('expected a broker refusal')
+}
 
 const intended = {
   'order-type': 'Limit' as const,
@@ -104,16 +115,18 @@ describe('broker order response boundary', () => {
   })
 
   it('fails closed on a dry-run warning before placement', () => {
-    expect(() => rejectDryRunWarnings(['Review position effect'])).toThrow(
-      'Tastytrade returned a preflight warning, so the order was not submitted: Review position effect',
-    )
+    const warned = brokerRefusal(() => rejectDryRunWarnings(['Review position effect']))
+    expect(warned).toMatchObject({ check: 'broker-warning', untrustedBrokerData: { messages: ['Review position effect'] } })
+    expect(warned.message).toBe('Tastytrade returned a preflight warning, so the order was not submitted.')
     expect(() => rejectDryRunWarnings([])).not.toThrow()
   })
 
   it('rejects broker errors and quarantines a placed response without an order id', () => {
-    expect(() => validateOrderResponse({ data: {
+    const rejected = brokerRefusal(() => validateOrderResponse({ data: {
       errors: [{ code: 'invalid-price', message: 'Off tick' }],
-    } }, intended)).toThrow('TastytradeOrderRejected:Off tick')
+    } }, intended))
+    expect(rejected).toMatchObject({ check: 'broker-rejected', untrustedBrokerData: { messages: ['Off tick'] } })
+    expect(rejected.message).not.toContain('Off tick')
 
     expect(validateOrderResponse({ data: {
       order: { ...brokerOrder, id: undefined }, 'buying-power-effect': { effect: 'Debit' },
@@ -135,8 +148,8 @@ describe('broker order response boundary', () => {
     for (const payload of ambiguous) {
       expect(() => validatePlacedOrderResponse(payload, intended)).toThrow(BrokerageSubmissionUnknownError)
     }
-    expect(() => validatePlacedOrderResponse({ data: {
+    expect(brokerRefusal(() => validatePlacedOrderResponse({ data: {
       errors: [{ code: 'invalid-price', message: 'Off tick' }],
-    } }, intended)).toThrow('TastytradeOrderRejected:Off tick')
+    } }, intended))).toMatchObject({ check: 'broker-rejected', untrustedBrokerData: { messages: ['Off tick'] } })
   })
 })

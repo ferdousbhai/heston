@@ -14,12 +14,23 @@ import { echoesOrderPayload, replacementOrderPayload, type OrderPayload } from '
 import { tastytradeOrderRecord } from './brokers/tastytrade'
 import { brokerApi } from './tastytrade'
 import { tradeGuards } from './trade-guards'
-import { CallerVisibleError } from './caller-visible-error'
+import { BrokerRefusalError, CallerVisibleError } from './caller-visible-error'
 import { BrokerCredentialMissingError, type BrokerCredential } from './broker-credential'
 
 export type OrderResponseReceipt = { id?: string; warnings: string[] }
 export type PlacedOrderReceipt = { id: string; warnings: string[] }
 export type ReplacementReceipt = { id: string }
+
+/**
+ * A broker response this repository refuses to believe. The code is our own vocabulary and
+ * carries no response value, so it reaches the caller as it stands.
+ */
+class TastytradeOrderResponseError extends CallerVisibleError {
+  constructor(code: 'echo-mismatch' | 'invalid-message' | 'invalid-messages' | 'missing-order-or-buying-power') {
+    super(`TastytradeOrderResponse:${code}`)
+    this.name = 'TastytradeOrderResponseError'
+  }
+}
 
 // Broker messages are untrusted presentation text. Preserve a small diagnostic packet without
 // allowing a rejection body to dominate logs, stored errors, or the agent response.
@@ -29,13 +40,13 @@ const MAX_BROKER_MESSAGES_PER_KIND = 5
 function messageRows(value: JsonValue): JsonObject[] {
   if (value === undefined || value === null) return []
   const items = JsonObjectArraySchema.safeParse(value).data
-  if (!items) throw new Error('TastytradeOrderResponse:invalid-messages')
+  if (!items) throw new TastytradeOrderResponseError('invalid-messages')
   return items
 }
 
 function messageText(row: JsonObject): string {
   const value = jsonText(row.message ?? row.code)
-  if (value === undefined) throw new Error('TastytradeOrderResponse:invalid-message')
+  if (value === undefined) throw new TastytradeOrderResponseError('invalid-message')
   return value.length > MAX_BROKER_MESSAGE_LENGTH
     ? `${value.slice(0, MAX_BROKER_MESSAGE_LENGTH - 1)}…`
     : value
@@ -53,19 +64,19 @@ export function validateOrderResponse(payload: JsonValue, intended: OrderPayload
   const data = jsonObjectOrEmpty(body.data ?? body)
   const errors = messagePacket(data.errors ?? body.errors, 'errors')
   if (errors.length) {
-    throw new TastytradeOrderRejectedError(errors.join('; '))
+    throw new TastytradeOrderRejectedError(errors)
   }
   const warnings = messagePacket(data.warnings ?? body.warnings, 'warnings')
   const order = jsonObjectOrEmpty(data.order ?? body.order)
   const buyingPower = jsonObjectOrEmpty(data['buying-power-effect'] ?? body['buying-power-effect'])
   if (!Object.keys(order).length || !Object.keys(buyingPower).length) {
-    throw new Error('TastytradeOrderResponse:missing-order-or-buying-power')
+    throw new TastytradeOrderResponseError('missing-order-or-buying-power')
   }
   // Only the presence of a buying-power effect is required: it is a different fact from the
   // order's price effect. A Buy to Close debit on a short frees margin, so its buying-power
   // effect is a Credit, and requiring the two to agree refused exactly the risk-reducing orders.
   if (!echoesOrderPayload(tastytradeOrderRecord(order), intended)) {
-    throw new Error('TastytradeOrderResponse:echo-mismatch')
+    throw new TastytradeOrderResponseError('echo-mismatch')
   }
   const id = order.id === undefined || order.id === null ? undefined : String(order.id)
   return { id: id && BROKER_ORDER_ID.test(id) ? id : undefined, warnings }
@@ -78,16 +89,18 @@ export class BrokerageSubmissionUnknownError extends CallerVisibleError {
   }
 }
 
-class TastytradeOrderRejectedError extends Error {
-  constructor(message: string) {
-    super(`TastytradeOrderRejected:${message}`)
+// The broker's own words for a refusal are untrusted and stay out of the message: the check is
+// named here, and the bounded `messagePacket` goes to the caller only in the labelled field.
+class TastytradeOrderRejectedError extends BrokerRefusalError {
+  constructor(messages: readonly string[]) {
+    super('broker-rejected', 'Tastytrade rejected this order, so it was not placed.', { messages })
     this.name = 'TastytradeOrderRejectedError'
   }
 }
 
-export class TastytradeOrderWarningError extends CallerVisibleError {
+export class TastytradeOrderWarningError extends BrokerRefusalError {
   constructor(warnings: readonly string[]) {
-    super(`Tastytrade returned a preflight warning, so the order was not submitted: ${warnings.join('; ')}`)
+    super('broker-warning', 'Tastytrade returned a preflight warning, so the order was not submitted.', { messages: warnings })
     this.name = 'TastytradeOrderWarningError'
   }
 }
@@ -130,7 +143,11 @@ export function validatePlacedOrderResponse(payload: JsonValue, intended: OrderP
   return { id: receipt.id, warnings: receipt.warnings }
 }
 
-type SubmissionReceipt = { detail: string; orderId: string }
+/**
+ * `detail` is this repository's wording. Warnings the broker attached to an accepted order are
+ * its own text, so they travel beside it in a field named as untrusted rather than inside it.
+ */
+export type SubmissionReceipt = { detail: string; orderId: string; untrustedBrokerWarnings?: string[] }
 
 export type PlacementOutcome = SubmissionReceipt & { intent: ResolvedOrderIntent }
 
@@ -196,8 +213,13 @@ export async function executeOrderPlacement(
         receipt = { detail: `Order #${intent.replaceOrderId} replaced by order #${replaced.id}.`, orderId: replaced.id }
       } else {
         const accepted = validatePlacedOrderResponse(placed, intent.payload)
-        const warningDetail = accepted.warnings.length ? ` Broker warning: ${accepted.warnings.join('; ')}` : ''
-        receipt = { detail: `Order #${accepted.id} accepted by tastytrade.${warningDetail}`, orderId: accepted.id }
+        receipt = accepted.warnings.length
+          ? {
+            detail: `Order #${accepted.id} accepted by tastytrade with broker warnings.`,
+            orderId: accepted.id,
+            untrustedBrokerWarnings: accepted.warnings,
+          }
+          : { detail: `Order #${accepted.id} accepted by tastytrade.`, orderId: accepted.id }
       }
     } catch (error) {
       if (error instanceof TastytradeOrderRejectedError) {
@@ -211,6 +233,8 @@ export async function executeOrderPlacement(
     const detail = settled
       ? receipt.detail
       : `${receipt.detail} Heston could not record this result, so this account stays quarantined until reconcile_brokerage_action confirms it.`
-    return { detail, intent, orderId: receipt.orderId }
+    const outcome: PlacementOutcome = { detail, intent, orderId: receipt.orderId }
+    if (receipt.untrustedBrokerWarnings) outcome.untrustedBrokerWarnings = receipt.untrustedBrokerWarnings
+    return outcome
   })
 }

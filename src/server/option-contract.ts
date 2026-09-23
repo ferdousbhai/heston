@@ -1,6 +1,7 @@
 import { type OrderPlacement } from './agent-contracts'
 import { type AppEnv } from './env'
 import { type EquityOptionTuple } from '../domain/equity-option'
+import { isValidIsoDate } from '../domain/iso-date'
 import {
   JsonArraySchema,
   jsonNumber,
@@ -78,7 +79,9 @@ export function equityOptionContractFromChainTuple(
   ))
   const expirationRows = standardRows.filter((row) => jsonTextOrEmpty(row['expiration-date']) === tuple.expiry)
   if (!expirationRows.length) {
-    throw unavailable(`Available standard expirations: ${shortList(standardRows.map((row) => jsonTextOrEmpty(row['expiration-date'])).filter(Boolean))}.`)
+    // Suggestions reach the caller in a caller-visible message, so only values that bind to a
+    // calendar date are echoed; any other provider text in that field is dropped, not relayed.
+    throw unavailable(`Available standard expirations: ${shortList(standardRows.map((row) => jsonTextOrEmpty(row['expiration-date'])).filter(isValidIsoDate))}.`)
   }
   const sideRows = expirationRows.filter((row) => jsonTextOrEmpty(row['option-type']) === tuple.optionType)
   const strikeRows = sideRows.filter((row) => jsonNumber(row['strike-price']) === tuple.strike)
@@ -100,7 +103,7 @@ export function equityOptionContractFromChainTuple(
     if (streamerSymbol) candidate.streamerSymbol = streamerSymbol
     candidates.push(candidate)
   }
-  if (candidates.length > 1) throw new Error('Requested option contract is ambiguous')
+  if (candidates.length > 1) throw unavailable('The requested tuple is ambiguous: it matched more than one contract.')
   if (candidates.length === 1) {
     const candidate = candidates[0]!
     if (options.requireStreamerSymbol && !candidate.streamerSymbol) {

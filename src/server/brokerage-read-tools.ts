@@ -63,6 +63,7 @@ import {
 } from './brokers'
 import { loadBrokerageContext } from './brokerage-context'
 import { BrokerCredentialMissingError, type BrokerCredential } from './broker-credential'
+import { CallerVisibleError } from './caller-visible-error'
 
 function dateDaysAgo(now: Date, days: number): string {
   const result = new Date(now)
@@ -107,8 +108,8 @@ export async function readAccountSnapshot(
     context = await loadBrokerageContext(env, credential)
   } catch (error) {
     if (error instanceof BrokerCredentialMissingError || error instanceof UnknownBrokerError) throw error
-    if (error instanceof BrokerSnapshotError) throw new Error(describeSnapshotError(error, 'The account snapshot'))
-    throw new Error('The account snapshot could not be loaded.')
+    if (error instanceof BrokerSnapshotError) throw new CallerVisibleError(describeSnapshotError(error, 'The account snapshot'))
+    throw new CallerVisibleError('The account snapshot could not be loaded.')
   }
   const result: AccountSnapshotReadResult = { asOf: context.asOf, source: context.source }
   if (parts.includes('balances')) result.balances = context.balances
