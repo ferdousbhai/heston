@@ -71,7 +71,6 @@ const MAX_RELAYED_SYMBOLS = MAX_WATCHLIST_SYMBOLS
 // These bound one interactive read/setup attempt; the persistent relay reconnects separately.
 const OPTION_GREEKS_TIMEOUT_MS = 10_000
 const UPSTREAM_SETUP_TIMEOUT_MS = 15_000
-// Durable alarms provide bounded exponential reconnects while any client or Greeks read remains.
 // Reaches past a weekend plus a holiday, so the backfill always clears the bar cap even on a
 // Monday morning. The cap, not this window, decides how much of the series survives.
 const CANDLE_BACKFILL_MS = 4 * 24 * 60 * 60 * 1_000
@@ -92,9 +91,10 @@ const QUOTE_TOKEN_TTL_MS = 12 * 60 * 60 * 1_000
  * missed beat rather than dropping the upstream on a single late frame.
  */
 const DXLINK_KEEPALIVE_TIMEOUT_SECONDS = (2 * CLIENT_HEARTBEAT_MS) / 1_000
+// Durable alarms provide bounded exponential reconnects while any client, Greeks read or
+// daily-candle read remains.
 const RECONNECT_BASE_DELAY_SECONDS = 1
 const RECONNECT_MAX_DELAY_SECONDS = 60
-const RECONNECT_MAX_EXPONENT = 6
 
 const TRUNCATED_DETAIL = 'Live feed is at capacity; some symbols are not streaming'
 
@@ -856,9 +856,10 @@ export class MarketFeedCore {
   }
 
   private async scheduleReconnect(): Promise<void> {
+    // The delay cap is the only bound the backoff needs; past it the exponent grows to no effect.
     const delay = Math.min(
       RECONNECT_MAX_DELAY_SECONDS,
-      RECONNECT_BASE_DELAY_SECONDS * 2 ** Math.min(this.reconnectAttempt++, RECONNECT_MAX_EXPONENT),
+      RECONNECT_BASE_DELAY_SECONDS * 2 ** this.reconnectAttempt++,
     )
     await this.ctx.storage.setAlarm(Date.now() + delay * 1_000)
   }
@@ -878,7 +879,10 @@ export class MarketFeedCore {
     if (this.hasDemand()) this.broadcastStatus('degraded', detail)
   }
 
-  /** Invalid hibernation state is closed instead of turning a subscribed client into no demand. */
+  /**
+   * Restamp a reader's heartbeat. A socket whose hibernation attachment does not parse is left
+   * as it is -- not closed, and not rewritten with an attachment invented here.
+   */
   private markSeen(socket: FeedClientSocket): void {
     const attachment = SocketAttachmentSchema.safeParse(socket.deserializeAttachment())
     if (!attachment.success || !socket.serializeAttachment) return
