@@ -238,7 +238,7 @@ export async function ensureInternalWatchlistSymbols(
     upsertSymbolsStatement(db, normalized, parsedOrigin, timestamp),
     pruneStatement(db),
   ])
-  const kept = await focusFromStore(db, [], MAX_WATCHLIST_SYMBOLS)
+  const kept = await readInternalWatchlistFocus(env, [], MAX_WATCHLIST_SYMBOLS)
   await publishInternalWatchlistUniverse(env, now)
   const retained = new Set(kept)
   return normalized.filter((symbol) => retained.has(symbol))
@@ -302,17 +302,8 @@ export async function readInternalWatchlistFocus(
   positionSymbols: readonly string[],
   limit = MAX_WATCHLIST_SYMBOLS,
 ): Promise<string[]> {
-  const db = requiredDatabase(env)
-  return focusFromStore(db, positionSymbols, limit)
-}
-
-async function focusFromStore(
-  db: D1Database,
-  positionSymbols: readonly string[],
-  limit: number,
-): Promise<string[]> {
   if (!Number.isSafeInteger(limit) || limit < 0) throw new CallerVisibleError('InternalWatchlist:invalid-focus-limit')
-  const result = await db.prepare(
+  const result = await requiredDatabase(env).prepare(
     `${RANKED_ITEMS_CTE}
      SELECT symbol FROM ranked ORDER BY ${RANK_ORDER} LIMIT ?`,
   ).bind(JSON.stringify(normalizedSymbols(positionSymbols)), limit).all<{ symbol: string }>()
