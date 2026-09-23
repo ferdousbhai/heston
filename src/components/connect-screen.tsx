@@ -162,14 +162,24 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
 
       <section className="connect-step">
         <h2>1 · Point your agent at Heston</h2>
+        {/* A request with no credential is served, not challenged (src/server/mcp.ts), so adding
+            the server never starts a sign-in by itself. Sign-in is whatever the client does with
+            the OAuth discovery documents Heston publishes, which varies by client. */}
         <p>
-          Run this and your agent opens a browser to sign you in with Google. Nothing to copy, and
-          it renews its own access — you should not need to come back here.
+          Run this and your agent connects straight away at the public tier: the cached market
+          snapshot, price history, and the shared research, with nothing to copy and no sign-in.
         </p>
         <CopyBlock label="Claude Code" value={claudeCommand} />
+        <p>
+          To add live quotes, option chains, and Greeks, sign in from your client&apos;s own
+          authenticate action for this server. Heston publishes standard OAuth discovery, so a
+          client that supports it opens a browser to sign you in with Google and renews its own
+          access — you should not need to come back here.
+        </p>
         <p className="connect-note">
-          Any MCP client that speaks OAuth works the same way: point it at <code>{MCP_URL}</code>.
-          If you already run the local proxy below, skip this and point the agent there instead.
+          Any MCP client can point at <code>{MCP_URL}</code>; signing in needs one that can start
+          OAuth from that discovery. If you already run the local proxy below, skip this and point
+          the agent there instead.
         </p>
       </section>
 
