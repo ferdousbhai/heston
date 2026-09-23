@@ -6,16 +6,16 @@ afterEach(() => {
   vi.resetModules()
 })
 
-it('does not cache malformed catalyst responses as a successful empty calendar', async () => {
+it('reports a malformed catalyst response as a failed read, not an empty calendar, and retries it', async () => {
   const catalysts = marketSnapshotFixture().catalysts.filter((row) => row.symbol === 'NVDA')
   const fetchMock = vi.fn()
     .mockResolvedValueOnce(Response.json({ catalysts: [{}] }))
     .mockResolvedValueOnce(Response.json({ catalysts }))
   vi.stubGlobal('fetch', fetchMock)
   const { loadPublicCatalysts } = await import('../src/data/public-catalysts')
-  await expect(loadPublicCatalysts('NVDA')).resolves.toEqual([])
-  await expect(loadPublicCatalysts('NVDA')).resolves.toEqual(catalysts)
-  await expect(loadPublicCatalysts('NVDA')).resolves.toEqual(catalysts)
+  await expect(loadPublicCatalysts('NVDA')).resolves.toEqual({ catalysts: [], failed: true })
+  await expect(loadPublicCatalysts('NVDA')).resolves.toEqual({ catalysts: catalysts, failed: false })
+  await expect(loadPublicCatalysts('NVDA')).resolves.toEqual({ catalysts: catalysts, failed: false })
   expect(fetchMock).toHaveBeenCalledTimes(2)
 })
 
@@ -29,16 +29,16 @@ it('re-reads a symbol whose rows a search may have moved, rather than answering 
   vi.stubGlobal('fetch', fetchMock)
   const { forgetPublicCatalysts, loadPublicCatalysts } = await import('../src/data/public-catalysts')
 
-  await expect(loadPublicCatalysts('NVDA')).resolves.toEqual(catalysts)
-  await expect(loadPublicCatalysts('NVDA')).resolves.toEqual(catalysts)
+  await expect(loadPublicCatalysts('NVDA')).resolves.toEqual({ catalysts: catalysts, failed: false })
+  await expect(loadPublicCatalysts('NVDA')).resolves.toEqual({ catalysts: catalysts, failed: false })
   expect(fetchMock).toHaveBeenCalledTimes(1)
 
   forgetPublicCatalysts('NVDA')
-  await expect(loadPublicCatalysts('NVDA')).resolves.toEqual(catalysts)
+  await expect(loadPublicCatalysts('NVDA')).resolves.toEqual({ catalysts: catalysts, failed: false })
   expect(fetchMock).toHaveBeenCalledTimes(2)
   // A symbol nobody searched keeps its copy; forgetting one name is not clearing the cache.
   forgetPublicCatalysts('not a symbol')
-  await expect(loadPublicCatalysts('NVDA')).resolves.toEqual(catalysts)
+  await expect(loadPublicCatalysts('NVDA')).resolves.toEqual({ catalysts: catalysts, failed: false })
   expect(fetchMock).toHaveBeenCalledTimes(2)
 })
 
@@ -59,12 +59,12 @@ it('lets a request started before a search neither cache its rows nor clear the 
   // The pre-search answer lands first. Its caller still gets it, but the browser keeps nothing
   // from it and the newer request stays the one every later reader joins.
   pending[0]!(Response.json({ catalysts: before }))
-  await expect(superseded).resolves.toEqual(before)
+  await expect(superseded).resolves.toEqual({ catalysts: before, failed: false })
   expect(loadPublicCatalysts('NVDA')).toBe(current)
   expect(fetchMock).toHaveBeenCalledTimes(2)
 
   pending[1]!(Response.json({ catalysts: after }))
-  await expect(current).resolves.toEqual(after)
-  await expect(loadPublicCatalysts('NVDA')).resolves.toEqual(after)
+  await expect(current).resolves.toEqual({ catalysts: after, failed: false })
+  await expect(loadPublicCatalysts('NVDA')).resolves.toEqual({ catalysts: after, failed: false })
   expect(fetchMock).toHaveBeenCalledTimes(2)
 })

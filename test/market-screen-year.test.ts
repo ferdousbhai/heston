@@ -1,0 +1,43 @@
+// @vitest-environment jsdom
+
+import { cleanup, screen, waitFor } from '@testing-library/react'
+import { afterEach, expect, it, vi } from 'vitest'
+
+import { marketSnapshotFixture } from './fixtures/market'
+import { renderMarketScreen } from './fixtures/render-market-screen'
+
+// Its own file: the year series is one request per module, and this case needs it to fail first.
+
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
+
+it('reports a failed year read rather than an empty year, and reads again on focus', async () => {
+  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
+    addEventListener: () => undefined,
+    matches: query.startsWith('(max-width'),
+    removeEventListener: () => undefined,
+  })))
+  let yearOk = false
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input).startsWith('/api/public-year-candles')) {
+      return yearOk
+        ? Response.json({ asOf: '2026-08-31', series: [{ closes: [100, 104, 99, 110], symbol: 'NVDA' }] })
+        : Response.json({ series: [{ closes: [-1], symbol: 'NVDA' }] })
+    }
+    return Response.json({ catalysts: [], evidence: [], ran: false })
+  }))
+  const snapshot = marketSnapshotFixture()
+  for (const ticker of snapshot.tickers) ticker.sparkline = []
+
+  renderMarketScreen({ tickers: snapshot.tickers })
+
+  expect(await screen.findByText('Year charts are unavailable just now.')).toBeTruthy()
+  expect(document.querySelector('.watch-row .year-sparkline')).toBeNull()
+
+  yearOk = true
+  window.dispatchEvent(new Event('focus'))
+  await waitFor(() => expect(document.querySelector('.watch-row .year-sparkline')).not.toBeNull())
+  expect(screen.queryByText('Year charts are unavailable just now.')).toBeNull()
+})

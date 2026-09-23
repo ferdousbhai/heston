@@ -327,10 +327,23 @@ function searchEmptyMessage(query: string, status: SymbolSearchState['status']):
 const CATALYST_SCOPE = `${CATALYST_KIND_NAMES.slice(0, -1).join(', ')} and ${CATALYST_KIND_NAMES.at(-1)}`
 
 /**
- * An empty calendar is one nobody has searched yet, one whose search did not finish, or one with
- * nothing on it -- and only the last may be told nothing is scheduled.
+ * An empty calendar is one whose search is running, one whose search or read did not finish, one
+ * a search just confirmed has nothing on it, or one this browser has not seen searched -- and only
+ * a confirmed search may say nothing is scheduled.
  */
-function RunwayEmpty({ failed, searching, symbol }: { failed: boolean; searching: boolean; symbol: string }) {
+function RunwayEmpty({
+  confirmedEmpty,
+  failed,
+  readFailed,
+  searching,
+  symbol,
+}: {
+  confirmedEmpty: boolean
+  failed: boolean
+  readFailed: boolean
+  searching: boolean
+  symbol: string
+}) {
   const [heading, detail] = searching
     ? [
         'Looking for what’s coming.',
@@ -341,9 +354,19 @@ function RunwayEmpty({ failed, searching, symbol }: { failed: boolean; searching
         'The calendar search didn’t finish.',
         ` Heston couldn't search for ${symbol}'s scheduled ${CATALYST_SCOPE} dates just now, so this calendar is unknown rather than empty.`,
       ]
+    : readFailed
+    ? [
+        'The calendar didn’t load.',
+        ` Heston couldn't read ${symbol}'s ${CATALYST_SCOPE} dates just now, so this calendar is unknown rather than empty.`,
+      ]
+    : confirmedEmpty
+    ? [
+        'Searched — nothing scheduled.',
+        ` Heston just searched for ${symbol}'s ${CATALYST_SCOPE} dates and found none. A re-rating from here would have to come from something unannounced.`,
+      ]
     : [
         'Nothing is on the calendar.',
-        ` Heston tracks ${CATALYST_SCOPE} dates for ${symbol}, and none are scheduled. A re-rating from here would have to come from something unannounced.`,
+        ` Heston tracks ${CATALYST_SCOPE} dates for ${symbol} and has none on file.`,
       ]
   return (
     <div className="runway-empty" aria-live="polite">
@@ -354,16 +377,21 @@ function RunwayEmpty({ failed, searching, symbol }: { failed: boolean; searching
 
 function CatalystRunway({
   catalysts,
+  confirmedEmpty,
   failed,
   now,
   onRefresh,
+  readFailed,
   searching,
   symbol,
 }: {
   catalysts: readonly Catalyst[]
+  confirmedEmpty: boolean
   failed: boolean
   now: Date
   onRefresh?: () => void
+  /** The symbol's full rows could not be read, so the calendar shown may be missing some. */
+  readFailed: boolean
   searching: boolean
   symbol: string
 }) {
@@ -414,7 +442,15 @@ function CatalystRunway({
               })}
             </ol>
           )
-        : <RunwayEmpty failed={failed} searching={searching} symbol={symbol} />}
+        : (
+            <RunwayEmpty
+              confirmedEmpty={confirmedEmpty}
+              failed={failed}
+              readFailed={readFailed}
+              searching={searching}
+              symbol={symbol}
+            />
+          )}
       {searching && upcoming.length > 0 && (
         <p className="runway-searching" aria-live="polite">
           <span aria-hidden="true" /> Searching for nearer {CATALYST_SCOPE} dates…
@@ -423,6 +459,11 @@ function CatalystRunway({
       {failed && !searching && upcoming.length > 0 && (
         <p className="runway-searching" aria-live="polite">
           The search for nearer {CATALYST_SCOPE} dates didn’t finish.
+        </p>
+      )}
+      {readFailed && upcoming.length > 0 && (
+        <p className="runway-searching" aria-live="polite">
+          {symbol}’s full calendar didn’t load; these are the dates Heston already had.
         </p>
       )}
       {/* A search runs at most once a month for any symbol, so coverage can read thin long
@@ -818,10 +859,12 @@ export function MarketScreen({
   // Looking at a symbol with an empty month asks the server to go and find out. What comes
   // back joins the calendar on this visit rather than waiting for the next snapshot.
   const catalystSearch = useCatalystSearch(selected.symbol, catalysts, now)
-  const focusedCatalysts = usePublicCatalysts(selected.symbol)
+  const focusedRead = usePublicCatalysts(selected.symbol)
+  const focusedCatalysts = focusedRead.catalysts
   // The year series is fetched only where something draws it: the table's year column at the
   // wide breakpoint, and every phone row, which has the room the table's middle widths lack.
-  const yearCloses = useYearCandles(useMediaQuery(WIDE_VIEWPORT) || narrow)
+  const yearCandles = useYearCandles(useMediaQuery(WIDE_VIEWPORT) || narrow)
+  const yearCloses = yearCandles.series
   const cycleListMetric = useCallback(() => {
     setListMetric((current) => LIST_METRICS[(LIST_METRICS.indexOf(current) + 1) % LIST_METRICS.length]!)
   }, [])
@@ -896,9 +939,11 @@ export function MarketScreen({
           )}
           <CatalystRunway
             catalysts={visibleCatalysts}
+            confirmedEmpty={catalystSearch.confirmedEmpty}
             failed={catalystSearch.failed}
             now={now}
             onRefresh={owner ? catalystSearch.refresh : undefined}
+            readFailed={focusedRead.failed}
             searching={catalystSearch.searching}
             symbol={selected.symbol}
           />
@@ -1006,6 +1051,11 @@ export function MarketScreen({
         </header>
         {trimmedQuery && watchTickers.length > 0 && search.status === 'failed' && (
           <p role="status">Symbol search is unavailable. Showing the loaded list only.</p>
+        )}
+        {/* The year's move rides the snapshot and stays; only the chart beside it is missing,
+            and an empty chart slot must not read as a year with nothing in it. */}
+        {yearCandles.failed && (
+          <p className="runway-searching" role="status">Year charts are unavailable just now.</p>
         )}
         {narrow ? (
           <ol className="watch-list">

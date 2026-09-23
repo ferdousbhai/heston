@@ -70,12 +70,40 @@ describe('reviewing a symbol with an empty calendar', () => {
     expect(requested.filter((url) => url.startsWith('/api/public-catalyst-refresh'))).toEqual([])
   })
 
-  it('keeps the empty calendar honest when the search finds nothing', async () => {
+  it('says a search that ran and bound nothing found nothing, distinct from never searching', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ catalysts: [], ran: true })))
 
     renderMarket('META', [])
 
-    await waitFor(() => expect(screen.getByText(/none are scheduled/)).toBeTruthy())
+    expect(await screen.findByText('Searched — nothing scheduled.')).toBeTruthy()
+    expect(screen.queryByText('Nothing is on the calendar.')).toBeNull()
+  })
+
+  it('does not claim a search found nothing when a receipt only refused one', async () => {
+    // A refusal says the server searched within its window, not what this reader was told.
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => String(input).startsWith('/api/public-catalyst-refresh')
+      ? Response.json({ catalysts: [], ran: false, reason: 'fresh' })
+      : Response.json({ catalysts: [], evidence: [], series: [] })))
+
+    renderMarket('INTC', [])
+
+    expect(await screen.findByText('Nothing is on the calendar.')).toBeTruthy()
+    expect(screen.queryByText('Searched — nothing scheduled.')).toBeNull()
+  })
+
+  it('shows the search running, then failed, each in its own words', async () => {
+    let answer: (response: Response) => void = () => undefined
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => String(input).startsWith('/api/public-catalyst-refresh')
+      ? new Promise<Response>((resolve) => { answer = resolve })
+      : Promise.resolve(Response.json({ catalysts: [], evidence: [] }))))
+
+    renderMarket('SPCX', [])
+
+    expect(await screen.findByText('Looking for what’s coming.')).toBeTruthy()
+    expect(screen.queryByText('Searched — nothing scheduled.')).toBeNull()
+    answer(Response.json({ catalysts: [], ran: false, reason: 'failed' }))
+    expect(await screen.findByText('The calendar search didn’t finish.')).toBeTruthy()
+    expect(screen.queryByText('Searched — nothing scheduled.')).toBeNull()
   })
 
   it('says a search that never answered did not finish, rather than that nothing is scheduled', async () => {
@@ -105,7 +133,7 @@ describe('owner catalyst refresh', () => {
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ catalysts: [], ran: true })))
 
     renderMarket('BE', [])
-    await screen.findByText('Nothing is on the calendar.')
+    await screen.findByText('Searched — nothing scheduled.')
     // A visitor cannot spend a search: the call costs money and the window that bounds
     // incidental attention is the only thing standing between it and every reader.
     expect(screen.queryByRole('button', { name: 'Search again' })).toBeNull()
@@ -126,5 +154,42 @@ describe('owner catalyst refresh', () => {
     expect(await screen.findByText(/Searching for nearer/)).toBeTruthy()
     // The control that would spend a second search is not offered while one is running.
     expect(screen.queryByRole('button', { name: 'Search again' })).toBeNull()
+  })
+})
+
+describe('a calendar read that fails', () => {
+  it('says the calendar is unknown rather than empty, and reads again on focus', async () => {
+    let readOk = false
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      // The search ran and bound nothing; only the full read of the symbol's rows is failing.
+      if (url.startsWith('/api/public-catalyst-refresh')) return Response.json({ catalysts: [], ran: true })
+      if (url.startsWith('/api/public-catalysts')) {
+        return readOk ? Response.json({ catalysts: [catalyst('IWM', 40)] }) : new Response('', { status: 503 })
+      }
+      return Response.json({ evidence: [], series: [] })
+    }))
+
+    renderMarket('IWM', [])
+
+    expect(await screen.findByText('The calendar didn’t load.')).toBeTruthy()
+    // A search that bound nothing cannot vouch for a calendar whose other rows never arrived.
+    expect(screen.queryByText('Searched — nothing scheduled.')).toBeNull()
+
+    readOk = true
+    window.dispatchEvent(new Event('focus'))
+    expect(await screen.findByText('IWM analyst day')).toBeTruthy()
+    expect(screen.queryByText('The calendar didn’t load.')).toBeNull()
+  })
+
+  it('keeps the dates it already had and says the rest did not load', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => String(input).startsWith('/api/public-catalysts')
+      ? Response.json({ catalysts: [{}] })
+      : Response.json({ catalysts: [], evidence: [], ran: false })))
+
+    renderMarket('SPY', [catalyst('SPY', 5)])
+
+    expect(await screen.findByText(/SPY’s full calendar didn’t load/)).toBeTruthy()
+    expect(screen.getByText('SPY analyst day')).toBeTruthy()
   })
 })

@@ -10,34 +10,56 @@ import { loadPublicJson } from './public-json'
  *
  * One shared request, outside React, so several views asking are one answer.
  */
-let request: Promise<ReadonlyMap<string, readonly number[]>> | undefined
+export type YearCandlesRead = {
+  failed: boolean
+  series: ReadonlyMap<string, readonly number[]>
+}
+
+let request: Promise<YearCandlesRead> | undefined
 
 const NO_SERIES: ReadonlyMap<string, readonly number[]> = new Map()
+const NOT_YET_READ: YearCandlesRead = { failed: false, series: NO_SERIES }
 
-function loadYearCandles(): Promise<ReadonlyMap<string, readonly number[]>> {
+function loadYearCandles(): Promise<YearCandlesRead> {
   request ??= loadPublicJson('/api/public-year-candles', YearCandlesSchema)
-    .then((parsed) => new Map(parsed.series.map((entry) => [entry.symbol, entry.closes])))
-    .catch(() => {
-      // A missing year chart is a column that stays empty, not a market a reader cannot read.
-      // Clearing the promise lets a later view try again rather than caching the failure.
+    .then((parsed): YearCandlesRead => ({
+      failed: false,
+      series: new Map(parsed.series.map((entry) => [entry.symbol, entry.closes])),
+    }))
+    .catch((): YearCandlesRead => {
+      // A missing year chart is a column that stays empty, not a market a reader cannot read,
+      // but it is reported as missing rather than as a year with nothing in it. Clearing the
+      // promise lets a later ask try again rather than caching the failure.
       request = undefined
-      return NO_SERIES
+      return { failed: true, series: NO_SERIES }
     })
   return request
 }
 
-/** Loads the series only when something is actually going to draw it. */
-export function useYearCandles(enabled: boolean): ReadonlyMap<string, readonly number[]> {
-  const [series, setSeries] = useState<ReadonlyMap<string, readonly number[]>>(NO_SERIES)
+/**
+ * Loads the series only when something is actually going to draw it. A failed read is asked
+ * again when the window regains focus, so a mounted list does not keep its failure all session.
+ */
+export function useYearCandles(enabled: boolean): YearCandlesRead {
+  const [read, setRead] = useState<YearCandlesRead>(NOT_YET_READ)
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     if (!enabled) return
     let cancelled = false
     void loadYearCandles().then((loaded) => {
-      if (!cancelled) setSeries(loaded)
+      if (!cancelled) setRead(loaded)
     })
     return () => { cancelled = true }
-  }, [enabled])
+  }, [attempt, enabled])
 
-  return series
+  useEffect(() => {
+    if (!enabled || !read.failed) return
+    const retry = () => setAttempt((current) => current + 1)
+    window.addEventListener('focus', retry)
+    return () => window.removeEventListener('focus', retry)
+  }, [enabled, read.failed])
+
+  // A failure is reported only where the series would be drawn.
+  return enabled ? read : NOT_YET_READ
 }
