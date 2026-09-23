@@ -1,7 +1,14 @@
 import { JsonObjectSchema } from '../domain/json-payload'
 import {
+  DEFAULT_BOLLINGER_DEVIATIONS,
+  DEFAULT_MACD_FAST_PERIOD,
+  DEFAULT_MACD_SIGNAL_PERIOD,
+  DEFAULT_MACD_SLOW_PERIOD,
+  DEFAULT_STUDY_PERIOD,
   MAX_PRICE_STUDIES,
   MAX_PRICE_STUDY_PERIOD,
+  MIN_MACD_SLOW_PERIOD,
+  MIN_STUDY_PERIOD,
   type PriceHistoryRow,
   type PriceStudyResult,
   type PriceStudySeries,
@@ -160,13 +167,13 @@ export function normalizeStudies(inputs: StudyInput[] | undefined): NormalizedSt
   return inputs.map((input) => {
     if (!JsonObjectSchema.safeParse(input).success) throw new CallerVisibleError('Price studies are invalid.')
     if (input.kind === 'SMA' || input.kind === 'EMA' || input.kind === 'RSI') {
-      const period = boundedInteger(input.period, 14, 2, MAX_PRICE_STUDY_PERIOD, `${input.kind} period`)
+      const period = boundedInteger(input.period, DEFAULT_STUDY_PERIOD, MIN_STUDY_PERIOD, MAX_PRICE_STUDY_PERIOD, `${input.kind} period`)
       remember(`${input.kind}:${period}`)
       return { kind: input.kind, period }
     }
     if (input.kind === 'BBANDS') {
-      const period = boundedInteger(input.period, 14, 2, MAX_PRICE_STUDY_PERIOD, 'Bollinger period')
-      const standardDeviations = input.standardDeviations ?? 2
+      const period = boundedInteger(input.period, DEFAULT_STUDY_PERIOD, MIN_STUDY_PERIOD, MAX_PRICE_STUDY_PERIOD, 'Bollinger period')
+      const standardDeviations = input.standardDeviations ?? DEFAULT_BOLLINGER_DEVIATIONS
       if (!Number.isFinite(standardDeviations) || standardDeviations <= 0) {
         throw new CallerVisibleError('Bollinger deviations are invalid.')
       }
@@ -175,9 +182,15 @@ export function normalizeStudies(inputs: StudyInput[] | undefined): NormalizedSt
     }
     // Reachable: `inputs` is untrusted model output, not yet a closed union.
     if (input.kind !== 'MACD') throw new CallerVisibleError('Price studies are invalid.')
-    const fastPeriod = boundedInteger(input.fastPeriod, 12, 2, MAX_PRICE_STUDY_PERIOD, 'MACD fast period')
-    const slowPeriod = boundedInteger(input.slowPeriod, 26, 3, MAX_PRICE_STUDY_PERIOD, 'MACD slow period')
-    const signalPeriod = boundedInteger(input.signalPeriod, 9, 2, MAX_PRICE_STUDY_PERIOD, 'MACD signal period')
+    const fastPeriod = boundedInteger(
+      input.fastPeriod, DEFAULT_MACD_FAST_PERIOD, MIN_STUDY_PERIOD, MAX_PRICE_STUDY_PERIOD, 'MACD fast period',
+    )
+    const slowPeriod = boundedInteger(
+      input.slowPeriod, DEFAULT_MACD_SLOW_PERIOD, MIN_MACD_SLOW_PERIOD, MAX_PRICE_STUDY_PERIOD, 'MACD slow period',
+    )
+    const signalPeriod = boundedInteger(
+      input.signalPeriod, DEFAULT_MACD_SIGNAL_PERIOD, MIN_STUDY_PERIOD, MAX_PRICE_STUDY_PERIOD, 'MACD signal period',
+    )
     if (fastPeriod >= slowPeriod) throw new CallerVisibleError('MACD fast period must be less than slow period.')
     remember(`${input.kind}:${fastPeriod}:${slowPeriod}:${signalPeriod}`)
     return { fastPeriod, kind: input.kind, signalPeriod, slowPeriod }

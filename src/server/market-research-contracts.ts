@@ -48,22 +48,40 @@ export function roundPrice(value: number): number {
   return Math.round(value * PRICE_ROUNDING_FACTOR) / PRICE_ROUNDING_FACTOR
 }
 
+/**
+ * Study defaults are each study's published convention, so an omitted parameter means what a
+ * reader of any chart expects: Wilder's 14-bar period (also applied to SMA/EMA, one default for
+ * every scalar study), Bollinger's two standard deviations, and Appel's 12/26/9 MACD.
+ */
+export const DEFAULT_STUDY_PERIOD = 14
+export const DEFAULT_BOLLINGER_DEVIATIONS = 2
+export const DEFAULT_MACD_FAST_PERIOD = 12
+export const DEFAULT_MACD_SLOW_PERIOD = 26
+export const DEFAULT_MACD_SIGNAL_PERIOD = 9
+/**
+ * A one-bar average is the bar itself and a one-bar RSI has no change to measure, so two is the
+ * narrowest period that computes anything. MACD's slow period must exceed its fast one, so its
+ * floor is one above.
+ */
+export const MIN_STUDY_PERIOD = 2
+export const MIN_MACD_SLOW_PERIOD = MIN_STUDY_PERIOD + 1
+
 const ScalarStudyParameters = Type.Object({
   kind: StringEnum(['SMA', 'EMA', 'RSI']),
-  period: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 2 })),
+  period: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: MIN_STUDY_PERIOD })),
 }, { additionalProperties: false })
 
 const BollingerStudyParameters = Type.Object({
   kind: StringEnum(['BBANDS']),
-  period: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 2 })),
+  period: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: MIN_STUDY_PERIOD })),
   standardDeviations: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
 }, { additionalProperties: false })
 
 const MacdStudyParameters = Type.Object({
-  fastPeriod: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 2 })),
+  fastPeriod: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: MIN_STUDY_PERIOD })),
   kind: StringEnum(['MACD']),
-  signalPeriod: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 2 })),
-  slowPeriod: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: 3 })),
+  signalPeriod: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: MIN_STUDY_PERIOD })),
+  slowPeriod: Type.Optional(Type.Integer({ maximum: MAX_PRICE_STUDY_PERIOD, minimum: MIN_MACD_SLOW_PERIOD })),
 }, { additionalProperties: false })
 
 const PriceStudyParameters = Type.Union([
@@ -92,7 +110,9 @@ export const PriceHistoryReadParameters = Type.Object({
     // object branches and a model reading the flattened description misses them -- a first call
     // guesses `"sma"` or a bare string, and pays a round trip to be told. Naming them in prose
     // costs a line and buys the call.
-    description: 'Optional studies from adjusted closes; kind is SMA, EMA, RSI, BBANDS or MACD, uppercase. Defaults: period 14; MACD 12/26/9; Bollinger deviations 2.',
+    description: 'Optional studies from adjusted closes; kind is SMA, EMA, RSI, BBANDS or MACD, uppercase. '
+      + `Defaults: period ${DEFAULT_STUDY_PERIOD}; MACD ${DEFAULT_MACD_FAST_PERIOD}/${DEFAULT_MACD_SLOW_PERIOD}/`
+      + `${DEFAULT_MACD_SIGNAL_PERIOD}; Bollinger deviations ${DEFAULT_BOLLINGER_DEVIATIONS}.`,
     maxItems: MAX_PRICE_STUDIES,
   })),
   symbol: EquitySymbolType,

@@ -357,3 +357,27 @@ describe('market research tools', () => {
     expect(failing.chart).toHaveBeenCalledWith('BRK-B', expect.any(Object))
   })
 })
+
+describe('price study defaults', () => {
+  it('applies the defaults the tool description states, from one definition', async () => {
+    const { normalizeStudies } = await import('../src/server/technical-studies')
+    const contracts = await import('../src/server/market-research-contracts')
+    expect(normalizeStudies([{ kind: 'RSI' }, { kind: 'BBANDS' }, { kind: 'MACD' }])).toEqual([
+      { kind: 'RSI', period: contracts.DEFAULT_STUDY_PERIOD },
+      { kind: 'BBANDS', period: contracts.DEFAULT_STUDY_PERIOD, standardDeviations: contracts.DEFAULT_BOLLINGER_DEVIATIONS },
+      {
+        fastPeriod: contracts.DEFAULT_MACD_FAST_PERIOD,
+        kind: 'MACD',
+        signalPeriod: contracts.DEFAULT_MACD_SIGNAL_PERIOD,
+        slowPeriod: contracts.DEFAULT_MACD_SLOW_PERIOD,
+      },
+    ])
+    const description = JSON.stringify(contracts.PriceHistoryReadParameters.properties.studies)
+    expect(description).toContain(`period ${contracts.DEFAULT_STUDY_PERIOD}`)
+    expect(description).toContain(
+      `MACD ${contracts.DEFAULT_MACD_FAST_PERIOD}/${contracts.DEFAULT_MACD_SLOW_PERIOD}/${contracts.DEFAULT_MACD_SIGNAL_PERIOD}`,
+    )
+    expect(description).toContain(`deviations ${contracts.DEFAULT_BOLLINGER_DEVIATIONS}`)
+    expect(() => normalizeStudies([{ kind: 'SMA', period: contracts.MIN_STUDY_PERIOD - 1 }])).toThrow()
+  })
+})
