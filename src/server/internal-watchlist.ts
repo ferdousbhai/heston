@@ -1,14 +1,6 @@
 import { z } from 'zod'
 
-import {
-  envelopeRows,
-  JsonArraySchema,
-  jsonObject,
-  jsonObjectOrEmpty,
-  jsonText,
-  type JsonObject,
-  type JsonValue,
-} from '../domain/json-payload'
+import { jsonObject, type JsonObject } from '../domain/json-payload'
 import { EquitySymbolSchema } from '../domain/instrument'
 import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 import { type AppEnv } from './env'
@@ -17,12 +9,10 @@ import { publishInternalWatchlistUniverse } from './public-market-universe'
 import { defineSeam } from './seam'
 import { CallerVisibleError } from './caller-visible-error'
 
-// The seed import is a one-time parse of untrusted provider collections. These ceilings are
-// isolate-memory and D1-write budgets; they do not constrain the finalized product list, whose
-// bound is `MAX_WATCHLIST_SYMBOLS`.
+// The retained seed was imported, once, under this per-kind list ceiling (an isolate-memory and
+// D1-write budget of that import, not a bound on the product list, which is
+// `MAX_WATCHLIST_SYMBOLS`). It is what bounds one symbol's membership read below.
 const MAX_SOURCE_LISTS_PER_KIND = 100
-const MAX_ENTRIES_PER_SOURCE = 5_000
-const MAX_TOTAL_SEED_ENTRIES = 50_000
 
 /**
  * The one ranking of the maintained list. Pruning keeps the head of it and the focus read
@@ -30,7 +20,7 @@ const MAX_TOTAL_SEED_ENTRIES = 50_000
  * (one capped the options-volume list, the other did not) and the drift was a silent
  * correctness bug rather than a visible failure. Lower tiers rank first:
  *
- *   0  a priority symbol the caller names (held positions at finalization)
+ *   0  a priority symbol the caller names
  *   1  an owner addition
  *   2  any other Heston origin — research, discussion, trade intent
  *   3  a seed member of one of the owner's private broker lists
@@ -83,13 +73,6 @@ const RANK_ORDER = 'tier ASC, coalesce(volume_rank, 9223372036854775807) ASC, up
 const MAX_CATALOG_CANDIDATES = MAX_INSTRUMENT_CATALOG_ITEMS
 const MAX_SOURCE_METADATA_BYTES = 256_000
 const MAX_ENTRY_METADATA_BYTES = 64_000
-// A crashed one-time importer may be retried after this lease-like stale window.
-const SEED_STALE_AFTER_MS = 10 * 60_000
-// Split D1 batch calls and JSON-table payloads before request or statement allocation grows large.
-const WRITE_BATCH_SIZE = 75
-const SEED_JSON_CHUNK_BYTES = 512_000
-// Reject a seed whose chunked write would consume an unexpectedly large part of one invocation.
-const MAX_SEED_WRITE_STATEMENTS = 200
 const MAX_SEED_MEMBERSHIPS_PER_SYMBOL = 2 * MAX_SOURCE_LISTS_PER_KIND
 
 const SymbolSchema = EquitySymbolSchema
@@ -100,6 +83,9 @@ const INTERNAL_WATCHLIST_ORIGINS = [
   'visitor-search',
   'scheduled-research',
   'agent-discussion',
+  // Written only by the removed one-time finalization (held positions at that moment). Rows
+  // that carry it remain in D1 and must still parse and rank, so it stays a stored origin,
+  // but no live path may write it.
   'position-sync',
   'trade-intent',
   'owner',
@@ -116,9 +102,10 @@ const InternalWatchlistOriginSchema = z.enum(INTERNAL_WATCHLIST_ORIGINS)
  */
 const PRUNABLE_ORIGINS = ['tastytrade-seed', 'visitor-search'] as const satisfies readonly InternalWatchlistOrigin[]
 const PRUNABLE_ORIGINS_SQL = `(${PRUNABLE_ORIGINS.map((origin) => `'${origin}'`).join(', ')})`
-const InternalWatchlistMutationOriginSchema = InternalWatchlistOriginSchema.exclude(['tastytrade-seed'])
+const InternalWatchlistMutationOriginSchema = InternalWatchlistOriginSchema.exclude(['tastytrade-seed', 'position-sync'])
 
 export type InternalWatchlistOrigin = z.infer<typeof InternalWatchlistOriginSchema>
+type InternalWatchlistMutationOrigin = z.infer<typeof InternalWatchlistMutationOriginSchema>
 
 export type InternalWatchlistItem = {
   createdAt: string
@@ -136,32 +123,6 @@ export type InternalWatchlistSymbolDetails = InternalWatchlistItem & {
     sourceMetadata: JsonObject
     sourceName: string
   }>
-}
-
-type SeedSource = {
-  entries: SeedEntry[]
-  id: string
-  kind: 'private' | 'public'
-  metadataJson: string
-  name: string
-  sourceIndex: number
-}
-
-type SeedEntry = {
-  brokerSymbol: string | null
-  entryIndex: number
-  instrumentType: string | null
-  metadataJson: string
-}
-
-export type InternalWatchlistSeedPayloads = {
-  privatePayload: JsonValue
-  publicPayload: JsonValue
-}
-
-type InternalWatchlistSeed = {
-  items: Array<{ metadataJson: string; symbol: string }>
-  sources: SeedSource[]
 }
 
 function requiredDatabase(env: AppEnv): D1Database {
@@ -184,263 +145,11 @@ async function requireFinalizedSeed(db: D1Database): Promise<void> {
   if (!seed.finalized_at) throw new CallerVisibleError('InternalWatchlist:not-finalized')
 }
 
-function serialized(value: JsonValue, label: string, maxBytes: number): string {
-  const result = JSON.stringify(value)
-  if (!result || new TextEncoder().encode(result).byteLength > maxBytes) {
-    throw new Error(`InternalWatchlist:${label}-too-large`)
-  }
-  return result
-}
-
-function assertCompleteCollection(payload: JsonValue, rowCount: number, label: string): void {
-  const body = jsonObjectOrEmpty(payload)
-  const data = jsonObjectOrEmpty(body.data)
-  const pagination = jsonObject(body.pagination ?? data.pagination)
-  const rawTotal = pagination?.['total-items']
-  if (rawTotal === undefined) return
-  const total = z.union([z.number(), z.string().transform(Number)]).safeParse(rawTotal).data
-  if (total === undefined || !Number.isSafeInteger(total) || total < 0 || total !== rowCount) {
-    throw new Error(`InternalWatchlist:${label}-incomplete-response`)
-  }
-}
-
-function sourceRows(payload: JsonValue, kind: 'private' | 'public'): SeedSource[] {
-  const rows = envelopeRows(payload)
-  if (!rows) throw new Error(`InternalWatchlist:${kind}-missing-collection`)
-  if (rows.length > MAX_SOURCE_LISTS_PER_KIND) throw new Error(`InternalWatchlist:${kind}-too-many-lists`)
-  assertCompleteCollection(payload, rows.length, kind)
-  return rows.map((value, sourceIndex) => {
-    const row = jsonObject(value)
-    const name = jsonText(row?.name)
-    const rawEntries = JsonArraySchema.safeParse(row?.['watchlist-entries']).data
-    if (!row) throw new Error(`InternalWatchlist:${kind}-invalid-row`)
-    if (!name || name.length > 256) throw new Error(`InternalWatchlist:${kind}-invalid-name`)
-    if (!rawEntries) throw new Error(`InternalWatchlist:${kind}-missing-entries`)
-    if (rawEntries.length > MAX_ENTRIES_PER_SOURCE) {
-      throw new Error(`InternalWatchlist:${kind}-too-many-list-entries:${rawEntries.length}`)
-    }
-    const metadata: JsonObject = { ...row }
-    delete metadata['watchlist-entries']
-    const entries = rawEntries.map((rawEntry, entryIndex) => {
-      const entry = jsonObject(rawEntry)
-      if (!entry) throw new Error(`InternalWatchlist:${kind}-invalid-entry`)
-      const brokerSymbol = jsonText(entry.symbol) ?? null
-      const instrumentType = jsonText(entry['instrument-type']) ?? null
-      if ((brokerSymbol?.length ?? 0) > 256 || (instrumentType?.length ?? 0) > 128) {
-        throw new Error(`InternalWatchlist:${kind}-invalid-entry`)
-      }
-      return {
-        brokerSymbol,
-        entryIndex,
-        instrumentType,
-        metadataJson: serialized(entry, 'entry-metadata', MAX_ENTRY_METADATA_BYTES),
-      }
-    })
-    return {
-      entries,
-      id: `tastytrade-${kind}-${sourceIndex}`,
-      kind,
-      metadataJson: serialized(metadata, 'source-metadata', MAX_SOURCE_METADATA_BYTES),
-      name,
-      sourceIndex,
-    }
-  })
-}
-
-/** Preserve every source row and entry while normalizing only Equity symbols into the live list. */
-export function internalWatchlistSeedFromPayloads(payloads: InternalWatchlistSeedPayloads): InternalWatchlistSeed {
-  const sources = [
-    ...sourceRows(payloads.privatePayload, 'private'),
-    ...sourceRows(payloads.publicPayload, 'public'),
-  ]
-  const entryCount = sources.reduce((sum, source) => sum + source.entries.length, 0)
-  if (entryCount > MAX_TOTAL_SEED_ENTRIES) throw new Error(`InternalWatchlist:too-many-entries:${entryCount}`)
-
-  const memberships = new Map<string, string[]>()
-  for (const source of sources) {
-    for (const entry of source.entries) {
-      if (entry.instrumentType !== 'Equity' || !entry.brokerSymbol) continue
-      const symbol = SymbolSchema.safeParse(entry.brokerSymbol.toUpperCase()).data
-      if (!symbol) continue
-      const sourceIds = memberships.get(symbol) ?? []
-      if (!sourceIds.includes(source.id)) sourceIds.push(source.id)
-      memberships.set(symbol, sourceIds)
-    }
-  }
-  const items = [...memberships.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([symbol, sourceIds]) => ({
-    symbol,
-    metadataJson: JSON.stringify({ seedSourceIds: sourceIds }),
-  }))
-  return { items, sources }
-}
-
-async function runBatches(db: D1Database, statements: D1PreparedStatement[]): Promise<void> {
-  for (let start = 0; start < statements.length; start += WRITE_BATCH_SIZE) {
-    await db.batch(statements.slice(start, start + WRITE_BATCH_SIZE))
-  }
-}
-
-function jsonChunks<T>(rows: readonly T[]): string[] {
-  const chunks: string[] = []
-  const encoder = new TextEncoder()
-  let current: string[] = []
-  let currentBytes = 2
-  for (const row of rows) {
-    const encoded = JSON.stringify(row)
-    const rowBytes = encoder.encode(encoded).byteLength
-    const separatorBytes = current.length ? 1 : 0
-    if (current.length && currentBytes + separatorBytes + rowBytes > SEED_JSON_CHUNK_BYTES) {
-      chunks.push(`[${current.join(',')}]`)
-      current = []
-      currentBytes = 2
-    }
-    if (currentBytes + rowBytes > SEED_JSON_CHUNK_BYTES) {
-      throw new Error('InternalWatchlist:seed-row-too-large')
-    }
-    current.push(encoded)
-    currentBytes += (current.length > 1 ? 1 : 0) + rowBytes
-  }
-  if (current.length) chunks.push(`[${current.join(',')}]`)
-  return chunks
-}
-
-async function claimSeed(db: D1Database, attemptId: string, now: Date): Promise<'claimed' | 'ready'> {
-  const startedAt = now.toISOString()
-  const staleBefore = new Date(now.getTime() - SEED_STALE_AFTER_MS).toISOString()
-  const claim = await db.prepare(
-    `INSERT INTO internal_watchlist_seed (id, status, attempt_id, started_at)
-     VALUES ('primary', 'seeding', ?, ?)
-     ON CONFLICT(id) DO UPDATE SET
-       status = 'seeding', attempt_id = excluded.attempt_id, started_at = excluded.started_at,
-       seeded_at = NULL, finalized_at = NULL, error_code = NULL
-     WHERE internal_watchlist_seed.status = 'failed'
-        OR (internal_watchlist_seed.status = 'seeding' AND internal_watchlist_seed.started_at <= ?)`,
-  ).bind(attemptId, startedAt, staleBefore).run()
-  if (claim.meta.changes === 1) return 'claimed'
-  const current = await db.prepare(
-    `SELECT status FROM internal_watchlist_seed WHERE id = 'primary'`,
-  ).first<{ status: string }>()
-  if (current?.status === 'ready') return 'ready'
-  throw new Error('InternalWatchlist:seed-in-progress')
-}
-
-async function persistSeed(
-  db: D1Database,
-  seed: InternalWatchlistSeed,
-  attemptId: string,
-  now: Date,
-): Promise<void> {
-  if (seed.items.length > MAX_INSTRUMENT_CATALOG_ITEMS) {
-    throw new Error(`InternalWatchlist:too-many-items:${seed.items.length}`)
-  }
-  // A retry clears only broker-seeded rows. Owner/agent/research additions and the
-  // immutable audit rows from a completed seed are never touched after `ready`.
-  // Every write rechecks the attempt claim so an expired importer cannot overwrite
-  // a newer importer that reclaimed and completed the multi-batch seed.
-  await db.batch([
-    db.prepare(
-      `DELETE FROM internal_watchlist_seed_entries
-       WHERE EXISTS (SELECT 1 FROM internal_watchlist_seed
-         WHERE id = 'primary' AND status = 'seeding' AND attempt_id = ?)`,
-    ).bind(attemptId),
-    db.prepare(
-      `DELETE FROM internal_watchlist_seed_sources
-       WHERE EXISTS (SELECT 1 FROM internal_watchlist_seed
-         WHERE id = 'primary' AND status = 'seeding' AND attempt_id = ?)`,
-    ).bind(attemptId),
-    db.prepare(
-      `DELETE FROM internal_watchlist_items WHERE origin = 'tastytrade-seed'
-       AND EXISTS (SELECT 1 FROM internal_watchlist_seed
-         WHERE id = 'primary' AND status = 'seeding' AND attempt_id = ?)`,
-    ).bind(attemptId),
-  ])
-  const sourceRows = seed.sources.map((source) => ({
-    id: source.id,
-    kind: source.kind,
-    metadataJson: source.metadataJson,
-    name: source.name,
-    sourceIndex: source.sourceIndex,
-  }))
-  const entryRows = seed.sources.flatMap((source) => source.entries.map((entry) => ({
-    brokerSymbol: entry.brokerSymbol,
-    entryIndex: entry.entryIndex,
-    instrumentType: entry.instrumentType,
-    metadataJson: entry.metadataJson,
-    sourceId: source.id,
-  })))
-  const sourceStatements = jsonChunks(sourceRows).map((chunk) => db.prepare(
-      `INSERT INTO internal_watchlist_seed_sources
-        (id, source_kind, source_index, name, metadata_json)
-       SELECT
-         json_extract(value, '$.id'),
-         json_extract(value, '$.kind'),
-         CAST(json_extract(value, '$.sourceIndex') AS INTEGER),
-         json_extract(value, '$.name'),
-         json_extract(value, '$.metadataJson')
-       FROM json_each(?)
-       WHERE EXISTS (SELECT 1 FROM internal_watchlist_seed
-         WHERE id = 'primary' AND status = 'seeding' AND attempt_id = ?)`,
-    ).bind(chunk, attemptId))
-  const entryStatements = jsonChunks(entryRows).map((chunk) => db.prepare(
-        `INSERT INTO internal_watchlist_seed_entries
-          (source_id, entry_index, broker_symbol, instrument_type, metadata_json)
-         SELECT
-           json_extract(value, '$.sourceId'),
-           CAST(json_extract(value, '$.entryIndex') AS INTEGER),
-           json_extract(value, '$.brokerSymbol'),
-           json_extract(value, '$.instrumentType'),
-           json_extract(value, '$.metadataJson')
-         FROM json_each(?)
-         WHERE EXISTS (SELECT 1 FROM internal_watchlist_seed
-           WHERE id = 'primary' AND status = 'seeding' AND attempt_id = ?)`,
-      ).bind(chunk, attemptId))
-  if (sourceStatements.length + entryStatements.length > MAX_SEED_WRITE_STATEMENTS) {
-    throw new Error('InternalWatchlist:seed-write-budget-exceeded')
-  }
-  await runBatches(db, sourceStatements)
-  await runBatches(db, entryStatements)
-  const timestamp = now.toISOString()
-  const completed = await db.prepare(
-    `UPDATE internal_watchlist_seed
-     SET status = 'ready', seeded_at = ?, error_code = NULL
-     WHERE id = 'primary' AND status = 'seeding' AND attempt_id = ?`,
-  ).bind(timestamp, attemptId).run()
-  if (completed.meta.changes !== 1) throw new Error('InternalWatchlist:seed-claim-lost')
-}
-
-/**
- * Run the tastytrade import once; a complete `ready` seed is never fetched again.
- * No production code calls this: the one caller that could supply a broker credential
- * (the owner's bootstrap Worker) was removed because it could never present one without
- * storing it here, which CLAUDE.md forbids. This is now how tests — and, historically,
- * that bootstrap — establish a finalized list; keep it for that setup role.
- */
-export async function ensureInternalWatchlistSeeded(
-  env: AppEnv,
-  loadPayloads: () => Promise<InternalWatchlistSeedPayloads>,
-  now = new Date(),
-): Promise<void> {
-  const db = requiredDatabase(env)
-  const attemptId = crypto.randomUUID()
-  if (await claimSeed(db, attemptId, now) === 'ready') return
-  try {
-    const seed = internalWatchlistSeedFromPayloads(await loadPayloads())
-    await persistSeed(db, seed, attemptId, now)
-  } catch (cause) {
-    const errorCode = cause instanceof Error ? cause.message.slice(0, 160) : 'InternalWatchlist:seed-failed'
-    await db.prepare(
-      `UPDATE internal_watchlist_seed SET status = 'failed', error_code = ?
-       WHERE id = 'primary' AND status = 'seeding' AND attempt_id = ?`,
-    ).bind(errorCode, attemptId).run().catch(() => undefined)
-    throw cause
-  }
-}
-
 function normalizedSymbols(symbols: readonly string[]): string[] {
   return [...new Set(symbols.map((symbol) => SymbolSchema.safeParse(symbol).data).filter((symbol): symbol is string => Boolean(symbol)))]
 }
 
-/** Stable bootstrap candidates survive any position-aware live-list pruning. */
+/** The retained seed's equities: stable catalog candidates that survive any live-list pruning or removal. */
 export async function readInternalWatchlistCatalogCandidates(env: AppEnv): Promise<string[]> {
   const db = requiredDatabase(env)
   await requireImportedSeed(db)
@@ -457,49 +166,16 @@ export async function readInternalWatchlistCatalogCandidates(env: AppEnv): Promi
   return symbols.map((row) => row.symbol)
 }
 
-function restoreSeedStatement(db: D1Database, timestamp: string): D1PreparedStatement {
-  return db.prepare(
-    `INSERT INTO internal_watchlist_items
-       (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
-     SELECT symbol, 'Equity', 'tastytrade-seed',
-       json_object('seedSourceIds', json_group_array(source_id)), ?, ?
-     FROM (
-       SELECT DISTINCT upper(e.broker_symbol) AS symbol, e.source_id
-       FROM internal_watchlist_seed_entries e
-       WHERE e.instrument_type = 'Equity'
-         AND e.broker_symbol GLOB '[A-Za-z]*'
-         AND e.broker_symbol NOT GLOB '*[^A-Za-z.]*'
-         AND length(e.broker_symbol) BETWEEN 1 AND 8
-       ORDER BY e.source_id ASC
-     )
-     GROUP BY symbol
-     HAVING true
-       AND EXISTS (
-         SELECT 1 FROM internal_watchlist_seed
-         WHERE id = 'primary' AND status = 'ready' AND finalized_at IS NULL
-       )
-     ON CONFLICT(symbol) DO NOTHING`,
-  ).bind(timestamp, timestamp)
-}
-
 /** Drop the automatically admitted rows that fall past `MAX_WATCHLIST_SYMBOLS` in the ranking. */
-function pruneStatement(
-  db: D1Database,
-  prioritySymbols: readonly string[],
-  onlyWhileUnfinalized = false,
-): D1PreparedStatement {
+function pruneStatement(db: D1Database): D1PreparedStatement {
   return db.prepare(
     `${RANKED_ITEMS_CTE}
      DELETE FROM internal_watchlist_items
      WHERE origin IN ${PRUNABLE_ORIGINS_SQL}
-       ${onlyWhileUnfinalized ? `AND EXISTS (
-         SELECT 1 FROM internal_watchlist_seed
-         WHERE id = 'primary' AND status = 'ready' AND finalized_at IS NULL
-       )` : ''}
        AND symbol NOT IN (
          SELECT symbol FROM ranked ORDER BY ${RANK_ORDER} LIMIT ${MAX_WATCHLIST_SYMBOLS}
        )`,
-  ).bind(JSON.stringify(normalizedSymbols(prioritySymbols)))
+  ).bind(JSON.stringify([]))
 }
 
 function originPriority(origin: InternalWatchlistOrigin): number {
@@ -513,9 +189,8 @@ const storedOriginPrioritySql = `CASE internal_watchlist_items.origin ${INTERNAL
 function upsertSymbolsStatement(
   db: D1Database,
   symbols: readonly string[],
-  origin: Exclude<InternalWatchlistOrigin, 'tastytrade-seed'>,
+  origin: InternalWatchlistMutationOrigin,
   timestamp: string,
-  onlyWhileUnfinalized = false,
 ): D1PreparedStatement {
   const priority = originPriority(origin)
   return db.prepare(
@@ -542,10 +217,8 @@ function upsertSymbolsStatement(
      INSERT INTO internal_watchlist_items
        (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
      SELECT symbol, 'Equity', ?, '{}', ?, ? FROM admitted
-     WHERE ${onlyWhileUnfinalized ? `EXISTS (
-       SELECT 1 FROM internal_watchlist_seed
-       WHERE id = 'primary' AND status = 'ready' AND finalized_at IS NULL
-     )` : 'true'}
+     -- SQLite needs a WHERE between an INSERT's SELECT and its upsert clause.
+     WHERE true
      ON CONFLICT(symbol) DO UPDATE SET
        origin = CASE WHEN ? > ${storedOriginPrioritySql}
          THEN excluded.origin ELSE internal_watchlist_items.origin END,
@@ -554,64 +227,11 @@ function upsertSymbolsStatement(
   ).bind(JSON.stringify(symbols), origin, timestamp, timestamp, priority, priority)
 }
 
-/**
- * Atomically materialize the one-time imported universe into its final bounded
- * live list. A completed finalization is immutable, so a later bootstrap rerun
- * can never resurrect an explicitly deleted seed member.
- * No production code calls this either, for the same reason as `ensureInternalWatchlistSeeded`
- * above: tests (and, historically, the removed owner bootstrap) are what establish a
- * finalized list.
- */
-export async function finalizeInternalWatchlist(
-  env: AppEnv,
-  positionSymbols: readonly string[],
-  now = new Date(),
-): Promise<{ finalized: boolean; kept: string[] }> {
-  const db = requiredDatabase(env)
-  await requireImportedSeed(db)
-  const positions = normalizedSymbols(positionSymbols)
-  if (positions.length > MAX_WATCHLIST_SYMBOLS) {
-    throw new CallerVisibleError('InternalWatchlist:too-many-position-symbols')
-  }
-  const timestamp = now.toISOString()
-  const statements = [
-    db.prepare(
-      `DELETE FROM internal_watchlist_items
-       WHERE origin = 'tastytrade-seed'
-         AND EXISTS (
-           SELECT 1 FROM internal_watchlist_seed
-           WHERE id = 'primary' AND status = 'ready' AND finalized_at IS NULL
-         )`,
-    ),
-    restoreSeedStatement(db, timestamp),
-    ...(positions.length ? [
-      upsertSymbolsStatement(db, positions, 'position-sync', timestamp, true),
-    ] : []),
-    pruneStatement(db, positions, true),
-    db.prepare(
-      `UPDATE internal_watchlist_seed SET finalized_at = ?
-       WHERE id = 'primary' AND status = 'ready' AND finalized_at IS NULL
-         AND (SELECT count(*) FROM internal_watchlist_items) <= ${MAX_WATCHLIST_SYMBOLS}`,
-    ).bind(timestamp),
-  ]
-  const results = await db.batch(statements)
-  const finalized = results.at(-1)?.meta.changes === 1
-  const state = await db.prepare(
-    `SELECT finalized_at FROM internal_watchlist_seed WHERE id = 'primary' AND status = 'ready'`,
-  ).first<{ finalized_at: string | null }>()
-  if (!state?.finalized_at) throw new CallerVisibleError('InternalWatchlist:finalization-failed')
-  await publishInternalWatchlistUniverse(env, now)
-  return {
-    finalized,
-    kept: await readInternalWatchlistFocus(env, positions, MAX_WATCHLIST_SYMBOLS),
-  }
-}
-
 /** Add or prioritize symbols while retaining immutable seed provenance and creation time. */
 export async function ensureInternalWatchlistSymbols(
   env: AppEnv,
   symbols: readonly string[],
-  origin: Exclude<InternalWatchlistOrigin, 'tastytrade-seed'>,
+  origin: InternalWatchlistMutationOrigin,
   now = new Date(),
 ): Promise<string[]> {
   const db = requiredDatabase(env)
@@ -628,7 +248,7 @@ export async function ensureInternalWatchlistSymbols(
   // automatic eviction targets are rows of a `PRUNABLE_ORIGINS` origin.
   await db.batch([
     upsertSymbolsStatement(db, normalized, parsedOrigin, timestamp),
-    pruneStatement(db, []),
+    pruneStatement(db),
   ])
   const kept = await focusFromStore(db, [], MAX_WATCHLIST_SYMBOLS)
   await publishInternalWatchlistUniverse(env, now)

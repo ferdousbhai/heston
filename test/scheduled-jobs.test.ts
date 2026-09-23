@@ -2,11 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
 import { type AppEnv } from '../src/server/env'
-import { ensureInternalWatchlistSeeded, finalizeInternalWatchlist } from '../src/server/internal-watchlist'
 import { MAX_DAILY_CANDLE_SYMBOLS } from '../src/server/market-feed-contracts'
 import { refreshYearCandles, yearCandleRefreshEvent } from '../src/server/scheduled-jobs'
 import { readYearAgoCloses, readYearCandleSeries, replaceYearCandles } from '../src/server/year-candle-store'
-import { migrationStore, type SqliteD1Store } from './sqlite-d1'
+import { migrationStore, seededItems, seedFinalizedWatchlist, type SqliteD1Store } from './sqlite-d1'
 import { symbolAt } from './symbols'
 
 let store: SqliteD1Store
@@ -18,16 +17,8 @@ beforeEach(async () => {
 afterEach(() => store.close())
 
 /** Fill the watchlist to its own bound, which is five times what one feed read may subscribe. */
-async function seededWatchlist(database: D1Database): Promise<void> {
-  const symbols = Array.from({ length: MAX_WATCHLIST_SYMBOLS }, (_, index) => symbolAt(index))
-  await ensureInternalWatchlistSeeded({ DB: database }, async () => ({
-    privatePayload: [{
-      name: 'Legacy private list',
-      'watchlist-entries': symbols.map((symbol) => ({ symbol, 'instrument-type': 'Equity' })),
-    }],
-    publicPayload: [],
-  }))
-  await finalizeInternalWatchlist({ DB: database }, [])
+function seededWatchlist(): void {
+  seedFinalizedWatchlist(store, seededItems(Array.from({ length: MAX_WATCHLIST_SYMBOLS }, (_, index) => symbolAt(index))))
 }
 
 describe('year candle refresh', () => {
@@ -41,7 +32,7 @@ describe('year candle refresh', () => {
       series: symbols.map((symbol) => ({ symbol, closes: [{ time: 1_786_000_000_000, sequence: 0, close: 100 }] })),
       source: 'tastytrade-dxlink' as const,
     }))
-    await seededWatchlist(store.database)
+    seededWatchlist()
     const env: AppEnv = {
       DB: store.database,
       MARKET_FEED: {
@@ -61,7 +52,7 @@ describe('year candle refresh', () => {
   })
 
   it('retires the year row of a symbol that fell out of the refreshed focus', async () => {
-    await seededWatchlist(store.database)
+    seededWatchlist()
     const outside = symbolAt(MAX_WATCHLIST_SYMBOLS - 1)
     await replaceYearCandles(store.database, '2026-09-04', [outside], new Map([[outside, [{ time: 1, sequence: 0, close: 50 }]]]))
     const readDailyCandles = vi.fn(async (symbols: readonly string[]) => ({

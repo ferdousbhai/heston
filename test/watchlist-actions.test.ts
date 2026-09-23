@@ -3,23 +3,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { executeWatchlistAction } from '../src/server/watchlist-actions'
 import { readInternalWatchlist } from '../src/server/internal-watchlist'
 import { WatchlistActionSchema } from '../src/server/agent-contracts'
-import { migrationStore, type SqliteD1Store } from './sqlite-d1'
+import { migrationStore, seededItems, seedFinalizedWatchlist, type SqliteD1Store } from './sqlite-d1'
 
 let store: SqliteD1Store
 
 beforeEach(async () => {
   store = await migrationStore()
-  store.sqlite.exec(`
-    INSERT INTO internal_watchlist_seed
-      (id, status, attempt_id, started_at, seeded_at, finalized_at)
-    VALUES (
-      'primary', 'ready', 'seed-1', '2026-08-26T10:00:00.000Z',
-      '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z'
-    );
-    INSERT INTO internal_watchlist_items
-      (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
-    VALUES ('SPY', 'Equity', 'tastytrade-seed', '{}', '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z');
-  `)
+  seedFinalizedWatchlist(store, seededItems(['SPY']), [{ kind: 'private', name: 'Long vol', entries: [{ symbol: 'SPY' }] }])
 })
 
 afterEach(() => store.close())
@@ -68,14 +58,6 @@ describe('internal watchlist mutation boundary', () => {
   })
 
   it('removes live membership without deleting immutable tastytrade seed provenance', async () => {
-    store.sqlite.exec(`
-      INSERT INTO internal_watchlist_seed_sources
-        (id, source_kind, source_index, name, metadata_json)
-      VALUES ('tastytrade-private-0', 'private', 0, 'Long vol', '{"name":"Long vol","order-index":2}');
-      INSERT INTO internal_watchlist_seed_entries
-        (source_id, entry_index, broker_symbol, instrument_type, metadata_json)
-      VALUES ('tastytrade-private-0', 0, 'SPY', 'Equity', '{"symbol":"SPY","instrument-type":"Equity"}');
-    `)
     const env = { DB: store.database }
 
     await expect(executeWatchlistAction(env, {

@@ -1,11 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { loadBrokerageContext } from '../src/server/brokerage-context'
-import { ensureInternalWatchlistSeeded, finalizeInternalWatchlist } from '../src/server/internal-watchlist'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { createWatchlistReadTool } from '../src/server/watchlist-tool'
 import { brokerCredential, stubBroker, tastytradeBalances } from './broker-stub'
-import { migrationStore, type SqliteD1Store } from './sqlite-d1'
+import { migrationStore, seededItems, seedFinalizedWatchlist, type SqliteD1Store } from './sqlite-d1'
 
 const tastytrade = stubBroker()
 let store: SqliteD1Store
@@ -19,21 +18,22 @@ beforeEach(async () => {
       : { data: { items: [] } },
   ))
   store = await migrationStore()
-  const env = { DB: store.database }
-  await ensureInternalWatchlistSeeded(env, async () => ({
-    privatePayload: { data: { items: [{
-      name: 'Long vol', 'group-name': 'recommendations',
-      'watchlist-entries': [
-        { symbol: 'SPY', 'instrument-type': 'Equity', note: 'hedge' },
-        { symbol: 'NVDA', 'instrument-type': 'Equity' },
+  seedFinalizedWatchlist(store, seededItems(['NVDA', 'SPY']), [
+    {
+      kind: 'private',
+      name: 'Long vol',
+      metadata: { name: 'Long vol', 'group-name': 'recommendations' },
+      entries: [
+        { symbol: 'SPY', metadata: { symbol: 'SPY', 'instrument-type': 'Equity', note: 'hedge' } },
+        { symbol: 'NVDA' },
       ],
-    }] } },
-    publicPayload: { data: { items: [{
+    },
+    {
+      kind: 'public',
       name: 'Public research',
-      'watchlist-entries': [{ symbol: 'NVDA', 'instrument-type': 'Equity', rank: 2 }],
-    }] } },
-  }))
-  await finalizeInternalWatchlist(env, [])
+      entries: [{ symbol: 'NVDA', metadata: { symbol: 'NVDA', 'instrument-type': 'Equity', rank: 2 } }],
+    },
+  ])
   tastytrade.tastyRequest.mockClear()
 })
 

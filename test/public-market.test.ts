@@ -1,9 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { stubBrokerGate } from './broker-stub'
 import { d1Result, unsupportedDatabase, unsupportedStatement } from './fake-d1'
-import { migrationStore } from './sqlite-d1'
+import { migrationStore, seededItems, seedFinalizedWatchlist } from './sqlite-d1'
 import { symbolAt } from './symbols'
-import { ensureInternalWatchlistSeeded, finalizeInternalWatchlist } from '../src/server/internal-watchlist'
 import { MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
 import { catalystUpsertStatements } from '../src/server/catalysts'
 import {
@@ -154,17 +153,7 @@ describe('public market boundary', () => {
 
   it('serves the internal list alone and never syncs a held symbol into it', async () => {
     const store = await migrationStore()
-    store.sqlite.exec(`
-      INSERT INTO internal_watchlist_seed
-        (id, status, attempt_id, started_at, seeded_at, finalized_at)
-      VALUES (
-        'primary', 'ready', 'seed-1', '2026-08-26T10:00:00.000Z',
-        '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z'
-      );
-      INSERT INTO internal_watchlist_items
-        (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
-      VALUES ('NVDA', 'Equity', 'tastytrade-seed', '{}', '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z');
-    `)
+    seedFinalizedWatchlist(store, seededItems(['NVDA']))
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
       if (url.endsWith('/oauth/token')) return Response.json({ access_token: 'owner-read-token', expires_in: 900 })
@@ -236,15 +225,7 @@ describe('public market boundary', () => {
   it('keeps a restored seed universe whole and pages the market read into broker-sized requests', async () => {
     const store = await migrationStore()
     const symbols = Array.from({ length: 105 }, (_, index) => symbolAt(index))
-    const env = { DB: store.database }
-    await ensureInternalWatchlistSeeded(env, async () => ({
-      privatePayload: [{
-        name: 'Legacy private list',
-        'watchlist-entries': symbols.map((symbol) => ({ symbol, 'instrument-type': 'Equity' })),
-      }],
-      publicPayload: [],
-    }))
-    await finalizeInternalWatchlist(env, [])
+    seedFinalizedWatchlist(store, seededItems(symbols))
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input))
       if (url.pathname.endsWith('/oauth/token')) return Response.json({ access_token: 'owner-read-token', expires_in: 900 })
@@ -387,17 +368,7 @@ describe('public market boundary', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-08-26T13:32:00.000Z'))
     const store = await migrationStore()
-    store.sqlite.exec(`
-      INSERT INTO internal_watchlist_seed
-        (id, status, attempt_id, started_at, seeded_at, finalized_at)
-      VALUES (
-        'primary', 'ready', 'seed-1', '2026-08-26T10:00:00.000Z',
-        '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z'
-      );
-      INSERT INTO internal_watchlist_items
-        (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
-      VALUES ('NVDA', 'Equity', 'owner', '{}', '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z');
-    `)
+    seedFinalizedWatchlist(store, [{ symbol: 'NVDA', origin: 'owner' }])
     const researched = (symbol: string) => ({
       confidence: 'estimated' as const,
       date: '2026-09-15',
@@ -470,19 +441,7 @@ describe('public market boundary', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-08-26T13:32:00.000Z'))
     const store = await migrationStore()
-    store.sqlite.exec(`
-      INSERT INTO internal_watchlist_seed
-        (id, status, attempt_id, started_at, seeded_at, finalized_at)
-      VALUES (
-        'primary', 'ready', 'seed-1', '2026-08-26T10:00:00.000Z',
-        '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z'
-      );
-      INSERT INTO internal_watchlist_items
-        (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
-      VALUES
-        ('AMD', 'Equity', 'owner', '{}', '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z'),
-        ('NVDA', 'Equity', 'owner', '{}', '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z');
-    `)
+    seedFinalizedWatchlist(store, [{ symbol: 'AMD', origin: 'owner' }, { symbol: 'NVDA', origin: 'owner' }])
     const earnings = (symbol: string) => ({
       confidence: 'estimated' as const,
       date: '2026-09-15',

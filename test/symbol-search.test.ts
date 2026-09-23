@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { migrationStore, type SqliteD1Store } from './sqlite-d1'
+import { migrationStore, seededItems, seedFinalizedWatchlist, type SqliteD1Store } from './sqlite-d1'
 import {
   instrumentCatalogFromPayload,
   persistInstrumentCatalog,
@@ -8,11 +8,7 @@ import {
 } from '../src/server/instrument-catalog'
 import { stubBrokerGate } from './broker-stub'
 import { searchInstrumentCatalog, searchableQuery, symbolCandidate } from '../src/server/symbol-search'
-import {
-  ensureInternalWatchlistSeeded,
-  finalizeInternalWatchlist,
-  readInternalWatchlist,
-} from '../src/server/internal-watchlist'
+import { readInternalWatchlist } from '../src/server/internal-watchlist'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -91,15 +87,7 @@ describe('instrument catalog fallback search', () => {
 describe('public symbol lookup', () => {
   async function seededStore(): Promise<SqliteD1Store> {
     const store = await migrationStore()
-    const env = { DB: store.database }
-    await ensureInternalWatchlistSeeded(env, async () => ({
-      privatePayload: [{
-        name: 'Legacy private list',
-        'watchlist-entries': [{ symbol: 'NVDA', 'instrument-type': 'Equity' }],
-      }],
-      publicPayload: [],
-    }))
-    await finalizeInternalWatchlist(env, [])
+    seedFinalizedWatchlist(store, seededItems(['NVDA']))
     return store
   }
 

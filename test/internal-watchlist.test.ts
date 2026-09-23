@@ -1,11 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import {
-  ensureInternalWatchlistSeeded,
   ensureInternalWatchlistSymbols,
-  finalizeInternalWatchlist,
-  internalWatchlistSeedFromPayloads,
   readInternalWatchlist,
   readInternalWatchlistCatalogCandidates,
   readInternalWatchlistFocus,
@@ -18,7 +15,13 @@ import {
   persistInstrumentCatalog,
 } from '../src/server/instrument-catalog'
 import { publishInternalWatchlistUniverse } from '../src/server/public-market-universe'
-import { migrationStore, type SqliteD1Store } from './sqlite-d1'
+import {
+  migrationStore,
+  seededItems,
+  seedFinalizedWatchlist,
+  type SeededWatchlistSource,
+  type SqliteD1Store,
+} from './sqlite-d1'
 import { symbolAt } from './symbols'
 
 let store: SqliteD1Store
@@ -27,169 +30,78 @@ beforeEach(async () => {
   store = await migrationStore()
 })
 
-/** The seed's state as D1 holds it, read directly rather than through a test-only reader. */
-function seedRows() {
-  // SAFETY: the SELECT names exactly these columns, and the seed row's migration makes status
-  // NOT NULL; an absent row is the `undefined` arm.
-  const seed = store.sqlite.prepare(
-    `SELECT status, seeded_at AS seededAt, finalized_at AS finalizedAt
-       FROM internal_watchlist_seed WHERE id = 'primary'`,
-  ).get() as { finalizedAt: string | null; seededAt: string | null; status: string } | undefined
-  // SAFETY: every caller passes a `SELECT count(*) AS count`, which always returns one row.
-  const count = (sql: string) => (store.sqlite.prepare(sql).get() as { count: number }).count
-  return {
-    entryCount: count('SELECT count(*) AS count FROM internal_watchlist_seed_entries'),
-    finalizedAt: seed?.finalizedAt ?? null,
-    itemCount: count('SELECT count(*) AS count FROM internal_watchlist_items'),
-    privateSourceCount: count("SELECT count(*) AS count FROM internal_watchlist_seed_sources WHERE source_kind = 'private'"),
-    publicSourceCount: count("SELECT count(*) AS count FROM internal_watchlist_seed_sources WHERE source_kind = 'public'"),
-    seededAt: seed?.seededAt ?? null,
-    status: seed?.status ?? 'missing',
-  }
-}
-
 afterEach(() => store.close())
 
-function payloads() {
-  return {
-    privatePayload: {
-      data: { items: [{
-        name: 'Long vol',
-        'group-name': 'recommendations',
-        'order-index': 7,
-        custom: { color: 'orange' },
-        'watchlist-entries': [
-          { symbol: 'NVDA', 'instrument-type': 'Equity', note: 'core' },
-          { symbol: 'NVDA  260918C00225000', 'instrument-type': 'Equity Option', quantity: 2 },
-        ],
-      }] },
-      pagination: { 'total-items': 1 },
-    },
-    publicPayload: {
-      data: { items: [{
-        name: 'Public movers',
-        'order-index': 1,
-        'watchlist-entries': [
-          { symbol: 'NVDA', 'instrument-type': 'Equity', rank: 3 },
-          { symbol: 'PLTR', 'instrument-type': 'Equity', rank: 8 },
-        ],
-      }] },
-      pagination: { 'total-items': 1 },
-    },
-  }
+/** The retained broker lists the provenance reads and the ranking join against. */
+const LISTS: SeededWatchlistSource[] = [
+  {
+    kind: 'private',
+    name: 'Long vol',
+    metadata: { name: 'Long vol', 'group-name': 'recommendations', 'order-index': 7, custom: { color: 'orange' } },
+    entries: [
+      { symbol: 'NVDA', metadata: { symbol: 'NVDA', 'instrument-type': 'Equity', note: 'core' } },
+      { symbol: 'NVDA  260918C00225000', instrumentType: 'Equity Option' },
+    ],
+  },
+  {
+    kind: 'public',
+    name: 'Public movers',
+    entries: [
+      { symbol: 'NVDA', metadata: { symbol: 'NVDA', 'instrument-type': 'Equity', rank: 3 } },
+      { symbol: 'PLTR', metadata: { symbol: 'PLTR', 'instrument-type': 'Equity', rank: 8 } },
+    ],
+  },
+]
+
+/** The finalized list those lists produced: each equity, carrying the ids of its lists. */
+function seedLists(): void {
+  seedFinalizedWatchlist(store, [
+    { symbol: 'NVDA', metadata: { seedSourceIds: ['tastytrade-private-0', 'tastytrade-public-0'] } },
+    { symbol: 'PLTR', metadata: { seedSourceIds: ['tastytrade-public-0'] } },
+  ], LISTS)
 }
 
-describe('one-time tastytrade watchlist seed', () => {
-  it('preserves every list and entry field while consolidating only valid equities', () => {
-    const seed = internalWatchlistSeedFromPayloads(payloads())
-
-    expect(seed.items.map((item) => item.symbol)).toEqual(['NVDA', 'PLTR'])
-    expect(seed.sources).toHaveLength(2)
-    expect(JSON.parse(seed.sources[0]!.metadataJson)).toMatchObject({
-      name: 'Long vol', 'group-name': 'recommendations', 'order-index': 7, custom: { color: 'orange' },
-    })
-    expect(JSON.parse(seed.sources[0]!.entries[1]!.metadataJson)).toEqual({
-      symbol: 'NVDA  260918C00225000', 'instrument-type': 'Equity Option', quantity: 2,
-    })
-  })
-
-  it('commits once, retains provenance, and never invokes the loader after ready', async () => {
-    const loader = vi.fn(async () => payloads())
+describe('the finalized-seed gate', () => {
+  it('refuses every live read and write until the seed is ready and finalized', async () => {
     const env = { DB: store.database }
+    await expect(readInternalWatchlist(env)).rejects.toThrow('not-seeded')
+    await expect(ensureInternalWatchlistSymbols(env, ['NVDA'], 'owner')).rejects.toThrow('not-seeded')
+    await expect(readInternalWatchlistCatalogCandidates(env)).rejects.toThrow('not-seeded')
 
-    await ensureInternalWatchlistSeeded(env, loader, new Date('2026-08-26T10:00:00.000Z'))
-    await ensureInternalWatchlistSeeded(env, loader, new Date('2026-08-26T11:00:00.000Z'))
-
-    expect(loader).toHaveBeenCalledTimes(1)
-    expect(seedRows()).toEqual({
-      entryCount: 4,
-      finalizedAt: null,
-      itemCount: 0,
-      privateSourceCount: 1,
-      publicSourceCount: 1,
-      seededAt: '2026-08-26T10:00:00.000Z',
-      status: 'ready',
-    })
+    seedLists()
+    store.sqlite.exec(`UPDATE internal_watchlist_seed SET finalized_at = NULL`)
     await expect(readInternalWatchlist(env)).rejects.toThrow('not-finalized')
-    await finalizeInternalWatchlist(env, [], new Date('2026-08-26T10:01:00.000Z'))
+    await expect(readInternalWatchlistFocus(env, [])).rejects.toThrow('not-finalized')
+    await expect(removeInternalWatchlistSymbols(env, ['NVDA'])).rejects.toThrow('not-finalized')
+    // The catalog candidates read the retained seed itself, which is complete once it is ready.
+    await expect(readInternalWatchlistCatalogCandidates(env)).resolves.toEqual(['NVDA', 'PLTR'])
+  })
+})
+
+describe('the maintained watchlist', () => {
+  it('reads each symbol with every retained list and entry field it came from', async () => {
+    const env = { DB: store.database }
+    seedLists()
+
     expect((await readInternalWatchlist(env)).map((item) => item.symbol)).toEqual(['NVDA', 'PLTR'])
     await expect(readInternalWatchlistSymbolDetails(env, 'NVDA')).resolves.toMatchObject({
       symbol: 'NVDA',
+      metadata: { seedSourceIds: ['tastytrade-private-0', 'tastytrade-public-0'] },
       seedMemberships: [
-        { sourceKind: 'private', sourceName: 'Long vol', entryMetadata: { note: 'core' } },
+        {
+          sourceKind: 'private',
+          sourceName: 'Long vol',
+          sourceMetadata: { 'group-name': 'recommendations', 'order-index': 7, custom: { color: 'orange' } },
+          entryMetadata: { note: 'core' },
+        },
         { sourceKind: 'public', sourceName: 'Public movers', entryMetadata: { rank: 3 } },
       ],
     })
   })
 
-  it('never marks an incomplete collection ready and permits a complete retry', async () => {
-    const invalid = payloads()
-    invalid.privatePayload.pagination['total-items'] = 2
-    const env = { DB: store.database }
-
-    await expect(ensureInternalWatchlistSeeded(env, async () => invalid))
-      .rejects.toThrow('incomplete-response')
-    expect(seedRows()).toMatchObject({ status: 'failed', itemCount: 0 })
-
-    await ensureInternalWatchlistSeeded(env, async () => payloads())
-    expect(seedRows()).toMatchObject({ status: 'ready', itemCount: 0 })
-    await finalizeInternalWatchlist(env, [])
-    expect(seedRows()).toMatchObject({ status: 'ready', itemCount: 2 })
-  })
-
-  it('imports more than 1,000 provenance entries within one D1 invocation budget', async () => {
-    const env = { DB: store.database }
-    const entries = Array.from({ length: 2_000 }, (_, index) => ({
-      symbol: index % 2 ? 'NVDA' : 'PLTR',
-      'instrument-type': 'Equity',
-      rank: index,
-    }))
-
-    await ensureInternalWatchlistSeeded(env, async () => ({
-      privatePayload: [],
-      publicPayload: [{ name: 'Large source', 'watchlist-entries': entries }],
-    }))
-
-    expect(store.sqlite.prepare('SELECT count(*) AS count FROM internal_watchlist_seed_entries').get())
-      .toEqual({ count: 2_000 })
-    expect(store.queryCount()).toBeLessThan(1_000)
-  })
-
-  it('does not let an expired importer overwrite a newer completed seed', async () => {
-    const env = { DB: store.database }
-    let releaseExpired: (() => void) | undefined
-    const expired = ensureInternalWatchlistSeeded(env, () => new Promise((resolve) => {
-      releaseExpired = () => resolve(payloads())
-    }), new Date('2026-08-26T10:00:00.000Z'))
-    await vi.waitFor(() => expect(releaseExpired).toBeTypeOf('function'))
-
-    const current = payloads()
-    current.privatePayload.data.items[0]!.name = 'Current private list'
-    current.privatePayload.data.items[0]!['watchlist-entries'] = [
-      { symbol: 'AAPL', 'instrument-type': 'Equity', note: 'current' },
-    ]
-    current.publicPayload.data.items[0]!.name = 'Current public list'
-    current.publicPayload.data.items[0]!['watchlist-entries'] = [
-      { symbol: 'MSFT', 'instrument-type': 'Equity', rank: 1 },
-    ]
-    await ensureInternalWatchlistSeeded(env, async () => current, new Date('2026-08-26T10:10:00.001Z'))
-
-    const expiredFailure = expect(expired).rejects.toThrow('seed-claim-lost')
-    releaseExpired?.()
-    await expiredFailure
-    await finalizeInternalWatchlist(env, [], new Date('2026-08-26T10:11:00.000Z'))
-    expect((await readInternalWatchlist(env)).map((item) => item.symbol)).toEqual(['AAPL', 'MSFT'])
-    expect(seedRows()).toMatchObject({
-      itemCount: 2,
-      seededAt: '2026-08-26T10:10:00.001Z',
-      status: 'ready',
-    })
-  })
-
   it('selects a bounded metrics focus without returning its private priority metadata', async () => {
     const env = { DB: store.database }
-    await ensureInternalWatchlistSeeded(env, async () => payloads(), new Date('2026-08-26T10:00:00.000Z'))
-    await finalizeInternalWatchlist(env, [], new Date('2026-08-26T10:01:00.000Z'))
+    seedLists()
     await ensureInternalWatchlistSymbols(env, ['ZZZ'], 'owner', new Date('2026-08-26T11:00:00.000Z'))
 
     const focus = await readInternalWatchlistFocus(env, ['PLTR'], 3)
@@ -201,18 +113,15 @@ describe('one-time tastytrade watchlist seed', () => {
 
   it('uses retained high-options-volume order only after personal symbols', async () => {
     const env = { DB: store.database }
-    await ensureInternalWatchlistSeeded(env, async () => ({
-      privatePayload: [{ name: 'Long vol', 'watchlist-entries': [{ symbol: 'NVDA', 'instrument-type': 'Equity' }] }],
-      publicPayload: [{
-        name: 'High Options Volume',
-        'watchlist-entries': ['TSLA', 'AAPL', 'PLTR'].map((symbol) => ({ symbol, 'instrument-type': 'Equity' })),
-      }],
-    }), new Date('2026-08-26T10:00:00.000Z'))
+    const volume = ['TSLA', 'AAPL', 'PLTR']
+    seedFinalizedWatchlist(store, seededItems(['AAPL', 'NVDA', 'PLTR', 'TSLA']), [
+      { kind: 'private', name: 'Long vol', entries: [{ symbol: 'NVDA' }] },
+      { kind: 'public', name: 'High Options Volume', entries: volume.map((symbol) => ({ symbol })) },
+    ])
     await persistInstrumentCatalog(env, instrumentCatalogFromPayload(
-      ['TSLA', 'AAPL', 'PLTR'].map((symbol) => ({ active: true, 'instrument-type': 'Equity', symbol })),
-      ['TSLA', 'AAPL', 'PLTR'],
+      volume.map((symbol) => ({ active: true, 'instrument-type': 'Equity', symbol })),
+      volume,
     ))
-    await finalizeInternalWatchlist(env, [], new Date('2026-08-26T10:01:00.000Z'))
     await ensureInternalWatchlistSymbols(env, ['MSFT'], 'owner', new Date('2026-08-25T10:00:00.000Z'))
     await ensureInternalWatchlistSymbols(env, ['GOOG'], 'scheduled-research', new Date('2026-08-25T10:00:00.000Z'))
 
@@ -226,22 +135,10 @@ describe('one-time tastytrade watchlist seed', () => {
     const env = { DB: store.database }
     const volume = Array.from({ length: MAX_WATCHLIST_SYMBOLS + 1 }, (_, index) => symbolAt(index))
     const deepVolume = volume.at(-1)!
-    store.sqlite.exec(`
-      INSERT INTO internal_watchlist_seed (id, status, attempt_id, started_at, seeded_at, finalized_at)
-      VALUES ('primary', 'ready', 'seed-1', '2026-08-26T10:00:00.000Z',
-        '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z');
-      INSERT INTO internal_watchlist_seed_sources (id, source_kind, source_index, name, metadata_json)
-      VALUES ('tastytrade-public-0', 'public', 0, 'High Options Volume', '{}');
-      INSERT INTO internal_watchlist_items (symbol, instrument_type, origin, metadata_json, created_at, updated_at)
-      VALUES
-        ('${deepVolume}', 'Equity', 'tastytrade-seed', '{}', '2026-08-26T10:00:00.000Z', '2026-08-26T10:00:00.000Z'),
-        ('ZZZZ', 'Equity', 'tastytrade-seed', '{}', '2026-08-26T10:00:00.000Z', '2026-08-27T10:00:00.000Z');
-    `)
-    const entry = store.sqlite.prepare(
-      `INSERT INTO internal_watchlist_seed_entries (source_id, entry_index, broker_symbol, instrument_type, metadata_json)
-       VALUES ('tastytrade-public-0', ?, ?, 'Equity', '{}')`,
-    )
-    volume.forEach((symbol, index) => entry.run(index, symbol))
+    seedFinalizedWatchlist(store, [
+      { symbol: deepVolume },
+      { symbol: 'ZZZZ', updatedAt: '2026-08-27T10:00:00.000Z' },
+    ], [{ kind: 'public', name: 'High Options Volume', entries: volume.map((symbol) => ({ symbol })) }])
     await persistInstrumentCatalog(env, instrumentCatalogFromPayload(
       volume.map((symbol) => ({ active: true, 'instrument-type': 'Equity', symbol })),
       volume,
@@ -254,47 +151,46 @@ describe('one-time tastytrade watchlist seed', () => {
   })
 
   it('prunes only the maintained list and does not repopulate an explicit deletion', async () => {
-    const symbols = Array.from({ length: MAX_WATCHLIST_SYMBOLS + 5 }, (_, index) => symbolAt(index))
+    const symbols = Array.from({ length: MAX_WATCHLIST_SYMBOLS }, (_, index) => symbolAt(index))
+    const owned = ['ZZZA', 'ZZZB', 'ZZZC']
     const env = { DB: store.database }
-    await ensureInternalWatchlistSeeded(env, async () => ({
-      privatePayload: [{
-        name: 'Legacy private list',
-        'watchlist-entries': symbols.map((symbol) => ({ symbol, 'instrument-type': 'Equity' })),
-      }],
-      publicPayload: [],
-    }))
+    // The newest seed members rank first among equals, so the oldest are the ones a prune drops.
+    seedFinalizedWatchlist(store, symbols.map((symbol, index) => ({
+      symbol, updatedAt: new Date(Date.UTC(2026, 7, 26, 0, 0, symbols.length - index)).toISOString(),
+    })), [{ kind: 'private', name: 'Legacy private list', entries: symbols.map((symbol) => ({ symbol })) }])
 
-    await expect(finalizeInternalWatchlist(env, [])).resolves.toMatchObject({ finalized: true })
-    expect(await readInternalWatchlist(env)).toHaveLength(MAX_WATCHLIST_SYMBOLS)
+    await expect(ensureInternalWatchlistSymbols(env, owned, 'owner')).resolves.toEqual(owned)
+    const items = await readInternalWatchlist(env)
+    expect(items).toHaveLength(MAX_WATCHLIST_SYMBOLS)
+    expect(items.map((item) => item.symbol)).toEqual(expect.not.arrayContaining(symbols.slice(-owned.length)))
+    // The prune drops live membership only; the retained seed stays whole.
     expect(store.sqlite.prepare('SELECT count(*) AS count FROM internal_watchlist_seed_entries').get())
-      .toEqual({ count: MAX_WATCHLIST_SYMBOLS + 5 })
+      .toEqual({ count: MAX_WATCHLIST_SYMBOLS })
+    await expect(readInternalWatchlistCatalogCandidates(env)).resolves.toHaveLength(MAX_WATCHLIST_SYMBOLS)
 
     await removeInternalWatchlistSymbols(env, [symbols[0]!])
+    await ensureInternalWatchlistSymbols(env, ['ZZZD'], 'owner')
     await expect(readInternalWatchlistFocus(env, [], MAX_WATCHLIST_SYMBOLS))
       .resolves.toEqual(expect.not.arrayContaining([symbols[0]!]))
-    expect(await readInternalWatchlist(env)).toHaveLength(MAX_WATCHLIST_SYMBOLS - 1)
+    expect(await readInternalWatchlist(env)).toHaveLength(MAX_WATCHLIST_SYMBOLS)
   })
 
-  it('retains stable catalog candidates without resurrecting an explicit deletion on rerun', async () => {
+  it('keeps the retained seed as catalog candidates after an explicit deletion', async () => {
     const env = { DB: store.database }
-    await ensureInternalWatchlistSeeded(env, async () => payloads())
-    await expect(readInternalWatchlistCatalogCandidates(env)).resolves.toEqual(['NVDA', 'PLTR'])
-    await finalizeInternalWatchlist(env, [], new Date('2026-08-26T12:00:00.000Z'))
+    seedLists()
     await expect(readInternalWatchlistSymbolDetails(env, 'PLTR')).resolves.toMatchObject({
       origin: 'tastytrade-seed',
       metadata: { seedSourceIds: ['tastytrade-public-0'] },
       seedMemberships: [{ sourceKind: 'public', sourceName: 'Public movers' }],
     })
     await removeInternalWatchlistSymbols(env, ['PLTR'])
-    await expect(finalizeInternalWatchlist(env, [], new Date('2026-08-26T13:00:00.000Z')))
-      .resolves.toMatchObject({ finalized: false })
     expect((await readInternalWatchlist(env)).some((item) => item.symbol === 'PLTR')).toBe(false)
+    await expect(readInternalWatchlistCatalogCandidates(env)).resolves.toEqual(['NVDA', 'PLTR'])
   })
 
   it('promotes an existing public-seed member without losing retained seed provenance', async () => {
     const env = { DB: store.database }
-    await ensureInternalWatchlistSeeded(env, async () => payloads(), new Date('2026-08-26T10:00:00.000Z'))
-    await finalizeInternalWatchlist(env, [], new Date('2026-08-26T10:01:00.000Z'))
+    seedLists()
 
     await ensureInternalWatchlistSymbols(env, ['PLTR'], 'owner', new Date('2026-08-26T11:00:00.000Z'))
 
@@ -313,12 +209,11 @@ describe('one-time tastytrade watchlist seed', () => {
 
   it('applies the canonical origin order without allowing a downgrade', async () => {
     const env = { DB: store.database }
-    await ensureInternalWatchlistSeeded(env, async () => payloads())
-    await finalizeInternalWatchlist(env, [])
+    seedLists()
     const origins = [
+      'visitor-search',
       'scheduled-research',
       'agent-discussion',
-      'position-sync',
       'trade-intent',
       'owner',
     ] as const
@@ -339,10 +234,22 @@ describe('one-time tastytrade watchlist seed', () => {
     }
   })
 
+  it('reads a stored position-sync row but refuses to write that origin', async () => {
+    // Only the removed finalization wrote `position-sync`; rows it wrote stay readable and
+    // outrank research, and no live caller may mint a new one.
+    const env = { DB: store.database }
+    seedFinalizedWatchlist(store, [{ symbol: 'NVDA', origin: 'position-sync' }])
+    await ensureInternalWatchlistSymbols(env, ['NVDA'], 'scheduled-research')
+    await expect(readInternalWatchlistSymbolDetails(env, 'NVDA')).resolves.toMatchObject({ origin: 'position-sync' })
+    // SAFETY: the cast forges exactly the input the type forbids, to prove the runtime refuses it.
+    await expect(ensureInternalWatchlistSymbols(env, ['PLTR'], 'position-sync' as 'owner')).rejects.toThrow()
+    // SAFETY: as above, a forged seed origin the type forbids, to prove the runtime refuses it.
+    await expect(ensureInternalWatchlistSymbols(env, ['PLTR'], 'tastytrade-seed' as 'owner')).rejects.toThrow()
+  })
+
   it('never downgrades owner provenance or publishes an addition discarded by the cap', async () => {
     const env = { DB: store.database }
-    await ensureInternalWatchlistSeeded(env, async () => payloads())
-    await finalizeInternalWatchlist(env, [])
+    seedLists()
     const ownerSymbols = Array.from({ length: MAX_WATCHLIST_SYMBOLS }, (_, index) => symbolAt(index))
     await expect(ensureInternalWatchlistSymbols(env, [...ownerSymbols, 'ZZZ'], 'owner'))
       .rejects.toThrow('too-many-symbols')
@@ -373,16 +280,13 @@ describe('a list full of reader searches', () => {
     // Admission and the prune must agree on what is evictable: a search the prune would drop
     // cannot be allowed to hold a protected slot against an owner or trade-intent addition.
     const env = { DB: store.database }
-    await ensureInternalWatchlistSeeded(env, async () => payloads())
-    await finalizeInternalWatchlist(env, [])
-    // With the seed gone, searches alone fill the list to its bound.
-    await removeInternalWatchlistSymbols(env, ['NVDA', 'PLTR'])
+    // With no seed member on the list, searches alone fill it to its bound. They are written
+    // directly: one search per call would be `MAX_WATCHLIST_SYMBOLS` sequential batches, and the
+    // behavior under test is admission against a full list, not how it filled.
     const searched = Array.from({ length: MAX_WATCHLIST_SYMBOLS }, (_, index) => symbolAt(index))
-    for (const [index, symbol] of searched.entries()) {
-      await ensureInternalWatchlistSymbols(
-        env, [symbol], 'visitor-search', new Date(Date.UTC(2026, 7, 27, 0, 0, index)),
-      )
-    }
+    seedFinalizedWatchlist(store, searched.map((symbol, index) => ({
+      symbol, origin: 'visitor-search', updatedAt: new Date(Date.UTC(2026, 7, 27, 0, 0, index)).toISOString(),
+    })))
     const full = await readInternalWatchlist(env)
     expect(full).toHaveLength(MAX_WATCHLIST_SYMBOLS)
     expect(full.every((item) => item.origin === 'visitor-search')).toBe(true)
@@ -404,17 +308,7 @@ describe('a list full of reader searches', () => {
 describe('delisted names', () => {
   it('keeps a name the broker no longer trades off the public universe', async () => {
     const env = { DB: store.database }
-    await ensureInternalWatchlistSeeded(env, async () => ({
-      privatePayload: [{
-        name: 'Seed',
-        'watchlist-entries': [
-          { symbol: 'BE', 'instrument-type': 'Equity' },
-          { symbol: 'ATVI', 'instrument-type': 'Equity' },
-        ],
-      }],
-      publicPayload: [],
-    }))
-    await finalizeInternalWatchlist(env, [])
+    seedFinalizedWatchlist(store, seededItems(['ATVI', 'BE']))
     // ATVI was acquired: the catalog still carries the row, and must, because a citation or a
     // held position may still need to resolve it. It just may not be offered to a reader.
     await persistInstrumentCatalog(env, [
