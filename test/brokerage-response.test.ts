@@ -152,4 +152,18 @@ describe('broker order response boundary', () => {
       errors: [{ code: 'invalid-price', message: 'Off tick' }],
     } }, intended))).toMatchObject({ check: 'broker-rejected', untrustedBrokerData: { messages: ['Off tick'] } })
   })
+
+  it('reads a 2xx whose exact echo says Rejected as a refusal, not an accepted order', () => {
+    expect(brokerRefusal(() => validatePlacedOrderResponse({ data: {
+      order: { ...brokerOrder, status: 'Rejected' }, 'buying-power-effect': { effect: 'Debit' },
+    } }, intended))).toMatchObject({ check: 'broker-rejected' })
+    expect(validatePlacedOrderResponse({ data: {
+      order: { ...brokerOrder, status: 'Received' }, 'buying-power-effect': { effect: 'Debit' },
+    } }, intended)).toEqual({ id: '123', warnings: [] })
+
+    const replaced = { ...brokerOrder, id: '456', 'replaces-order-id': '123' }
+    expect(brokerRefusal(() => validateReplacementReceipt({ data: { ...replaced, status: 'Rejected' } }, '123', intended)))
+      .toMatchObject({ check: 'broker-rejected' })
+    expect(validateReplacementReceipt({ data: { ...replaced, status: 'Live' } }, '123', intended)).toEqual({ id: '456' })
+  })
 })

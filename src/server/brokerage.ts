@@ -60,6 +60,12 @@ function messagePacket(value: JsonValue, kind: string): string[] {
 }
 
 export function validateOrderResponse(payload: JsonValue, intended: OrderPayload): OrderResponseReceipt {
+  const { id, warnings } = readOrderResponse(payload, intended)
+  return { id, warnings }
+}
+
+/** The receipt plus whether the echoed order itself says the broker rejected it. */
+function readOrderResponse(payload: JsonValue, intended: OrderPayload): OrderResponseReceipt & { rejected: boolean } {
   const body = jsonObjectOrEmpty(payload)
   const data = jsonObjectOrEmpty(body.data ?? body)
   const errors = messagePacket(data.errors ?? body.errors, 'errors')
@@ -75,11 +81,12 @@ export function validateOrderResponse(payload: JsonValue, intended: OrderPayload
   // Only the presence of a buying-power effect is required: it is a different fact from the
   // order's price effect. A Buy to Close debit on a short frees margin, so its buying-power
   // effect is a Credit, and requiring the two to agree refused exactly the risk-reducing orders.
-  if (!echoesOrderPayload(tastytradeOrderRecord(order), intended)) {
+  const record = tastytradeOrderRecord(order)
+  if (!echoesOrderPayload(record, intended)) {
     throw new TastytradeOrderResponseError('echo-mismatch')
   }
   const id = order.id === undefined || order.id === null ? undefined : String(order.id)
-  return { id: id && BROKER_ORDER_ID.test(id) ? id : undefined, warnings }
+  return { id: id && BROKER_ORDER_ID.test(id) ? id : undefined, rejected: record.rejected, warnings }
 }
 
 export class BrokerageSubmissionUnknownError extends CallerVisibleError {
@@ -114,6 +121,7 @@ export function validateReplacementReceipt(
   replacedOrderId: string,
   intended: OrderPayload,
 ): ReplacementReceipt {
+  let receipt: ReplacementReceipt & { rejected: boolean }
   try {
     const body = jsonObjectOrEmpty(payload)
     const order = jsonObjectOrEmpty(body.data ?? body)
@@ -123,21 +131,28 @@ export function validateReplacementReceipt(
       && record.replacesOrderId === replacedOrderId
       && echoesOrderPayload(record, intended)
     if (!exact) throw new Error('TastytradeReplacementResponse:echo-mismatch')
-    return { id }
+    receipt = { id, rejected: record.rejected }
   } catch {
     throw new BrokerageSubmissionUnknownError()
   }
+  // A 2xx whose exact echo says Rejected is a verified refusal, exactly as reconciliation reads
+  // the same record in order history; reporting it replaced would be a false success.
+  if (receipt.rejected) throw new TastytradeOrderRejectedError([])
+  return { id: receipt.id }
 }
 
 /** Once placement returned 2xx, anything short of a verified rejection or exact receipt is ambiguous. */
 export function validatePlacedOrderResponse(payload: JsonValue, intended: OrderPayload): PlacedOrderReceipt {
-  let receipt: OrderResponseReceipt
+  let receipt: OrderResponseReceipt & { rejected: boolean }
   try {
-    receipt = validateOrderResponse(payload, intended)
+    receipt = readOrderResponse(payload, intended)
   } catch (error) {
     if (error instanceof TastytradeOrderRejectedError) throw error
     throw new BrokerageSubmissionUnknownError()
   }
+  // The echoed order is ours, and it says the broker rejected it: a verified refusal, settled
+  // failed by the caller, never an accepted order.
+  if (receipt.rejected) throw new TastytradeOrderRejectedError([])
   // A 2xx placement without a usable broker order id is ambiguous, never a success.
   if (!receipt.id) throw new BrokerageSubmissionUnknownError()
   return { id: receipt.id, warnings: receipt.warnings }

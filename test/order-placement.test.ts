@@ -200,6 +200,16 @@ describe('brokerage order placement', () => {
     expect(rows(db)).toMatchObject([{ error_code: 'TastytradeApiError', status: 'failed' }])
   })
 
+  it('settles a 2xx placement echoing a Rejected order as failed, not accepted', async () => {
+    const rejected = { data: { ...ACCEPTED_ORDER_RESPONSE.data, order: { ...ACCEPTED_ORDER_RESPONSE.data.order, status: 'Rejected' } } }
+    brokerSubmitting(async () => rejected)
+    const db = await freshStore()
+
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential))
+      .rejects.toThrow('Tastytrade rejected this order')
+    expect(rows(db)).toMatchObject([{ error_code: 'TastytradeOrderRejected', status: 'failed' }])
+  })
+
   it('refuses to submit when the write-ahead claim cannot be recorded', async () => {
     const brokerage = brokerSubmitting(async () => ACCEPTED_ORDER_RESPONSE)
     const db: D1Database = {
