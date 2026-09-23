@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { YearCandlesSchema } from '../domain/market'
+import { loadPublicJson } from './public-json'
 
 /**
  * The year series is fetched once per session and only where something draws it. It changes
@@ -13,13 +14,9 @@ let request: Promise<ReadonlyMap<string, readonly number[]>> | undefined
 
 const NO_SERIES: ReadonlyMap<string, readonly number[]> = new Map()
 
-export function loadYearCandles(): Promise<ReadonlyMap<string, readonly number[]>> {
-  request ??= fetch('/api/public-year-candles', { headers: { Accept: 'application/json' } })
-    .then(async (response) => {
-      if (!response.ok) throw new Error(`Year history failed (${response.status})`)
-      const parsed = YearCandlesSchema.parse(await response.json())
-      return new Map(parsed.series.map((entry) => [entry.symbol, entry.closes]))
-    })
+function loadYearCandles(): Promise<ReadonlyMap<string, readonly number[]>> {
+  request ??= loadPublicJson('/api/public-year-candles', YearCandlesSchema)
+    .then((parsed) => new Map(parsed.series.map((entry) => [entry.symbol, entry.closes])))
     .catch(() => {
       // A missing year chart is a column that stays empty, not a market a reader cannot read.
       // Clearing the promise lets a later view try again rather than caching the failure.

@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { CatalystSchema, type Catalyst } from '../domain/catalyst'
 import { EquitySymbolSchema } from '../domain/instrument'
+import { loadPublicJson } from './public-json'
 
 const PublicCatalystsResponseSchema = z.object({ catalysts: z.array(CatalystSchema) })
 
@@ -46,23 +47,23 @@ export function loadPublicCatalysts(symbol: string): Promise<readonly Catalyst[]
   if (cached) return Promise.resolve(cached)
   const pending = inflight.get(parsed.data)
   if (pending) return pending
-  const request = fetch(`/api/public-catalysts?symbol=${encodeURIComponent(parsed.data)}`, {
-    headers: { Accept: 'application/json' },
-  })
-    .then(async (response) => {
-      if (!response.ok) throw new Error(`Catalysts failed (${response.status})`)
-      // Parse before caching: a malformed response must remain retryable, not become
+  // Only the request still registered for the symbol may settle it. `forgetPublicCatalysts`
+  // unregisters one that started before a search moved the rows; that older request must not
+  // cache the pre-search rows, nor clear the newer request's registration when it finishes.
+  const current = () => inflight.get(parsed.data) === request
+  const request: Promise<readonly Catalyst[]> = loadPublicJson(
+    `/api/public-catalysts?symbol=${encodeURIComponent(parsed.data)}`,
+    PublicCatalystsResponseSchema,
+  )
+    .then(({ catalysts: body }) => {
+      // Parsed before caching: a malformed response must remain retryable, not become
       // a successful empty calendar for the rest of this browser session.
-      const { catalysts: body } = PublicCatalystsResponseSchema.parse(await response.json())
-      cache.set(parsed.data, body)
+      if (current()) cache.set(parsed.data, body)
       return body
     })
-    .catch(() => {
-      inflight.delete(parsed.data)
-      return NO_CATALYSTS
-    })
+    .catch(() => NO_CATALYSTS)
     .finally(() => {
-      inflight.delete(parsed.data)
+      if (current()) inflight.delete(parsed.data)
     })
   inflight.set(parsed.data, request)
   return request

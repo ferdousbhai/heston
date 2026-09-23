@@ -41,3 +41,30 @@ it('re-reads a symbol whose rows a search may have moved, rather than answering 
   await expect(loadPublicCatalysts('NVDA')).resolves.toEqual(catalysts)
   expect(fetchMock).toHaveBeenCalledTimes(2)
 })
+
+it('lets a request started before a search neither cache its rows nor clear the newer request', async () => {
+  const after = marketSnapshotFixture().catalysts.filter((row) => row.symbol === 'NVDA')
+  // The date a search since moved away from.
+  const before = after.map((row) => ({ ...row, date: '2026-08-19' }))
+  const pending: ((response: Response) => void)[] = []
+  const fetchMock = vi.fn(() => new Promise<Response>((resolve) => { pending.push(resolve) }))
+  vi.stubGlobal('fetch', fetchMock)
+  const { forgetPublicCatalysts, loadPublicCatalysts } = await import('../src/data/public-catalysts')
+
+  const superseded = loadPublicCatalysts('NVDA')
+  forgetPublicCatalysts('NVDA')
+  const current = loadPublicCatalysts('NVDA')
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+
+  // The pre-search answer lands first. Its caller still gets it, but the browser keeps nothing
+  // from it and the newer request stays the one every later reader joins.
+  pending[0]!(Response.json({ catalysts: before }))
+  await expect(superseded).resolves.toEqual(before)
+  expect(loadPublicCatalysts('NVDA')).toBe(current)
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+
+  pending[1]!(Response.json({ catalysts: after }))
+  await expect(current).resolves.toEqual(after)
+  await expect(loadPublicCatalysts('NVDA')).resolves.toEqual(after)
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+})
