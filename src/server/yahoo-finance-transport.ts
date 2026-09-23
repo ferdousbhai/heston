@@ -1,7 +1,8 @@
 import { readBoundedText } from './bounded-response'
 
-// Yahoo is best-effort secondary context, so a slow or unusually large body must not consume
-// the scheduled research invocation. These are network-boundary budgets, not data policy.
+// Yahoo is best-effort secondary context behind the `read_price_history` MCP tool, so a slow or
+// unusually large body must not hold that tool call open or buffer an unbounded body into the
+// isolate. These are network-boundary budgets, not data policy.
 const MAX_YAHOO_RESPONSE_BYTES = 2_000_000
 const YAHOO_TIMEOUT_MS = 12_000
 

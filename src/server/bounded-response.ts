@@ -33,10 +33,10 @@ export async function readBoundedText(response: Response, maxBytes: number, labe
 
 /**
  * A bare `JSON.parse` SyntaxError names neither the provider nor the endpoint, so a
- * provider that transiently returns malformed or truncated JSON fails a scheduled run
+ * provider that transiently returns malformed or truncated JSON fails its caller
  * undiagnosably. Every parse of an untrusted payload goes through here and rethrows under
  * the caller's label in the same `label:code` shape as the size and status errors, so the
- * `errorCode` digest recorded by scheduled-jobs leads with the source that failed.
+ * caller that catches it has a message naming the source that failed.
  *
  * Failure semantics are unchanged: what threw before still throws. The hint stays
  * structural — decoded length and the offset the parser reported — because provider bodies
