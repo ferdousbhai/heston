@@ -4,7 +4,7 @@ import { cn } from "#/lib/utils.ts"
 
 // Heston's one card is the flat focus panel, so the flat treatment is the card's only style.
 const CARD_CLASSES =
-  "group/card flex flex-col gap-(--card-spacing) overflow-hidden py-(--card-spacing) text-sm text-foreground [--card-spacing:--spacing(4)] has-data-[slot=card-footer]:pb-0"
+  "flex flex-col gap-(--card-spacing) overflow-hidden py-(--card-spacing) text-sm text-foreground [--card-spacing:--spacing(4)]"
 
 function Card({
   className,
@@ -24,7 +24,7 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="card-header"
       className={cn(
-        "group/card-header @container/card-header grid auto-rows-min items-start gap-1 px-(--card-spacing) [.border-b]:pb-(--card-spacing)",
+        "grid auto-rows-min items-start gap-1 px-(--card-spacing)",
         className
       )}
       {...props}
