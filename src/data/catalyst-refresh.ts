@@ -8,6 +8,7 @@ import {
 } from '../domain/catalyst'
 import { EquitySymbolSchema } from '../domain/instrument'
 import { forgetPublicCatalysts } from './public-catalysts'
+import { useRetryOnFocus } from './retry-on-focus'
 
 /**
  * Catalyst coverage is seeded by attention: favoriting a symbol asks for a search, and so
@@ -145,12 +146,7 @@ export function useCatalystSearch(
   // A search that never answered is asked again when the window regains focus, as the public
   // calendar and year series are; a mounted view otherwise kept its failure all session.
   const isFailed = failed.has(symbol)
-  useEffect(() => {
-    if (!isFailed || covered) return
-    const retry = () => seedCatalystSearch(symbol)
-    window.addEventListener('focus', retry)
-    return () => window.removeEventListener('focus', retry)
-  }, [covered, isFailed, symbol])
+  useRetryOnFocus(isFailed && !covered, () => seedCatalystSearch(symbol))
 
   const answer = answers.get(symbol)
   return {

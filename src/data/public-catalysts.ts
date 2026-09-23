@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { CatalystSchema, type Catalyst } from '../domain/catalyst'
 import { EquitySymbolSchema } from '../domain/instrument'
 import { loadPublicJson } from './public-json'
+import { useRetryOnFocus } from './retry-on-focus'
 
 const PublicCatalystsResponseSchema = z.object({ catalysts: z.array(CatalystSchema) })
 
@@ -109,12 +110,7 @@ export function usePublicCatalysts(symbol: string): PublicCatalystsRead {
     return () => { cancelled = true }
   }, [attempt, dropped, symbol])
 
-  useEffect(() => {
-    if (!failed) return
-    const retry = () => setAttempt((current) => current + 1)
-    window.addEventListener('focus', retry)
-    return () => window.removeEventListener('focus', retry)
-  }, [failed])
+  useRetryOnFocus(failed, () => setAttempt((current) => current + 1))
 
   // Rows held for the previous symbol are still valid rows -- the runway filters by symbol --
   // but a failure belongs to the symbol it was for.

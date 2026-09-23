@@ -56,6 +56,7 @@ import { useSymbolSearch, type SymbolSearchState } from '../data/symbol-search'
 import { CatalystStories } from './catalyst-stories'
 import { nyDate } from './ny-time'
 import { compactElapsedLabel, useElapsedLabel } from './top-bar'
+import { useRetryOnFocus } from '../data/retry-on-focus'
 
 const verdictCopy = {
   cheap: 'Cheap',
@@ -511,12 +512,7 @@ function EvidenceCards({ symbol }: { symbol: string }) {
   const failed = Boolean(current && 'failed' in current)
   // A failed read is asked again when the window regains focus, as the calendar and year series
   // are; a mounted card otherwise kept its failure for as long as the symbol stayed selected.
-  useEffect(() => {
-    if (!failed) return
-    const retry = () => setAttempt((count) => count + 1)
-    window.addEventListener('focus', retry)
-    return () => window.removeEventListener('focus', retry)
-  }, [failed])
+  useRetryOnFocus(failed, () => setAttempt((count) => count + 1))
   if (current && 'failed' in current) {
     return (
       <section className="focus-evidence" aria-label="Evidence">

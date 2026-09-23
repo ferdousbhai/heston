@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { YearCandlesSchema } from '../domain/market'
 import { loadPublicJson } from './public-json'
+import { useRetryOnFocus } from './retry-on-focus'
 
 /**
  * The year series is fetched once per session and only where something draws it. It changes
@@ -53,12 +54,7 @@ export function useYearCandles(enabled: boolean): YearCandlesRead {
     return () => { cancelled = true }
   }, [attempt, enabled])
 
-  useEffect(() => {
-    if (!enabled || !read.failed) return
-    const retry = () => setAttempt((current) => current + 1)
-    window.addEventListener('focus', retry)
-    return () => window.removeEventListener('focus', retry)
-  }, [enabled, read.failed])
+  useRetryOnFocus(enabled && read.failed, () => setAttempt((current) => current + 1))
 
   // A failure is reported only where the series would be drawn.
   return enabled ? read : NOT_YET_READ

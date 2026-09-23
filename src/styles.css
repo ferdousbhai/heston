@@ -352,7 +352,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .instrument-focus { --card-spacing: 0px; gap: 0; }
 .instrument-focus [data-slot="card-header"] { display: flex; flex-direction: row; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 0; }
 .instrument-focus [data-slot="card-content"] { padding: 0; }
-.instrument-focus [data-slot="card-footer"] { display: block; padding: 0; border: 0; background: transparent; }
+.instrument-focus [data-slot="card-footer"] { display: block; padding: 0; }
 .premium-axis[data-slot="progress"] { width: 128px; height: 14px; margin-top: 11px; display: flex; gap: 0; border: 0; }
 .premium-axis [data-slot="progress-track"] { height: 3px; overflow: visible; background: var(--axis-gradient); }
 .premium-axis [data-slot="progress-indicator"] { position: relative; height: 3px; background: rgba(245, 245, 247, .62); mix-blend-mode: overlay; }
