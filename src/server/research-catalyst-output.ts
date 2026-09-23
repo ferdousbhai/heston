@@ -44,7 +44,7 @@ const BOUND_CATALYST_LABELS = {
   'member-research': 'Member research',
 } satisfies Partial<Record<CatalystProvider, string>>
 
-export type BoundCatalystProvider = keyof typeof BOUND_CATALYST_LABELS
+type BoundCatalystProvider = keyof typeof BOUND_CATALYST_LABELS
 
 /**
  * Turn model-authored catalyst candidates into application-owned rows. A candidate survives
