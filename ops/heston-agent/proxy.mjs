@@ -4,6 +4,8 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { z } from 'zod'
 
+import { tokenRetiresAt } from './token-refresh.mjs'
+
 /**
  * The brokerage credential broker for a local agent.
  *
@@ -35,14 +37,9 @@ const DEFAULT_PORT = 8787
 const UPSTREAM = process.env.HESTON_MCP_URL ?? 'https://heston.io/mcp'
 const TASTYTRADE_API_BASE = process.env.TASTYTRADE_API_BASE ?? 'https://api.tastyworks.com'
 // The Worker's own bound. A forwarded request that has not answered by then is not going to.
+// It is also how long a broker token must outlive the moment it is attached; see token-refresh.mjs.
 const UPSTREAM_TIMEOUT_MS = 60_000
 const TOKEN_REQUEST_TIMEOUT_MS = 20_000
-/**
- * Refresh on a margin rather than on a 401, so a placement is never attempted with a token that
- * dies mid-flight. The same 10%-of-lifetime rule the Worker uses for its own market credential.
- */
-const REFRESH_SKEW_FRACTION = 0.1
-const MAX_REFRESH_SKEW_MS = 30_000
 
 /**
  * Keyring reads go through the secret-tool binary, so no secret is ever an argv value here.
@@ -98,9 +95,7 @@ async function brokerAccessToken(clientSecret, refreshToken) {
   const grant = TokenResponseSchema.safeParse(await response.json())
   if (!grant.success) throw new Error('TastytradeAuth:invalid-token-response')
   const { access_token: token, expires_in: lifetimeSeconds } = grant.data
-  const lifetimeMs = lifetimeSeconds * 1_000
-  const skewMs = Math.min(MAX_REFRESH_SKEW_MS, lifetimeMs * REFRESH_SKEW_FRACTION)
-  cachedAccess = { expiresAt: Date.now() + lifetimeMs - skewMs, token }
+  cachedAccess = { expiresAt: tokenRetiresAt(Date.now(), lifetimeSeconds * 1_000, UPSTREAM_TIMEOUT_MS), token }
   return token
 }
 

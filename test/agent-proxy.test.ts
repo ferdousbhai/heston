@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { tokenRetiresAt } from '../ops/heston-agent/token-refresh.mjs'
+
 const REFRESH_TOKEN = 'refresh-token-that-must-never-leave-this-machine'
 const CLIENT_SECRET = 'client-secret-that-must-never-leave-this-machine'
 const HESTON_TOKEN = 'heston_0123456789abcdef_AAAAAAAAAAAAAAAAAAAA'
@@ -278,4 +280,21 @@ esac
     expect(code).not.toBe(0)
     expect(stdout).not.toContain('HestonAgentProxy: http://')
   }, 30_000)
+})
+
+describe('broker token retirement', () => {
+  const UPSTREAM_TIMEOUT_MS = 60_000
+
+  it('retires a token one upstream timeout before expiry, so no forwarded request outlives it', () => {
+    // tastytrade's 15-minute token: a tenth is 90 s, so the whole 60 s timeout is spared. A fixed
+    // 30 s margin let a placement forwarded 45 s before expiry run on a token that died under it.
+    const lifetimeMs = 15 * 60_000
+    const retiresAt = tokenRetiresAt(0, lifetimeMs, UPSTREAM_TIMEOUT_MS)
+    expect(retiresAt).toBe(lifetimeMs - UPSTREAM_TIMEOUT_MS)
+    expect(retiresAt + UPSTREAM_TIMEOUT_MS).toBeLessThanOrEqual(lifetimeMs)
+  })
+
+  it('keeps a token too short-lived to spare a whole timeout for nine tenths of its life', () => {
+    expect(tokenRetiresAt(1_000, 100_000, UPSTREAM_TIMEOUT_MS)).toBe(1_000 + 90_000)
+  })
 })
