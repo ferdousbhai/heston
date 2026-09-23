@@ -8,8 +8,10 @@ import { IsoDateSchema } from './iso-date'
 import { type JsonValue } from './json-payload'
 
 // One list, two audiences: `private` is the owner's authoritative D1 internal
-// watchlist, `public` its published projection. The kind still gates the manage
-// button and every mutation, so audience separation survives the single-list shape.
+// watchlist, `public` its published projection. The kind tags which projection a
+// snapshot carries -- the public snapshot contract admits only `public` -- and picks
+// the table's heading and label. It gates nothing: the list grows server-side as readers
+// search, and removal is an owner-only MCP tool absent from any other caller's tool list.
 const WatchlistKindSchema = z.enum(['private', 'public'])
 
 export const WatchlistSchema = z.object({
