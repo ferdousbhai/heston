@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 
 # Cloudflare Worker names are limited to 63 characters. Prefixes remain explicit
-# at each product entrypoint; the timestamp and random suffix prevent overlapping
-# manual, timer, and nested bootstrap runs from sharing a deployment.
+# at each product entrypoint; the timestamp and random suffix prevent an owner's
+# manual run from colliding with a nested bootstrap run it kicks off (the seed
+# script's own deploy alongside the instrument-catalog deploy it invokes).
 readonly TEMPORARY_WORKER_MAX_NAME_LENGTH=63
 
-# Cloudflare's control plane returns transient 5xx on deploys: a 503 on the
-# deployments endpoint aborted the 2026-08-28 catalyst run eight seconds in and cost
-# that day's research. Three attempts ten seconds apart bound the added delay to ~20s
-# against callers that already allow hours, while covering a blip that clears in
-# seconds. Deletion in temporary_worker_stop stays unretried on purpose: an orphaned
-# Worker must be reported, never hidden behind repeated cleanup.
+# Cloudflare's control plane returns transient 5xx on deploys, which can otherwise
+# abort a bootstrap run partway through paging the full instrument catalog and cost
+# the work already done in that run. Three attempts ten seconds apart bound the added
+# delay to ~20s — negligible against a run that already takes minutes — while covering
+# a blip that clears in seconds. Deletion in temporary_worker_stop stays unretried on
+# purpose: an orphaned Worker must be reported, never hidden behind repeated cleanup.
 temporary_worker_api_attempts="${TEMPORARY_WORKER_API_ATTEMPTS:-3}"
 temporary_worker_retry_delay_seconds="${TEMPORARY_WORKER_RETRY_DELAY_SECONDS:-10}"
 
@@ -137,18 +138,13 @@ temporary_worker_start() {
 
 temporary_worker_call() {
   local endpoint="$1"
-  local body_path="${2:-}"
   if [[ "$temporary_worker_deployed" != 'true'
     || -z "$temporary_worker_secret"
     || -z "$temporary_worker_url" ]]; then
     echo 'Temporary Worker is not ready.' >&2
     return 1
   fi
-  if [[ -n "$body_path" ]]; then
-    node ops/shared/call-worker.mjs "$temporary_worker_secret" "$temporary_worker_url" "$endpoint" "$body_path"
-  else
-    node ops/shared/call-worker.mjs "$temporary_worker_secret" "$temporary_worker_url" "$endpoint"
-  fi
+  node ops/shared/call-worker.mjs "$temporary_worker_secret" "$temporary_worker_url" "$endpoint"
 }
 
 temporary_worker_stop() {
