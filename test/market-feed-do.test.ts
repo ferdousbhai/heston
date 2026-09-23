@@ -11,6 +11,7 @@ import {
 } from '../src/server/market-feed-core'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
+import { symbolAt } from './symbols'
 
 const tasty = stubBroker()
 
@@ -391,6 +392,64 @@ describe('MarketFeed option Greeks RPC', () => {
     await feed.webSocketClose()
     await context.drain()
     expect(socket.readyState).toBe(FakeUpstreamWebSocket.CLOSED)
+  })
+
+  // Enough readers on different lists can ask for more than one connection relays. The cut used
+  // to be silent: the readers who lost symbols were told the feed was live.
+  it('logs a cut subscription union and tells only the readers who lost symbols', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const lists = Array.from({ length: 6 }, (_, reader) => (
+      Array.from({ length: 100 }, (_, index) => symbolAt(reader * 100 + index))
+    ))
+    const clients = lists.map((symbols) => downstream(symbols))
+    const context = new FakeContext(clients)
+    new MarketFeedCore(context, liveEnvironment())
+    await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(1))
+    const socket = FakeUpstreamWebSocket.instances[0]!
+    socket.open()
+    await context.drain()
+    socket.message({ type: 'AUTH_STATE', channel: 0, state: 'AUTHORIZED' })
+    await context.drain()
+    const handshake = [
+      [1, 'Quote', QUOTE_FIELDS],
+      [3, 'Trade', TRADE_FIELDS],
+      [5, 'Candle', CANDLE_FIELDS],
+      [7, 'Greeks', GREEKS_FIELDS],
+    ] as const
+    for (const [channel, type, fields] of handshake) {
+      socket.message({ type: 'CHANNEL_OPENED', channel, service: 'FEED', parameters: { contract: 'AUTO' } })
+      await context.drain()
+      socket.message({
+        type: 'FEED_CONFIG', channel, aggregationPeriod: 0.25,
+        dataFormat: 'COMPACT', eventFields: { [type]: fields },
+      })
+      await context.drain()
+    }
+
+    expect(warn).toHaveBeenCalledWith('MarketFeedSubscriptionsTruncated', 100)
+    expect(warn.mock.calls.filter(([event]) => event === 'MarketFeedSubscriptionsTruncated')).toHaveLength(1)
+    const relayed = new Set(lists.flat().sort().slice(0, 500))
+    const statuses = (client: FeedControlSocket) => vi.mocked(client.send).mock.calls
+      .map(([frame]) => JsonObjectSchema.parse(JSON.parse(frame)))
+      .filter((frame) => frame.type === 'feed-status')
+    let truncatedReaders = 0
+    for (const [reader, client] of clients.entries()) {
+      const symbols = lists[reader]!
+      const received = statuses(client)
+      if (symbols.every((symbol) => relayed.has(symbol))) {
+        expect(received.at(-1)).toMatchObject({ state: 'live' })
+        continue
+      }
+      truncatedReaders += 1
+      expect(received.some((status) => status.state === 'live')).toBe(false)
+      expect(received.at(-1)).toMatchObject({
+        detail: 'Live feed is at capacity; some symbols are not streaming',
+        state: 'degraded',
+      })
+    }
+    expect(truncatedReaders).toBeGreaterThan(0)
+    socket.close()
+    await context.drain()
   })
 
   it('keeps a reader that is still announcing itself', async () => {

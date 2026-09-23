@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 
 import { appEnv } from '../server/worker-env'
-import { isSameOriginWebSocketRequest, parseRequestedSymbols } from '../server/market-feed-contracts'
+import { isSameOriginWebSocketRequest, MARKET_FEED_INSTANCE, parseRequestedSymbols } from '../server/market-feed-contracts'
 
 /**
  * Same-origin browsers, signed in or not, share one Durable Object. That object holds the
@@ -23,7 +23,7 @@ export const Route = createFileRoute('/api/stream')({
           return new Response('Invalid market feed subscription', { status: 400 })
         }
         url.searchParams.set('symbols', symbols.join(','))
-        return appEnv.MARKET_FEED.get(appEnv.MARKET_FEED.idFromName('primary-account')).fetch(new Request(url, request))
+        return appEnv.MARKET_FEED.getByName(MARKET_FEED_INSTANCE).fetch(new Request(url, request))
       },
     },
   },

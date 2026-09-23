@@ -10,6 +10,7 @@ import {
 import { isValidIsoDate } from '../domain/iso-date'
 import { type AppEnv } from './env'
 import {
+  MARKET_FEED_INSTANCE,
   MAX_OPTION_GREEKS_CONTRACTS,
   OptionGreeksReadResultSchema,
   OptionStreamerSymbolSchema,
@@ -78,7 +79,7 @@ export async function readExactOptionGreeks(
   }
   if (!env.MARKET_FEED) throw new Error('Live option Greeks are unavailable.')
   const observation = OptionGreeksReadResultSchema.parse(
-    await env.MARKET_FEED.getByName('primary-account').readOptionGreeks(streamerSymbols),
+    await env.MARKET_FEED.getByName(MARKET_FEED_INSTANCE).readOptionGreeks(streamerSymbols),
   )
   const byStreamerSymbol = new Map(observation.greeks.map((greeks) => [greeks.streamerSymbol, greeks]))
   if (byStreamerSymbol.size !== streamerSymbols.length

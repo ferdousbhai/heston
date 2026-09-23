@@ -6,6 +6,7 @@ import { EquitySymbolSchema } from '../domain/instrument'
 import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 import { type AppEnv } from './env'
 import {
+  CLIENT_HEARTBEAT_MS,
   DXLINK_REMOVE_EVENT,
   DXLINK_SNAPSHOT_BEGIN,
   DailyCandleRequestRegistry,
@@ -20,7 +21,7 @@ import {
   OptionGreeksReadResultSchema,
   OptionGreeksRequestRegistry,
   optionGreeksFromRow,
-  parseMarketFeedSymbols,
+  parseDailyCandleSymbols,
   parseOptionStreamerSymbols,
   parseRequestedSymbols,
 } from './market-feed-contracts'
@@ -30,7 +31,7 @@ import { JsonArraySchema, jsonNumber, JsonObjectSchema, type JsonObject, type Js
 import { brokerApi } from './tastytrade'
 
 const SocketAttachmentSchema = z.object({
-  seenAt: z.number().int().nonnegative().optional(),
+  seenAt: z.number().int().nonnegative(),
   symbols: MarketFeedSymbolsSchema,
 }).strict()
 type SocketAttachment = z.infer<typeof SocketAttachmentSchema>
@@ -57,11 +58,15 @@ const FEED_TYPES = ['Quote', 'Trade', 'Candle', 'Greeks'] as const satisfies rea
 /**
  * A browser that crashes, sleeps, or loses its network never sends a close frame, so the relay
  * would otherwise keep an upstream connection open for a reader who is no longer there. Clients
- * announce themselves on this cadence and are dropped after missing several in a row.
+ * announce themselves on `CLIENT_HEARTBEAT_MS` and are dropped after missing several in a row.
  */
-const CLIENT_HEARTBEAT_MS = 30_000
 const CLIENT_IDLE_TIMEOUT_MS = 3 * CLIENT_HEARTBEAT_MS
-// One connection can still carry too many subscriptions: this bounds the union across readers.
+/**
+ * One connection can still carry too many subscriptions: this bounds the union across readers.
+ * It is set to the watchlist's own bound so every listed name can stream to someone; no dxLink
+ * or tastytrade figure stands behind it, and none is documented to this repository. A union
+ * past it is cut, logged, and reported to the readers who lost symbols as `degraded`.
+ */
 const MAX_RELAYED_SYMBOLS = MAX_WATCHLIST_SYMBOLS
 // These bound one interactive read/setup attempt; the persistent relay reconnects separately.
 const OPTION_GREEKS_TIMEOUT_MS = 10_000
@@ -81,9 +86,17 @@ const DAILY_CANDLE_TIMEOUT_MS = 60_000
  * discarded the moment the upstream rejects it, so a stale token costs one failed handshake.
  */
 const QUOTE_TOKEN_TTL_MS = 12 * 60 * 60 * 1_000
+/**
+ * How long either end of the dxLink connection waits for the other's KEEPALIVE before treating it
+ * as gone. The relay sends its own on the `CLIENT_HEARTBEAT_MS` interval, so this tolerates one
+ * missed beat rather than dropping the upstream on a single late frame.
+ */
+const DXLINK_KEEPALIVE_TIMEOUT_SECONDS = (2 * CLIENT_HEARTBEAT_MS) / 1_000
 const RECONNECT_BASE_DELAY_SECONDS = 1
 const RECONNECT_MAX_DELAY_SECONDS = 60
 const RECONNECT_MAX_EXPONENT = 6
+
+const TRUNCATED_DETAIL = 'Live feed is at capacity; some symbols are not streaming'
 
 class FeedProtocolError extends Error {}
 
@@ -303,8 +316,9 @@ function eventFromRow(type: Exclude<FeedType, 'Greeks'>, row: JsonObject): LiveM
 }
 
 /**
- * A single account-scoped relay: one secret-bearing DXLink socket, many authenticated
- * clients and RPC reads. All of the behaviour lives here, free of the Workers runtime
+ * The single market-data relay: one DXLink socket opened with the Worker's own market-data
+ * quote token — no account credential is involved — shared by many same-origin clients and
+ * RPC reads. All of the behaviour lives here, free of the Workers runtime
  * base class, so it can be driven with a stand-in `DurableObjectState`; `market-feed.ts`
  * supplies the Durable Object the platform instantiates.
  */
@@ -326,6 +340,7 @@ export class MarketFeedCore {
   private readonly greekRequests = new OptionGreeksRequestRegistry()
   private readonly dailyRequests = new DailyCandleRequestRegistry()
   private feedState: MarketFeedStatus['state'] = 'connecting'
+  private droppedSymbolCount = 0
 
   constructor(
     private readonly ctx: FeedContext,
@@ -377,7 +392,7 @@ export class MarketFeedCore {
    * every connect would cost far more than storing it.
    */
   async readDailyCandles(requestedSymbols: readonly string[]): Promise<DailyCandlesReadResult> {
-    const symbols = parseMarketFeedSymbols(requestedSymbols)
+    const symbols = parseDailyCandleSymbols(requestedSymbols)
     const lease = this.dailyRequests.register(symbols, DAILY_CANDLE_TIMEOUT_MS)
     try {
       await this.reconcile()
@@ -426,13 +441,42 @@ export class MarketFeedCore {
    * connection. Sorting before the cut keeps the retained set stable across reconciles, so a
    * crowded relay does not churn subscriptions on and off every time a socket joins or leaves.
    */
-  private downstreamSymbols(): Set<string> {
+  private relayedDownstream() {
     const symbols = new Set<string>()
     for (const socket of this.ctx.getWebSockets()) {
       for (const symbol of this.socketSymbols(socket)) symbols.add(symbol)
     }
-    if (symbols.size <= MAX_RELAYED_SYMBOLS) return symbols
-    return new Set([...symbols].sort().slice(0, MAX_RELAYED_SYMBOLS))
+    if (symbols.size <= MAX_RELAYED_SYMBOLS) return { dropped: 0, symbols }
+    return {
+      dropped: symbols.size - MAX_RELAYED_SYMBOLS,
+      symbols: new Set([...symbols].sort().slice(0, MAX_RELAYED_SYMBOLS)),
+    }
+  }
+
+  private downstreamSymbols(): Set<string> {
+    return this.relayedDownstream().symbols
+  }
+
+  /** Whether any symbol this reader asked for was cut from the relayed union. */
+  private isTruncated(socket: FeedClientSocket, relayed: ReadonlySet<string>): boolean {
+    return this.socketSymbols(socket).some((symbol) => !relayed.has(symbol))
+  }
+
+  /**
+   * A cut union is a reader silently missing prices, so it is made visible twice: once in the
+   * log, when the number of cut symbols changes, and to every reader who lost a symbol, as the
+   * `degraded` status the browser already reads as "not fully live".
+   */
+  private reportTruncation(): void {
+    const { dropped, symbols } = this.relayedDownstream()
+    if (dropped !== this.droppedSymbolCount) {
+      this.droppedSymbolCount = dropped
+      if (dropped) console.warn('MarketFeedSubscriptionsTruncated', dropped)
+    }
+    if (!dropped) return
+    for (const socket of this.ctx.getWebSockets()) {
+      if (this.isTruncated(socket, symbols)) this.sendStatus(socket, 'degraded', TRUNCATED_DETAIL)
+    }
   }
 
   private hasDemand(): boolean {
@@ -480,6 +524,7 @@ export class MarketFeedCore {
     if (socket?.readyState === WebSocket.OPEN && this.openedChannels.size) {
       await this.syncSubscriptions(socket)
     }
+    this.reportTruncation()
   }
 
   private async connectUpstream(): Promise<void> {
@@ -534,7 +579,10 @@ export class MarketFeedCore {
       return
     }
     await this.sendToUpstream(socket, {
-      type: 'SETUP', channel: 0, keepaliveTimeout: 60, acceptKeepaliveTimeout: 60,
+      type: 'SETUP',
+      channel: 0,
+      keepaliveTimeout: DXLINK_KEEPALIVE_TIMEOUT_SECONDS,
+      acceptKeepaliveTimeout: DXLINK_KEEPALIVE_TIMEOUT_SECONDS,
       version: '0.1-DXF-JS/0.3.0',
     })
     // dxLink reports its initial unauthenticated setup state independently of the
@@ -848,14 +896,7 @@ export class MarketFeedCore {
     for (const socket of this.ctx.getWebSockets()) {
       const attachment = SocketAttachmentSchema.safeParse(socket.deserializeAttachment())
       if (!attachment.success) continue
-      const seenAt = attachment.data.seenAt
-      // A socket accepted before this field existed is given one cycle to prove itself rather
-      // than being closed for a silence that was never its fault.
-      if (seenAt === undefined) {
-        this.markSeen(socket)
-        continue
-      }
-      if (now - seenAt <= CLIENT_IDLE_TIMEOUT_MS) continue
+      if (now - attachment.data.seenAt <= CLIENT_IDLE_TIMEOUT_MS) continue
       try { socket.close(1000, 'Idle reader') } catch { /* Already closed. */ }
       reaped = true
     }
@@ -872,10 +913,21 @@ export class MarketFeedCore {
 
   private broadcastStatus(state: MarketFeedStatus['state'], detail?: string): void {
     this.feedState = state
-    for (const socket of this.ctx.getWebSockets()) this.sendStatus(socket, state, detail)
+    const relayed = state === 'live' ? this.downstreamSymbols() : undefined
+    for (const socket of this.ctx.getWebSockets()) this.sendStatus(socket, state, detail, relayed)
   }
 
-  private sendStatus(socket: FeedClientSocket, state: MarketFeedStatus['state'], detail?: string): void {
+  private sendStatus(
+    socket: FeedClientSocket,
+    requestedState: MarketFeedStatus['state'],
+    requestedDetail?: string,
+    relayed?: ReadonlySet<string>,
+  ): void {
+    // A reader missing part of its subscription is never told the feed is fully live.
+    const truncated = requestedState === 'live'
+      && this.isTruncated(socket, relayed ?? this.downstreamSymbols())
+    const state = truncated ? 'degraded' : requestedState
+    const detail = truncated ? TRUNCATED_DETAIL : requestedDetail
     try {
       const status: MarketFeedStatus = { asOf: new Date().toISOString(), state, type: 'feed-status' }
       if (detail) status.detail = detail
@@ -909,6 +961,8 @@ export class MarketFeedCore {
 
   /** Protocol failures carry a `detail` string rather than a thrown `Error`. */
   private logError(event: string, error: Error | string | undefined): void {
-    console.error(event, error instanceof Error ? error.message : (error ?? 'UnknownError'))
+    // A string detail is one of this file's own literals; a thrown error may carry provider text
+    // in its message, so only its name is logged.
+    console.error(event, error instanceof Error ? error.name : (error ?? 'UnknownError'))
   }
 }

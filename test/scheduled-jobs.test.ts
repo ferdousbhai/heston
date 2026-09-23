@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { MAX_LIVE_STREAM_SYMBOLS, MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
+import { MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
 import { type AppEnv } from '../src/server/env'
 import { ensureInternalWatchlistSeeded, finalizeInternalWatchlist } from '../src/server/internal-watchlist'
+import { MAX_DAILY_CANDLE_SYMBOLS } from '../src/server/market-feed-contracts'
 import { refreshYearCandles } from '../src/server/scheduled-jobs'
-import { readYearCandleSeries } from '../src/server/year-candle-store'
+import { readYearAgoCloses, readYearCandleSeries, replaceYearCandles } from '../src/server/year-candle-store'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 import { symbolAt } from './symbols'
 
@@ -30,11 +31,11 @@ async function seededWatchlist(database: D1Database): Promise<void> {
 }
 
 describe('year candle refresh', () => {
-  // The watchlist grows on its own through visitor search, so it reaches its 500-symbol bound
+  // The watchlist grows on its own through visitor search, so it reaches `MAX_WATCHLIST_SYMBOLS`
   // without anyone deciding to grow it. Asking the feed for that many refused the whole
-  // refresh — the DXLink subscription admits a hundred — and the year chart would have gone
-  // stale silently the first time the list passed a hundred names.
-  it('asks the feed for no more symbols than one subscription may carry', async () => {
+  // refresh — one year read admits `MAX_DAILY_CANDLE_SYMBOLS` — and the year chart would have
+  // gone stale silently the first time the list outgrew the read.
+  it('asks the feed for no more symbols than one year read may carry', async () => {
     const readDailyCandles = vi.fn(async (symbols: readonly string[]) => ({
       asOf: '2026-09-07T13:30:00.000Z',
       series: symbols.map((symbol) => ({ symbol, closes: [{ time: 1_786_000_000_000, sequence: 0, close: 100 }] })),
@@ -53,11 +54,35 @@ describe('year candle refresh', () => {
     const count = await refreshYearCandles(env, new Date('2026-09-07T13:30:00.000Z'))
 
     const requested = readDailyCandles.mock.calls[0]![0]
-    expect(requested).toHaveLength(MAX_LIVE_STREAM_SYMBOLS)
-    expect(count).toBe(MAX_LIVE_STREAM_SYMBOLS)
-    const stored = await readYearCandleSeries(store.database)
+    expect(requested).toHaveLength(MAX_DAILY_CANDLE_SYMBOLS)
+    expect(count).toBe(MAX_DAILY_CANDLE_SYMBOLS)
+    const stored = await readYearCandleSeries(store.database, requested)
     expect(stored.asOf).toBe('2026-09-07')
     expect(stored.series.get(requested[0]!)).toEqual([100])
+  })
+
+  it('retires the year row of a symbol that fell out of the refreshed focus', async () => {
+    await seededWatchlist(store.database)
+    const outside = symbolAt(MAX_WATCHLIST_SYMBOLS - 1)
+    await replaceYearCandles(store.database, '2026-09-04', [outside], new Map([[outside, [{ time: 1, sequence: 0, close: 50 }]]]))
+    const readDailyCandles = vi.fn(async (symbols: readonly string[]) => ({
+      asOf: '2026-09-07T13:30:00.000Z',
+      series: symbols.map((symbol) => ({ symbol, closes: [{ time: 1_786_000_000_000, sequence: 0, close: 100 }] })),
+      source: 'tastytrade-dxlink' as const,
+    }))
+    const env: AppEnv = {
+      DB: store.database,
+      MARKET_FEED: {
+        get: vi.fn(),
+        getByName: vi.fn(() => ({ fetch: vi.fn(), readDailyCandles, readOptionGreeks: vi.fn() })),
+        idFromName: vi.fn(),
+      },
+    }
+
+    await refreshYearCandles(env, new Date('2026-09-07T13:30:00.000Z'))
+
+    expect(readDailyCandles.mock.calls[0]![0]).not.toContain(outside)
+    await expect(readYearAgoCloses(store.database, [outside])).resolves.toEqual(new Map())
   })
 
   it('skips the off-season UTC fire rather than subscribing twice', async () => {

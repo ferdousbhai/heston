@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import { type JsonValue } from '../domain/json-payload'
 import { applyLiveMarketEvent, type SnapshotAudience } from './collections'
-import { MarketFeedStatusSchema } from '../server/market-feed-contracts'
+import { CLIENT_HEARTBEAT_MS, MarketFeedStatusSchema } from '../server/market-feed-contracts'
 
 export type LiveFeedIndicator = 'live' | 'snapshot'
 
@@ -47,7 +47,7 @@ const HIDDEN_DISCONNECT_MS = 90 * 1_000
  * cannot hold its upstream connection open. This must stay well inside the relay's own idle
  * timeout, which allows several missed beats before closing.
  */
-const HEARTBEAT_MS = 30 * 1_000
+const HEARTBEAT_MS = CLIENT_HEARTBEAT_MS
 
 /**
  * Opens the subscription and writes what it receives into the market collections.

@@ -1,9 +1,9 @@
 import { marketDate } from '../domain/catalyst'
 import { isRegularSessionOpen } from '../domain/market'
-import { MAX_LIVE_STREAM_SYMBOLS } from '../domain/watchlist'
 import { type AppEnv } from './env'
 import { readInternalWatchlistFocus } from './internal-watchlist'
-import { upsertYearCandles } from './year-candle-store'
+import { MARKET_FEED_INSTANCE, MAX_DAILY_CANDLE_SYMBOLS } from './market-feed-contracts'
+import { replaceYearCandles } from './year-candle-store'
 
 /**
  * Refresh the cached year of daily closes. A daily bar changes once a session, so this runs on
@@ -15,15 +15,15 @@ export async function refreshYearCandles(env: AppEnv, asOf = new Date()): Promis
   // offset. The off-season fire is a no-op rather than a second DXLink subscription.
   if (!isRegularSessionOpen(asOf)) return 0
   if (!env.DB || !env.MARKET_FEED) return 0
-  // The focus defaults to the watchlist's own 500-symbol bound, but this read is served by a
-  // DXLink subscription, which admits `MAX_LIVE_STREAM_SYMBOLS`. Asking for the list's bound
-  // instead of the feed's refused the whole refresh the moment the list — which grows on its
-  // own through visitor search — passed 100. The focus is priority-ordered, so the feed's
-  // budget takes the names the year chart is actually drawn for.
-  const symbols = await readInternalWatchlistFocus(env, [], MAX_LIVE_STREAM_SYMBOLS)
+  // The focus defaults to the watchlist's own `MAX_WATCHLIST_SYMBOLS`, but one year read admits
+  // only `MAX_DAILY_CANDLE_SYMBOLS`. Asking for the list's bound refused the whole refresh the
+  // moment the list — which grows on its own through visitor search — outgrew the read. The
+  // focus is priority-ordered, so the read's budget goes to the names ranked first, and the
+  // replace below retires the rows of every name that fell out of that budget.
+  const symbols = await readInternalWatchlistFocus(env, [], MAX_DAILY_CANDLE_SYMBOLS)
   if (!symbols.length) return 0
-  const result = await env.MARKET_FEED.getByName('primary-account').readDailyCandles(symbols)
+  const result = await env.MARKET_FEED.getByName(MARKET_FEED_INSTANCE).readDailyCandles(symbols)
   const series = new Map(result.series.map(({ symbol, closes }) => [symbol, closes]))
-  await upsertYearCandles(env.DB, marketDate(asOf), series)
+  await replaceYearCandles(env.DB, marketDate(asOf), symbols, series)
   return series.size
 }
