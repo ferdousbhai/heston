@@ -194,8 +194,8 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         <CopyBlock label="Claude Code" value={PROXY_CLAUDE_COMMAND} />
         <CopyBlock label="Grok" value={PROXY_GROK_COMMAND} />
         <p className="connect-note">
-          No <code>Authorization</code> header. Pointing at <code>{MCP_URL}</code> instead is the
-          public snapshot: cached quotes, no chains, no account. Grok lists tools, not prompts;
+          No <code>Authorization</code> header. Pointing at <code>{MCP_URL}</code> without signing
+          in is the public snapshot: cached quotes, no chains, no account. Grok lists tools, not prompts;
           every tool&apos;s own description carries its contract.
         </p>
         <p>
@@ -295,7 +295,9 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         </p>
         {owner && (
           <p className="connect-owner-note">
-            Your account also carries the research-discovery and watchlist-removal tools.
+            Your account also carries the owner tools: <code>read_watchlist</code> names where each
+            symbol came from, and <code>manage_watchlist</code> adds to or removes from the shared
+            watchlist.
           </p>
         )}
       </section>
