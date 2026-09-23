@@ -19,6 +19,9 @@
   --text: #e6e7ec;
   --ink-muted: #a1a1a8;
   --ink-faint: #93939b;
+  /* Secondary readings that sit between body text and muted labels: quote deltas, tape values,
+     quoted evidence. */
+  --ink-soft: #c9cbd1;
   /* Neutral rules separate readings without competing with the market colors. */
   --hairline: rgba(255, 255, 255, .12);
   /* Not `--accent`: the shadcn theme below owns that name for its grey hover surface, and its
@@ -52,7 +55,6 @@ html { background: var(--bg); scroll-behavior: smooth; }
 body { margin: 0; font-weight: 400; font-size: var(--type-body); min-width: 320px; min-height: 100vh; min-height: 100dvh; background: var(--bg); }
 button, input, textarea { color: inherit; font: inherit; }
 button { -webkit-tap-highlight-color: transparent; }
-button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .skip-link { position: fixed; z-index: 100; left: 12px; top: -60px; padding: 10px 14px; background: var(--cheap); color: #0b0d08; font-weight: 700; transition: top .2s; }
 .skip-link:focus { top: 12px; }
@@ -60,7 +62,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .app-viewport { min-height: 100vh; min-height: 100dvh; position: relative; overflow: clip; background: var(--bg); }
 .app-shell { width: 100%; min-height: 100vh; min-height: 100dvh; position: relative; padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
 .main-content { width: 100%; animation: enter .45s var(--ease) both; }
-.market-state { min-height: 50vh; min-height: 50dvh; padding: 24px 20px; display: grid; place-items: center; color: var(--ink-muted); text-align: center; }
+.market-state { min-height: 50vh; min-height: 50dvh; padding: 24px var(--page-gutter); display: grid; place-items: center; color: var(--ink-muted); text-align: center; }
 .market-state p { margin: 0; font-size: 15px; }
 .top-bar { height: auto; padding: calc(20px + env(safe-area-inset-top)) var(--page-gutter) 16px; display: flex; align-items: center; justify-content: space-between; width: 100%; position: relative; z-index: 5; min-height: calc(84px + env(safe-area-inset-top)); gap: 16px; }
 .brand { display: grid; color: inherit; line-height: .9; text-decoration: none; }
@@ -99,7 +101,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .owner-access-kicker { margin: 0 0 18px; color: var(--brand); font: 13px/1 var(--sans); text-transform: none; letter-spacing: 0; }
 .owner-access h1 { max-width: 600px; margin: 0; font-size: clamp(38px, 11vw, 56px); line-height: .93; }
 .owner-access h1 em { color: var(--brand); font-style: italic; font-weight: 300; }
-.owner-access > p:not(.owner-access-kicker, .owner-access-error) { max-width: 490px; margin: 22px 0 28px; color: #a5a7af; font-size: var(--type-body); line-height: 1.6; }
+.owner-access > p:not(.owner-access-kicker, .owner-access-error) { max-width: 490px; margin: 22px 0 28px; color: var(--ink-muted); font-size: var(--type-body); line-height: 1.6; }
 .owner-access .google-sign-in { margin-bottom: 17px; }
 .owner-access-error { max-width: 420px; margin: 0 0 22px; padding: 13px 0; border-block: 1px solid rgba(255, 107, 120, .25); color: #efb4b9; font-size: 13px; line-height: 1.5; }
 
@@ -115,22 +117,22 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .site-content { display: grid; grid-template-columns: minmax(220px, .6fr) minmax(0, 1.4fr); gap: clamp(40px, 7vw, 96px); padding: clamp(56px, 8vw, 96px) 0 80px; }
 .site-title { align-self: start; position: sticky; top: 40px; }
 .site-title h1 { max-width: 520px; margin: 0; font-size: clamp(38px, 6vw, 60px); line-height: .92; }
-.site-title > p:last-child { max-width: 400px; margin: 22px 0 0; color: #a9abb3; font-size: 14px; line-height: 1.6; }
+.site-title > p:last-child { max-width: 400px; margin: 22px 0 0; color: var(--ink-muted); font-size: 14px; line-height: 1.6; }
 .site-prose { min-width: 0; }
 .site-prose > section { padding: 0 0 28px; margin: 0 0 28px; border-bottom: 1px solid var(--hairline); }
 .site-prose h2 { margin: 0 0 11px; font-size: 18px; line-height: 1.15; }
-.site-prose p { max-width: 68ch; margin: 0; color: #b5b7be; font-size: 14px; line-height: 1.7; }
+.site-prose p { max-width: 68ch; margin: 0; color: var(--ink-muted); font-size: 14px; line-height: 1.7; }
 .site-prose a { color: var(--brand); text-underline-offset: 3px; }
 .site-effective { margin: 0 0 32px !important; color: var(--ink-faint) !important; font: 13px/1.4 var(--sans) !important; text-transform: none; letter-spacing: 0; }
-.site-callout, .site-callout[data-slot="alert"] { padding: 20px 0; border: 0; background: transparent; border-block: 1px solid rgba(255, 171, 74, .28); }
-.site-footer { min-height: 72px; padding: 20px 0; border-top: 1px solid var(--hairline); display: flex; align-items: center; justify-content: space-between; gap: 20px; color: #757882; font-size: 13px; }
+.site-callout, .site-callout[data-slot="alert"] { padding: 20px 0; border: 0; background: transparent; border-block: 1px solid color-mix(in srgb, var(--brand) 28%, transparent); }
+.site-footer { min-height: 72px; padding: 20px 0; border-top: 1px solid var(--hairline); display: flex; align-items: center; justify-content: space-between; gap: 20px; color: var(--ink-faint); font-size: 13px; }
 .site-footer a { color: inherit; text-decoration: none; }
 .site-footer a:hover { color: var(--text); }
 
 .market-screen { padding-bottom: 14px; }
 
 .stories { padding: 10px 0; border-bottom: 1px solid var(--hairline); }
-.story-row { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 0 20px; }
+.story-row { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 0 var(--page-gutter); }
 .story-row::-webkit-scrollbar { display: none; }
 .story[data-slot="button"] { height: var(--touch-target); flex: 0 0 auto; padding: 0 12px 0 11px; display: inline-flex; align-items: center; gap: 9px; border: 0; background: var(--surface); border-radius: 10px; }
 .story[data-slot="button"]::before { content: ""; width: 6px; height: 6px; flex: 0 0 auto; background: var(--ink-faint); }
@@ -139,17 +141,17 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .story.rich::before { background: var(--rich); }
 .story-symbol { color: var(--text); font-size: 15px; font-weight: 700; }
 .story-catalyst[data-slot="badge"] { height: auto; padding: 0; border: 0; color: var(--brand); font: 13px/1 var(--sans); font-variant-numeric: tabular-nums; }
-.story-catalyst.estimated { color: #d8a86f; }
+.story-catalyst.estimated { color: color-mix(in srgb, var(--brand) 60%, var(--ink-muted)); }
 .story-empty[data-slot="empty"] { min-height: 36px; padding: 0; align-items: flex-start; justify-content: center; border: 0; color: var(--ink-muted); text-align: left; }
 
-.instrument-focus { padding: 20px 20px 0; border-bottom: 1px solid var(--hairline); }
+.instrument-focus { padding: 20px var(--page-gutter) 0; border-bottom: 1px solid var(--hairline); }
 .selected-summary { min-width: 0; flex: 1; }
 .selected-instrument { min-width: 0; }
 .selected-instrument p { max-width: 100%; margin: 6px 0 0; overflow: hidden; color: var(--ink-faint); font-size: var(--type-secondary); text-overflow: ellipsis; white-space: nowrap; }
 .selected-symbol { margin: 0; font-size: 28px; font-weight: 700; line-height: 1.1; letter-spacing: -.03em; }
 .selected-price { margin-top: 10px; display: flex; align-items: baseline; gap: 8px; font-variant-numeric: tabular-nums; }
 .selected-price strong { font: 600 30px/1.15 var(--sans); letter-spacing: -.025em; }
-.selected-price span { color: #c9cbd1; font: 500 15px/1.2 var(--sans); }
+.selected-price span { color: var(--ink-soft); font: 500 15px/1.2 var(--sans); }
 .premium-gauge { min-width: 128px; flex: 0 0 auto; display: grid; justify-items: end; }
 .premium-gauge > span { color: var(--ink-faint); font: 12px/1 var(--sans); text-transform: none; letter-spacing: 0; }
 .premium-verdict { margin-top: 6px; font-size: 17px; font-weight: 700; }
@@ -165,7 +167,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
 /* The arrow rides the last word rather than sitting in its own flex slot, so a source that
    wraps in a narrow column never strands it on a line of its own. */
-.runway-body > a { min-width: 0; color: #83868f; font-size: 13px; line-height: 1.3; text-decoration: none; }
+.runway-body > a { display: block; width: fit-content; max-width: 100%; min-width: 0; margin-top: 8px; color: var(--ink-faint); font-size: 13px; line-height: 1.3; text-decoration: none; }
 .runway-body > a:hover, .runway-body > a:focus-visible { color: var(--text); }
 .runway-body > a svg { display: inline-block; width: 10px; height: 10px; margin-left: 3px; vertical-align: -1px; }
 
@@ -174,22 +176,21 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .runway-event { position: relative; display: grid; grid-template-columns: 52px 10px minmax(0, 1fr); column-gap: 13px; padding-bottom: 14px; }
 .runway-event:last-child { padding-bottom: 0; }
 /* Connector between markers: 52px rail column + 13px gap + half the 10px marker. */
-.runway-event::before { content: ""; position: absolute; left: 69.5px; top: 18px; bottom: 2px; width: 1px; background: #2b2e36; }
+.runway-event::before { content: ""; position: absolute; left: 69.5px; top: 18px; bottom: 2px; width: 1px; background: var(--hairline); }
 .runway-event:last-child::before { content: none; }
 .runway-when { text-align: right; }
 .runway-when strong { display: block; color: var(--brand); font: 700 13px/1 var(--sans); font-variant-numeric: tabular-nums; }
-.runway-event:not(.next) .runway-when strong { color: #a5883f; }
+.runway-event:not(.next) .runway-when strong { color: color-mix(in srgb, var(--brand) 68%, var(--bg)); }
 .runway-when time { display: block; margin-top: 5px; color: var(--ink-faint); font: 12px/1.2 var(--sans); }
 .runway-mark { position: relative; }
 .runway-mark::before { content: ""; position: absolute; left: 0; top: 2px; width: 10px; height: 10px; border: 1.5px solid var(--brand); background: var(--brand); }
 .runway-event.estimated .runway-mark::before { background: var(--bg); }
-.runway-event:not(.next) .runway-mark::before { border-color: #7c6534; background: #7c6534; }
+.runway-event:not(.next) .runway-mark::before { border-color: color-mix(in srgb, var(--brand) 50%, var(--bg)); background: color-mix(in srgb, var(--brand) 50%, var(--bg)); }
 .runway-event:not(.next).estimated .runway-mark::before { background: var(--bg); }
 .runway-body { min-width: 0; }
 .runway-kind { margin: 0; color: var(--ink-faint); font: 12px/1 var(--sans); text-transform: none; letter-spacing: .09em; }
 .runway-body > strong { display: block; margin-top: 7px; font-size: 15px; line-height: 1.32; }
 .runway-detail { margin: 6px 0 0; max-width: 72ch; color: var(--ink-muted); font-size: 13px; line-height: 1.55; }
-.runway-body > a { margin-top: 8px; }
 .runway-empty { margin: 14px 0 0; max-width: 72ch; color: var(--ink-muted); font-size: 13px; line-height: 1.62; }
 .runway-empty p { margin: 0; }
 .runway-searching { display: flex; align-items: center; gap: 7px; margin: 12px 0 0; color: var(--ink-muted); font-family: var(--sans); font-size: 13px; letter-spacing: 0; text-transform: none; }
@@ -202,29 +203,28 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
    section is absent when nothing has been recorded, so it carries no empty state of its own. */
 .focus-runway + .focus-evidence { padding-top: 20px; border-top: 1px solid var(--hairline); }
 .evidence-cards { display: grid; gap: 15px; margin: 14px 0 0; padding: 0; list-style: none; }
-.evidence-card { padding-left: 11px; border-left: 1px solid #2b2e36; }
-.evidence-card blockquote { margin: 0; max-width: 72ch; color: #c9cbd1; font-size: 15px; line-height: 1.55; }
+.evidence-card { padding-left: 11px; border-left: 1px solid var(--hairline); }
+.evidence-card blockquote { margin: 0; max-width: 72ch; color: var(--ink-soft); font-size: 15px; line-height: 1.55; }
 .evidence-note { margin: 7px 0 0; max-width: 72ch; color: var(--ink-muted); font-size: 13px; line-height: 1.55; }
 .evidence-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 8px 0 0; color: var(--ink-faint); font: 12px/1.3 var(--sans); text-transform: none; letter-spacing: .09em; }
-.evidence-meta a { color: #83868f; font-size: 13px; letter-spacing: 0; text-decoration: none; text-transform: none; }
+.evidence-meta a { color: var(--ink-faint); font-size: 13px; letter-spacing: 0; text-decoration: none; text-transform: none; }
 .evidence-meta a:hover, .evidence-meta a:focus-visible { color: var(--text); }
 .evidence-meta svg { display: inline-block; width: 10px; height: 10px; margin-left: 3px; vertical-align: -1px; }
 .evidence-unavailable { margin: 0; color: var(--ink-faint); font-size: 13px; line-height: 1.4; }
 
 .focus-tape { margin: 22px 0 0; padding: 12px 0 18px; border-top: 1px solid var(--hairline); display: flex; flex-wrap: wrap; row-gap: 12px; font: var(--type-caption)/1.5 var(--sans); font-variant-numeric: tabular-nums; }
 .focus-tape > div { display: inline-flex; gap: 5px; white-space: nowrap; }
-.focus-tape > div:not(:last-child)::after { content: "·"; margin: 0 9px; color: #3a3d45; }
+.focus-tape > div:not(:last-child)::after { content: "·"; margin: 0 9px; color: color-mix(in srgb, var(--ink-faint) 36%, var(--bg)); }
 .focus-tape dt { color: var(--ink-faint); text-transform: none; letter-spacing: 0; }
-.focus-tape dd { margin: 0; color: #c9cbd1; font-weight: 400; }
+.focus-tape dd { margin: 0; color: var(--ink-soft); font-weight: 400; }
 /* The age of each fact on the card, under the readings it describes. */
 .focus-freshness { margin: 0; padding: 0 0 16px; display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-faint); font: 13px/1.4 var(--sans); font-variant-numeric: tabular-nums; text-transform: none; letter-spacing: 0; }
-.focus-freshness time { color: #a3a6b0; text-transform: none; letter-spacing: 0; }
+.focus-freshness time { color: var(--ink-muted); text-transform: none; letter-spacing: 0; }
 .runway-as-of { white-space: nowrap; }
 
-.watch-table { padding: 24px var(--page-gutter) 0; }
+.watch-table { padding: 24px var(--page-gutter) 16px; }
 .section-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .section-header h2 { margin: 0; font-size: 22px; font-weight: 700; line-height: 1.2; text-transform: none; }
-.watch-table { padding-bottom: 16px; }
 .watch-table .section-header { justify-content: flex-start; }
 .watchlist-title { margin: 0; font-size: 22px; line-height: 1.2; font-weight: 700; text-transform: none; }
 .watch-search { min-width: 0; flex: 1; max-width: 360px; height: var(--touch-target); padding: 0 12px; display: flex; align-items: center; gap: 10px; border: 0; background: var(--surface); color: var(--ink-muted); border-radius: 10px; }
@@ -245,7 +245,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .premium-data-table [data-slot="table-row"][data-state="selected"] { background: rgba(255, 255, 255, .05); box-shadow: none; }
 .premium-data-table [data-slot="table-cell"] { padding: 12px 10px; vertical-align: middle; }
 .premium-data-table .pin-cell { width: 34px; padding-inline: 0; }
-.pin-button[data-slot="button"] { color: #5f626b; }
+.pin-button[data-slot="button"] { color: color-mix(in srgb, var(--ink-faint) 62%, var(--bg)); }
 .pin-button[data-slot="button"].pinned { color: var(--brand); }
 .instrument-cell { width: 22%; min-width: 180px; }
 .premium-data-table .market-cap-cell { width: 10%; min-width: 84px; text-align: right; }
@@ -258,13 +258,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .price-range [data-slot="progress-track"] { height: 2px; overflow: visible; background: var(--hairline); }
 .price-range [data-slot="progress-indicator"] { position: relative; height: 2px; background: var(--ink-muted); }
 .price-range [data-slot="progress-indicator"]::after { content: ""; position: absolute; top: 50%; right: 0; width: 5px; height: 5px; transform: translate(50%, -50%); background: var(--text); }
-.sparkline { display: block; width: 100%; max-width: 84px; height: 22px; margin-left: auto; color: #6f7480; overflow: visible; }
+.sparkline { display: block; width: 100%; max-width: 84px; height: 22px; margin-left: auto; color: color-mix(in srgb, var(--ink-faint) 74%, var(--bg)); overflow: visible; }
 .sparkline polyline { fill: none; stroke: currentColor; stroke-width: 1.25; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .premium-data-table [data-slot="table-row"][data-state="selected"] .sparkline { color: var(--brand); }
 .ticker-table-button[data-slot="button"] { width: 100%; height: auto; min-width: 0; padding: 0; align-items: flex-start; flex-direction: column; gap: 3px; background: transparent; text-align: left; }
 .ticker-table-button > span { display: flex; align-items: baseline; gap: 7px; }
 .ticker-table-button strong { font-size: 18px; font-variant-numeric: tabular-nums; font-weight: 600; }
-.ticker-table-button > span small { color: #8f929b; font-size: 13px; }
+.ticker-table-button > span small { color: var(--ink-faint); font-size: 13px; }
 .ticker-table-button > small { width: 100%; overflow: hidden; color: var(--ink-faint); font-size: var(--type-caption); text-overflow: ellipsis; white-space: nowrap; font-weight: 400; line-height: 1.3; }
 .ticker-table-button > small:last-child:not(:nth-child(2)) { color: var(--brand); }
 /* The year chart is the one column that only earns its width on a laptop, so it is absent
@@ -287,14 +287,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
    for. The row rhythm leaves room for readable names and distinct touch targets. */
 .watch-list { margin: 0; padding: 0; border-top: 1px solid var(--hairline); list-style: none; }
 .watch-row { display: grid; grid-template-columns: 32px minmax(0, 1fr) 56px auto; align-items: center; column-gap: 8px; min-height: 80px; padding: 12px 0; border-bottom: 1px solid var(--hairline); }
-.watch-row[data-state="selected"] { margin-inline: -20px; padding-inline: 20px; background: rgba(255, 255, 255, .04); box-shadow: none; }
+.watch-row[data-state="selected"] { margin-inline: calc(-1 * var(--page-gutter)); padding-inline: var(--page-gutter); background: rgba(255, 255, 255, .04); box-shadow: none; }
 .watch-row .pin-button[data-slot="button"] { width: var(--touch-target); height: var(--touch-target); margin-left: -8px; }
 .watch-row .ticker-table-button[data-slot="button"] { gap: 4px; min-height: var(--touch-target); justify-content: center; }
 .watch-row .sparkline { grid-column: 3; width: 56px; max-width: none; margin: 0; height: 28px; }
 /* Always the last column, whether or not a chart sits before it. */
 .watch-row-quote { grid-column: 4; display: grid; justify-items: end; row-gap: 4px; text-align: right; font-variant-numeric: tabular-nums; }
 .watch-row-quote strong { font-size: 19px; font-weight: 600; letter-spacing: -.02em; }
-.watch-pill { min-width: 76px; padding: 5px 8px; border: 0; background: var(--surface-2); color: #c9cbd1; font: 600 14px/1.2 var(--sans); font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; border-radius: 5px; position: relative; }
+.watch-pill { min-width: 76px; padding: 5px 8px; border: 0; background: var(--surface-2); color: var(--ink-soft); font: 600 14px/1.2 var(--sans); font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; border-radius: 5px; position: relative; }
 .watch-pill[data-tone="up"] { background: var(--up); color: #06120b; }
 .watch-pill[data-tone="down"] { background: var(--down); color: #1b0a0c; }
 .watch-pill[data-tone="cheap"] { background: var(--cheap); color: #121603; }
@@ -315,7 +315,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .focus-strip-name small { overflow: hidden; color: var(--ink-faint); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .focus-strip-quote { display: flex; align-items: baseline; gap: 7px; font-variant-numeric: tabular-nums; }
 .focus-strip-quote strong { font-size: 17px; font-weight: 600; }
-.focus-strip-quote small { font-size: 13px; color: #c9cbd1; }
+.focus-strip-quote small { font-size: 13px; color: var(--ink-soft); }
 .focus-strip-quote small[data-tone="up"] { color: var(--up); }
 .focus-strip-quote small[data-tone="down"] { color: var(--down); }
 .focus-strip-read { grid-column: 1 / 3; overflow: hidden; color: var(--ink-muted); font-size: 13px; letter-spacing: 0; text-transform: none; text-overflow: ellipsis; white-space: nowrap; }
@@ -327,14 +327,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
 /* The card as a sheet. The popup takes the page's own ground rather than the popover's, and
    the card scrolls inside it so a long runway never pushes the close control off screen. */
-.focus-sheet[data-slot="drawer-popup"] { background: var(--bg); border-top: 1px solid var(--hairline); }
+.focus-sheet[data-slot="drawer-popup"] { --drawer-bleed-background: var(--bg); background: var(--bg); border-top: 1px solid var(--hairline); }
 .focus-sheet-scroll { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; }
 .focus-sheet .instrument-focus { border-bottom: 0; padding-bottom: 8px; }
 .focus-sheet-close { position: absolute; top: 6px; right: 10px; z-index: 1; width: var(--touch-target); height: var(--touch-target); display: grid; place-items: center; border: 0; background: transparent; color: var(--ink-muted); cursor: pointer; }
 .focus-sheet-close svg { width: 16px; height: 16px; }
 .focus-sheet-pin[data-slot="button"] { position: absolute; top: 6px; right: 58px; z-index: 1; width: var(--touch-target); height: var(--touch-target); }
 
-.bottom-nav { border-radius: 0; position: fixed; z-index: 20; left: 50%; bottom: 0; transform: translateX(-50%); width: 100%; height: calc(71px + env(safe-area-inset-bottom)); padding: 6px 18px env(safe-area-inset-bottom); background: rgba(9, 9, 11, .94); backdrop-filter: blur(28px) saturate(150%); border-top: 1px solid var(--hairline); display: grid; grid-template-columns: repeat(3, 1fr); }
+.bottom-nav { border-radius: 0; position: fixed; z-index: 20; left: 50%; bottom: 0; transform: translateX(-50%); width: 100%; height: calc(71px + env(safe-area-inset-bottom)); padding: 6px 18px env(safe-area-inset-bottom); background: color-mix(in srgb, var(--bg) 94%, transparent); backdrop-filter: blur(28px) saturate(150%); border-top: 1px solid var(--hairline); display: grid; grid-template-columns: repeat(3, 1fr); }
 
 .archive-error { margin: 16px 20px 0; }
 
@@ -345,7 +345,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .viewer-avatar [data-slot="avatar-fallback"] { background: var(--brand); color: #180d04; font-weight: 700; }
 .owner-access-error [data-slot="alert-description"], .auth-inline-error [data-slot="alert-description"] { color: inherit; }
 .site-callout [data-slot="alert-title"] { color: var(--brand); font-size: 15px; }
-.site-callout [data-slot="alert-description"] { color: #b5b7be; line-height: 1.7; }
+.site-callout [data-slot="alert-description"] { color: var(--ink-muted); line-height: 1.7; }
 
 .instrument-focus { --card-spacing: 0px; gap: 0; }
 .instrument-focus [data-slot="card-header"] { display: flex; flex-direction: row; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 0; }
@@ -360,24 +360,21 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .bottom-nav [data-slot="tabs-trigger"][data-active] svg { color: var(--brand); }
 
 @media (min-width: 960px) {
-  .app-shell { padding-bottom: 48px; }
-  .top-bar { padding-inline: 24px; }
+  :root { --page-gutter: 28px; }
+  .app-shell { max-width: 1600px; margin-inline: auto; padding-bottom: 48px; }
+  .top-bar { padding-inline: var(--page-gutter); }
 
-  .bottom-nav { top: 11px; bottom: auto; width: auto; height: auto; padding: 0; border: 1px solid var(--hairline); background: var(--bg); display: flex; }
-  .bottom-nav [data-slot="tabs-trigger"] { min-height: 34px; flex-direction: row; gap: 7px; padding: 0 18px; border-right: 1px solid var(--hairline); font-size: 13px; }
-  .bottom-nav [data-slot="tabs-trigger"]:last-child { border-right: 0; }
-  .bottom-nav [data-slot="tabs-trigger"][data-active] { background: var(--brand); color: #09090b; }
-  .bottom-nav [data-slot="tabs-trigger"][data-active] svg { color: #09090b; }
+  .bottom-nav { top: 20px; bottom: auto; width: auto; height: auto; padding: 4px; border: 0; border-radius: 12px; background: var(--surface); display: flex; }
+  .bottom-nav [data-slot="tabs-trigger"] { min-height: 36px; flex-direction: row; gap: 7px; padding: 0 16px; border: 0; font-size: 14px; border-radius: 8px; }
+  .bottom-nav [data-slot="tabs-trigger"][data-active] { background: var(--surface-2); color: var(--text); }
   .bottom-nav [data-slot="tabs-trigger"] svg { width: 15px; height: 15px; }
-
-  .story-row { padding-inline: 24px; }
 
   /* Wide screens read as one dense block rather than a header band above two sparse columns:
      a left rail stacks the instrument, its premium axis, and the metric tape while the runway
      takes the rest of the row beside them, so the narrative grid dissolves into this one. The
      rail's rows size to their content and a trailing row absorbs whatever height the runway
      adds, so a long runway never opens gaps between the rail's sections. */
-  .instrument-focus { padding: 18px 24px 16px; display: grid; grid-template-columns: clamp(300px, 24vw, 420px) minmax(0, 1fr); grid-template-rows: auto auto auto 1fr; column-gap: clamp(22px, 2.4vw, 40px); align-items: start; }
+  .instrument-focus { padding: 28px var(--page-gutter); display: grid; grid-template-columns: clamp(300px, 24vw, 420px) minmax(0, 1fr); grid-template-rows: auto auto auto 1fr; column-gap: clamp(22px, 2.4vw, 40px); align-items: start; }
   .instrument-focus [data-slot="card-header"] { grid-column: 1; grid-row: 1; display: block; }
   .selected-instrument p { font-size: 13px; }
   .selected-price { margin-top: 7px; }
@@ -385,7 +382,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   .premium-verdict { margin-top: 0; justify-self: end; font-size: 15px; line-height: 1; }
   .premium-axis[data-slot="progress"] { width: 100%; grid-column: 1 / -1; height: 9px; margin-top: 8px; }
   .focus-narrative { display: contents; }
-  .focus-tape { margin-top: 15px; padding: 13px 0 0; border-top: 1px solid var(--hairline); }
+  .focus-tape { margin-top: 24px; padding: 20px 0 0; }
   .instrument-focus [data-slot="card-footer"] { grid-column: 1; grid-row: 3; }
   /* The last column line puts the runway right of the rail in both the two- and three-column
      arrangements, and the columns beside the rail stretch so their rules run the full height. */
@@ -397,9 +394,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   .runway-event { grid-template-columns: 68px 10px minmax(0, 1fr); padding-bottom: 13px; }
   .runway-event::before { left: 86.5px; }
 
-  .watch-table { padding: 24px 24px 16px; }
+  .watch-table { padding: 28px var(--page-gutter); }
+  .watch-table .section-header { gap: 24px; }
+  .watchlist-title { margin-right: auto; }
   .ticker-table-button[data-slot="button"] { max-width: 330px; }
-
 }
 
 /* A wide enough runway reads across instead of down: countdown, then what the event is,
@@ -427,9 +425,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   .runway-empty-detail { display: none; }
 }
 
-.connect-footer { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 18px 20px 24px; color: #686b73; font-size: 13px; }
+.connect-footer { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 18px 20px 24px; color: var(--ink-faint); font-size: 13px; }
 .connect-footer a { color: inherit; text-decoration: none; }
-.connect-footer a:hover { color: #b7b9c0; }
+.connect-footer a:hover { color: var(--ink-muted); }
 
 @media (max-width: 760px) {
   .site-header { padding: 18px 0; align-items: flex-start; }
@@ -449,33 +447,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 @theme inline {
   --font-heading: var(--font-sans);
   --font-sans: var(--sans);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
-  --color-success-foreground: var(--success-foreground);
   --color-success: var(--success);
-  --color-warning: var(--warning);
   --color-info: var(--info);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
   --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
   --color-popover-foreground: var(--popover-foreground);
@@ -493,49 +474,37 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/* The shadcn names read Heston's tokens wherever the two agree, so a colour is set once. `--accent`
+   is shadcn's hover surface, not the brand: it only has to stand clear of the popover. */
 .dark {
-  --background: #09090b;
-  --foreground: #e6e7ec;
-  --card: #171719;
-  --card-foreground: #e6e7ec;
-  --popover: #222225;
-  --popover-foreground: #e6e7ec;
-  --primary: #ffab4a;
-  --primary-foreground: #09090b;
-  --secondary: #1f222b;
-  --secondary-foreground: #e6e7ec;
+  --background: var(--bg);
+  --foreground: var(--text);
+  --card: var(--surface);
+  --card-foreground: var(--text);
+  --popover: var(--surface-2);
+  --popover-foreground: var(--text);
+  --primary: var(--brand);
+  --primary-foreground: var(--bg);
   --muted: #1f222b;
-  --muted-foreground: #a1a1a8;
-  --accent: #262a33;
-  --accent-foreground: #e6e7ec;
-  --destructive: #ff5f6b;
-  --destructive-foreground: #09090b;
-  --border: rgba(255, 255, 255, .12);
+  --muted-foreground: var(--ink-muted);
+  --accent: rgba(255, 255, 255, .08);
+  --accent-foreground: var(--text);
+  --destructive: var(--rich);
+  --destructive-foreground: var(--bg);
+  --border: var(--hairline);
   --input: rgba(255, 255, 255, .18);
-  --ring: #ffab4a;
-  --success: #a9e04b;
-  --success-foreground: #09090b;
-  --warning: #e8c455;
+  --ring: var(--brand);
+  --success: var(--cheap);
   --info: #67e7dc;
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+  /* Zero specificity and in the base layer, so a plain control gets the brand ring while a
+     shadcn control's own `outline-none` utility wins and it keeps the single ring it draws. */
+  :where(button, input, textarea, a):focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
   body {
     @apply bg-background text-foreground;
   }
@@ -564,14 +533,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .connect-screen { padding: 28px var(--page-gutter) 32px; display: grid; gap: 32px; max-width: 720px; min-width: 0; }
 .connect-screen > * { min-width: 0; }
 .connect-screen header h1 { margin: 0 0 8px; font-size: 30px; letter-spacing: -.03em; }
-.connect-screen p { margin: 0 0 10px; color: #adafb7; font-size: var(--type-body); line-height: 1.5; }
+.connect-screen p { margin: 0 0 10px; color: var(--ink-muted); font-size: var(--type-body); line-height: 1.5; }
 .connect-screen code { padding: 1px 4px; border-radius: 3px; background: var(--surface-2); color: var(--text); font-size: 13px; overflow-wrap: anywhere; font-family: var(--mono); }
 /* The OAuth authorization and consent pages. Standalone: a browser arrives here mid-flow from an
    agent, not by navigating the app, so they carry no shell and nothing to wander off into. */
 .authorize-page { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; justify-content: center; gap: 14px; width: min(100%, 420px); margin-inline: auto; padding: 32px 22px; background: var(--bg); }
 .authorize-page h1 { margin: 0; font-size: 18px; font-weight: 700; }
-.authorize-page p { margin: 0; color: var(--ink-muted, var(--text)); line-height: 1.5; }
-.authorize-error { color: var(--danger, #e5484d); }
+.authorize-page p { margin: 0; color: var(--ink-muted); line-height: 1.5; }
+.authorize-page .authorize-error { color: var(--rich); }
 .authorize-actions { margin-top: 6px; display: flex; gap: 10px; }
 .authorize-actions button { flex: 1; }
 
@@ -580,7 +549,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .connect-optional { margin-left: 6px; color: var(--ink-faint); font-size: 12px; text-transform: none; letter-spacing: 0; }
 .connect-issue { margin: 12px 0; display: flex; gap: 8px; }
 .connect-issue input { flex: 1; min-width: 0; }
-.connect-empty { color: var(--ink-faint); }
+.connect-screen .connect-empty { color: var(--ink-faint); }
 .connect-tokens { margin: 12px 0 0; padding: 0; list-style: none; display: grid; gap: 1px; background: var(--hairline); border: 1px solid var(--hairline); border-radius: 6px; overflow: hidden; }
 .connect-tokens li { padding: 9px 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--surface); }
 .connect-tokens li > div { min-width: 0; overflow-wrap: anywhere; }
@@ -592,7 +561,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
    itself from scrolling sideways on a phone. */
 .connect-code pre { margin: 0; padding: 11px 12px; background: var(--surface); overflow-x: auto; }
 .connect-code code { padding: 0; background: none; font-size: 13px; line-height: 1.55; white-space: pre; font-family: var(--mono); }
-.connect-owner-note { color: var(--ink-faint); }
+.connect-screen .connect-owner-note { color: var(--ink-faint); }
 
 /* A 44px hit area around the change pill keeps the compact visual readable and tappable. */
 .watch-pill::after { content: ""; position: absolute; inset: -9px 0; }
@@ -618,24 +587,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   .watch-row .sparkline { display: none; }
   .watch-row-quote { grid-column: 3; }
   .focus-strip-name small { display: none; }
-  .watch-row[data-state="selected"] { margin-inline: calc(-1 * var(--page-gutter)); padding-inline: var(--page-gutter); }
   .top-actions { gap: 8px; }
   .last-updated { display: none; }
-}
-
-@media (min-width: 960px) {
-  :root { --page-gutter: 28px; }
-  .app-shell { max-width: 1600px; margin-inline: auto; }
-  .top-bar { padding-inline: var(--page-gutter); }
-  .bottom-nav { top: 20px; border: 0; border-radius: 12px; padding: 4px; background: var(--surface); }
-  .bottom-nav [data-slot="tabs-trigger"] { min-height: 36px; padding: 0 16px; border: 0; font-size: 14px; border-radius: 8px; }
-  .bottom-nav [data-slot="tabs-trigger"][data-active] { background: var(--surface-2); color: var(--text); }
-  .bottom-nav [data-slot="tabs-trigger"][data-active] svg { color: var(--brand); }
-  .instrument-focus { padding: 28px var(--page-gutter); }
-  .watch-table { padding: 28px var(--page-gutter); }
-  .watch-table .section-header { gap: 24px; }
-  .watchlist-title { margin-right: auto; }
-  .focus-tape { margin-top: 24px; padding-top: 20px; }
 }
 
 @media (min-width: 960px) and (max-width: 1279px) {
@@ -653,14 +606,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .brief-links-section h2, .brief-trades h2, .brief-empty h2 { margin: 0 0 10px; font-size: 15px; font-weight: 700; line-height: 1.1; text-transform: none; }
 .brief-links { margin: 0; padding: 0; border-top: 1px solid var(--hairline); list-style: none; }
 .brief-links li { border-bottom: 1px solid var(--hairline); }
-.brief-links a { display: block; padding: 9px 0; color: #858891; font-size: 13px; line-height: 1.4; text-decoration: none; overflow-wrap: anywhere; }
-.brief-links a span { display: block; color: #d7d8dd; font-size: 15px; }
+.brief-links a { display: block; padding: 9px 0; color: var(--ink-faint); font-size: 13px; line-height: 1.4; text-decoration: none; overflow-wrap: anywhere; }
+.brief-links a span { display: block; color: var(--text); font-size: 15px; }
 .brief-links a:hover span, .brief-links a:focus-visible span { color: var(--brand); }
 .brief-links svg { display: inline-block; width: 10px; height: 10px; margin-left: 3px; vertical-align: -1px; }
 .brief-card { padding: 18px 0 20px; border-top: 1px solid var(--hairline); }
 .brief-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .trade-line { color: var(--brand); font: 700 17px/1.2 var(--sans); }
-.thesis { max-width: 60ch; margin-top: 10px; color: #adafb7; font-size: var(--type-secondary); line-height: 1.6; }
+.thesis { max-width: 60ch; margin-top: 10px; color: var(--ink-muted); font-size: var(--type-secondary); line-height: 1.6; }
 .thesis p { margin: 0 0 10px; white-space: pre-line; }
 .thesis p:last-child { margin-bottom: 0; }
 .thesis-heading { color: var(--text); }
@@ -670,6 +623,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .thesis a { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
 .brief-empty { padding: 26px 22px; }
 .brief-empty p { margin: 8px 0 0; color: var(--ink-faint); font-size: 15px; }
-.disclaimer { color: #6b6e78; font-size: 13px; line-height: 1.5; text-align: center; margin: 18px 12px 0; }
+.disclaimer { color: var(--ink-faint); font-size: 13px; line-height: 1.5; text-align: center; margin: 18px 12px 0; }
 .focus-recommendation + .focus-runway { padding-top: 20px; border-top: 1px solid var(--hairline); }
 .focus-recommendation .brief-card { padding-top: 10px; border-top: 0; }
