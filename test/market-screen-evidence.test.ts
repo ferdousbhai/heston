@@ -77,6 +77,14 @@ describe('evidence recorded under the selected symbol', () => {
 
     expect(await screen.findByText('Evidence unavailable')).toBeTruthy()
     expect(document.querySelector('.evidence-cards')).toBeNull()
+
+    // The read is asked again when the window regains focus, and a recovered read shows its cards.
+    stubFetch([card()])
+    await waitFor(() => {
+      window.dispatchEvent(new Event('focus'))
+      expect(document.querySelector('.evidence-cards')).not.toBeNull()
+    })
+    expect(screen.queryByText('Evidence unavailable')).toBeNull()
   })
 
   it('dates a card by the New York day it was recorded, not the UTC one', async () => {

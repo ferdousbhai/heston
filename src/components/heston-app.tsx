@@ -190,7 +190,13 @@ function HestonWorkspace({
             )}
             {snapshotReady && tab === 'recommendations' && (
               <Suspense fallback={<MarketState loading message="Loading…" />}>
-                <BriefScreen latest={brief} onSymbol={chooseSymbol} />
+                <BriefScreen
+                  // The screen holds the issue history it has walked; a newly published brief
+                  // starts that history over rather than leaving the open tab on the old issue.
+                  key={brief ? `${brief.id}:${brief.publishedAt}` : 'none'}
+                  latest={brief}
+                  onSymbol={chooseSymbol}
+                />
               </Suspense>
             )}
           </main>

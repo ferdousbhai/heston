@@ -11,12 +11,12 @@ import { volatilityVerdict, type Ticker } from '../domain/market'
 /** This rail receives only a neutral visible universe; it never sees source watchlist categories. */
 export function CatalystStories({
   catalysts,
-  now = new Date(),
+  now,
   onSelect,
   tickers,
 }: {
   catalysts: readonly Catalyst[]
-  now?: Date
+  now: Date
   onSelect: (symbol: string) => void
   tickers: readonly Ticker[]
 }) {

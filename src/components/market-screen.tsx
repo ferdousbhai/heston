@@ -495,6 +495,7 @@ function EvidenceCards({ symbol }: { symbol: string }) {
   const [answer, setAnswer] = useState<
     { cards: readonly SymbolEvidence[]; symbol: string } | { failed: true; symbol: string }
   >()
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -504,9 +505,18 @@ function EvidenceCards({ symbol }: { symbol: string }) {
       // muted line instead of passing for the empty case, which renders nothing.
       .catch(() => { if (!controller.signal.aborted) setAnswer({ failed: true, symbol }) })
     return () => controller.abort()
-  }, [symbol])
+  }, [attempt, symbol])
 
   const current = answer?.symbol === symbol ? answer : undefined
+  const failed = Boolean(current && 'failed' in current)
+  // A failed read is asked again when the window regains focus, as the calendar and year series
+  // are; a mounted card otherwise kept its failure for as long as the symbol stayed selected.
+  useEffect(() => {
+    if (!failed) return
+    const retry = () => setAttempt((count) => count + 1)
+    window.addEventListener('focus', retry)
+    return () => window.removeEventListener('focus', retry)
+  }, [failed])
   if (current && 'failed' in current) {
     return (
       <section className="focus-evidence" aria-label="Evidence">
