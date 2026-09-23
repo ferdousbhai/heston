@@ -78,10 +78,6 @@ function record(symbol: string, refresh: CatalystRefresh): void {
  * a favorite's search and a later look at the symbol are one request and one answer.
  */
 export function seedCatalystSearch(symbol: string): void {
-  searchOnce(symbol)
-}
-
-function searchOnce(symbol: string): void {
   if (searches.has(symbol)) return
   searches.add(symbol)
   // A request that never answered is a failed search, not an empty calendar: telling a reader
@@ -135,7 +131,7 @@ export function useCatalystSearch(
   const covered = hasNearTermCatalyst(symbol, catalysts, now)
 
   useEffect(() => {
-    if (!covered) searchOnce(symbol)
+    if (!covered) seedCatalystSearch(symbol)
   }, [covered, symbol])
 
   const answer = answers.get(symbol)
