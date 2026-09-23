@@ -43,6 +43,14 @@ const RUN_OVERHEAD_ALLOWANCE_MS = EXA_REQUEST_TIMEOUT_MS
  * search whose persist is idempotent, against a symbol left unsearched for a month.
  */
 export const CATALYST_RUN_BUDGET_MS = EXA_REQUEST_TIMEOUT_MS + RUN_OVERHEAD_ALLOWANCE_MS
+/**
+ * How long a `failed` receipt holds its symbol before another incidental search may be bought.
+ * Readers retry a failed calendar whenever their window regains focus, and the route needs no
+ * account, so without this every look during a provider outage is another paid search. The
+ * policy: an outage costs at most four searches an hour per symbol however many readers look,
+ * and a reader who comes back after it still gets a fresh attempt the same hour.
+ */
+export const CATALYST_FAILED_RETRY_MS = 15 * 60_000
 
 const StoredRunSchema = z.object({
   ran_at: z.string(),
@@ -53,14 +61,19 @@ const StoredRunSchema = z.object({
  * Claim the run before making it. A concurrent favorite of the same symbol then sees a
  * fresh receipt and does not buy a second search.
  *
- * Only two receipts hold a symbol back: a `complete` one inside the refresh window, and a
- * `running` one inside the run budget, because that search may yet answer. A `running` receipt
- * past the budget is a run that died mid-flight, so it ages out within the minute rather than
- * standing in for a search that never finished for the whole window. A receipt the search itself
- * marked `failed` answered nothing either, so it holds nothing back: honoring it would tell every
- * reader "searched, nothing scheduled" for a month on the strength of an outage.
+ * Three receipts hold a symbol back, each for its own span: a `complete` one inside the refresh
+ * window; a `running` one inside the run budget, because that search may yet answer; and a
+ * `failed` one inside the retry backoff. A `running` receipt past the budget is a run that died
+ * mid-flight, so it ages out within the minute rather than standing in for a search that never
+ * finished for the whole window. A held `failed` receipt answers `failed`, never `fresh`: the
+ * last search bound nothing, so the calendar is still unknown rather than searched and empty.
  */
-async function claimRun(db: D1Database, symbol: string, now: Date, forced: boolean): Promise<boolean> {
+async function claimRun(
+  db: D1Database,
+  symbol: string,
+  now: Date,
+  forced: boolean,
+): Promise<'claimed' | 'fresh' | 'failed'> {
   const stored = forced ? undefined : await db.prepare(
     'SELECT ran_at, status FROM catalyst_runs WHERE symbol = ? AND source_provider = ?',
   ).bind(symbol, CATALYST_PROVIDER).first()
@@ -69,10 +82,13 @@ async function claimRun(db: D1Database, symbol: string, now: Date, forced: boole
     // A receipt whose timestamp will not parse reads as expired — the comparison is false for
     // NaN — because one extra search costs less than a symbol that can never be searched again.
     const age = now.getTime() - Date.parse(receipt.ran_at)
-    const holds = receipt.status === 'complete'
-      ? age < CATALYST_REFRESH_INTERVAL_DAYS * 86_400_000
-      : receipt.status === 'running' && age < CATALYST_RUN_BUDGET_MS
-    if (holds) return false
+    if (receipt.status === 'failed') {
+      if (age < CATALYST_FAILED_RETRY_MS) return 'failed'
+    } else if (age < (receipt.status === 'complete'
+      ? CATALYST_REFRESH_INTERVAL_DAYS * 86_400_000
+      : CATALYST_RUN_BUDGET_MS)) {
+      return 'fresh'
+    }
   }
   await db.prepare(
     `INSERT INTO catalyst_runs (symbol, source_provider, ran_at, catalyst_count, status)
@@ -80,7 +96,7 @@ async function claimRun(db: D1Database, symbol: string, now: Date, forced: boole
      ON CONFLICT(symbol, source_provider) DO UPDATE SET
        ran_at = excluded.ran_at, catalyst_count = 0, status = 'running', detail = NULL`,
   ).bind(symbol, CATALYST_PROVIDER, now.toISOString()).run()
-  return true
+  return 'claimed'
 }
 
 /**
@@ -145,7 +161,8 @@ export async function refreshCatalystsForSymbol(
   if (!forced && !await isTracked(db, symbol)) {
     return { catalysts: [], ran: false, reason: 'untracked' }
   }
-  if (!await claimRun(db, symbol, now, forced)) return { catalysts: [], ran: false, reason: 'fresh' }
+  const claim = await claimRun(db, symbol, now, forced)
+  if (claim !== 'claimed') return { catalysts: [], ran: false, reason: claim }
 
   try {
     const run = await runExaCatalystSearch(

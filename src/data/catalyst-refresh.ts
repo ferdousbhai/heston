@@ -59,7 +59,9 @@ function subscribe(listener: () => void): () => void {
 }
 
 function record(symbol: string, refresh: CatalystRefresh): void {
-  answers.set(symbol, refresh.catalysts)
+  // A failed search bound nothing, so it neither answers the symbol nor erases what an earlier
+  // search bound; leaving the answer unset also lets a retry in flight read as searching.
+  if (refresh.reason !== 'failed') answers.set(symbol, refresh.catalysts)
   // A search that ran may have moved a date this browser already holds a copy of, and the copy
   // has no expiry. Only what the search bound comes back here, so the rest of the symbol's
   // calendar is re-read rather than patched: the server is what knows which sighting is current.
@@ -70,7 +72,8 @@ function record(symbol: string, refresh: CatalystRefresh): void {
   else searched.delete(symbol)
   // A failed search releases the symbol's one request for this session, so the next ask -- the
   // window regaining focus, or another look -- tries again rather than leaving the calendar
-  // unknown until reload. The server's receipt window still refuses a second paid search.
+  // unknown until reload. The server holds a failed receipt for its own retry backoff, so these
+  // asks from every reader still buy at most one search per symbol per backoff.
   if (refresh.reason === 'failed') {
     failed.add(symbol)
     searches.delete(symbol)
@@ -143,11 +146,11 @@ export function useCatalystSearch(
   // calendar and year series are; a mounted view otherwise kept its failure all session.
   const isFailed = failed.has(symbol)
   useEffect(() => {
-    if (!isFailed) return
+    if (!isFailed || covered) return
     const retry = () => seedCatalystSearch(symbol)
     window.addEventListener('focus', retry)
     return () => window.removeEventListener('focus', retry)
-  }, [isFailed, symbol])
+  }, [covered, isFailed, symbol])
 
   const answer = answers.get(symbol)
   return {

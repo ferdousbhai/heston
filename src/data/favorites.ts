@@ -107,7 +107,8 @@ async function toggleAnonymousFavorite(symbol: string): Promise<boolean> {
     : [...pinnedSymbols, symbol]
   const mutation = preferenceCollection.update('primary', (draft) => {
     draft.favoriteStageVersion = crypto.randomUUID()
-    delete draft.favoriteUserId
+    // An update merges changes over the stored row, so a delete never reaches it; undefined does.
+    draft.favoriteUserId = undefined
     draft.pinnedSymbols = nextSymbols
   })
   await mutation.isPersisted.promise

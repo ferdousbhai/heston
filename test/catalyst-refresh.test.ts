@@ -7,6 +7,7 @@ import {
 } from '../src/server/instrument-catalog'
 import {
   CATALYST_REFRESH_INTERVAL_DAYS,
+  CATALYST_FAILED_RETRY_MS,
   CATALYST_RUN_BUDGET_MS,
   refreshCatalystsForSymbol,
 } from '../src/server/catalyst-refresh'
@@ -181,12 +182,21 @@ describe('catalyst coverage seeded by favorites', () => {
       .toEqual({ status: 'failed', detail: 'ExaSearchFailed:500' })
     expect(logged).toHaveBeenCalledWith('CatalystRefreshFailed', 'Error')
 
-    // A failed receipt answered nothing, so it does not hold the next look back for a month.
-    stubExa()
-    await expect(refreshCatalystsForSymbol(env(store), 'BE', NOW))
+    // Inside the retry backoff every other look -- each reader's window regaining focus -- is
+    // answered from the receipt: still failed, never searched-and-empty, and not paid for again.
+    const retryFetch = stubExa()
+    const insideBackoff = new Date(NOW.getTime() + CATALYST_FAILED_RETRY_MS - 1)
+    await expect(refreshCatalystsForSymbol(env(store), 'BE', insideBackoff))
+      .resolves.toEqual({ catalysts: [], ran: false, reason: 'failed' })
+    expect(retryFetch).not.toHaveBeenCalled()
+
+    // Past it the failure holds nothing back, so the calendar is not left unknown for a month.
+    const pastBackoff = new Date(NOW.getTime() + CATALYST_FAILED_RETRY_MS)
+    await expect(refreshCatalystsForSymbol(env(store), 'BE', pastBackoff))
       .resolves.toMatchObject({ ran: true, catalysts: [{ id: 'exa:BE:investor-event:2026-10-14' }] })
     expect(store.sqlite.prepare('SELECT status FROM catalyst_runs').get()).toEqual({ status: 'complete' })
     expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(retryFetch).toHaveBeenCalledTimes(1)
     store.close()
   })
 
