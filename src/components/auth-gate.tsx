@@ -79,6 +79,13 @@ export function GoogleSignInButton(
     }
   }
 
+  // The top bar has no room for an alert under its button, so the compact form says it failed
+  // in its own label, as the account menu does for sign-out, and keeps the reason on hover.
+  const label = submitting
+    ? 'Opening Google…'
+    : compact
+      ? signInError ? 'Sign-in failed — try again' : 'Sign in'
+      : 'Continue with Google'
   return (
     <>
       <Button
@@ -86,14 +93,15 @@ export function GoogleSignInButton(
         disabled={submitting}
         onClick={() => void beginSignIn()}
         size={compact ? 'sm' : 'auth'}
+        title={compact ? signInError : undefined}
         type="button"
-        variant={compact ? 'outline' : 'inverted'}
+        variant={compact ? 'default' : 'inverted'}
       >
         {!compact && !submitting && <GoogleMark />}
         {submitting && <Spinner data-icon="inline-start" />}
-        <span>{submitting ? 'Opening Google…' : compact ? 'Sign in' : 'Continue with Google'}</span>
+        <span>{label}</span>
       </Button>
-      {signInError && (
+      {signInError && !compact && (
         <Alert className="auth-inline-error" variant="destructive">
           <AlertTitle>Google sign-in failed</AlertTitle>
           <AlertDescription>{signInError}</AlertDescription>
@@ -103,29 +111,19 @@ export function GoogleSignInButton(
   )
 }
 
-export function OwnerAccessScreen({
-  authError,
-  signedIn = false,
-}: {
-  authError?: string
-  signedIn?: boolean
-}) {
+export function SignInScreen({ authError }: { authError?: string }) {
   return (
     <section className="owner-access" aria-labelledby="owner-access-title">
       <p className="owner-access-kicker">Connect your agent</p>
-      <h1 id="owner-access-title">
-        {signedIn ? <>This page is<br /><em>owner-only.</em></> : <>Your agent.<br />Your <em>account.</em></>}
-      </h1>
-      <p>{signedIn
-        ? 'Operations remain restricted to the owner account. Everything else — the market surface, your favorites, and connecting your own agent — is already yours.'
-        : 'Sign in with Google to connect your own agent to Heston, sync your favorites across devices, and — with your own brokerage credentials — read your account and place guarded orders.'}</p>
+      <h1 id="owner-access-title">Your agent.<br />Your <em>account.</em></h1>
+      <p>Sign in with Google to connect your own agent to Heston, sync your favorites across devices, and — with your own brokerage credentials — read your account and place guarded orders.</p>
       {authError && (
         <Alert className="owner-access-error" variant="destructive">
-          <AlertTitle>Owner sign-in unavailable</AlertTitle>
+          <AlertTitle>Sign-in unavailable</AlertTitle>
           <AlertDescription>{authError}</AlertDescription>
         </Alert>
       )}
-      {!signedIn && <GoogleSignInButton />}
+      <GoogleSignInButton />
     </section>
   )
 }

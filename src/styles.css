@@ -67,7 +67,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 /* Keep the Heston wordmark consistent across the two layouts. */
 .brand > span { font-size: 28px; font-weight: 700; letter-spacing: -.045em; color: var(--text); }
 .top-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
-/* Session is a traffic light. Green open, yellow pre-market, red closed; the sentence lives on hover. */
+/* Session is a traffic light. Green open, yellow pre-market, red closed, muted when the session
+   is unknown; the sentence lives on hover. */
 .market-status { width: 10px; height: 10px; padding: 0; border: 0; flex: 0 0 auto; position: relative; border-radius: 50%; background: currentColor; color: var(--ink-muted); cursor: help; }
 .market-status::after { content: ""; position: absolute; inset: -17px; }
 .market-status[data-tone="open"] { color: var(--up); }
@@ -82,10 +83,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .viewer-avatar { width: 40px; height: 40px; flex: 0 0 40px; display: grid; place-items: center; background: var(--brand); color: #180d04; font-size: 15px; font-weight: 700; border-radius: 50%; }
 .viewer-menu-trigger { padding: 0; border: 0; background: none; border-radius: 50%; cursor: pointer; }
 .viewer-menu-name { display: block; margin-top: 2px; color: var(--text); font-weight: 600; }
-.owner-sign-in { min-height: var(--touch-target); padding: 0 16px; border: 0; background: var(--brand); color: #09090b; font-size: 14px; font-weight: 700; text-transform: none; cursor: pointer; border-radius: 22px; }
-.owner-sign-in:hover { background: #ffc47e; }
+/* The default variant paints the brand. Its text colour is restated here because the unlayered
+   `button { color: inherit }` above outranks the variant's own utility. */
+.owner-sign-in { min-height: var(--touch-target); padding: 0 16px; border: 0; color: var(--primary-foreground); font-size: 14px; font-weight: 700; text-transform: none; cursor: pointer; border-radius: 22px; }
 .owner-sign-in:disabled { cursor: wait; opacity: .62; }
-.top-actions .auth-inline-error { display: none; }
 
 .google-sign-in { width: min(100%, 360px); min-height: 54px; padding: 0 18px; border: 0; display: grid; grid-template-columns: 24px 1fr 24px; align-items: center; background: #f5f5f7; color: #17181b; font-size: 14px; font-weight: 700; cursor: pointer; transition: background .2s ease; }
 .google-sign-in svg { width: 21px; height: 21px; }
@@ -212,6 +213,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .evidence-meta a { color: #83868f; font-size: 13px; letter-spacing: 0; text-decoration: none; text-transform: none; }
 .evidence-meta a:hover, .evidence-meta a:focus-visible { color: var(--text); }
 .evidence-meta svg { display: inline-block; width: 10px; height: 10px; margin-left: 3px; vertical-align: -1px; }
+.evidence-unavailable { margin: 0; color: var(--ink-faint); font-size: 13px; line-height: 1.4; }
 
 .focus-tape { margin: 22px 0 0; padding: 12px 0 18px; border-top: 1px solid var(--hairline); display: flex; flex-wrap: wrap; row-gap: 12px; font: var(--type-caption)/1.5 var(--sans); font-variant-numeric: tabular-nums; }
 .focus-tape > div { display: inline-flex; gap: 5px; white-space: nowrap; }

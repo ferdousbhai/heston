@@ -82,16 +82,18 @@ export function useElapsedLabel(at: string | undefined): string | undefined {
 /**
  * The session as a traffic light: green open, yellow waiting, red closed. What the color
  * means, the New York clock, and the wait to the next bell live on hover — the bar itself
- * has no room for that sentence.
+ * has no room for that sentence. A session the provider could not name is neither: it reads
+ * as unknown in a muted tone and counts down to nothing, since a bell it cannot place is not
+ * one to count toward.
  */
-export type MarketStatus = { detail: string; tone: 'open' | 'waiting' | 'closed' }
+export type MarketStatus = { detail: string; tone: 'open' | 'waiting' | 'closed' | 'unknown' }
 
 const SESSION_NAMES = {
   after: 'After hours',
   closed: 'Closed',
   open: 'Open',
   pre: 'Pre-market',
-  unknown: 'Closed',
+  unknown: 'Session unknown',
 } satisfies Record<MarketState, string>
 
 export function marketClockLabel(now: number): string {
@@ -125,8 +127,9 @@ export function marketStatusLabel(
   closesAt?: string,
 ): MarketStatus {
   const name = SESSION_NAMES[state]
-  const tone = state === 'open' ? 'open' : state === 'pre' ? 'waiting' : 'closed'
+  const tone = state === 'open' ? 'open' : state === 'pre' ? 'waiting' : state === 'unknown' ? 'unknown' : 'closed'
   const lines = [name, marketClockLabel(now)]
+  if (state === 'unknown') return { detail: lines.join('\n'), tone }
   if (state === 'open') {
     const wait = closesAt ? waitLabel(Date.parse(closesAt), now) : undefined
     if (wait) lines.push(`Closes in ${wait}`)

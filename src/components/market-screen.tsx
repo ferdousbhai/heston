@@ -54,6 +54,7 @@ import { loadSymbolEvidence } from '../data/symbol-evidence'
 import { useYearCandles } from '../data/year-candles'
 import { useSymbolSearch, type SymbolSearchState } from '../data/symbol-search'
 import { CatalystStories } from './catalyst-stories'
+import { nyDate } from './ny-time'
 import { compactElapsedLabel, useElapsedLabel } from './top-bar'
 
 const verdictCopy = {
@@ -73,6 +74,7 @@ const compactFormatter = new Intl.NumberFormat('en-US', {
   notation: 'compact',
 })
 
+/** A catalyst's date-only day, printed as the day it names: UTC so no offset can shift it. */
 const catalystDateFormatter = new Intl.DateTimeFormat('en-US', {
   day: 'numeric',
   month: 'short',
@@ -190,6 +192,23 @@ function yearReturn(ticker: Pick<Ticker, 'price' | 'yearAgoClose'>): number | un
   return ((ticker.price - first) / first) * 100
 }
 
+/*
+ * Both sparklines draw into one 100-wide box, stretched to their CSS size. The line's extremes
+ * stay inside a small top and bottom inset so a close at the high or low never runs its stroke
+ * into the edge of the box.
+ */
+const SPARK_WIDTH = 100
+const SPARK_HEIGHT = 26
+const SPARK_TOP_INSET = 2
+const SPARK_BOTTOM_INSET = 3
+const SPARK_VIEW_BOX = `0 0 ${SPARK_WIDTH} ${SPARK_HEIGHT}`
+
+/** Where a close sits in the box, from its place between the series' low and high. */
+function sparkY(value: number, low: number, span: number): number {
+  const drawable = SPARK_HEIGHT - SPARK_TOP_INSET - SPARK_BOTTOM_INSET
+  return SPARK_HEIGHT - SPARK_BOTTOM_INSET - ((value - low) / span) * drawable
+}
+
 /**
  * A year of daily closes reads on its own elapsed span rather than a fixed one: the series is
  * whatever the cache holds, so stretching it to the full width is honest here in a way it is
@@ -198,12 +217,12 @@ function yearReturn(ticker: Pick<Ticker, 'price' | 'yearAgoClose'>): number | un
 function YearSparkline({ closes }: { closes: readonly number[] }) {
   const low = Math.min(...closes)
   const span = Math.max(...closes) - low || 1
-  const step = closes.length > 1 ? 100 / (closes.length - 1) : 0
+  const step = closes.length > 1 ? SPARK_WIDTH / (closes.length - 1) : 0
   const line = closes
-    .map((close, index) => `${(index * step).toFixed(2)},${(23 - ((close - low) / span) * 21).toFixed(2)}`)
+    .map((close, index) => `${(index * step).toFixed(2)},${sparkY(close, low, span).toFixed(2)}`)
     .join(' ')
   return (
-    <svg aria-hidden="true" className="sparkline year-sparkline" preserveAspectRatio="none" viewBox="0 0 100 26">
+    <svg aria-hidden="true" className="sparkline year-sparkline" preserveAspectRatio="none" viewBox={SPARK_VIEW_BOX}>
       <polyline points={line} />
     </svg>
   )
@@ -223,12 +242,12 @@ function Sparkline({ session }: { session: readonly CandlePoint[] }) {
   const openedAt = session[0]!.time
   const line = session
     .map((point) => {
-      const x = Math.min(100, ((point.time - openedAt) / REGULAR_SESSION_MS) * 100)
-      return `${x.toFixed(2)},${(23 - ((point.close - low) / span) * 21).toFixed(2)}`
+      const x = Math.min(SPARK_WIDTH, ((point.time - openedAt) / REGULAR_SESSION_MS) * SPARK_WIDTH)
+      return `${x.toFixed(2)},${sparkY(point.close, low, span).toFixed(2)}`
     })
     .join(' ')
   return (
-    <svg aria-hidden="true" className="sparkline session-sparkline" preserveAspectRatio="none" viewBox="0 0 100 26">
+    <svg aria-hidden="true" className="sparkline session-sparkline" preserveAspectRatio="none" viewBox={SPARK_VIEW_BOX}>
       <polyline points={line} />
     </svg>
   )
@@ -379,7 +398,7 @@ function CatalystRunway({
                           .join(' · ')}
                         {' · '}
                         <span className="runway-as-of">
-                          as of <time dateTime={catalyst.updatedAt}>{catalystDateFormatter.format(new Date(catalyst.updatedAt))}</time>
+                          as of <time dateTime={catalyst.updatedAt}>{nyDate.format(new Date(catalyst.updatedAt))}</time>
                         </span>
                       </p>
                       <strong>{catalyst.title}</strong>
@@ -429,19 +448,29 @@ function CatalystRunway({
 function EvidenceCards({ symbol }: { symbol: string }) {
   // The answer carries the symbol it answers, so the cards of the name a reader just left can
   // never stand under the one they moved to while its own request is still in flight.
-  const [answer, setAnswer] = useState<{ cards: readonly SymbolEvidence[]; symbol: string }>()
+  const [answer, setAnswer] = useState<
+    { cards: readonly SymbolEvidence[]; symbol: string } | { failed: true; symbol: string }
+  >()
 
   useEffect(() => {
     const controller = new AbortController()
     loadSymbolEvidence(symbol, controller.signal)
       .then((cards) => { if (!controller.signal.aborted) setAnswer({ cards, symbol }) })
-      // A list that cannot be fetched reads as a name nothing has been recorded under. The
-      // reader is looking at a symbol, not at the state of our store, which keeps its own record.
-      .catch(() => { if (!controller.signal.aborted) setAnswer({ cards: [], symbol }) })
+      // A read that failed is not a name nothing has been recorded under, so it says so in one
+      // muted line instead of passing for the empty case, which renders nothing.
+      .catch(() => { if (!controller.signal.aborted) setAnswer({ failed: true, symbol }) })
     return () => controller.abort()
   }, [symbol])
 
-  const cards = answer?.symbol === symbol ? answer.cards : []
+  const current = answer?.symbol === symbol ? answer : undefined
+  if (current && 'failed' in current) {
+    return (
+      <section className="focus-evidence" aria-label="Evidence">
+        <p className="evidence-unavailable">Evidence unavailable</p>
+      </section>
+    )
+  }
+  const cards = current?.cards ?? []
   if (!cards.length) return null
   return (
     <section className="focus-evidence" aria-labelledby="focus-evidence-title">
@@ -458,7 +487,7 @@ function EvidenceCards({ symbol }: { symbol: string }) {
               <a href={card.sourceUrl} rel="noreferrer" target="_blank">
                 {evidenceSourceHost(card)}<ArrowUpRight aria-hidden="true" />
               </a>
-              <time dateTime={card.recordedAt}>{catalystDateFormatter.format(new Date(card.recordedAt))}</time>
+              <time dateTime={card.recordedAt}>{nyDate.format(new Date(card.recordedAt))}</time>
             </p>
           </li>
         ))}
@@ -652,13 +681,12 @@ const MarketListRow = memo(function MarketListRow({
   ticker: Ticker
   yearCloses?: readonly number[]
 }) {
-  const verdict = volatilityVerdict(ticker)
   const pill = listPill(ticker, metric)
   const nextMetric = LIST_METRICS[(LIST_METRICS.indexOf(metric) + 1) % LIST_METRICS.length]!
   const session = latestSessionCandles(ticker.sparkline)
 
   return (
-    <li className={cn('watch-row', verdict)} data-state={isSelected ? 'selected' : undefined}>
+    <li className="watch-row" data-state={isSelected ? 'selected' : undefined}>
       <PinButton onToggle={onTogglePinned} pinned={isPinned} symbol={ticker.symbol} />
       <InstrumentButton
         catalyst={catalyst}

@@ -13,7 +13,7 @@ import { mostActiveSymbol, type PublicSymbolLookup } from '../domain/market'
 import { useLiveMarket } from '../data/live-market'
 import { useAudienceMarket } from '../data/use-audience-market'
 import { useWorkspaceFavorites } from '../data/use-workspace-favorites'
-import { OwnerAccessScreen, type Viewer, useViewer } from './auth-gate'
+import { SignInScreen, type Viewer, useViewer } from './auth-gate'
 import { MarketScreen } from './market-screen'
 import { TopBar } from './top-bar'
 
@@ -129,7 +129,7 @@ function HestonWorkspace({
                 <AlertDescription>{visibleFavoriteError}</AlertDescription>
               </Alert>
             )}
-            {tab === 'connect' && !viewer && <OwnerAccessScreen authError={authError} signedIn={false} />}
+            {tab === 'connect' && !viewer && <SignInScreen authError={authError} />}
             {tab === 'connect' && viewer && (
               <Suspense fallback={<MarketState loading message="Loading…" />}>
                 <ConnectScreen owner={owner} />

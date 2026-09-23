@@ -62,4 +62,27 @@ describe('evidence recorded under the selected symbol', () => {
     await waitFor(() => expect(document.querySelector('.focus-runway')).not.toBeNull())
     expect(document.querySelector('.focus-evidence')).toBeNull()
   })
+
+  it('says the evidence is unavailable when the read fails, rather than passing for an empty name', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => (
+      String(input).startsWith('/api/public-symbol-evidence')
+        ? new Response('{}', { status: 503 })
+        : Response.json({ catalysts: [], ran: false })
+    )))
+
+    renderMarket('NVDA')
+
+    expect(await screen.findByText('Evidence unavailable')).toBeTruthy()
+    expect(document.querySelector('.evidence-cards')).toBeNull()
+  })
+
+  it('dates a card by the New York day it was recorded, not the UTC one', async () => {
+    // 02:30 UTC on the 2nd is still the evening of the 1st in New York.
+    stubFetch([card({ recordedAt: '2026-09-02T02:30:00.000Z' })])
+
+    renderMarket('NVDA')
+
+    const recorded = await screen.findByText('Sep 1, 2026')
+    expect(recorded.getAttribute('datetime')).toBe('2026-09-02T02:30:00.000Z')
+  })
 })

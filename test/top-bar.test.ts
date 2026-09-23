@@ -69,9 +69,16 @@ describe('market status', () => {
       detail: `Closed\n${clock(weekend)}\nOpens in 2d 22h`,
       tone: 'closed',
     })
+  })
+
+  it('reads an unnamed session as unknown, muted, with no countdown to a bell it cannot place', () => {
     expect(marketStatusLabel('unknown', undefined, NOW)).toEqual({
-      detail: `Closed\n${clock(NOW)}`,
-      tone: 'closed',
+      detail: `Session unknown\n${clock(NOW)}`,
+      tone: 'unknown',
+    })
+    expect(marketStatusLabel('unknown', opensAt, Date.parse('2026-09-01T11:00:00.000Z'), closesAt)).toEqual({
+      detail: `Session unknown\n${clock(Date.parse('2026-09-01T11:00:00.000Z'))}`,
+      tone: 'unknown',
     })
   })
 
