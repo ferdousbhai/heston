@@ -15,7 +15,7 @@ export const Route = createFileRoute('/terms')({
 function TermsPage() {
   return (
     <SitePage intro="The rules for using Heston and its connected market and brokerage tools." title="Terms of use">
-      <p className="site-effective">Effective <time dateTime="2026-08-14">August 14, 2026</time></p>
+      <p className="site-effective">Effective <time dateTime="2026-09-23">September 23, 2026</time></p>
       <section>
         <h2>1. Agreement</h2>
         <p>By accessing Heston, you agree to these terms and the <Link to="/privacy">Privacy Policy</Link>. If you do not agree, do not use the service.</p>
@@ -26,7 +26,7 @@ function TermsPage() {
       </section>
       <section>
         <h2>3. Market and brokerage connections</h2>
-        <p>Heston can display information from third parties and prepare instructions for a connected brokerage account. Those providers control their own services, data, executions, fees, and terms. A confirmation in Heston is not a guarantee that an order was accepted, filled, cancelled, or priced as shown. Verify material activity with the broker.</p>
+        <p>Heston can display information from third parties and, when you request it, place an order through your own brokerage credentials. Heston has no confirmation step of its own: any confirmation prompt comes from the agent you run. Third-party providers, including your broker, control their own services, data, executions, fees, and terms. An order Heston submits, or a status it reports, is not a guarantee that the order was accepted, filled, cancelled, or priced as shown. Verify material activity with the broker.</p>
       </section>
       <section>
         <h2>4. No investment advice</h2>
