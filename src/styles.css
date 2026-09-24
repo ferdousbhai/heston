@@ -554,6 +554,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .connect-step { padding-top: 20px; border-top: 1px solid var(--hairline); min-width: 0; }
 .connect-step h2 { margin: 0 0 8px; font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
 .connect-optional { margin-left: 6px; color: var(--ink-faint); font-size: 12px; letter-spacing: 0; }
+.connect-step [data-slot="alert"] { margin: 12px 0; }
 .connect-issue { margin: 12px 0; display: flex; gap: 8px; }
 .connect-issue input { flex: 1; min-width: 0; }
 .connect-screen .connect-empty { color: var(--ink-faint); }

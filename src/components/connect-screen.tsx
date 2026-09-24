@@ -149,13 +149,6 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         </p>
       </header>
 
-      {error && (
-        <Alert variant="destructive">
-          <AlertTitle>Agent tokens</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
       <section className="connect-step">
         <h2>1 · Point your agent at Heston</h2>
         {/* A request with no credential is served, not challenged (src/server/mcp.ts), so adding
@@ -235,6 +228,15 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
           </Button>
         </form>
 
+        {/* Every token failure -- the list read, a create, a revoke -- comes from this step, so it
+            is reported here, beside the control that caused it, not at the top of a long page. */}
+        {error && (
+          <Alert variant="destructive">
+            <AlertTitle>Agent tokens</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
         {issued && (
           <>
             <Alert>
@@ -247,7 +249,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
           </>
         )}
 
-        {/* Only while the first read is in flight: once it has failed, the alert above is the
+        {/* Only while the first read is in flight: once it has failed, the alert above the list is the
             answer, and a spinner beside it would claim a read that is no longer happening. */}
         {loading && <Spinner />}
         {tokens?.length === 0 && <p className="connect-empty">No tokens yet.</p>}
