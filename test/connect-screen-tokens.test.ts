@@ -120,3 +120,34 @@ it('takes a just-created token off the screen once it is revoked', async () => {
   await waitFor(() => expect(screen.queryByText('Copy this now')).toBeNull())
   expect(container.textContent).not.toContain(SECRET)
 })
+
+it('keeps an unread token list unknown after a create, rather than showing only the new token', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => init?.method === 'POST'
+    ? Response.json({ token: SECRET, tokenMetadata: phone })
+    : Response.json({ error: 'Token store unavailable' }, { status: 503 })))
+  const { container } = render(createElement(ConnectScreen, { owner: false }))
+  await screen.findByText('Token store unavailable')
+  fireEvent.change(screen.getByRole('textbox', { name: 'Token name' }), { target: { value: 'Phone' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Create token' }))
+
+  await screen.findByText('Copy this now')
+  // The list was never read, so it is still reported unknown and never shown as the new token alone.
+  expect(screen.getByText('Token store unavailable')).toBeTruthy()
+  expect(container.querySelector('.connect-tokens')).toBeNull()
+})
+
+it('shows a revoke working on its own row, not on Create token', async () => {
+  let finish!: (response: Response) => void
+  vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) => init?.method === 'DELETE'
+    ? new Promise<Response>((resolve) => { finish = resolve })
+    : Promise.resolve(Response.json({ tokens: [token] }))))
+  const { container } = render(createElement(ConnectScreen, { owner: false }))
+  await screen.findByText('Laptop')
+  fireEvent.change(screen.getByRole('textbox', { name: 'Token name' }), { target: { value: 'Phone' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
+
+  await waitFor(() => expect(container.querySelector('.connect-tokens [data-slot="spinner"], .connect-tokens [role="status"]')).not.toBeNull())
+  expect(screen.getByRole('button', { name: 'Create token' })).toBeTruthy()
+  finish(Response.json({ tokens: [] }))
+  await screen.findByText('No tokens yet.')
+})

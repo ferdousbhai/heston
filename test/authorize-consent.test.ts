@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { createElement, type ComponentType } from 'react'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { Route } from '../src/routes/authorize.consent'
@@ -27,4 +27,17 @@ it('asks for approval once the member is known', async () => {
   render(createElement(ConsentPage))
   await screen.findByRole('button', { name: 'Approve' })
   expect(screen.queryByText(/could not check whether you are signed in/)).toBeNull()
+})
+
+it('shows a Deny in flight on Deny, never as Approve granting access', async () => {
+  vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => String(input).includes('/oauth2/consent')
+    ? new Promise<Response>(() => undefined)
+    : Promise.resolve(Response.json({ user: { id: 'm', name: 'Dana', role: 'member' } }))))
+  render(createElement(ConsentPage))
+  const deny = await screen.findByRole('button', { name: 'Deny' })
+  fireEvent.click(deny)
+
+  const approve = screen.getByRole('button', { name: 'Approve' })
+  await vi.waitFor(() => expect(deny.querySelector('[data-slot="spinner"], [role="status"]')).not.toBeNull())
+  expect(approve.querySelector('[data-slot="spinner"], [role="status"]')).toBeNull()
 })

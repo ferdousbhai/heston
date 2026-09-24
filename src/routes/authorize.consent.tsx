@@ -32,11 +32,12 @@ const FailureSchema = z.object({ error_description: z.string().min(1) })
 
 function ConsentPage() {
   const viewer = useViewer()
-  const [submitting, setSubmitting] = useState(false)
+  /** The answer in flight, so the spinner is in the button that was pressed, never in Approve on a Deny. */
+  const [submitting, setSubmitting] = useState<'approve' | 'deny'>()
   const [failure, setFailure] = useState<string>()
 
   const answer = async (accept: boolean) => {
-    setSubmitting(true)
+    setSubmitting(accept ? 'approve' : 'deny')
     setFailure(undefined)
     try {
       // The authorization request comes back as `oauth_query`: the provider signed it on the way
@@ -62,7 +63,7 @@ function ConsentPage() {
       const { url } = ConsentResponseSchema.parse(await response.json())
       window.location.replace(url)
     } catch (error) {
-      setSubmitting(false)
+      setSubmitting(undefined)
       setFailure(error instanceof Error ? error.message : 'Heston could not record that answer.')
     }
   }
@@ -100,17 +101,18 @@ function ConsentPage() {
           </p>
           {failure && <p className="authorize-error">{failure}</p>}
           <div className="authorize-actions">
-            <Button disabled={submitting} onClick={() => void answer(true)} type="button">
-              {submitting ? <Spinner data-icon="inline-start" /> : null}
+            <Button disabled={submitting !== undefined} onClick={() => void answer(true)} type="button">
+              {submitting === 'approve' ? <Spinner data-icon="inline-start" /> : null}
               <span>Approve</span>
             </Button>
             <Button
-              disabled={submitting}
+              disabled={submitting !== undefined}
               onClick={() => void answer(false)}
               type="button"
               variant="outline"
             >
-              Deny
+              {submitting === 'deny' ? <Spinner data-icon="inline-start" /> : null}
+              <span>Deny</span>
             </Button>
           </div>
         </>

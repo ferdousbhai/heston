@@ -43,8 +43,12 @@ async function readJson<T>(response: Response, schema: z.ZodType<T>): Promise<T>
 
 function useAgentTokens() {
   const [tokens, setTokens] = useState<McpTokenMetadata[]>()
-  const [error, setError] = useState<string>()
-  const [busy, setBusy] = useState(false)
+  // A failed list read and a failed action are different facts: a create that succeeds says
+  // nothing about the list, so it clears its own error but never the read's.
+  const [listError, setListError] = useState<string>()
+  const [actionError, setActionError] = useState<string>()
+  /** Which action is in flight, so only its own button shows it working. */
+  const [pending, setPending] = useState<{ kind: 'issue' } | { kind: 'revoke'; tokenId: string }>()
   /** True only while the first read is in flight, so a failed read does not spin forever. */
   const [loading, setLoading] = useState(true)
   /**
@@ -62,11 +66,11 @@ function useAgentTokens() {
       .then((response) => readJson(response, McpTokenListResponseSchema))
       .then((body) => {
         setTokens(body.tokens)
-        setError(undefined)
+        setListError(undefined)
       })
       .catch((cause: unknown) => {
         if (controller.signal.aborted) return
-        setError(toError(cause)?.message ?? 'Agent tokens are unavailable')
+        setListError(toError(cause)?.message ?? 'Agent tokens are unavailable')
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
@@ -75,7 +79,7 @@ function useAgentTokens() {
   // Reports whether the token was created, so the caller can keep what the member typed when
   // it was not — a refusal at the token cap is the case where retyping the name is wasted.
   const issue = useCallback(async (label: string): Promise<boolean> => {
-    setBusy(true)
+    setPending({ kind: 'issue' })
     try {
       const body = await readJson(await fetch('/api/mcp-tokens', {
         body: JSON.stringify({ label }),
@@ -86,19 +90,21 @@ function useAgentTokens() {
       // The create answers with the new token's metadata, so the list grows from that rather than
       // from a second read: a re-read that failed would report a created token as not created.
       setIssued({ token: body.token, tokenId: body.tokenMetadata.tokenId })
-      setTokens((current) => [...(current ?? []), body.tokenMetadata])
-      setError(undefined)
+      // Only a list that was actually read grows; one that never loaded stays unknown rather
+      // than being shown as just the new token.
+      setTokens((current) => current && [...current, body.tokenMetadata])
+      setActionError(undefined)
       return true
     } catch (cause) {
-      setError(toError(cause)?.message ?? 'The token could not be created')
+      setActionError(toError(cause)?.message ?? 'The token could not be created')
       return false
     } finally {
-      setBusy(false)
+      setPending(undefined)
     }
   }, [])
 
   const revoke = useCallback(async (tokenId: string) => {
-    setBusy(true)
+    setPending({ kind: 'revoke', tokenId })
     try {
       // A revoke answers with the remaining list, so it is read here rather than fetched again.
       const body = await readJson(await fetch('/api/mcp-tokens', {
@@ -107,21 +113,25 @@ function useAgentTokens() {
         headers: { 'content-type': 'application/json' },
         method: 'DELETE',
       }), McpTokenListResponseSchema)
+      // The answer is the whole remaining list, so it settles a failed first read too.
       setTokens(body.tokens)
+      setListError(undefined)
       setIssued((current) => (current?.tokenId === tokenId ? undefined : current))
-      setError(undefined)
+      setActionError(undefined)
     } catch (cause) {
-      setError(toError(cause)?.message ?? 'The token could not be revoked')
+      setActionError(toError(cause)?.message ?? 'The token could not be revoked')
     } finally {
-      setBusy(false)
+      setPending(undefined)
     }
   }, [])
 
-  return { busy, error, issue, issued, loading, revoke, tokens }
+  return { actionError, issue, issued, listError, loading, pending, revoke, tokens }
 }
 
 export function ConnectScreen({ owner }: { owner: boolean }) {
-  const { busy, error, issue, issued, loading, revoke, tokens } = useAgentTokens()
+  const { actionError, issue, issued, listError, loading, pending, revoke, tokens } = useAgentTokens()
+  // Every token control waits for whichever action is in flight.
+  const busy = pending !== undefined
   const [label, setLabel] = useState('')
 
   // While a freshly issued token is on screen, both blocks carry it. A placeholder here made the
@@ -225,16 +235,22 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
             value={label}
           />
           <Button disabled={busy || !label.trim()} type="submit">
-            {busy ? <Spinner /> : 'Create token'}
+            {pending?.kind === 'issue' ? <Spinner /> : 'Create token'}
           </Button>
         </form>
 
         {/* Every token failure -- the list read, a create, a revoke -- comes from this step, so it
             is reported here, beside the control that caused it, not at the top of a long page. */}
-        {error && (
+        {actionError && (
           <Alert variant="destructive">
             <AlertTitle>Agent tokens</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
+            <AlertDescription>{actionError}</AlertDescription>
+          </Alert>
+        )}
+        {listError && (
+          <Alert variant="destructive">
+            <AlertTitle>Agent token list</AlertTitle>
+            <AlertDescription>{listError}</AlertDescription>
           </Alert>
         )}
 
@@ -267,6 +283,9 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
                   </span>
                 </div>
                 <Button disabled={busy} onClick={() => void revoke(token.tokenId)} size="sm" variant="ghost">
+                  {pending?.kind === 'revoke' && pending.tokenId === token.tokenId
+                    ? <Spinner data-icon="inline-start" />
+                    : null}
                   Revoke
                 </Button>
               </li>
