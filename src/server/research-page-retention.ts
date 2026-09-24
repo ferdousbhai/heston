@@ -74,7 +74,8 @@ export interface RetainedCitedPages {
  *
  * Only a cited page is read, so the browser budget of one call is bounded by how many citations
  * the caller admits: the catalyst recording's `MAX_RECORDED_CATALYSTS`, one page per event at
- * most. A separate page cap here sat above that bound and could never fire.
+ * most, and one page for a piece of evidence. A separate page cap here sat above that bound and
+ * could never fire.
  *
  * Indices are not deduplicated: a bad address cited twice is named once per citation, which is
  * what an agent fixes. Distinct pages are, because a page that will not open is one fact about

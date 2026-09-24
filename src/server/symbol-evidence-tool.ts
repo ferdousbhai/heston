@@ -12,7 +12,7 @@ import {
 import { MAX_CITED_SOURCE_TITLE_LENGTH, MAX_CITED_SOURCE_URL_LENGTH } from '../domain/https-url'
 import { textResult } from './agent-tool-result'
 import { type AppEnv } from './env'
-import { readResearchPageMarkdown } from './research-page-retention'
+import { retainCitedPages } from './research-page-retention'
 import { quoteBindingRefusal, quoteWithoutWordsReason } from './research-citation-binding'
 import { citedPageKey } from './research-url'
 import { upsertSymbolEvidence } from './symbol-evidence'
@@ -85,6 +85,8 @@ export async function recordSymbolEvidence(
 
   const symbol = equitySymbolFromModelText(evidence.symbol)
   if (symbol === undefined) return { rejected: ['symbol: not a ticker symbol'], status: 'rejected' }
+  // Canonicalized here as well as in `retainCitedPages` only so the refusal names this tool's own
+  // field; the key is what the read below is keyed on and what the card stores.
   const sourceUrl = citedPageKey(evidence.sourceUrl)
   if (sourceUrl === undefined) {
     return { rejected: ['sourceUrl: not a readable https page address'], status: 'rejected' }
@@ -93,8 +95,12 @@ export async function recordSymbolEvidence(
   const withoutWords = quoteWithoutWordsReason(evidence.quote)
   if (withoutWords) return { rejected: [withoutWords], status: 'rejected' }
 
-  const page = await readResearchPageMarkdown(browser, sourceUrl)
-  if (page === undefined) return { rejected: [`page did not open: ${sourceUrl}`], status: 'rejected' }
+  // The one read path every citation surface goes through.
+  const { rejected, retained } = await retainCitedPages(browser, [{ sourceUrl }], [0], now.toISOString())
+  if (rejected.length) return { rejected, status: 'rejected' }
+  const page = retained.get(sourceUrl)
+  // Unreachable while canonicalization is idempotent; refused rather than bound to nothing.
+  if (page === undefined) throw new CallerVisibleError('SymbolEvidence:page-not-retained')
   // The same normalization every citation here is bound by: markdown renders one sentence
   // many ways, and only its words decide whether the page contains the quote.
   const refusal = quoteBindingRefusal(page, evidence.quote)
