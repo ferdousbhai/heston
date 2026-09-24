@@ -122,6 +122,17 @@ describe('source-specific tastytrade market storage', () => {
     expect(warned).toHaveBeenCalledWith('MarketStoreRowsSkipped', 1)
   })
 
+  it('stores a 52-week range whose high equals its low', async () => {
+    const ticker = { ...marketTickersFixture[0]!, yearHigh: 10, yearLow: 10, price: 10, change: 0 }
+
+    await persistTastytradeMarketSnapshot({ DB: store.database }, sourceRecords([ticker]))
+
+    expect(store.sqlite.prepare('SELECT year_low, year_high FROM tastytrade_market_quotes').get())
+      .toEqual({ year_low: 10, year_high: 10 })
+    // An inverted range stays a broken frame at the store too.
+    expect(() => store.sqlite.prepare('UPDATE tastytrade_market_quotes SET year_low = 11').run()).toThrow()
+  })
+
   it('keeps metrics and quotes in their source-specific tables', async () => {
     const ticker = marketTickersFixture.find((candidate) => candidate.symbol === 'NVDA')!
 

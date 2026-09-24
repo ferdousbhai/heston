@@ -266,7 +266,9 @@ export function normalizeTastytradeMarketTicker(
   const volume = optionalNonnegative(quote.volume ?? quote['day-volume'], 'volume')
   const yearLow = optionalPositive(quote.yearLowPrice ?? quote['year-low-price'], 'year-low')
   const yearHigh = optionalPositive(quote.yearHighPrice ?? quote['year-high-price'], 'year-high')
-  if (yearLow !== undefined && yearHigh !== undefined && yearHigh <= yearLow) {
+  // An equal high and low is a name that has not moved all year: a real reading the read model
+  // shows as no range position. Only an inverted range is a broken frame.
+  if (yearLow !== undefined && yearHigh !== undefined && yearHigh < yearLow) {
     throw new CallerVisibleError('TastytradeSnapshot:invalid-year-range')
   }
   const quoteUpdatedAt = optionalText(quote.updatedAt ?? quote['updated-at'], 'updated-at')

@@ -209,6 +209,19 @@ describe('tastytrade normalization', () => {
       .toThrow('invalid-volume')
   })
 
+  it('keeps a 52-week range whose high equals its low and refuses only an inverted one', () => {
+    const quote = {
+      symbol: 'FLAT', mark: '10', 'previous-close': '10',
+      'updated-at': '2026-08-13T13:31:00.000Z',
+      'year-high-price': '10', 'year-low-price': '10',
+    }
+    const ticker = liveTicker('FLAT', { symbol: 'FLAT' }, quote)
+    expect(ticker).toMatchObject({ yearHigh: 10, yearLow: 10 })
+    expect(fiftyTwoWeekPosition(ticker)).toBeUndefined()
+    expect(() => liveTicker('FLAT', { symbol: 'FLAT' }, { ...quote, 'year-low-price': '11' }))
+      .toThrow('invalid-year-range')
+  })
+
   it('normalizes optional volatility, instrument, borrow, and 52-week enrichment', () => {
     const ticker = liveTicker('SPY', {
       symbol: 'SPY',
