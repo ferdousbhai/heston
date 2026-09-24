@@ -98,9 +98,9 @@ button { -webkit-tap-highlight-color: transparent; }
 .owner-access-kicker { margin: 0 0 18px; color: var(--brand); font: 13px/1 var(--sans); }
 .owner-access h1 { max-width: 600px; margin: 0; font-size: clamp(38px, 11vw, 56px); line-height: .93; }
 .owner-access h1 em { color: var(--brand); font-style: italic; font-weight: 300; }
-.owner-access > p:not(.owner-access-kicker, .owner-access-error) { max-width: 490px; margin: 22px 0 28px; color: var(--ink-muted); font-size: var(--type-body); line-height: 1.6; }
+.owner-access > p:not(.owner-access-kicker) { max-width: 490px; margin: 22px 0 28px; color: var(--ink-muted); font-size: var(--type-body); line-height: 1.6; }
 .owner-access .google-sign-in { margin-bottom: 17px; }
-.owner-access-error { max-width: 420px; margin: 0 0 22px; padding: 13px 0; border-block: 1px solid rgba(255, 107, 120, .25); color: #efb4b9; font-size: 13px; line-height: 1.5; }
+.owner-access-error { max-width: 420px; margin: 0 0 22px; padding: 13px 0; border-block: 1px solid rgba(255, 107, 120, .25); border-inline: 0; border-radius: 0; background: transparent; color: #efb4b9; font-size: 13px; line-height: 1.5; }
 
 .site-page { min-height: 100vh; min-height: 100dvh; padding: 0 22px; background: var(--bg); }
 .site-header, .site-content, .site-footer { width: min(100%, 1120px); margin-inline: auto; }
