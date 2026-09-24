@@ -67,7 +67,7 @@ describe('a database without the one-time seed', () => {
     await expect(readInternalWatchlist(env)).resolves.toEqual([])
     await expect(readInternalWatchlistCatalogCandidates(env)).resolves.toEqual([])
     await expect(ensureInternalWatchlistSymbols(env, ['NVDA'], 'owner')).resolves.toEqual(['NVDA'])
-    await expect(readInternalWatchlistFocus(env, [])).resolves.toEqual(['NVDA'])
+    await expect(readInternalWatchlistFocus(env)).resolves.toEqual(['NVDA'])
     await expect(removeInternalWatchlistSymbols(env, ['NVDA'])).resolves.toEqual(['NVDA'])
   })
 })
@@ -98,9 +98,9 @@ describe('the maintained watchlist', () => {
     seedLists()
     await ensureInternalWatchlistSymbols(env, ['ZZZ'], 'owner', new Date('2026-08-26T11:00:00.000Z'))
 
-    const focus = await readInternalWatchlistFocus(env, ['PLTR'], 3)
+    const focus = await readInternalWatchlistFocus(env, 2)
 
-    expect(focus).toEqual(['PLTR', 'ZZZ', 'NVDA'])
+    expect(focus).toEqual(['ZZZ', 'NVDA'])
     expect(JSON.stringify(focus)).not.toContain('private')
     expect(JSON.stringify(focus)).not.toContain('tastytrade')
   })
@@ -119,7 +119,7 @@ describe('the maintained watchlist', () => {
     await ensureInternalWatchlistSymbols(env, ['MSFT'], 'owner', new Date('2026-08-25T10:00:00.000Z'))
     await ensureInternalWatchlistSymbols(env, ['GOOG'], 'trade-intent', new Date('2026-08-25T10:00:00.000Z'))
 
-    await expect(readInternalWatchlistFocus(env, [], 4)).resolves.toEqual(['MSFT', 'GOOG', 'NVDA', 'TSLA'])
+    await expect(readInternalWatchlistFocus(env, 4)).resolves.toEqual(['MSFT', 'GOOG', 'NVDA', 'TSLA'])
   })
 
   it('keeps a searched curated name in its curated tier', async () => {
@@ -138,7 +138,7 @@ describe('the maintained watchlist', () => {
     await expect(readInternalWatchlistSymbolDetails(env, 'NVDA')).resolves.toMatchObject({ origin: 'visitor-search' })
 
     // Private list, then volume, then the search that earned its place, then the plain seed.
-    await expect(readInternalWatchlistFocus(env, [])).resolves.toEqual(['NVDA', 'TSLA', 'PLTR', 'AAPL'])
+    await expect(readInternalWatchlistFocus(env)).resolves.toEqual(['NVDA', 'TSLA', 'PLTR', 'AAPL'])
   })
 
   // The prune and the focus used to rank separately, and only the focus capped the volume list at
@@ -157,10 +157,10 @@ describe('the maintained watchlist', () => {
       volume,
     ))
 
-    await expect(readInternalWatchlistFocus(env, [], 1)).resolves.toEqual([deepVolume])
+    await expect(readInternalWatchlistFocus(env, 1)).resolves.toEqual([deepVolume])
     // An addition runs the prune in the same batch; it ranks the same way and drops nothing.
     await ensureInternalWatchlistSymbols(env, ['MSFT'], 'owner')
-    await expect(readInternalWatchlistFocus(env, [], 2)).resolves.toEqual(['MSFT', deepVolume])
+    await expect(readInternalWatchlistFocus(env, 2)).resolves.toEqual(['MSFT', deepVolume])
   })
 
   it('prunes only the maintained list and does not repopulate an explicit deletion', async () => {
@@ -183,7 +183,7 @@ describe('the maintained watchlist', () => {
 
     await removeInternalWatchlistSymbols(env, [symbols[0]!])
     await ensureInternalWatchlistSymbols(env, ['ZZZD'], 'owner')
-    await expect(readInternalWatchlistFocus(env, [], MAX_WATCHLIST_SYMBOLS))
+    await expect(readInternalWatchlistFocus(env, MAX_WATCHLIST_SYMBOLS))
       .resolves.toEqual(expect.not.arrayContaining([symbols[0]!]))
     expect(await readInternalWatchlist(env)).toHaveLength(MAX_WATCHLIST_SYMBOLS)
   })
@@ -398,7 +398,7 @@ describe("a member agent's remembered names", () => {
     expect(items).toHaveLength(MAX_WATCHLIST_SYMBOLS)
     expect(items.some((item) => item.symbol === 'ZZZA')).toBe(true)
     expect(items.filter((item) => item.origin === 'visitor-search')).toHaveLength(MAX_WATCHLIST_SYMBOLS - 3)
-    await expect(readInternalWatchlistFocus(env, [], 3)).resolves.toEqual(['ZZZA', 'ZZZB', 'ZZZC'])
+    await expect(readInternalWatchlistFocus(env, 3)).resolves.toEqual(['ZZZA', 'ZZZB', 'ZZZC'])
   })
 })
 

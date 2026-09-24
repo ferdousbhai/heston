@@ -17,7 +17,7 @@ const MAX_SOURCE_LISTS_PER_KIND = 100
 /**
  * The origins an automatic prune may evict: the broker seed, a reader's search, and a member
  * agent's `remember_symbols`, the three provenances the ranking places below every curated name
- * (tiers 3-7). Every other origin is a protected row that only an explicit removal deletes.
+ * (tiers 2-6). Every other origin is a protected row that only an explicit removal deletes.
  * Admission and pruning read this one list: when admission counted only the seed as evictable,
  * visitor searches filled the protected capacity and refused an owner or trade-intent addition
  * while the prune could still have evicted every one of them.
@@ -36,27 +36,22 @@ const PRUNABLE_ORIGINS_SQL = `(${PRUNABLE_ORIGINS.map((origin) => `'${origin}'`)
  * (one capped the options-volume list, the other did not) and the drift was a silent
  * correctness bug rather than a visible failure. Lower tiers rank first:
  *
- *   0  a priority symbol the caller names
- *   1  an owner addition
- *   2  any other protected origin — trade intent, or a stored scheduled-research or position-sync row
- *   3  a seed member of one of the owner's private broker lists
- *   4  a seed member of the public High Options Volume list, by its rank there
- *   5  a name a member's agent discussed, which yields to every curated name
- *   6  a reader's search, which earns its place but yields to a discussed name too
- *   7  any other seed member
+ *   0  an owner addition
+ *   1  any other protected origin — trade intent, or a stored scheduled-research or position-sync row
+ *   2  a seed member of one of the owner's private broker lists
+ *   3  a seed member of the public High Options Volume list, by its rank there
+ *   4  a name a member's agent discussed, which yields to every curated name
+ *   5  a reader's search, which earns its place but yields to a discussed name too
+ *   6  any other seed member
  *
- * Tiers 3 and 4 read list membership from the retained seed tables, not from the row's origin, so
+ * Tiers 2 and 3 read list membership from the retained seed tables, not from the row's origin, so
  * a search or discussion that overwrote a seed row's origin (see INTERNAL_WATCHLIST_ORIGINS) keeps
- * the name in its curated tier rather than demoting it to tier 5 or 6.
+ * the name in its curated tier rather than demoting it to tier 4 or 5.
  *
- * Ties break by options-volume rank, then most recently touched, then symbol. The one bound
- * parameter is a JSON array of priority symbols, so its length is not capped by D1's
- * bound-parameter limit.
+ * Ties break by options-volume rank, then most recently touched, then symbol. The text binds no
+ * parameter, so a statement built on it binds only its own.
  */
-const RANKED_ITEMS_CTE = `WITH priority AS (
-       SELECT value AS symbol FROM json_each(?)
-     ),
-     private_symbols AS (
+const RANKED_ITEMS_CTE = `WITH private_symbols AS (
        SELECT DISTINCT upper(e.broker_symbol) AS symbol
        FROM internal_watchlist_seed_entries e
        JOIN internal_watchlist_seed_sources s ON s.id = e.source_id
@@ -78,14 +73,13 @@ const RANKED_ITEMS_CTE = `WITH priority AS (
      ranked AS (
        SELECT i.symbol, i.updated_at, v.volume_rank,
          CASE
-           WHEN i.symbol IN (SELECT symbol FROM priority) THEN 0
-           WHEN i.origin = 'owner' THEN 1
-           WHEN i.origin NOT IN ${PRUNABLE_ORIGINS_SQL} THEN 2
-           WHEN p.symbol IS NOT NULL THEN 3
-           WHEN v.volume_rank IS NOT NULL THEN 4
-           WHEN i.origin = 'agent-discussion' THEN 5
-           WHEN i.origin = 'visitor-search' THEN 6
-           ELSE 7
+           WHEN i.origin = 'owner' THEN 0
+           WHEN i.origin NOT IN ${PRUNABLE_ORIGINS_SQL} THEN 1
+           WHEN p.symbol IS NOT NULL THEN 2
+           WHEN v.volume_rank IS NOT NULL THEN 3
+           WHEN i.origin = 'agent-discussion' THEN 4
+           WHEN i.origin = 'visitor-search' THEN 5
+           ELSE 6
          END AS tier
        FROM internal_watchlist_items i
        LEFT JOIN private_symbols p ON p.symbol = i.symbol
@@ -120,7 +114,7 @@ const INTERNAL_WATCHLIST_ORIGINS = [
   // overwrites it, and it overwrites only the retired seed's. That overwrite costs the name no
   // rank, because the ranking reads private and volume list membership from the retained seed
   // tables rather than from this column; it only lifts a seed member on no ranked list from
-  // tier 7 to 6. A searched symbol never outranks a discussed, researched or curated one.
+  // tier 6 to 5. A searched symbol never outranks a discussed, researched or curated one.
   'visitor-search',
   // A member agent's `remember_symbols`. It is prunable (see PRUNABLE_ORIGINS), so it ranks below
   // every protected origin here: were it stronger than one, a member could turn a protected row
@@ -203,7 +197,7 @@ function pruneStatement(db: D1Database): D1PreparedStatement {
        AND symbol NOT IN (
          SELECT symbol FROM ranked ORDER BY ${RANK_ORDER} LIMIT ${MAX_WATCHLIST_SYMBOLS}
        )`,
-  ).bind(JSON.stringify([]))
+  )
 }
 
 function originPriority(origin: InternalWatchlistOrigin): number {
@@ -277,7 +271,7 @@ export async function ensureInternalWatchlistSymbols(
     upsertSymbolsStatement(db, normalized, parsedOrigin, timestamp),
     pruneStatement(db),
   ])
-  const kept = await readInternalWatchlistFocus(env, [], MAX_WATCHLIST_SYMBOLS)
+  const kept = await readInternalWatchlistFocus(env, MAX_WATCHLIST_SYMBOLS)
   await publishInternalWatchlistUniverse(env, now)
   const retained = new Set(kept)
   return normalized.filter((symbol) => retained.has(symbol))
@@ -338,14 +332,13 @@ export async function readInternalWatchlist(env: AppEnv): Promise<InternalWatchl
  */
 export async function readInternalWatchlistFocus(
   env: AppEnv,
-  positionSymbols: readonly string[],
   limit = MAX_WATCHLIST_SYMBOLS,
 ): Promise<string[]> {
   if (!Number.isSafeInteger(limit) || limit < 0) throw new CallerVisibleError('InternalWatchlist:invalid-focus-limit')
   const result = await requiredDatabase(env).prepare(
     `${RANKED_ITEMS_CTE}
      SELECT symbol FROM ranked ORDER BY ${RANK_ORDER} LIMIT ?`,
-  ).bind(JSON.stringify(normalizedSymbols(positionSymbols)), limit).all<{ symbol: string }>()
+  ).bind(limit).all<{ symbol: string }>()
   return z.array(z.object({ symbol: SymbolSchema })).max(limit).parse(result.results).map((row) => row.symbol)
 }
 

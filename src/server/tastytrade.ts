@@ -519,7 +519,7 @@ async function loadMarketSnapshot(env: AppEnv): Promise<MarketSnapshot> {
   // longer read positions. Every write to the list already holds it to its cap in the same
   // batch, so this path only reads the focus. The one publish of the public universe is below,
   // after the build succeeds.
-  const symbols = await readInternalWatchlistFocus(env, [], MAX_WATCHLIST_SYMBOLS)
+  const symbols = await readInternalWatchlistFocus(env, MAX_WATCHLIST_SYMBOLS)
   const privateWatchlist: Watchlist = {
     id: 'watchlist',
     kind: 'private',
@@ -776,7 +776,7 @@ async function loadStoredPublicMarketSnapshot(env: AppEnv): Promise<StoredPublic
 /** The owner's default view, served entirely from the market store. */
 async function loadStoredMarketSnapshot(env: AppEnv): Promise<MarketSnapshot | undefined> {
   if (!env.DB) return undefined
-  const focusSymbols = await readInternalWatchlistFocus(env, [], MAX_WATCHLIST_SYMBOLS)
+  const focusSymbols = await readInternalWatchlistFocus(env, MAX_WATCHLIST_SYMBOLS)
   const parts = await storedSnapshotParts(env, focusSymbols)
   if (!parts) return undefined
   return MarketSnapshotSchema.parse({

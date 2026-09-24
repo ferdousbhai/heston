@@ -41,7 +41,7 @@ export async function refreshYearCandles(env: AppEnv, asOf = new Date()): Promis
   // moment the list — which grows on its own through visitor search — outgrew the read. The
   // focus is priority-ordered, so the read's budget goes to the names ranked first, and the
   // replace below retires the rows of every name that fell out of that budget.
-  const symbols = await readInternalWatchlistFocus(env, [], MAX_DAILY_CANDLE_SYMBOLS)
+  const symbols = await readInternalWatchlistFocus(env, MAX_DAILY_CANDLE_SYMBOLS)
   if (!symbols.length) return { status: 'refreshed', symbolCount: 0 }
   const result = await env.MARKET_FEED.getByName(MARKET_FEED_INSTANCE).readDailyCandles(symbols)
   const series = new Map(result.series.map(({ symbol, closes }) => [symbol, closes]))
