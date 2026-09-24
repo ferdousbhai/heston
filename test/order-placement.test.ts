@@ -4,6 +4,7 @@ import { BrokerageSubmissionUnknownError } from '../src/server/brokerage'
 import { BrokerCredentialMissingError } from '../src/server/broker-credential'
 import { BrokerRefusalError, CallerVisibleError } from '../src/server/caller-visible-error'
 import { BrokerCancellationAmbiguousError, resetBrokerAdapters, setBrokerAdapters } from '../src/server/brokers'
+import { tastytradeAdapter } from '../src/server/brokers/tastytrade'
 import { cancelBrokerageOrder, placeBrokerageOrder } from '../src/server/order-placement'
 import { PortfolioRiskError } from '../src/server/portfolio-risk'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
@@ -159,6 +160,20 @@ describe('brokerage order placement', () => {
 
     await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential, waitUntil))
       .resolves.toEqual({ detail: 'Order #123 accepted by tastytrade.', orderId: '123' })
+  })
+
+  it('resolves the account it places for through the adapter', async () => {
+    // Account discovery is an account read, and every account read goes through a `BrokerAdapter`.
+    const brokerage = brokerSubmitting(async () => ACCEPTED_ORDER_RESPONSE)
+    const resolveAccountRef = vi.fn(async () => ({ accountNumber: 'ADAPTER789', broker: 'tastytrade' as const }))
+    setBrokerAdapters({ tastytrade: { ...tastytradeAdapter, resolveAccountRef } })
+    const db = await freshStore()
+
+    await expect(placeBrokerageOrder({ DB: db.database }, EQUITY_ORDER, brokerCredential, waitUntil))
+      .resolves.toMatchObject({ orderId: '123' })
+    expect(resolveAccountRef).toHaveBeenCalledWith({ DB: db.database }, brokerCredential)
+    expect(brokerage.resolveAccountNumber).not.toHaveBeenCalled()
+    expect(rows(db)).toMatchObject([{ account_number: 'ADAPTER789' }])
   })
 
   it('settles the claimed row as executed with the broker order id', async () => {

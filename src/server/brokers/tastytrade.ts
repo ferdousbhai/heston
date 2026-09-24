@@ -147,9 +147,9 @@ async function resolveAccountRef(
   env: AppEnv,
   credential: BrokerCredential | undefined,
 ): Promise<BrokerAccountRef> {
-  // Account discovery stays on the `brokerApi()` transport seam beside `tastyRequest`, because
-  // order placement still reaches for it there. The adapter owns the ref shape every account
-  // reader above it uses.
+  // Account discovery is transport -- the customer-accounts read beside `tastyRequest` on the
+  // `brokerApi()` seam. The adapter owns the ref shape every account reader above it uses,
+  // placement and cancellation included.
   return { accountNumber: await brokerApi().resolveAccountNumber(env, credential), broker: 'tastytrade' }
 }
 

@@ -8,7 +8,6 @@ import { type JsonValue } from '../domain/json-payload'
 import { type AppEnv } from './env'
 import { PortfolioRiskError } from './portfolio-risk'
 import { brokerAdapterFor } from './brokers'
-import { brokerApi } from './tastytrade'
 import { internalWatchlistWriter } from './internal-watchlist'
 import { BrokerCredentialMissingError, type BrokerCredential } from './broker-credential'
 
@@ -51,7 +50,8 @@ export async function placeBrokerageOrder(
   if (adapter.id !== 'tastytrade') {
     throw new PortfolioRiskError(`Order placement is not implemented for ${adapter.id}. Account reads work; placing an order does not.`)
   }
-  const accountNumber = await brokerApi().resolveAccountNumber(env, credential)
+  // Account discovery is an account read, so it goes through the adapter like cancellation's.
+  const { accountNumber } = await adapter.resolveAccountRef(env, credential)
   // The quarantine check is the write-ahead claim inside `executeOrderPlacement`, under the
   // mutation lease and atomic in D1; a check out here would race a concurrent placement.
   return executeOrderPlacement(
