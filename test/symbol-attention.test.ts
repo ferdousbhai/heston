@@ -8,6 +8,7 @@ import {
 } from '../src/server/symbol-attention'
 import { CATALYST_FAILED_RETRY_MS } from '../src/server/catalyst-refresh'
 import { instrumentCatalogFromPayload, persistInstrumentCatalog } from '../src/server/instrument-catalog'
+import { unreadableBrowser } from './fake-browser'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 
 /**
@@ -37,7 +38,12 @@ async function attemptedSymbols(
     },
   })
   try {
-    await noteSymbolAttention({ DB: database, EXA_API_KEY: { get: async () => 'exa-key' } }, call)
+    // A search is only bought with a browser to bind its answer; these searches fail before any
+    // page is read, so the browser never opens one.
+    await noteSymbolAttention(
+      { BROWSER: unreadableBrowser(), DB: database, EXA_API_KEY: { get: async () => 'exa-key' } },
+      call,
+    )
   } finally {
     store.close()
   }

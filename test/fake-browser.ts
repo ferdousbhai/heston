@@ -22,3 +22,25 @@ export function unreadableBrowser(): BrowserRun {
     quickAction: async () => new Response('', { status: 502 }),
   }
 }
+
+/**
+ * The same binding serving a different page per address, for a producer that reads several. An
+ * address it does not hold does not open, and every address asked for is recorded in `reads`.
+ */
+export function pagesBrowser(pages: Readonly<Record<string, string>>): BrowserRun & { reads: string[] } {
+  const reads: string[] = []
+  // SAFETY: `quickAction` is BrowserRun's overloaded method; this one implementation answers the
+  // markdown overload the retention module calls, and every other method throws.
+  return {
+    fetch: unsupported,
+    quickAction: async (_action: string, options: { url?: string }) => {
+      const url = options.url ?? ''
+      reads.push(url)
+      const markdown = pages[url]
+      return markdown === undefined
+        ? new Response('', { status: 502 })
+        : Response.json({ result: markdown, success: true })
+    },
+    reads,
+  } as BrowserRun & { reads: string[] }
+}

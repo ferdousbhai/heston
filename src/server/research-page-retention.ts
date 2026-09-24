@@ -30,6 +30,13 @@ export function truncatedReadMiss(page: ReadPage): string {
   return `not found in a read cut at ${page.readCharacters} characters of`
 }
 const MAX_PAGE_RESPONSE_BYTES = 4_000_000
+/**
+ * How long one page may take to load: Browser Run's own default navigation timeout, passed
+ * explicitly so a caller budgeting wall time (`CATALYST_RUN_BUDGET_MS`) derives from a bound this
+ * module sets rather than one it assumes. It bounds the navigation, not the whole call -- acquiring
+ * a browser and extracting the markdown come on top, which a budget states as its own allowance.
+ */
+export const PAGE_NAVIGATION_TIMEOUT_MS = 30_000
 
 /**
  * One page read through the Worker's browser, used wherever a model-authored citation is
@@ -43,7 +50,10 @@ export async function readResearchPageMarkdown(
   key: string,
 ): Promise<ReadPage | undefined> {
   try {
-    const response = await browser.quickAction('markdown', { url: key })
+    const response = await browser.quickAction('markdown', {
+      gotoOptions: { timeout: PAGE_NAVIGATION_TIMEOUT_MS },
+      url: key,
+    })
     if (!response.ok) return undefined
     const payload = await readBoundedJson(response, MAX_PAGE_RESPONSE_BYTES, 'ResearchReadPage')
     const parsed = z.object({ result: z.string(), success: z.literal(true) }).safeParse(payload).data
@@ -74,8 +84,10 @@ export interface RetainedCitedPages {
  *
  * Only a cited page is read, so the browser budget of one call is bounded by how many citations
  * the caller admits: the catalyst recording's `MAX_RECORDED_CATALYSTS`, one page per event at
- * most, and one page for a piece of evidence. A separate page cap here sat above that bound and
- * could never fire.
+ * most; one page for a piece of evidence; and for an Exa catalyst search, one page per call, made
+ * once for each distinct page an event cites among the search's results -- so at most
+ * `MAX_EXA_RESULTS` per run, however many of its `MAX_EXA_EVENTS` cite them. A separate page cap
+ * here sat above those bounds and could never fire.
  *
  * Indices are not deduplicated: a bad address cited twice is named once per citation, which is
  * what an agent fixes. Distinct pages are, because a page that will not open is one fact about

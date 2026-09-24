@@ -12,6 +12,7 @@ import {
   attemptCatalystRefresh,
   refreshCatalystsForSymbol,
 } from '../src/server/catalyst-refresh'
+import { markdownBrowser } from './fake-browser'
 import { migrationStore, type SqliteD1Store } from './sqlite-d1'
 
 const NOW = new Date('2026-09-01T13:00:00.000Z')
@@ -53,10 +54,7 @@ function stubExa() {
         }],
       },
     },
-    results: [{
-      text: 'The investor day is scheduled for Oct. 14.',
-      url: 'https://ir.bloomenergy.com/events',
-    }],
+    results: [{ url: 'https://ir.bloomenergy.com/events' }],
   }))
   vi.stubGlobal('fetch', fetchMock)
   return fetchMock
@@ -65,7 +63,12 @@ function stubExa() {
 const exaKey: SecretsStoreSecret = { get: async () => 'exa-key' }
 
 function env(store: SqliteD1Store) {
-  return { DB: store.database, EXA_API_KEY: exaKey }
+  // The Worker's own read of the cited page, which is what the search's dates bind against.
+  return {
+    BROWSER: markdownBrowser('The investor day is scheduled for Oct. 14.'),
+    DB: store.database,
+    EXA_API_KEY: exaKey,
+  }
 }
 
 function catalystRows(store: SqliteD1Store): unknown[] {
@@ -96,6 +99,26 @@ describe('catalyst coverage seeded by favorites', () => {
     expect(store.sqlite.prepare('SELECT status, catalyst_count FROM catalyst_runs').all())
       .toEqual([{ status: 'failed', catalyst_count: 0 }])
     store.close()
+  })
+
+  it('records a run without page reading as failed, and buys no search', async () => {
+    // A complete, empty receipt would hold the symbol for the whole window on a search that bound
+    // nothing because it could not read.
+    const store = await storeWithCatalog()
+    const fetchMock = stubExa()
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      const { BROWSER: _browser, ...withoutBrowser } = env(store)
+
+      await expect(refreshCatalystsForSymbol(withoutBrowser, 'BE', NOW))
+        .resolves.toEqual({ catalysts: [], ran: false, reason: 'failed' })
+      expect(store.sqlite.prepare('SELECT status, detail FROM catalyst_runs').get())
+        .toEqual({ status: 'failed', detail: 'CatalystSearch:page-reading-unavailable' })
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(catalystRows(store)).toEqual([])
+    } finally {
+      store.close()
+    }
   })
 
   it('buys no second search inside the refresh window, and one again after it', async () => {

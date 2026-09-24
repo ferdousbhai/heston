@@ -16,29 +16,39 @@ import {
   type CatalystCandidateBinding,
   type ResearchCatalystCandidate,
 } from './research-catalyst-output'
-import { type RetainedPage } from './research-page-retention'
+import { type RetainedPage, retainCitedPages } from './research-page-retention'
 import { citedPageKey } from './research-url'
 import { readStoredSecret } from './secrets'
 
 /**
  * Exa searches the web and, given a JSON schema, synthesizes one structured answer from the
- * pages it read. That is the whole catalyst producer: a symbol goes in, dated events with
- * the page each came from come back under `output.content`, beside the text Exa returned for
- * every page it read.
+ * pages it read. A symbol goes in; dated events, each naming the page it came from, come back
+ * under `output.content`, beside the list of pages the search returned.
  *
- * A synthesized answer is still model text, so an event is kept only when its date is bound
- * to a page this run actually read: the text Exa returned for the cited page has to state that
- * date. Exa also returns an `output.grounding` list naming the pages that support each field,
- * and it is deliberately not read: it is the same model vouching for its own answer, and model
- * output never establishes a citation here. Reporting routinely writes "Sept. 1" where the
- * event says 2026-09-01, which is why the text is read the way every other catalyst binder
- * reads it -- a year-less month-day binds inside the horizon, where it can name only one date --
- * and by the same code: `bindCatalystCandidates`.
+ * A synthesized answer is still model text, and so is anything else Exa says about a page --
+ * including the page text it can return with each result, which is Exa's copy of a read this
+ * Worker never made. So an event is kept only when its date is bound to a page this Worker read
+ * itself, in this run, through its own browser (`retainCitedPages`), exactly as a member's
+ * `record_catalysts` and `record_evidence` are. Exa's results decide only which pages are worth
+ * that read: an event citing a page the search did not return was not read from anything Exa
+ * shows, so it is refused without spending a browser read on an address the model chose. The
+ * result text is not requested at all -- it bound nothing and was billed per page.
+ *
+ * Exa also returns an `output.grounding` list naming the pages that support each field, and it is
+ * deliberately not read: it is the same model vouching for its own answer, and model output never
+ * establishes a citation here. Reporting routinely writes "Sept. 1" where the event says
+ * 2026-09-01, which is why the text is read the way every other catalyst binder reads it -- a
+ * year-less month-day binds inside the horizon, where it can name only one date -- and by the same
+ * code: `bindCatalystCandidates`.
  */
 const EXA_SEARCH_URL = 'https://api.exa.ai/search'
 const MAX_EXA_RESPONSE_BYTES = 2 * 1024 * 1024
-const MAX_EXA_RESULTS = 8
-export const MAX_RESULT_CHARACTERS = 4_000
+/**
+ * How many pages one search returns, and so -- since only a returned page that an event cites is
+ * re-read -- the most browser reads one run makes. A response listing more than it was asked for
+ * is refused rather than trimmed, so the bound holds structurally.
+ */
+export const MAX_EXA_RESULTS = 8
 /** An allocation bound on the untrusted events array; the response is already byte-bounded above. */
 const MAX_EXA_EVENTS = 50
 /**
@@ -71,11 +81,8 @@ const EXA_OUTPUT_SCHEMA = {
   type: 'object',
 } as const
 
-/** Only what the binding check reads: the page's URL, and the text Exa returned for it. */
-const ExaResultSchema = z.object({
-  text: z.string().optional(),
-  url: z.string(),
-})
+/** Only what choosing the pages to read needs: each returned page's address. */
+const ExaResultSchema = z.object({ url: z.string() })
 
 const ExaResponseSchema = z.object({
   output: z.object({
@@ -83,7 +90,7 @@ const ExaResponseSchema = z.object({
   }).optional(),
   // No default: a response without the pages it read is not a search that read none, and
   // synthesizing an empty list here would store "searched, empty" for a search that never ran.
-  results: z.array(ExaResultSchema),
+  results: z.array(ExaResultSchema).max(MAX_EXA_RESULTS),
 })
 
 const ExaEventSchema = z.object({
@@ -113,8 +120,9 @@ async function requestExaSearch(env: AppEnv, symbol: string, name: string): Prom
     // investor-relations calendar, which is neither news nor recently published. Live runs
     // with those filters returned nothing for two of three symbols and a syndicated repost
     // for the third; without them the same searches cite the companies' own IR pages.
+    // No `contents`: the synthesis does not need page text returned to us, and text Exa read is
+    // not text this Worker read, so it could bind nothing.
     body: JSON.stringify({
-      contents: { text: { maxCharacters: MAX_RESULT_CHARACTERS } },
       numResults: MAX_EXA_RESULTS,
       outputSchema: EXA_OUTPUT_SCHEMA,
       query: catalystQuery(symbol, name),
@@ -130,9 +138,9 @@ async function requestExaSearch(env: AppEnv, symbol: string, name: string): Prom
 
 /**
  * One catalyst search for one symbol, bound by the same rules as every other producer of
- * model-authored dates: every event that survives names a page Exa read on this run, carries a
- * date that page states, and falls inside the product's horizon. Everything else is reported as
- * rejected rather than stored.
+ * model-authored dates: every event that survives names a page this Worker read on this run,
+ * carries a date that page states, and falls inside the product's horizon. Everything else is
+ * reported as rejected rather than stored.
  */
 export async function runExaCatalystSearch(
   env: AppEnv,
@@ -141,38 +149,32 @@ export async function runExaCatalystSearch(
   now = new Date(),
 ): Promise<CatalystCandidateBinding> {
   const symbol = EquitySymbolSchema.parse(untrustedSymbol)
+  // Without page reading nothing can be bound, so the search is not bought. Throwing records the
+  // run as failed; returning an empty binding would record a complete search that found nothing
+  // and hold the symbol for the whole refresh window.
+  const browser = env.BROWSER
+  if (!browser) throw new Error('CatalystSearch:page-reading-unavailable')
   const payload = await requestExaSearch(env, symbol, name)
-  // Keyed by the canonical address every citation here is bound by, so an event citing a page
-  // with a tracking parameter or fragment Exa's result lacks still finds the text it was read
-  // from, and what is stored is the one address a reader is given for that page. Two results
-  // that canonicalize to one page are both text this run read from it. Exa cuts each result at
-  // `MAX_RESULT_CHARACTERS`, so text that long is a partial read, and the binder then says a
-  // missing date may sit past what was read.
-  const readAt = now.toISOString()
-  const pages = new Map<string, RetainedPage>()
-  for (const result of payload.results) {
-    const key = citedPageKey(result.url)
-    if (key === undefined) continue
-    const text = result.text ?? ''
-    const truncated = text.length >= MAX_RESULT_CHARACTERS
-    const read = pages.get(key)
-    pages.set(key, read === undefined
-      ? { markdown: text, readAt, readCharacters: MAX_RESULT_CHARACTERS, truncated }
-      : { ...read, markdown: `${read.markdown}\n${text}`, truncated: read.truncated || truncated })
-  }
   // An empty `events` is a search that found nothing; a missing one is a synthesis that did not
   // happen. Returning normally would record that as a complete, empty search and suppress the
   // symbol for the whole refresh interval, so it fails and the run's receipt says so.
   const events = payload.output?.content?.events
   if (!events) throw new Error('ExaOutputMissing')
 
+  // Keyed by the canonical address every citation here is bound by, so an event citing a page
+  // with a tracking parameter or fragment Exa's result lacks still names that page, and what is
+  // read and stored is the one address a reader is given for it.
+  const returnedPages = new Set<string>()
+  for (const result of payload.results) {
+    const key = citedPageKey(result.url)
+    if (key !== undefined) returnedPages.add(key)
+  }
+
   // Exa's own shape is refused here, under the event's number; everything the shared binder
   // checks -- the page, the horizon, the date on the page, duplicates -- is left to it, reported
   // under the same numbering.
   const refused: string[] = []
-  const candidates: ResearchCatalystCandidate[] = []
-  const sources: { sourceUrl: string }[] = []
-  const candidateNumbers: number[] = []
+  const cited: { candidate: ResearchCatalystCandidate; number: number; sourceUrl: string }[] = []
   for (const [index, untrusted] of events.entries()) {
     const parsed = ExaEventSchema.safeParse(untrusted)
     if (!parsed.success) {
@@ -187,17 +189,55 @@ export async function runExaCatalystSearch(
       refused.push(`catalyst ${index + 1}: source is not a citable https page address`)
       continue
     }
-    candidates.push({
-      date: event.date,
-      description: event.description ?? null,
-      kind: event.kind,
-      sourceIndex: sources.length,
-      symbol,
-      timing: event.timing ?? 'unknown',
-      title: event.title,
+    cited.push({
+      candidate: {
+        date: event.date,
+        description: event.description ?? null,
+        kind: event.kind,
+        sourceIndex: 0,
+        symbol,
+        timing: event.timing ?? 'unknown',
+        title: event.title,
+      },
+      number: index + 1,
+      sourceUrl,
     })
+  }
+
+  // Each distinct page an event cites and the search returned is read once, through the same
+  // `retainCitedPages` the member surfaces use, so its truncation bound comes from the browser
+  // read. At most `MAX_EXA_RESULTS` pages, read concurrently so the run's wall time grows by one
+  // page read rather than by one per page (`CATALYST_RUN_BUDGET_MS`). Each page is its own call: unlike a
+  // member's recording, this run is not all-or-nothing -- every event stands or falls on its own
+  // page -- so a page that will not open refuses the events that cite it, not the whole run.
+  const readAt = now.toISOString()
+  const toRead = [...new Set(cited.map(({ sourceUrl }) => sourceUrl))]
+    .filter((key) => returnedPages.has(key))
+  const pages = new Map<string, RetainedPage>()
+  const unopened = new Set<string>()
+  const reads = await Promise.all(toRead.map(async (key) => ({
+    key,
+    read: await retainCitedPages(browser, [{ sourceUrl: key }], [0], readAt),
+  })))
+  for (const { key, read } of reads) {
+    const page = read.retained.get(key)
+    if (page === undefined) unopened.add(key)
+    else pages.set(key, page)
+  }
+
+  const candidates: ResearchCatalystCandidate[] = []
+  const sources: { sourceUrl: string }[] = []
+  const candidateNumbers: number[] = []
+  for (const { candidate, number, sourceUrl } of cited) {
+    if (unopened.has(sourceUrl)) {
+      // The member path's wording for the same fact, under this event's number.
+      refused.push(`catalyst ${number}: page did not open: ${sourceUrl}`)
+      continue
+    }
+    // A page the search did not return was never read, and the binder refuses it as such.
+    candidates.push({ ...candidate, sourceIndex: sources.length })
     sources.push({ sourceUrl })
-    candidateNumbers.push(index + 1)
+    candidateNumbers.push(number)
   }
   const binding = bindCatalystCandidates(candidates, sources, pages, now, 'exa', candidateNumbers)
   return { catalysts: binding.catalysts, rejected: [...refused, ...binding.rejected] }

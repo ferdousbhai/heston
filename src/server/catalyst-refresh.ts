@@ -4,6 +4,7 @@ import { EquitySymbolSchema, isTradeableInstrument } from '../domain/instrument'
 import { type CatalystRefresh } from '../domain/catalyst'
 import { type CatalystProvider, persistResearchCatalysts } from './catalysts'
 import { EXA_REQUEST_TIMEOUT_MS, runExaCatalystSearch } from './catalyst-research-exa'
+import { PAGE_NAVIGATION_TIMEOUT_MS } from './research-page-retention'
 import { type AppEnv } from './env'
 import { readInstrumentCatalog } from './instrument-catalog'
 import { CallerVisibleError } from './caller-visible-error'
@@ -35,11 +36,12 @@ export const CATALYST_PROVIDER: CatalystProvider = 'exa'
 const MAX_RUN_DETAIL_LENGTH = 500
 
 /**
- * The work a run does besides the search: the catalog read before it, the secret read, and the
- * D1 persist and receipt write after it. None of those carries its own timeout, so this is a
- * stated allowance rather than a derived one -- as long again as the search itself, far more than
- * a handful of D1 statements take, and still short enough that a dead run frees its symbol within
- * the minute rather than the month.
+ * The work a run does besides the search and the page loads: the catalog read before it, the
+ * secret read, acquiring a browser and extracting each page's text, and the D1 persist and receipt
+ * write after it. None of those carries its own timeout, so this is a stated allowance rather than
+ * a derived one -- as long again as the search itself, far more than a handful of D1 statements
+ * take, and still short enough that a dead run frees its symbol within minutes rather than the
+ * month.
  */
 const RUN_OVERHEAD_ALLOWANCE_MS = EXA_REQUEST_TIMEOUT_MS
 /**
@@ -52,7 +54,10 @@ const RUN_OVERHEAD_ALLOWANCE_MS = EXA_REQUEST_TIMEOUT_MS
  * older instant: a row of a kind the newer run also reported reads as superseded, and a kind it
  * did not report stands, exactly as an earlier run's would.
  */
-export const CATALYST_RUN_BUDGET_MS = EXA_REQUEST_TIMEOUT_MS + RUN_OVERHEAD_ALLOWANCE_MS
+// The search's cited pages are re-read concurrently after it answers, so they add one page load's
+// navigation bound however many pages there are.
+export const CATALYST_RUN_BUDGET_MS = EXA_REQUEST_TIMEOUT_MS + PAGE_NAVIGATION_TIMEOUT_MS
+  + RUN_OVERHEAD_ALLOWANCE_MS
 /**
  * How long a `failed` receipt holds its symbol before another incidental search may be bought.
  * Readers retry a failed calendar whenever their window regains focus, and the route needs no
@@ -71,7 +76,7 @@ const HeldRunSchema = z.object({ status: z.enum(['running', 'complete', 'failed'
  * Three receipts hold a symbol back, each for its own span: a `complete` one inside the refresh
  * window; a `running` one inside the run budget, because that search may yet answer; and a
  * `failed` one inside the retry backoff. A `running` receipt past the budget is a run that died
- * mid-flight, so it ages out within the minute rather than standing in for a search that never
+ * mid-flight, so it ages out within minutes rather than standing in for a search that never
  * finished for the whole window. A held `failed` receipt answers `failed`, never `fresh`: the
  * last search bound nothing, so the calendar is still unknown rather than searched and empty.
  *
