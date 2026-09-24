@@ -181,14 +181,14 @@ function compactValueIsAbsent(value: JsonValue): boolean {
 const GREEKS_VALUE_SLOTS = ['time', 'price', 'volatility', 'delta', 'gamma', 'theta', 'rho', 'vega'] as const
 
 /**
- * True when a Greeks row names a well-formed contract and every slot that is not a number is an
- * absence marker. A present slot that is not a number, or a symbol that does not parse, is not
- * absence, and a row whose slots are all numbers yet failed the parse broke a range.
+ * True when a Greeks row names a well-formed contract and every value slot is an absence marker:
+ * the synthetic row dxLink writes for a contract it has no Greeks for. A row with any slot filled
+ * is an observation, and one that failed the parse is damage however many of its other slots
+ * say NaN -- reading it as absence would drop a partial or out-of-range reading silently.
  */
 function greeksRowIsAbsent(row: JsonObject): boolean {
   if (!OptionStreamerSymbolSchema.safeParse(row.eventSymbol).success) return false
-  const unreadable = GREEKS_VALUE_SLOTS.filter((slot) => jsonNumber(row[slot]) === undefined)
-  return unreadable.length > 0 && unreadable.every((slot) => compactValueIsAbsent(row[slot]))
+  return GREEKS_VALUE_SLOTS.every((slot) => compactValueIsAbsent(row[slot]))
 }
 
 /**
@@ -838,7 +838,7 @@ export class MarketFeedCore {
           this.greekRequests.accept(event)
           continue
         }
-        // A row naming a valid contract whose unreadable slots are all dxLink's absence markers
+        // A row naming a valid contract whose value slots are all dxLink's absence markers
         // is "no Greeks for this contract right now", not damage: it is skipped, and the reader
         // waiting on that symbol times out naming it rather than every browser losing the feed.
         // Nothing is filled in, since a consumer takes a Greeks event as a complete observation.
