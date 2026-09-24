@@ -13,12 +13,16 @@ import { type AppEnv } from './env'
 const CANONICAL_ORIGIN = 'https://heston.io'
 /**
  * `www` plus the retired tryspice.xyz brand, whose zone still routes here so its links keep
- * resolving. 308 preserves method and body, so a page load and a tool POST both survive the
- * hop — but a cross-origin redirect drops `Authorization`, so an agent still pointed at the old
- * host arrives unauthenticated and gets a 401 rather than silently working. That is deliberate:
- * a member has to re-point the config, and a visible 401 is how they find out.
+ * resolving. 308 preserves method and body, so a page load and a form POST both survive the hop.
  */
 const NON_CANONICAL_HOSTS = new Set(['www.heston.io', 'tryspice.xyz', 'www.tryspice.xyz'])
+/**
+ * The MCP endpoint on an old host is refused rather than redirected. A cross-origin redirect
+ * drops `Authorization`, and `/mcp` serves a header-less request as the anonymous caller, so a
+ * member's agent following the 308 would silently lose its account tools instead of failing.
+ * An error naming the canonical endpoint is what tells the member to re-point the config.
+ */
+const MCP_PATH = '/mcp'
 export const PUBLIC_RESPONSE_CACHE_CONTROL = `public, max-age=${PUBLIC_RESPONSE_MAX_AGE_SECONDS}, s-maxage=60`
 /**
  * An archived page is keyed by a market date and answered with the brief for the latest date
@@ -30,6 +34,17 @@ export const ARCHIVE_RESPONSE_CACHE_CONTROL = 'public, max-age=3600, s-maxage=86
 export function canonicalHostRedirect(request: Request): Response | undefined {
   const url = new URL(request.url)
   if (!NON_CANONICAL_HOSTS.has(url.hostname)) return undefined
+  if (url.pathname === MCP_PATH) {
+    const endpoint = `${CANONICAL_ORIGIN}${MCP_PATH}`
+    return Response.json({
+      error: {
+        code: -32_600,
+        message: `Heston's MCP endpoint is ${endpoint} — this host no longer serves it. Reconnect to ${endpoint}.`,
+      },
+      id: null,
+      jsonrpc: '2.0',
+    }, { headers: { 'Cache-Control': 'no-store' }, status: 404 })
+  }
   return Response.redirect(`${CANONICAL_ORIGIN}${url.pathname}${url.search}`, 308)
 }
 

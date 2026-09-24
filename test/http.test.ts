@@ -21,9 +21,25 @@ describe('canonical host redirect', () => {
 
   it('redirects the retired tryspice.xyz brand, apex and www alike', () => {
     for (const host of ['tryspice.xyz', 'www.tryspice.xyz']) {
-      const response = canonicalHostRedirect(new Request(`https://${host}/mcp?x=1`))
+      const response = canonicalHostRedirect(new Request(`https://${host}/brief?x=1`))
       expect(response?.status).toBe(308)
-      expect(response?.headers.get('location')).toBe('https://heston.io/mcp?x=1')
+      expect(response?.headers.get('location')).toBe('https://heston.io/brief?x=1')
+    }
+  })
+
+  it('refuses the MCP endpoint on an old host instead of redirecting it into the anonymous tier', async () => {
+    for (const host of ['www.heston.io', 'tryspice.xyz', 'www.tryspice.xyz']) {
+      const response = canonicalHostRedirect(new Request(`https://${host}/mcp`, {
+        body: JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'initialize' }),
+        headers: { authorization: 'Bearer hst_example', 'content-type': 'application/json' },
+        method: 'POST',
+      }))
+      expect(response?.status).toBe(404)
+      expect(response?.headers.get('location')).toBeNull()
+      expect(await response?.json()).toMatchObject({
+        error: { message: expect.stringContaining('https://heston.io/mcp') },
+        jsonrpc: '2.0',
+      })
     }
   })
 })
