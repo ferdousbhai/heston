@@ -37,13 +37,23 @@ const ANNOTATIONS = {
   read_market_metrics: read('Read market metrics', true),
   read_option_greeks: read('Read option Greeks', true),
   read_price_history: read('Read price history', true),
-  search_symbols: read('Search symbols', true),
   // Reads answered entirely from Heston's own stores.
   read_catalysts: read('Read catalysts', false),
   read_daily_brief: read('Read the daily brief', false),
   read_watchlist: read('Read the watchlist', false),
 
   // Writes.
+  search_symbols: {
+    // Annotations are per name, and both tiers share this one, so it carries the stricter of the
+    // two. The signed-in search is a pure read. The anonymous one is the website's search: a name
+    // that resolves is admitted to the shared watchlist as prunable visitor-search and the public
+    // universe is republished. Additive, and searching the same name again admits nothing new.
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+    readOnlyHint: false,
+    title: 'Search symbols',
+  },
   place_brokerage_order: {
     // The one tool here that spends money. Calling it twice places two orders, which is
     // precisely what `idempotentHint: false` is for.

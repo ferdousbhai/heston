@@ -482,6 +482,11 @@ describe('MCP tool annotations', () => {
           destructiveHint: false, idempotentHint: true, readOnlyHint: false,
         })
       }
+      // The anonymous search admits names to the shared watchlist, and both tiers share the
+      // name, so it must not be advertised as read-only.
+      expect(byName.get('search_symbols')).toMatchObject({
+        destructiveHint: false, idempotentHint: true, openWorldHint: true, readOnlyHint: false,
+      })
       // Reads must never be advertised as writes.
       for (const readOnly of ['read_market_metrics', 'find_option_contracts', 'read_watchlist']) {
         expect(byName.get(readOnly)).toMatchObject({ readOnlyHint: true })
