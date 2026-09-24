@@ -1,9 +1,10 @@
 import { marketDate } from '../domain/catalyst'
 import { isCashOpenMinute } from '../domain/market'
 import { type AppEnv } from './env'
-import { readInternalWatchlistFocus } from './internal-watchlist'
 import { MARKET_FEED_INSTANCE, MAX_DAILY_CANDLE_SYMBOLS } from './market-feed-contracts'
+import { loadStoredPublicMarketUniverse } from './public-market-universe'
 import { ConfigurationError } from './secrets'
+import { readStoredMarketRecords } from './tastytrade-market-store'
 import { replaceYearCandles } from './year-candle-store'
 
 /**
@@ -36,12 +37,7 @@ export async function refreshYearCandles(env: AppEnv, asOf = new Date()): Promis
   // tick's failure log says which one, rather than logging a count of zero that reads as success.
   if (!env.DB) throw new ConfigurationError('BindingMissing', 'DB')
   if (!env.MARKET_FEED) throw new ConfigurationError('BindingMissing', 'MARKET_FEED')
-  // The focus defaults to the watchlist's own `MAX_WATCHLIST_SYMBOLS`, but one year read admits
-  // only `MAX_DAILY_CANDLE_SYMBOLS`. Asking for the list's bound refused the whole refresh the
-  // moment the list — which grows on its own through visitor search — outgrew the read. The
-  // focus is priority-ordered, so the read's budget goes to the names ranked first, and the
-  // replace below retires the rows of every name that fell out of that budget.
-  const symbols = await readInternalWatchlistFocus(env, MAX_DAILY_CANDLE_SYMBOLS)
+  const symbols = await yearCandleSymbols(env)
   if (!symbols.length) return { status: 'refreshed', symbolCount: 0 }
   const result = await env.MARKET_FEED.getByName(MARKET_FEED_INSTANCE).readDailyCandles(symbols)
   const series = new Map(result.series.map(({ symbol, closes }) => [symbol, closes]))
@@ -50,4 +46,23 @@ export async function refreshYearCandles(env: AppEnv, asOf = new Date()): Promis
   // refreshing it, so it is not a refreshed symbol.
   const symbolCount = result.series.filter(({ closes }) => closes.length > 0).length
   return { status: 'refreshed', symbolCount }
+}
+
+/**
+ * The names one year read covers. The published universe can hold up to `MAX_WATCHLIST_SYMBOLS`,
+ * but one read admits only `MAX_DAILY_CANDLE_SYMBOLS`; asking for the whole list refused the
+ * refresh the moment the list -- which grows on its own through visitor search -- outgrew the
+ * read. Which names get a year series is public (the replace retires every other row), so the
+ * budget is chosen only from what a reader already sees: the published universe, ordered by the
+ * stored snapshot volume, most first, with ties and a missing volume falling back to the
+ * alphabet. Taking the head of the private ranking instead published which names the owner
+ * added, a trade touched, or a private broker list carried.
+ */
+async function yearCandleSymbols(env: AppEnv): Promise<string[]> {
+  const { symbols } = await loadStoredPublicMarketUniverse(env)
+  const { quotes } = await readStoredMarketRecords(env, symbols)
+  const volume = (symbol: string) => quotes.get(symbol)?.volume ?? -1
+  return [...symbols]
+    .sort((left, right) => volume(right) - volume(left) || (left < right ? -1 : left > right ? 1 : 0))
+    .slice(0, MAX_DAILY_CANDLE_SYMBOLS)
 }

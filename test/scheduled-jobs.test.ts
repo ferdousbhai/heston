@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MAX_WATCHLIST_SYMBOLS } from '../src/domain/watchlist'
 import { type AppEnv } from '../src/server/env'
 import { MAX_DAILY_CANDLE_SYMBOLS } from '../src/server/market-feed-contracts'
+import { publishInternalWatchlistUniverse } from '../src/server/public-market-universe'
 import { refreshYearCandles, yearCandleRefreshEvent } from '../src/server/scheduled-jobs'
 import { readYearAgoCloses, readYearCandleSeries, replaceYearCandles } from '../src/server/year-candle-store'
 import { migrationStore, seededItems, seedWatchlist, type SqliteD1Store } from './sqlite-d1'
@@ -17,8 +18,31 @@ beforeEach(async () => {
 afterEach(() => store.close())
 
 /** Fill the watchlist to its own bound, which is five times what one feed read may subscribe. */
-function seededWatchlist(): void {
+async function seededWatchlist(): Promise<void> {
   seedWatchlist(store, seededItems(Array.from({ length: MAX_WATCHLIST_SYMBOLS }, (_, index) => symbolAt(index))))
+  await publishInternalWatchlistUniverse({ DB: store.database })
+}
+
+function storeVolume(symbol: string, volume: number | null): void {
+  store.sqlite.prepare(
+    `INSERT INTO tastytrade_market_quotes
+       (symbol, price, previous_close, volume, provider_updated_at, observed_at)
+     VALUES (?, 10, 10, ?, '2026-09-04T20:00:00.000Z', '2026-09-04T20:00:00.000Z')`,
+  ).run(symbol, volume)
+}
+
+/** The symbols one refresh asks the feed for. */
+async function requestedYearSymbols(): Promise<readonly string[]> {
+  const readDailyCandles = vi.fn(async (symbols: readonly string[]) => ({
+    asOf: '2026-09-07T13:30:00.000Z',
+    series: symbols.map((symbol) => ({ symbol, closes: [] })),
+    source: 'tastytrade-dxlink' as const,
+  }))
+  await refreshYearCandles({
+    DB: store.database,
+    MARKET_FEED: { getByName: vi.fn(() => ({ fetch: vi.fn(), readDailyCandles, readOptionGreeks: vi.fn() })) },
+  }, new Date('2026-09-07T13:30:00.000Z'))
+  return readDailyCandles.mock.calls[0]![0]
 }
 
 describe('year candle refresh', () => {
@@ -32,7 +56,7 @@ describe('year candle refresh', () => {
       series: symbols.map((symbol) => ({ symbol, closes: [{ time: 1_786_000_000_000, sequence: 0, close: 100 }] })),
       source: 'tastytrade-dxlink' as const,
     }))
-    seededWatchlist()
+    await seededWatchlist()
     const env: AppEnv = {
       DB: store.database,
       MARKET_FEED: {
@@ -52,7 +76,7 @@ describe('year candle refresh', () => {
   })
 
   it('counts only the symbols whose series arrived with closes', async () => {
-    seededWatchlist()
+    await seededWatchlist()
     const readDailyCandles = vi.fn(async (symbols: readonly string[]) => ({
       asOf: '2026-09-07T13:30:00.000Z',
       series: symbols.map((symbol, index) => ({
@@ -74,7 +98,7 @@ describe('year candle refresh', () => {
   })
 
   it('retires the year row of a symbol that fell out of the refreshed focus', async () => {
-    seededWatchlist()
+    await seededWatchlist()
     const outside = symbolAt(MAX_WATCHLIST_SYMBOLS - 1)
     await replaceYearCandles(store.database, '2026-09-04', [outside], new Map([[outside, [{ time: 1, sequence: 0, close: 50 }]]]))
     const readDailyCandles = vi.fn(async (symbols: readonly string[]) => ({
@@ -93,6 +117,42 @@ describe('year candle refresh', () => {
 
     expect(readDailyCandles.mock.calls[0]![0]).not.toContain(outside)
     await expect(readYearAgoCloses(store.database, [outside])).resolves.toEqual(new Map())
+  })
+
+  // Which names carry a year series is public, so the budget must not be the head of the
+  // private ranking: an owner addition or a private broker list would show through it.
+  it('chooses the budgeted names by public volume, independent of private rank or origin', async () => {
+    const symbols = Array.from({ length: MAX_DAILY_CANDLE_SYMBOLS * 2 }, (_, index) => symbolAt(index))
+    // Volume rises with the index, so the highest-volume half is the second half; the first
+    // name has no volume and the last two tie.
+    symbols.forEach((symbol, index) => storeVolume(symbol, index === 0 ? null : Math.min(index, symbols.length - 2)))
+    const busiest = symbols.slice(MAX_DAILY_CANDLE_SYMBOLS)
+    const expected = [...busiest.slice(-2).sort(), ...busiest.slice(0, -2).reverse()]
+
+    // The private ranking puts the quiet half first: owner additions and a private broker list.
+    const quiet = symbols.slice(0, MAX_DAILY_CANDLE_SYMBOLS)
+    seedWatchlist(
+      store,
+      symbols.map((symbol, index) => ({ origin: index < 10 ? 'owner' as const : undefined, symbol })),
+      [{ entries: quiet.map((symbol) => ({ instrumentType: 'Equity', symbol })), kind: 'private', name: 'Private' }],
+    )
+    await publishInternalWatchlistUniverse({ DB: store.database })
+    const chosen = await requestedYearSymbols()
+    expect(chosen).toEqual(expected)
+
+    // Promote a different set of names privately; the public choice does not move.
+    store.sqlite.prepare("UPDATE internal_watchlist_items SET origin = 'trade-intent' WHERE symbol IN (?, ?, ?)")
+      .run(symbols[1], symbols[2], symbols[3])
+    store.sqlite.prepare("UPDATE internal_watchlist_items SET origin = 'visitor-search' WHERE origin = 'owner'").run()
+    await publishInternalWatchlistUniverse({ DB: store.database })
+    await expect(requestedYearSymbols()).resolves.toEqual(chosen)
+  })
+
+  it('falls back to the alphabet for names with no stored volume', async () => {
+    seedWatchlist(store, seededItems(['MSFT', 'AAPL', 'ZM']))
+    await publishInternalWatchlistUniverse({ DB: store.database })
+    storeVolume('ZM', 5)
+    await expect(requestedYearSymbols()).resolves.toEqual(['ZM', 'AAPL', 'MSFT'])
   })
 
   it('skips the off-season UTC fire rather than subscribing twice', async () => {
