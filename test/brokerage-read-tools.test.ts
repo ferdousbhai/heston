@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { Value } from 'typebox/value'
 
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { brokerCredential, stubBroker } from './broker-stub'
@@ -462,6 +463,21 @@ describe('brokerage read tools', () => {
   it('refuses at runtime a query of only whitespace and LIKE wildcards, as the schema does', async () => {
     await expect(searchSymbols({}, ' %_ ', 1, now)).rejects.toThrow('Symbol search query is invalid.')
     expect(tastytrade.tastyRequest).not.toHaveBeenCalled()
+  })
+
+  it('refuses a query that would be a dot segment of the broker path, at both tiers', async () => {
+    // `encodeURIComponent` leaves dots, so `/symbols/search/..` would reach another broker path.
+    const anonymous = createPublicMarketReadTools({}, () => undefined).find((tool) => tool.name === 'search_symbols')
+    for (const query of ['.', '..', ' .. ']) {
+      await expect(searchSymbols({}, query, 1, now)).rejects.toThrow('Symbol search query is invalid.')
+      expect(Value.Check(createSymbolSearchTool({}).parameters, { query })).toBe(false)
+      expect(Value.Check(anonymous!.parameters, { query })).toBe(false)
+    }
+    expect(tastytrade.tastyRequest).not.toHaveBeenCalled()
+    // A dot inside a real query is not a path segment of its own.
+    for (const query of ['...', 'BRK.B', '.A']) {
+      expect(Value.Check(createSymbolSearchTool({}).parameters, { query })).toBe(true)
+    }
   })
 
   it('finds only exact active Standard option contracts, and returns nothing a caller cannot act on', async () => {

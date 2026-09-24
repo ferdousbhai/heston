@@ -113,9 +113,12 @@ export const MarketMetricsReadParameters = Type.Object({
  * refuses. Printable ASCII, since both the broker path segment and the catalog's LIKE read it as
  * text; and at least one character that is not whitespace, `%` or `_`, because the public route
  * reads `%` and `_` as spaces (`searchableQuery`) and refuses what that leaves empty. A query of
- * only those characters names nothing at the broker either.
+ * only those characters names nothing at the broker either. Nor may it be `.` or `..` alone, even
+ * padded with the whitespace the signed-in search trims: `encodeURIComponent` leaves dots as they
+ * are, so `/symbols/search/..` is a dot segment that resolves to a different broker path, and its
+ * failure read as a broker outage rather than as the caller's query.
  */
-const SYMBOL_SEARCH_QUERY_PATTERN = '^(?=.*[^\\s%_])[\\x20-\\x7E]+$'
+const SYMBOL_SEARCH_QUERY_PATTERN = '^(?!\\s*\\.{1,2}\\s*$)(?=.*[^\\s%_])[\\x20-\\x7E]+$'
 const SYMBOL_SEARCH_QUERY = new RegExp(SYMBOL_SEARCH_QUERY_PATTERN)
 
 export const SymbolSearchQueryType = Type.String({
