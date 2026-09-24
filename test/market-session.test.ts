@@ -37,6 +37,18 @@ describe('the next bell from a tastytrade session', () => {
       data: { state: 'Closed', 'open-at': '2026-09-11T13:30:00.000Z', 'next-session': { 'open-at': 'Monday' } },
     }, NOW)).toThrow('TastytradeMarketSession:invalid-open-at')
   })
+
+  it('refuses a next session that is not an object rather than reading it as none', () => {
+    for (const next of ['2026-09-14T13:30:00.000Z', 1, [], true]) {
+      expect(() => marketOpensAtFromTastytradeSession({
+        data: { state: 'Closed', 'open-at': '2026-09-11T13:30:00.000Z', 'next-session': next },
+      }, NOW)).toThrow('TastytradeMarketSession:invalid-next-session')
+    }
+    // Null is the provider naming no next session, the same as leaving it out.
+    expect(marketOpensAtFromTastytradeSession({
+      data: { state: 'Closed', 'open-at': '2026-09-11T13:30:00.000Z', 'next-session': null },
+    }, NOW)).toBeUndefined()
+  })
 })
 
 describe('the current close from a tastytrade session', () => {

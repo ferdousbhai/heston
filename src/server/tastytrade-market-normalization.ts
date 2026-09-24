@@ -460,7 +460,13 @@ export function marketOpensAtFromTastytradeSession(payload: JsonValue, now = new
   const body = jsonObject(payload)
   const session = jsonObject(body?.data ?? payload)
   if (!session) return undefined
-  const next = jsonObject(session['next-session'])
+  // Absent (or null) is the provider naming no next session; present but not an object is a
+  // payload this reader cannot believe, refused like a bad instant rather than read as absent.
+  const nextValue = session['next-session']
+  const next = jsonObject(nextValue)
+  if (nextValue !== undefined && nextValue !== null && !next) {
+    throw new CallerVisibleError('TastytradeMarketSession:invalid-next-session')
+  }
   const candidates = [session['open-at'], next?.['open-at']]
     .map((value) => sessionInstant(value, 'invalid-open-at'))
     .filter((instant): instant is number => instant !== undefined && instant > now.getTime())
