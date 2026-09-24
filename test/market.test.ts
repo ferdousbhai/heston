@@ -11,7 +11,7 @@ import {
   volatilityVerdict,
 } from '../src/domain/market'
 import { marketSnapshotFixture } from './fixtures/market'
-import { normalizeTastytradeMarketTicker } from '../src/server/tastytrade-market-normalization'
+import { normalizeTastytradeMarketTicker, tickerFromStoredRecords } from '../src/server/tastytrade-market-normalization'
 
 /** The ticker the live snapshot path builds, without the stored records it persists beside it. */
 function liveTicker(...args: Parameters<typeof normalizeTastytradeMarketTicker>) {
@@ -207,6 +207,16 @@ describe('tastytrade normalization', () => {
     })
     expect(() => liveTicker('SPY', metrics, { ...quote, volume: 'many' }))
       .toThrow('invalid-volume')
+  })
+
+  it('reads lendability from the catalog on the live path, as the stored path does', () => {
+    const instrument = { symbol: 'SPY', description: 'SPDR S&P 500 ETF', lendability: 'Easy To Borrow', 'is-etf': true }
+    const live = normalizeTastytradeMarketTicker('SPY', { symbol: 'SPY', lendability: 'Locate Required' }, {
+      symbol: 'SPY', mark: '700', 'previous-close': '695', 'updated-at': '2026-08-13T13:31:00.000Z',
+    }, instrument)
+    const stored = tickerFromStoredRecords('SPY', live.metricRecord, live.quoteRecord, instrument)
+    expect(live.ticker.lendability).toBe('Easy To Borrow')
+    expect(stored.lendability).toBe(live.ticker.lendability)
   })
 
   it('keeps a 52-week range whose high equals its low and refuses only an inverted one', () => {

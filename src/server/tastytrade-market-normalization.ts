@@ -275,7 +275,10 @@ export function normalizeTastytradeMarketTicker(
   const quoteTime = Date.parse(quoteUpdatedAt ?? '')
   if (!Number.isFinite(quoteTime)) throw new CallerVisibleError('TastytradeSnapshot:invalid-updated-at')
   const updatedAt = new Date(quoteTime).toISOString()
-  const lendability = optionalText(metrics.lendability ?? instrument?.lendability, 'lendability')
+  // Borrow status is read from the instrument catalog alone, as the stored read reads it: the
+  // metrics table keeps no lendability, so preferring the metrics value here showed a live
+  // reader a status the stored snapshot of the same name could not.
+  const lendability = optionalText(instrument?.lendability, 'lendability')
   const ivIndex5DayChange = optionalPercentagePoints(
     metrics['implied-volatility-index-5-day-change'] ?? metrics.impliedVolatilityIndex5DayChange,
     'implied-volatility-index-5-day-change',
@@ -302,7 +305,9 @@ export function normalizeTastytradeMarketTicker(
   const metricRecord: TastytradeMarketMetricRecord = {
     // The same upcoming, provider-visible date the live ticker carries. Storing the raw
     // reported value instead let a stored read show an earnings date the live path filtered
-    // out, so the two read models are written from one derivation.
+    // out, so the two read models are written from one derivation. Every other field the two
+    // share comes from one source too; lendability, which neither record stores, is the
+    // catalog's in both.
     earningsDate,
     historicalVolatility30Day,
     ivHistoricalVolatility30DayDifference,
