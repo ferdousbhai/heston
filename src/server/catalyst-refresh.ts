@@ -18,10 +18,12 @@ import { CallerVisibleError } from './caller-visible-error'
  * are reachable, and that set was the whole instrument catalog -- thousands of names, spendable
  * by anyone with no credential, since attention has always been anonymous. Incidental attention
  * is therefore limited to the tracked watchlist: the universe this product actually serves, and
- * already bounded at `MAX_WATCHLIST_SYMBOLS`. Nothing legitimate loses coverage, because a name
- * reaches a reader by being on that list, and a searched name joins it before anyone can look at
- * its calendar. The owner's forced run is unaffected -- it is deliberate rather than incidental,
- * and already costs an owner credential.
+ * already bounded at `MAX_WATCHLIST_SYMBOLS`. A reader's search asks for its name to join that
+ * list, but the add is not guaranteed: it is refused when protected rows already fill the list,
+ * and a visitor-search row is the first a prune evicts. A name that did not stay on the list
+ * answers `untracked` here rather than buying a search, which is the bound working, not a fault.
+ * The owner's forced run is unaffected -- it is deliberate rather than incidental, and already
+ * costs an owner credential.
  */
 export const CATALYST_REFRESH_INTERVAL_DAYS = 30
 export const CATALYST_PROVIDER: CatalystProvider = 'exa'
