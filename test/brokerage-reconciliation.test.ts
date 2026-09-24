@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { matchesSubmittedOrder, reconcileUnknownBrokerageAction } from '../src/server/brokerage-reconciliation'
+import {
+  matchesSubmittedOrder,
+  reconcileUnknownBrokerageAction,
+  SUBMISSION_TRANSPORT_BUDGET_MS,
+} from '../src/server/brokerage-reconciliation'
+import { BROKER_CLOCK_SKEW_MS } from '../src/server/order-market'
 import { BrokerageSubmissionUnknownError } from '../src/server/brokerage'
 import { buildOrderPayload } from '../src/server/order-payload'
 import { placeBrokerageOrder } from '../src/server/order-placement'
@@ -40,25 +45,39 @@ describe('brokerage submission reconciliation', () => {
       'time-in-force': 'Day', 'updated-at': '2026-08-14T14:00:31.000Z',
       ...overrides,
     })
+    const claimed = { claimed: true, submittedAt: new Date('2026-08-14T14:00:00.000Z') }
     const row = rowOf()
     expect(matchesSubmittedOrder(
-      row, intended, new Date('2026-08-14T14:00:00.000Z'), new Date('2026-08-14T14:01:00.000Z'),
+      row, intended, claimed, new Date('2026-08-14T14:01:00.000Z'),
     )).toBe(true)
     expect(matchesSubmittedOrder(
-      rowOf({ price: '2.55' }), intended, new Date('2026-08-14T14:00:00.000Z'), new Date('2026-08-14T14:01:00.000Z'),
+      rowOf({ price: '2.55' }), intended, claimed, new Date('2026-08-14T14:01:00.000Z'),
     )).toBe(false)
     expect(matchesSubmittedOrder(
       rowOf({ 'received-at': '2026-08-13T14:00:00.000Z' }), intended,
-      new Date('2026-08-14T14:00:00.000Z'), new Date('2026-08-14T14:01:00.000Z'),
+      claimed, new Date('2026-08-14T14:01:00.000Z'),
     )).toBe(false)
 
     const replacementRow = rowOf({ 'replaces-order-id': '123' })
     expect(matchesSubmittedOrder(
-      replacementRow, intended, new Date('2026-08-14T14:00:00.000Z'), new Date('2026-08-14T14:01:00.000Z'), '123',
+      replacementRow, intended, claimed, new Date('2026-08-14T14:01:00.000Z'), '123',
     )).toBe(true)
     expect(matchesSubmittedOrder(
-      replacementRow, intended, new Date('2026-08-14T14:00:00.000Z'), new Date('2026-08-14T14:01:00.000Z'), 'other',
+      replacementRow, intended, claimed, new Date('2026-08-14T14:01:00.000Z'), 'other',
     )).toBe(false)
+
+    // A claimed row was written before its request left: only clock skew reaches back past it,
+    // while a legacy row, recorded after the request returned, keeps the wider record lag.
+    const earlier = rowOf({ 'received-at': '2026-08-14T13:58:30.000Z' })
+    const later = new Date('2026-08-14T15:00:00.000Z')
+    expect(matchesSubmittedOrder(earlier, intended, claimed, later)).toBe(false)
+    expect(matchesSubmittedOrder(earlier, intended, { ...claimed, claimed: false }, later)).toBe(true)
+    // Nothing the submission sent can arrive after its transport budget plus skew, however late
+    // the reconcile runs.
+    const pastBudget = new Date(claimed.submittedAt.getTime() + SUBMISSION_TRANSPORT_BUDGET_MS + BROKER_CLOCK_SKEW_MS + 1)
+    expect(matchesSubmittedOrder(rowOf({ 'received-at': pastBudget.toISOString() }), intended, claimed, later)).toBe(false)
+    const atBudget = new Date(pastBudget.getTime() - 1)
+    expect(matchesSubmittedOrder(rowOf({ 'received-at': atBudget.toISOString() }), intended, claimed, later)).toBe(true)
   })
 
   it('does not report an unavailable reconciliation store as no quarantined action', async () => {
@@ -112,6 +131,11 @@ describe('brokerage submission reconciliation', () => {
 
     await expect(placeBrokerageOrder(env, optionOrder, brokerCredential, () => undefined))
       .rejects.toBeInstanceOf(BrokerageSubmissionUnknownError)
+    // The submission carries the deadline armed before its claim, which bounds when it can arrive.
+    const submission = brokerage.tastyRequest.mock.calls.find(([, path, init]) => (
+      !String(path).endsWith('/dry-run') && init?.method === 'POST'
+    ))
+    expect(submission?.[2]?.signal).toBeInstanceOf(AbortSignal)
     const [claimed] = store.sqlite.prepare('SELECT submitted_at, resolved_payload_json FROM broker_submissions').all()
     expect(JSON.parse(String(claimed?.resolved_payload_json))).toEqual(intended)
 
@@ -297,6 +321,66 @@ describe('brokerage submission reconciliation', () => {
       .rejects.toThrow('TastytradeReconciliation:invalid-match')
     expect(store.sqlite.prepare('SELECT status, provider_order_id FROM broker_submissions').all())
       .toEqual([{ provider_order_id: null, status: 'unresolved' }])
+  })
+
+  describe('among identical tickets', () => {
+    const storedAction = JSON.stringify({
+      action: 'Buy to Open', expiry: '2026-09-18', kind: 'place_option_order', limitPrice: 2.5,
+      optionType: 'C', priceEffect: 'Debit', quantity: 2, strike: 600, underlying: 'SPY',
+    })
+    // Past the absence window, so a history with no candidate settles the row as never placed.
+    const claimedAt = new Date(Date.now() - 30 * 60_000)
+    const at = (offsetMs: number) => new Date(claimedAt.getTime() + offsetMs).toISOString()
+    const ticket = (id: string, receivedAt: string) => tastytradeOrderRecord({
+      id, legs: intended.legs, 'order-type': 'Limit', price: '2.50', 'price-effect': 'Debit',
+      'received-at': receivedAt, status: 'Filled', 'time-in-force': 'Day',
+    })
+
+    async function quarantined(history: BrokerOrderRecord[]) {
+      store = await migrationStore()
+      store.sqlite.prepare(
+        `INSERT INTO broker_submissions (id, broker_id, account_number, payload_json, resolved_payload_json, submitted_at, status)
+         VALUES ('row-1', 'tastytrade', 'TEST123', ?, ?, ?, 'unresolved')`,
+      ).run(storedAction, JSON.stringify(intended), claimedAt.toISOString())
+      setBrokerApi(stubBroker())
+      setBrokerAdapters({
+        tastytrade: {
+          ...tastytradeAdapter,
+          readOrderHistory: async () => ({ complete: true, orders: history }),
+          resolveAccountRef: async () => ({ accountNumber: 'TEST123', broker: 'tastytrade' }),
+        },
+      })
+      return store
+    }
+
+    it('does not take an order another submission already recorded as this one\'s', async () => {
+      // The same ticket placed ten seconds earlier settled executed as order 41; this claim never
+      // reached the broker, so 41 is the only echo in history and it is not this row's.
+      const sqlite = (await quarantined([ticket('41', at(-9_000))])).sqlite
+      sqlite.prepare(
+        `INSERT INTO broker_submissions
+           (id, broker_id, account_number, payload_json, resolved_payload_json, submitted_at, status, provider_order_id)
+         VALUES ('settled-1', 'tastytrade', 'TEST123', ?, ?, ?, 'executed', '41')`,
+      ).run(storedAction, JSON.stringify(intended), at(-10_000))
+
+      await expect(reconcileUnknownBrokerageAction({ DB: store!.database }, brokerCredential))
+        .resolves.toMatchObject({ actionId: 'row-1', status: 'failed' })
+      expect(sqlite.prepare('SELECT id, status, provider_order_id FROM broker_submissions ORDER BY id').all()).toEqual([
+        { id: 'row-1', provider_order_id: null, status: 'failed' },
+        { id: 'settled-1', provider_order_id: '41', status: 'executed' },
+      ])
+    })
+
+    it('settles on its own order when the same ticket was placed again later from elsewhere', async () => {
+      // Order 43 is an identical ticket entered in the broker's own app minutes afterwards: no
+      // request of this submission could have arrived that late.
+      const sqlite = (await quarantined([ticket('42', at(1_000)), ticket('43', at(5 * 60_000))])).sqlite
+
+      await expect(reconcileUnknownBrokerageAction({ DB: store!.database }, brokerCredential))
+        .resolves.toMatchObject({ providerOrderId: '42', status: 'executed' })
+      expect(sqlite.prepare('SELECT status, provider_order_id FROM broker_submissions').all())
+        .toEqual([{ provider_order_id: '42', status: 'executed' }])
+    })
   })
 
   it('identifies a legacy row\'s contract even once it is closing-only and inactive', async () => {

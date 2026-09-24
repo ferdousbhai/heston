@@ -84,7 +84,7 @@ export const BROKER_SYMBOL_CHUNK_SIZE = 100
  * provider figure: it keeps one hung request inside the public refresh claim, which assumes a
  * slow provider answers well within its lease.
  */
-const TASTYTRADE_REQUEST_TIMEOUT_MS = 20_000
+export const TASTYTRADE_REQUEST_TIMEOUT_MS = 20_000
 // An OAuth token response is a handful of fields; this bounds the buffered parse of one.
 const MAX_TASTYTRADE_AUTH_RESPONSE_BYTES = 256_000
 // A cached token must outlive any request it is handed to, so it is retired one request timeout

@@ -8,7 +8,8 @@ import { BROKER_ORDER_ID, type BrokerAccountRef, type BrokerOrderRecord } from '
 import { type JsonValue } from '../domain/json-payload'
 import { resolveStoredOrderFingerprint } from './order-intent'
 import { brokerAdapterFor, type BrokerAdapter } from './brokers'
-import { brokerApi } from './tastytrade'
+import { brokerApi, TASTYTRADE_REQUEST_TIMEOUT_MS } from './tastytrade'
+import { D1_MAX_BOUND_PARAMETERS } from './d1-limits'
 import { textResult } from './agent-tool-result'
 import { BrokerCredentialMissingError, type BrokerCredential } from './broker-credential'
 import { PortfolioRiskError } from './portfolio-risk'
@@ -148,35 +149,79 @@ const ReconcileParameters = Type.Object({}, { additionalProperties: false })
 // quarantined until this window passes with a complete history and no match.
 const FINAL_ABSENCE_DELAY_MS = 15 * 60_000
 /**
- * How far before `submitted_at` a matching order may have been received. A claimed row is
- * written before its request leaves, so for it only clock skew applies. Rows the earlier
- * quarantine path wrote recorded `submitted_at` after the request had returned -- up to its
- * transport timeout plus the post-lease write -- and must still match, or an absent-looking
+ * How far before `submitted_at` a matching order may have been received, for a row the earlier
+ * quarantine path wrote. Those rows recorded `submitted_at` after the request had returned -- up
+ * to its transport timeout plus the post-lease write -- and must still match, or an absent-looking
  * order would later be settled as never placed. This is a margin over that lag, not a figure
- * derived from one.
+ * derived from one. A claimed row (one carrying `resolved_payload_json`) is written before its
+ * request leaves, so for it only clock skew applies: a wider margin would reach back to an
+ * identical ticket placed just before it.
  */
 const SUBMISSION_RECORD_LAG_MS = 2 * 60_000
+/**
+ * How long after its claim a submission can still reach the broker. The placement arms this
+ * deadline before it writes the claim and hands it to the POST or PUT as its abort signal, so a
+ * request queued behind the account's request gate is abandoned at the same instant however long
+ * the gate held it. It is the transport's own per-request budget, not a new figure. It bounds a
+ * match from above: an identical ticket placed later, from the broker's own app, must not become
+ * a second match that keeps the account quarantined forever.
+ */
+export const SUBMISSION_TRANSPORT_BUDGET_MS = TASTYTRADE_REQUEST_TIMEOUT_MS
 /**
  * Order history is asked for by calendar date, which the broker reads in its own zone. Starting
  * one full day before the submission instant puts that instant on or after the start date in
  * any zone, since no zone offset reaches 24 hours.
  */
 const ORDER_HISTORY_DATE_MARGIN_MS = 24 * 60 * 60_000
+/** The account's broker and number bind two parameters; the rest carry candidate order ids. */
+const CLAIMED_ORDER_IDS_PER_STATEMENT = D1_MAX_BOUND_PARAMETERS - 2
+
+export type StoredSubmissionTime = {
+  /** True when the row was claimed before its request left (it stores the resolved order). */
+  claimed: boolean
+  submittedAt: Date
+}
 
 /** Exact order fingerprint match; timestamps keep unrelated duplicate orders from clearing quarantine. */
 export function matchesSubmittedOrder(
   row: BrokerOrderRecord,
   intended: OrderPayload,
-  submittedAt: Date,
+  submission: StoredSubmissionTime,
   now = new Date(),
   replacedOrderId?: string,
 ): boolean {
   const receivedAt = Date.parse(row.receivedAt ?? row.updatedAt ?? '')
-  if (!Number.isFinite(receivedAt)
-    || receivedAt < submittedAt.getTime() - SUBMISSION_RECORD_LAG_MS
-    || receivedAt > now.getTime() + BROKER_CLOCK_SKEW_MS) return false
+  const submittedAt = submission.submittedAt.getTime()
+  const earliest = submittedAt - (submission.claimed ? BROKER_CLOCK_SKEW_MS : SUBMISSION_RECORD_LAG_MS)
+  const latest = Math.min(submittedAt + SUBMISSION_TRANSPORT_BUDGET_MS, now.getTime()) + BROKER_CLOCK_SKEW_MS
+  if (!Number.isFinite(receivedAt) || receivedAt < earliest || receivedAt > latest) return false
   return (!replacedOrderId || row.replacesOrderId === replacedOrderId)
     && echoesOrderPayload(row, intended)
+}
+
+/**
+ * Drop candidates another submission already owns. An order some row already recorded as its
+ * `provider_order_id` is that row's order: matching it again would give two rows one order id
+ * (which a later replacement then refuses as ambiguous), or -- when this submission never reached
+ * the broker -- settle it as executed on an identical ticket placed just before it.
+ */
+async function unclaimedOrders(
+  db: D1Database,
+  broker: string,
+  accountNumber: string,
+  candidates: BrokerOrderRecord[],
+): Promise<BrokerOrderRecord[]> {
+  const ids = [...new Set(candidates.flatMap((row) => row.id ? [row.id] : []))]
+  const owned = new Set<string>()
+  for (let start = 0; start < ids.length; start += CLAIMED_ORDER_IDS_PER_STATEMENT) {
+    const chunk = ids.slice(start, start + CLAIMED_ORDER_IDS_PER_STATEMENT)
+    const result = await db.prepare(
+      `SELECT provider_order_id FROM broker_submissions
+        WHERE broker_id = ? AND account_number = ? AND provider_order_id IN (${chunk.map(() => '?').join(', ')})`,
+    ).bind(broker, accountNumber, ...chunk).all<{ provider_order_id: string }>()
+    for (const row of result.results ?? []) owned.add(row.provider_order_id)
+  }
+  return candidates.filter((row) => !row.id || !owned.has(row.id))
 }
 
 /**
@@ -246,7 +291,13 @@ async function reconcileUnderLease(
   const replacedOrderId = fingerprint.action.kind === 'replace_order' ? fingerprint.action.orderId : undefined
   const startDate = new Date(submittedAt.getTime() - ORDER_HISTORY_DATE_MARGIN_MS).toISOString().slice(0, 10)
   const history = await adapter.readOrderHistory(env, ref, { startDate }, credential)
-  const matches = history.orders.filter((row) => matchesSubmittedOrder(row, intended, submittedAt, now, replacedOrderId))
+  const submission = { claimed: stored.resolved_payload_json !== null, submittedAt }
+  const matches = await unclaimedOrders(
+    db,
+    credential.broker,
+    ref.accountNumber,
+    history.orders.filter((row) => matchesSubmittedOrder(row, intended, submission, now, replacedOrderId)),
+  )
   if (matches.length !== 1) {
     if (matches.length === 0 && history.complete && now.getTime() - submittedAt.getTime() >= FINAL_ABSENCE_DELAY_MS) {
       const update = await db.prepare(

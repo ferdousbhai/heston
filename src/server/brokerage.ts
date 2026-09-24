@@ -8,7 +8,7 @@ import {
   type JsonValue,
 } from '../domain/json-payload'
 import { type OrderPlacement } from './agent-contracts'
-import { claimSubmission, settleSubmission } from './brokerage-reconciliation'
+import { claimSubmission, settleSubmission, SUBMISSION_TRANSPORT_BUDGET_MS } from './brokerage-reconciliation'
 import { resolveOrderIntent, type ResolvedOrderIntent } from './order-intent'
 import { echoesOrderPayload, replacementOrderPayload, type OrderPayload } from './order-payload'
 import { tastytradeOrderRecord } from './brokers/tastytrade'
@@ -228,6 +228,11 @@ export async function executeOrderPlacement(
     // Everything that can fail without sending anything happens before the claim and the try
     // below: a lost lease here is a plain failure, never an ambiguous submission.
     await lease.renew()
+    // Armed before the claim records `submitted_at`, so the broker can only have received this
+    // request within the budget after that instant -- the upper edge reconciliation matches by.
+    // A deadline that fires while the request waits on the account's gate aborts it unsent,
+    // which is still treated as ambiguous below and so still quarantines.
+    const submissionDeadline = AbortSignal.timeout(SUBMISSION_TRANSPORT_BUDGET_MS)
     const submissionId = await claimSubmission(env, {
       accountNumber,
       broker,
@@ -239,6 +244,7 @@ export async function executeOrderPlacement(
       placed = await brokerApi().tastyRequest(env, orderPath, {
         method: intent.replaceOrderId ? 'PUT' : 'POST',
         body,
+        signal: submissionDeadline,
       }, credential)
     } catch (error) {
       // A provider 4xx: the broker positively refused the request, so nothing was placed.
