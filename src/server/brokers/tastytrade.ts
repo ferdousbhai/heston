@@ -229,6 +229,9 @@ function historyTransaction(row: JsonObject): BrokerHistoryTransaction {
     const value = optionalNumber(row, [valueKey], label)
     if (value === undefined) return undefined
     const effect = requiredText(row, [effectKey], label, 16)
+    // tastytrade marks a zero-value row (an expiration, a receive/deliver) with effect `None`.
+    // That is only coherent with a zero amount; `None` beside money that moved is refused.
+    if (effect === 'None') return value === 0 ? 0 : invalidResponse(label)
     if (effect !== 'Debit' && effect !== 'Credit') return invalidResponse(label)
     return effect === 'Debit' ? -Math.abs(value) : Math.abs(value)
   }

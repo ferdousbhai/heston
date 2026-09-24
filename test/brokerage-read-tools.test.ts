@@ -226,6 +226,28 @@ describe('brokerage read tools', () => {
     expect(JSON.stringify(result)).not.toContain('PRIVATE123')
   })
 
+  it('reads a zero-value transaction whose effect is None, and refuses None beside moved money', async () => {
+    const expiration = {
+      id: 43,
+      action: 'Sell to Close',
+      'executed-at': '2026-08-12T20:00:00.000Z',
+      'net-value': '0.0',
+      'net-value-effect': 'None',
+      'transaction-type': 'Receive Deliver',
+      value: '0.0',
+      'value-effect': 'None',
+    }
+    tastytrade.tastyRequest.mockResolvedValueOnce({ data: { items: [expiration] }, pagination: { 'total-items': 1 } })
+    await expect(readAccountHistory({}, { type: 'transactions' }, brokerCredential, now))
+      .resolves.toMatchObject({ items: [{ id: '43', netValue: 0, value: 0 }] })
+
+    tastytrade.tastyRequest.mockResolvedValueOnce({ data: { items: [{ ...expiration, value: '5.00' }] } })
+    await expect(readAccountHistory({}, { type: 'transactions' }, brokerCredential, now)).rejects.toThrow('invalid response')
+
+    tastytrade.tastyRequest.mockResolvedValueOnce({ data: { items: [{ ...expiration, 'value-effect': 'Sideways' }] } })
+    await expect(readAccountHistory({}, { type: 'transactions' }, brokerCredential, now)).rejects.toThrow('invalid response')
+  })
+
   it('redacts account identity from broker history errors', async () => {
     tastytrade.tastyRequest.mockRejectedValue(new Error('TastytradeApi:500:/accounts/PRIVATE123/transactions'))
     // Capture the outcome rather than asserting inside a catch: a call that stopped throwing
