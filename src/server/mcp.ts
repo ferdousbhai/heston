@@ -244,10 +244,12 @@ function createOrderTools(
  * own machine and a cookie jar is the wrong shape for it. Ownership is decided by the same
  * `isOwnerEmail` the cookie surface uses, so there is exactly one definition of it.
  *
- * Every caller is a row in `user_mcp_tokens`. The shared `HESTON_MCP_TOKEN` that authenticated as
- * the owner during the pivot is gone: it could not be revoked, did not die with the account, sat
- * outside the per-member cap, and left no trace of use, which is everything the token table
- * exists to fix.
+ * Every signed-in caller is a Heston user row, reached one of two ways: a minted token's digest
+ * in `user_mcp_tokens`, or an OAuth access token whose verified `sub` names the user. A caller who
+ * presents nothing is `ANONYMOUS_CALLER`, which is no row at all and holds only the public tier.
+ * There is no shared secret: the `HESTON_MCP_TOKEN` that authenticated as the owner during the
+ * pivot is gone, because it could not be revoked, did not die with the account, sat outside the
+ * per-member cap, and left no trace of use.
  */
 export type McpCaller = {
   owner: boolean
