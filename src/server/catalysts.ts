@@ -198,6 +198,13 @@ export const CURRENT_CATALYSTS =
  */
 const EVENT_RANK = 'DENSE_RANK() OVER (PARTITION BY symbol ORDER BY event_date ASC, kind ASC)'
 
+/**
+ * `EVENT_RANK` across every symbol of one read, for a cap on a whole calendar rather than on each
+ * symbol: the same event identity and the same date-first order, with the symbol joining the
+ * identity because the partition no longer carries it.
+ */
+export const CALENDAR_EVENT_RANK = 'DENSE_RANK() OVER (ORDER BY event_date ASC, symbol ASC, kind ASC)'
+
 const UPCOMING_CATALYSTS_QUERY =
   `SELECT id, symbol, kind, title, description, date, timing, confidence, source, "sourceUrl", "updatedAt"
      FROM (

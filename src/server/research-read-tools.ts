@@ -11,12 +11,12 @@ import { type AppEnv } from './env'
 import { textResult } from './agent-tool-result'
 import { MAX_MARKET_SYMBOLS } from './brokerage-read-contracts'
 import { CATALYST_PROVIDER, CATALYST_RUN_BUDGET_MS } from './catalyst-refresh'
-import { CURRENT_CATALYSTS } from './catalysts'
+import { CALENDAR_EVENT_RANK, CURRENT_CATALYSTS } from './catalysts'
 import { readLatestDailyBrief } from './daily-brief-store'
 import { CallerVisibleError } from './caller-visible-error'
 
 // A catalyst call shares the normal market-read batch budget. The row ceiling is a model-context
-// budget and is observable through `truncated`. The horizon is the store's own: no research producer may
+// budget and is observable through `truncated`; it counts events, each one row once folded. The horizon is the store's own: no research producer may
 // write an event past `CATALYST_HORIZON_DAYS`, so a wider read could only ever return the same
 // rows, and an omitted horizon asks for all of them. The agent can narrow it for a follow-up.
 const MAX_CATALYST_SYMBOLS = MAX_MARKET_SYMBOLS
@@ -24,10 +24,13 @@ const MAX_CATALYST_SYMBOLS = MAX_MARKET_SYMBOLS
  * Measured, not guessed: a stored row with its title, description and source URL serializes to
  * roughly 350 characters, so sixty rows is about 21,000 characters -- some 5,000 tokens of the
  * caller's turn, which is what one read of a shared calendar is worth. A hundred rows was two
- * and a half times that for the same twenty symbols, and the rows past the sixtieth are the
+ * and a half times that for the same twenty symbols, and the events past the sixtieth are the
  * furthest out and least actionable. `truncated` still says when the horizon held more.
  */
 const MAX_CATALYSTS = 60
+
+/** A calendar row with its event's place in the read, which decides the cut and nothing else. */
+const RankedCatalystSchema = CatalystSchema.extend({ nearest: z.number().int().positive() })
 
 const CatalystReadParameters = Type.Object({
   horizonDays: Type.Optional(Type.Integer({
@@ -125,22 +128,31 @@ export async function readCatalysts(
     throw new CallerVisibleError('Catalyst horizon is invalid.')
   }
   const start = marketDate(now)
+  // The ceiling counts events, not rows, exactly as the snapshot's per-symbol cap does: a row cap
+  // could cut inside one event's sightings and keep an estimated one while dropping the confirmed
+  // one `distinctCatalysts` would have shown. Every sighting of a kept event is returned for the
+  // fold, so the rows are bounded by the events times the few producers that may sight one.
+  // One event past the ceiling is read so `truncated` can say more events existed.
   const result = await env.DB.prepare(
-    `SELECT id, symbol, kind, title, description, event_date AS date, timing, confidence,
-      source_label AS source, source_url AS "sourceUrl", updated_at AS "updatedAt"
-     FROM ${CURRENT_CATALYSTS}
-     WHERE symbol IN (${symbols.map(() => '?').join(', ')})
-       AND event_date BETWEEN ? AND ?
-     ORDER BY event_date ASC, symbol ASC
-     LIMIT ?`,
+    `SELECT id, symbol, kind, title, description, date, timing, confidence, source, "sourceUrl",
+        "updatedAt", nearest
+     FROM (
+       SELECT id, symbol, kind, title, description, event_date AS date, timing, confidence,
+           source_label AS source, source_url AS "sourceUrl", updated_at AS "updatedAt",
+           ${CALENDAR_EVENT_RANK} AS nearest
+         FROM ${CURRENT_CATALYSTS}
+         WHERE symbol IN (${symbols.map(() => '?').join(', ')})
+           AND event_date BETWEEN ? AND ?
+     )
+     WHERE nearest <= ?
+     ORDER BY date ASC, symbol ASC, id ASC`,
   ).bind(...symbols, start, addDays(start, horizonDays), MAX_CATALYSTS + 1).all()
   if (!Array.isArray(result.results)) throw new CallerVisibleError('Catalyst data returned an invalid response.')
-  const allCatalysts = CatalystSchema.array().parse(result.results)
-  // Truncation is judged on the rows the query returned, before one event's several sightings
-  // fold into one: folding says nothing about what the ceiling left behind, and a reader told
-  // it has the whole calendar when it does not is the one wrong answer here.
-  const truncated = allCatalysts.length > MAX_CATALYSTS
-  const catalysts = distinctCatalysts(allCatalysts).slice(0, MAX_CATALYSTS).map(agentCatalyst)
+  const ranked = RankedCatalystSchema.array().parse(result.results)
+  const truncated = ranked.some((row) => row.nearest > MAX_CATALYSTS)
+  const catalysts = distinctCatalysts(
+    ranked.filter((row) => row.nearest <= MAX_CATALYSTS).map(({ nearest: _nearest, ...catalyst }) => catalyst),
+  ).map(agentCatalyst)
   // The receipts of the one producer that answers for a whole symbol. `detail` is not selected.
   const runs = await env.DB.prepare(
     `SELECT symbol, status AS state, ran_at AS "ranAt"
