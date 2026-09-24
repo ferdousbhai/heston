@@ -15,13 +15,6 @@ import { citedPageKey } from './research-url'
 export type ReadPage = { markdown: string; readCharacters: number; truncated: boolean }
 export type RetainedPage = ReadPage & { readAt: string }
 
-/**
- * One call may read at most this many public pages. A member recording catalysts cites a page
- * per event and records a handful of events, so this is comfortably above any honest call and
- * well inside what one browser session can open before the caller's turn times out.
- */
-const MAX_RESEARCH_PAGE_READS = 30
-
 /*
  * A citation is worth what this Worker can show was read. Native web search happens inside
  * the provider, so a page it opened leaves nothing here to bind a claim to; a page read
@@ -75,9 +68,13 @@ export interface RetainedCitedPages {
  * Read every page a set of citations points at, once each, and retain its text for the binders.
  *
  * Every surface that admits model-authored citations faces the same sequence in the same order:
- * canonicalize the cited addresses, refuse before spending a browser budget the citations would
- * overrun, then read each distinct page and refuse if one did not open. One definition, so no
+ * canonicalize the cited addresses, refuse any that is not a citable page before reading
+ * anything, then read each distinct page and refuse if one did not open. One definition, so no
  * surface can quietly hold a citation to a weaker rule than another.
+ *
+ * Only a cited page is read, so the browser budget of one call is bounded by how many citations
+ * the caller admits: the catalyst recording's `MAX_RECORDED_CATALYSTS`, one page per event at
+ * most. A separate page cap here sat above that bound and could never fire.
  *
  * Indices are not deduplicated: a bad address cited twice is named once per citation, which is
  * what an agent fixes. Distinct pages are, because a page that will not open is one fact about
@@ -98,12 +95,6 @@ export async function retainCitedPages(
     const key = citedPageKey(sourceUrl)
     if (key === undefined) rejected.push(`source ${index}: not a readable https page address`)
     else pageKeys.add(key)
-  }
-  if (pageKeys.size > MAX_RESEARCH_PAGE_READS) {
-    return {
-      rejected: [`cites ${pageKeys.size} pages; at most ${MAX_RESEARCH_PAGE_READS} are read in one call`],
-      retained: new Map(),
-    }
   }
   if (rejected.length) return { rejected, retained: new Map() }
 
