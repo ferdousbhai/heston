@@ -122,6 +122,25 @@ describe('the maintained watchlist', () => {
     await expect(readInternalWatchlistFocus(env, [], 4)).resolves.toEqual(['MSFT', 'GOOG', 'NVDA', 'TSLA'])
   })
 
+  it('keeps a searched curated name in its curated tier', async () => {
+    // A search overwrites a seed row's origin; the ranking used to read that origin first and
+    // dropped a private-list name below every volume member and beside any other search.
+    const env = { DB: store.database }
+    seedWatchlist(store, seededItems(['AAPL', 'NVDA', 'PLTR', 'TSLA']), [
+      { kind: 'private', name: 'Long vol', entries: [{ symbol: 'NVDA' }] },
+      { kind: 'public', name: 'High Options Volume', entries: [{ symbol: 'TSLA' }] },
+    ])
+    await persistInstrumentCatalog(env, instrumentCatalogFromPayload(
+      [{ active: true, 'instrument-type': 'Equity', symbol: 'TSLA' }],
+      ['TSLA'],
+    ))
+    await ensureInternalWatchlistSymbols(env, ['NVDA', 'PLTR'], 'visitor-search', new Date('2026-08-27T10:00:00.000Z'))
+    await expect(readInternalWatchlistSymbolDetails(env, 'NVDA')).resolves.toMatchObject({ origin: 'visitor-search' })
+
+    // Private list, then volume, then the search that earned its place, then the plain seed.
+    await expect(readInternalWatchlistFocus(env, [])).resolves.toEqual(['NVDA', 'TSLA', 'PLTR', 'AAPL'])
+  })
+
   // The prune and the focus used to rank separately, and only the focus capped the volume list at
   // `MAX_WATCHLIST_SYMBOLS`: a seed member ranked past it kept its volume tier in the prune and
   // lost it in the focus, where it fell behind a seed member with no volume rank at all.

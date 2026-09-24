@@ -15,6 +15,17 @@ import { CallerVisibleError } from './caller-visible-error'
 const MAX_SOURCE_LISTS_PER_KIND = 100
 
 /**
+ * The origins an automatic prune may evict: the broker seed and a reader's search, the two
+ * provenances the ranking places below every curated name (tiers 3-6). Every other origin is a
+ * protected row that only an explicit removal deletes. Admission and pruning read this one list:
+ * when admission counted only the seed as evictable, visitor searches filled the protected
+ * capacity and refused an owner or trade-intent addition while the prune could still have
+ * evicted every one of them.
+ */
+const PRUNABLE_ORIGINS = ['tastytrade-seed', 'visitor-search'] as const satisfies readonly InternalWatchlistOrigin[]
+const PRUNABLE_ORIGINS_SQL = `(${PRUNABLE_ORIGINS.map((origin) => `'${origin}'`).join(', ')})`
+
+/**
  * The one ranking of the maintained list. Pruning keeps the head of it and the focus read
  * returns the head of it, so both are built from this text: two rankings had already drifted
  * (one capped the options-volume list, the other did not) and the drift was a silent
@@ -27,6 +38,10 @@ const MAX_SOURCE_LISTS_PER_KIND = 100
  *   4  a seed member of the public High Options Volume list, by its rank there
  *   5  a reader's search, which earns its place but yields to every curated name
  *   6  any other seed member
+ *
+ * Tiers 3 and 4 read list membership from the retained seed tables, not from the row's origin, so
+ * a search that overwrote a seed row's origin (see INTERNAL_WATCHLIST_ORIGINS) keeps the name in
+ * its curated tier rather than demoting it to tier 5.
  *
  * Ties break by options-volume rank, then most recently touched, then symbol. The one bound
  * parameter is a JSON array of priority symbols, so its length is not capped by D1's
@@ -59,10 +74,10 @@ const RANKED_ITEMS_CTE = `WITH priority AS (
          CASE
            WHEN i.symbol IN (SELECT symbol FROM priority) THEN 0
            WHEN i.origin = 'owner' THEN 1
-           WHEN i.origin = 'visitor-search' THEN 5
-           WHEN i.origin <> 'tastytrade-seed' THEN 2
+           WHEN i.origin NOT IN ${PRUNABLE_ORIGINS_SQL} THEN 2
            WHEN p.symbol IS NOT NULL THEN 3
            WHEN v.volume_rank IS NOT NULL THEN 4
+           WHEN i.origin = 'visitor-search' THEN 5
            ELSE 6
          END AS tier
        FROM internal_watchlist_items i
@@ -94,8 +109,11 @@ const MAX_SEED_MEMBERSHIPS_PER_SYMBOL = 2 * MAX_SOURCE_LISTS_PER_KIND
 const SymbolSchema = EquitySymbolSchema
 const INTERNAL_WATCHLIST_ORIGINS = [
   'tastytrade-seed',
-  // A reader's lookup is the weakest live provenance: any other origin overwrites it,
-  // and it overwrites none, so a searched symbol can never outrank a researched one.
+  // A reader's lookup is the weakest provenance a live path writes: every other live origin
+  // overwrites it, and it overwrites only the retired seed's. That overwrite costs the name no
+  // rank, because the ranking reads private and volume list membership from the retained seed
+  // tables rather than from this column; it only lifts a seed member on no ranked list from
+  // tier 6 to 5. A searched symbol never outranks a researched or curated one.
   'visitor-search',
   'scheduled-research',
   'agent-discussion',
@@ -108,16 +126,6 @@ const INTERNAL_WATCHLIST_ORIGINS = [
 ] as const
 const InternalWatchlistOriginSchema = z.enum(INTERNAL_WATCHLIST_ORIGINS)
 
-/**
- * The origins an automatic prune may evict: the broker seed and a reader's search, the two
- * provenances the ranking places below every curated name (tiers 3-6). Every other origin is a
- * protected row that only an explicit removal deletes. Admission and pruning read this one list:
- * when admission counted only the seed as evictable, visitor searches filled the protected
- * capacity and refused an owner or trade-intent addition while the prune could still have
- * evicted every one of them.
- */
-const PRUNABLE_ORIGINS = ['tastytrade-seed', 'visitor-search'] as const satisfies readonly InternalWatchlistOrigin[]
-const PRUNABLE_ORIGINS_SQL = `(${PRUNABLE_ORIGINS.map((origin) => `'${origin}'`).join(', ')})`
 const InternalWatchlistMutationOriginSchema = InternalWatchlistOriginSchema.exclude(['tastytrade-seed', 'position-sync'])
 
 export type InternalWatchlistOrigin = z.infer<typeof InternalWatchlistOriginSchema>
