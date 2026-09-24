@@ -38,7 +38,7 @@ const PRUNABLE_ORIGINS_SQL = `(${PRUNABLE_ORIGINS.map((origin) => `'${origin}'`)
  *
  *   0  a priority symbol the caller names
  *   1  an owner addition
- *   2  any other protected origin — scheduled research, trade intent, a stored position sync
+ *   2  any other protected origin — trade intent, or a stored scheduled-research or position-sync row
  *   3  a seed member of one of the owner's private broker lists
  *   4  a seed member of the public High Options Volume list, by its rank there
  *   5  a name a member's agent discussed, which yields to every curated name
@@ -126,6 +126,8 @@ const INTERNAL_WATCHLIST_ORIGINS = [
   // every protected origin here: were it stronger than one, a member could turn a protected row
   // into a prunable one by naming it. It overwrites only a search's or the seed's origin.
   'agent-discussion',
+  // Written by a retired scheduled research run. Rows that carry it remain in D1 and must still
+  // parse and rank as protected, so it stays a stored origin, but no live path writes it.
   'scheduled-research',
   // Written only by the removed one-time finalization (held positions at that moment). Rows
   // that carry it remain in D1 and must still parse and rank, so it stays a stored origin,
@@ -136,7 +138,7 @@ const INTERNAL_WATCHLIST_ORIGINS = [
 ] as const
 const InternalWatchlistOriginSchema = z.enum(INTERNAL_WATCHLIST_ORIGINS)
 
-const InternalWatchlistMutationOriginSchema = InternalWatchlistOriginSchema.exclude(['tastytrade-seed', 'position-sync'])
+const InternalWatchlistMutationOriginSchema = InternalWatchlistOriginSchema.exclude(['tastytrade-seed', 'scheduled-research', 'position-sync'])
 
 export type InternalWatchlistOrigin = z.infer<typeof InternalWatchlistOriginSchema>
 type InternalWatchlistMutationOrigin = z.infer<typeof InternalWatchlistMutationOriginSchema>

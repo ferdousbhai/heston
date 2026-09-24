@@ -117,7 +117,7 @@ describe('the maintained watchlist', () => {
       volume,
     ))
     await ensureInternalWatchlistSymbols(env, ['MSFT'], 'owner', new Date('2026-08-25T10:00:00.000Z'))
-    await ensureInternalWatchlistSymbols(env, ['GOOG'], 'scheduled-research', new Date('2026-08-25T10:00:00.000Z'))
+    await ensureInternalWatchlistSymbols(env, ['GOOG'], 'trade-intent', new Date('2026-08-25T10:00:00.000Z'))
 
     await expect(readInternalWatchlistFocus(env, [], 4)).resolves.toEqual(['MSFT', 'GOOG', 'NVDA', 'TSLA'])
   })
@@ -236,7 +236,7 @@ describe('the maintained watchlist', () => {
       updatedAt: '2026-08-26T11:00:00.000Z',
     })
 
-    await ensureInternalWatchlistSymbols(env, ['PLTR'], 'scheduled-research', new Date('2026-08-26T12:00:00.000Z'))
+    await ensureInternalWatchlistSymbols(env, ['PLTR'], 'trade-intent', new Date('2026-08-26T12:00:00.000Z'))
     await expect(readInternalWatchlistSymbolDetails(env, 'PLTR')).resolves.toMatchObject({
       origin: 'owner',
       updatedAt: '2026-08-26T11:00:00.000Z',
@@ -249,7 +249,6 @@ describe('the maintained watchlist', () => {
     const origins = [
       'visitor-search',
       'agent-discussion',
-      'scheduled-research',
       'trade-intent',
       'owner',
     ] as const
@@ -272,15 +271,27 @@ describe('the maintained watchlist', () => {
 
   it('reads a stored position-sync row but refuses to write that origin', async () => {
     // Only the removed finalization wrote `position-sync`; rows it wrote stay readable and
-    // outrank research, and no live caller may mint a new one.
+    // outrank a discussion, and no live caller may mint a new one.
     const env = { DB: store.database }
     seedWatchlist(store, [{ symbol: 'NVDA', origin: 'position-sync' }])
-    await ensureInternalWatchlistSymbols(env, ['NVDA'], 'scheduled-research')
+    await ensureInternalWatchlistSymbols(env, ['NVDA'], 'agent-discussion')
     await expect(readInternalWatchlistSymbolDetails(env, 'NVDA')).resolves.toMatchObject({ origin: 'position-sync' })
     // SAFETY: the cast forges exactly the input the type forbids, to prove the runtime refuses it.
     await expect(ensureInternalWatchlistSymbols(env, ['PLTR'], 'position-sync' as 'owner')).rejects.toThrow()
     // SAFETY: as above, a forged seed origin the type forbids, to prove the runtime refuses it.
     await expect(ensureInternalWatchlistSymbols(env, ['PLTR'], 'tastytrade-seed' as 'owner')).rejects.toThrow()
+  })
+
+  it('reads a stored scheduled-research row but refuses to write that origin', async () => {
+    // No live path writes `scheduled-research`; rows a retired run wrote stay readable and
+    // protected, a stronger live origin still promotes them, and no caller may mint a new one.
+    const env = { DB: store.database }
+    seedWatchlist(store, [{ symbol: 'NVDA', origin: 'scheduled-research' }])
+    await expect(readInternalWatchlistSymbolDetails(env, 'NVDA')).resolves.toMatchObject({ origin: 'scheduled-research' })
+    await ensureInternalWatchlistSymbols(env, ['NVDA'], 'trade-intent')
+    await expect(readInternalWatchlistSymbolDetails(env, 'NVDA')).resolves.toMatchObject({ origin: 'trade-intent' })
+    // SAFETY: the cast forges exactly the input the type forbids, to prove the runtime refuses it.
+    await expect(ensureInternalWatchlistSymbols(env, ['PLTR'], 'scheduled-research' as 'owner')).rejects.toThrow()
   })
 
   it('never downgrades owner provenance or publishes an addition discarded by the cap', async () => {
@@ -292,9 +303,9 @@ describe('the maintained watchlist', () => {
     await expect(ensureInternalWatchlistSymbols(env, ownerSymbols, 'owner'))
       .resolves.toHaveLength(MAX_WATCHLIST_SYMBOLS)
 
-    await expect(ensureInternalWatchlistSymbols(env, ['A'], 'scheduled-research'))
+    await expect(ensureInternalWatchlistSymbols(env, ['A'], 'trade-intent'))
       .resolves.toEqual(['A'])
-    await expect(ensureInternalWatchlistSymbols(env, ['ZZZ'], 'scheduled-research'))
+    await expect(ensureInternalWatchlistSymbols(env, ['ZZZ'], 'trade-intent'))
       .resolves.toEqual([])
     await expect(ensureInternalWatchlistSymbols(env, ['ZZZ'], 'owner'))
       .resolves.toEqual([])
@@ -363,8 +374,9 @@ describe("a member agent's remembered names", () => {
 
   it('cannot demote a protected row to a prunable one by naming it', async () => {
     const env = { DB: store.database }
-    // Scheduled research is the weakest protected origin, and so the one a discussion once outranked.
-    await ensureInternalWatchlistSymbols(env, ['NVDA'], 'scheduled-research')
+    // Scheduled research is the weakest protected origin, and so the one a discussion once
+    // outranked. No live path writes it any more, so the stored row is inserted directly.
+    seedWatchlist(store, [{ symbol: 'NVDA', origin: 'scheduled-research' }])
     await ensureInternalWatchlistSymbols(env, ['NVDA'], 'agent-discussion')
     await expect(readInternalWatchlistSymbolDetails(env, 'NVDA')).resolves.toMatchObject({ origin: 'scheduled-research' })
   })
