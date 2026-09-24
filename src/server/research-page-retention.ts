@@ -5,14 +5,12 @@ import { type AppEnv } from './env'
 import { citedPageKey } from './research-url'
 
 /**
- * A page's text as read, the character bound the producer that read it cut each read at, and
- * whether that bound was reached. The bound belongs to the producer -- `MAX_PAGE_MARKDOWN_CHARS`
- * for a browser read, Exa's per-result limit for a search result -- so it travels with the page
- * rather than being assumed by the binder. A binder that cannot find a date or a quote in a
- * truncated read has not shown it absent from the page, only from the part it read, and must say
- * which, with the bound that actually applied.
+ * A page's text as read, and whether the read reached `MAX_PAGE_MARKDOWN_CHARS`. A binder that
+ * cannot find a date or a quote in a truncated read has not shown it absent from the page, only
+ * from the part it read, and must say which. `readResearchPageMarkdown` is the only producer, so
+ * that bound is the one that applied to every read.
  */
-export type ReadPage = { markdown: string; readCharacters: number; truncated: boolean }
+export type ReadPage = { markdown: string; truncated: boolean }
 export type RetainedPage = ReadPage & { readAt: string }
 
 /*
@@ -26,9 +24,7 @@ export type RetainedPage = ReadPage & { readAt: string }
 export const MAX_PAGE_MARKDOWN_CHARS = 120_000
 
 /** How a binder names a miss on a truncated read, so the author knows the rest went unread. */
-export function truncatedReadMiss(page: ReadPage): string {
-  return `not found in a read cut at ${page.readCharacters} characters of`
-}
+export const TRUNCATED_READ_MISS = `not found in a read cut at ${MAX_PAGE_MARKDOWN_CHARS} characters of`
 const MAX_PAGE_RESPONSE_BYTES = 4_000_000
 /**
  * How long one page may take to load: Browser Run's own default navigation timeout, passed
@@ -60,7 +56,6 @@ export async function readResearchPageMarkdown(
     if (!parsed) return undefined
     return {
       markdown: parsed.result.slice(0, MAX_PAGE_MARKDOWN_CHARS),
-      readCharacters: MAX_PAGE_MARKDOWN_CHARS,
       truncated: parsed.result.length > MAX_PAGE_MARKDOWN_CHARS,
     }
   } catch {

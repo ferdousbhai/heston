@@ -24,7 +24,7 @@ function candidate(overrides: Partial<ResearchCatalystCandidate> = {}): Research
 }
 
 function retained(markdown: string, truncated = false): Map<string, RetainedPage> {
-  return new Map([[PAGE_URL, { markdown, readAt: NOW.toISOString(), readCharacters: MAX_PAGE_MARKDOWN_CHARS, truncated }]])
+  return new Map([[PAGE_URL, { markdown, readAt: NOW.toISOString(), truncated }]])
 }
 
 describe('structured catalyst output binding', () => {

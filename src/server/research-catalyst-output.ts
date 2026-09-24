@@ -13,7 +13,7 @@ import {
 import { EquitySymbolSchema } from '../domain/instrument'
 import { addDays, IsoDateSchema, textMentionsDateWithinHorizon } from '../domain/iso-date'
 import { type CatalystProvider } from './catalysts'
-import { type RetainedPage, truncatedReadMiss } from './research-page-retention'
+import { type RetainedPage, TRUNCATED_READ_MISS } from './research-page-retention'
 import { citedPageKey } from './research-url'
 
 export const ResearchCatalystCandidateSchema = z.strictObject({
@@ -98,7 +98,7 @@ export function bindCatalystCandidates(
       // Year-less mentions bind within the horizon, so what remains missing is the date itself --
       // or, on a page read only in part, the date may sit past what was read.
       rejected.push(page.truncated
-        ? `catalyst ${number}: ${candidate.date} ${truncatedReadMiss(page)} its source page`
+        ? `catalyst ${number}: ${candidate.date} ${TRUNCATED_READ_MISS} its source page`
         : `catalyst ${number}: ${candidate.date} does not appear on its source page`)
       continue
     }
