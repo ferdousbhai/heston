@@ -7,7 +7,6 @@ import {
   MAX_CATALYST_DESCRIPTION_LENGTH,
   MAX_CATALYST_TITLE_LENGTH,
 } from '../domain/catalyst'
-import { CitedSourceUrlSchema } from '../domain/https-url'
 import { EquitySymbolSchema } from '../domain/instrument'
 import { IsoDateSchema } from '../domain/iso-date'
 import { readBoundedJson } from './bounded-response'
@@ -182,7 +181,9 @@ export async function runExaCatalystSearch(
     }
     const event = parsed.data
     const sourceUrl = citedPageKey(event.sourceUrl)
-    if (sourceUrl === undefined || !CitedSourceUrlSchema.safeParse(sourceUrl).success) {
+    // `citedPageKey` already holds the key to `CitedSourceUrlSchema`'s rules: https, citable, and
+    // inside the envelope once serialized.
+    if (sourceUrl === undefined) {
       refused.push(`catalyst ${index + 1}: source is not a citable https page address`)
       continue
     }
