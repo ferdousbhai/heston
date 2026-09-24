@@ -89,17 +89,34 @@ export function textMentionsIsoDate(text: string, date: string): boolean {
   const monthName = MONTHS[month - 1]!
   const spelled = spelledMonthDay(monthName, day)
   for (const match of haystack.matchAll(spelled)) {
-    // The year that binds is the first one printed after the mention — the date's own year, or
-    // a range's closing year. A later year in the window belongs to another date: "September 9,
-    // 2025; the 2026 date is not yet set" does not vouch for 2026-09-09.
-    const printed = PRINTED_YEAR.exec(haystack.slice(match.index, match.index + DATE_PROXIMITY_CHARS))
-    if (printed && Number(printed[0]) === year) return true
+    if (attachedYear(haystack, match.index + match[0].length) === year) return true
   }
   return false
 }
 
 /** A four-digit year as reporting prints one; the horizon matcher uses the same shape. */
 const PRINTED_YEAR = /\b(?:19|20)\d{2}\b/
+
+/**
+ * What may sit between a month-day and the year that belongs to it: at most a range's closing
+ * day ("-24", " - September 3") and a comma. Anything else — a clause, a sentence break —
+ * means the next year printed belongs to another date: "In 2025, on September 9, the firm set
+ * its 2026 targets" does not vouch for 2026-09-09, and "on Thursday, August 6. Guidance for
+ * 2027 follows" does not print August 6's year at all.
+ */
+const ATTACHED_YEAR_GAP = /^(?:\s*[-–—]\s*(?:[A-Za-z]+\.?\s+)?\d{1,2}(?:st|nd|rd|th)?)?\s*,?\s*$/
+
+/**
+ * The year printed as part of the month-day mention ending at `end` — the date's own year, or
+ * a range's closing year — or undefined when the mention carries none. Only the first year
+ * within DATE_PROXIMITY_CHARS is a candidate: a later one belongs to another date.
+ */
+function attachedYear(haystack: string, end: number): number | undefined {
+  const window = haystack.slice(end, end + DATE_PROXIMITY_CHARS)
+  const printed = PRINTED_YEAR.exec(window)
+  if (!printed || !ATTACHED_YEAR_GAP.test(window.slice(0, printed.index))) return undefined
+  return Number(printed[0])
+}
 
 /** "September 9", "Sept. 9", "September 9th" — the month-day core every rendering shares. */
 function spelledMonthDay(monthName: string, day: number): RegExp {
@@ -128,7 +145,10 @@ export function textMentionsDateWithinHorizon(
   const [year, month, day] = date.split('-').map(Number)
   const printedYears = new RegExp(PRINTED_YEAR.source, 'g')
   for (const match of haystack.matchAll(spelledMonthDay(MONTHS[month! - 1]!, day!))) {
-    if (PRINTED_YEAR.test(haystack.slice(match.index, match.index + DATE_PROXIMITY_CHARS))) continue
+    // A year attached to the mention is its year, and textMentionsIsoDate already found it is
+    // not the claimed one. A year that is not attached belongs to something else and neither
+    // vouches for nor refuses this mention.
+    if (attachedYear(haystack, match.index + match[0].length) !== undefined) continue
     const before = haystack.slice(Math.max(0, match.index - DATE_PROXIMITY_CHARS), match.index)
     if ([...before.matchAll(printedYears)].some(([printed]) => Number(printed) !== year)) continue
     return true

@@ -54,6 +54,8 @@ describe('provenance date matching', () => {
     ['2026-09-24', 'September 24, 2027'],
     // The year printed with the date is another one; the claimed year further on is not its year.
     ['2026-09-09', "Last year's summit was held September 9, 2025; the 2026 date is not yet set."],
+    // A year in the next clause is not the mention's year.
+    ['2026-09-09', 'In 2025, on September 9, the firm set its 2026 targets.'],
     // A longer number or date that merely contains a rendering is a different date.
     ['2026-01-05', 'Rescheduled to 11/5/2026 after the vote'],
     ['2026-02-01', 'Results follow on 12/1/2026'],
@@ -100,6 +102,19 @@ describe('horizon-scoped date matching', () => {
     expect(textMentionsDateWithinHorizon(
       'In 2026, on September 9 the firm takes the stage.',
       '2026-09-09', TODAY, HORIZON,
+    )).toBe(true)
+  })
+
+  it('reads a year in another clause as no year rather than the mention\'s', () => {
+    // The 2026 belongs to the targets; the 2025 before the mention still refuses it.
+    expect(textMentionsDateWithinHorizon(
+      'In 2025, on September 9, the firm set its 2026 targets.',
+      '2026-09-09', TODAY, HORIZON,
+    )).toBe(false)
+    // The 2027 belongs to the guidance, so the year-less August 6 stands inside the horizon.
+    expect(textMentionsDateWithinHorizon(
+      'The company reports results on Thursday, August 6. Guidance for 2027 follows.',
+      '2026-08-06', '2026-08-01', '2027-01-01',
     )).toBe(true)
   })
 
