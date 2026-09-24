@@ -70,6 +70,19 @@ async function keyringSecret(service, key) {
   }
 }
 
+/**
+ * A refused or unreadable token exchange. Its `code` is the HTTP status or a fixed word of ours,
+ * and the handler logs it beside the name: a revoked grant has to read as that in the log, not
+ * as a bare `Error`. Neither carries the response body, which can echo credential material.
+ */
+class TastytradeAuthError extends Error {
+  constructor(code) {
+    super(`TastytradeAuth:${code}`)
+    this.name = 'TastytradeAuth'
+    this.code = code
+  }
+}
+
 let cachedAccess
 
 async function brokerAccessToken(clientSecret, refreshToken) {
@@ -90,12 +103,12 @@ async function brokerAccessToken(clientSecret, refreshToken) {
   })
   if (!response.ok) {
     // Status only. A token endpoint's body can echo credential material.
-    throw new Error(`TastytradeAuth:${response.status}`)
+    throw new TastytradeAuthError(response.status)
   }
   // Parsed at the boundary rather than probed: a token response that does not match this
   // contract is a failure, not something to salvage a field out of.
   const grant = TokenResponseSchema.safeParse(await response.json())
-  if (!grant.success) throw new Error('TastytradeAuth:invalid-token-response')
+  if (!grant.success) throw new TastytradeAuthError('invalid-token-response')
   const { access_token: token, expires_in: lifetimeSeconds } = grant.data
   cachedAccess = { expiresAt: tokenRetiresAt(Date.now(), lifetimeSeconds * 1_000, UPSTREAM_TIMEOUT_MS), token }
   return token
@@ -180,14 +193,17 @@ async function main() {
         response.end()
       } catch (error) {
         // Name and, for a transport failure, the OS-level cause code -- `ENOTFOUND`,
-        // `ECONNREFUSED`, `UND_ERR_CONNECT_TIMEOUT`. Both are fixed vocabulary, never content,
-        // and they are what separates "this machine could not reach the Worker" from a bug in
-        // here: undici reports every network failure as an indistinguishable `TypeError`.
+        // `ECONNREFUSED`, `UND_ERR_CONNECT_TIMEOUT` -- or a token exchange's status or fixed code.
+        // All are fixed vocabulary, never content, and they are what separates "this machine
+        // could not reach the Worker" or "the broker refused the grant" from a bug in here:
+        // undici reports every network failure as an indistinguishable `TypeError`.
         const name = error instanceof Error ? error.name : 'UnknownError'
-        const cause = error instanceof Error && error.cause instanceof Error && 'code' in error.cause
-          ? ` ${String(error.cause.code)}`
-          : ''
-        process.stderr.write(`HestonAgentProxy: ${request.method} ${name}${cause}\n`)
+        const detail = error instanceof TastytradeAuthError
+          ? ` ${String(error.code)}`
+          : error instanceof Error && error.cause instanceof Error && 'code' in error.cause
+            ? ` ${String(error.cause.code)}`
+            : ''
+        process.stderr.write(`HestonAgentProxy: ${request.method} ${name}${detail}\n`)
         // Once the upstream status and headers are relayed -- an event stream already under way,
         // then the timeout or a dropped connection -- a JSON error written now would arrive as the
         // tail of that stream and end it cleanly, reading as a complete reply. Cutting the

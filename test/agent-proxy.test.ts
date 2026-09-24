@@ -298,6 +298,48 @@ describe('local agent proxy', () => {
     expect(outcome.complete).toBe(false)
   }, 30_000)
 
+  it('logs a refused token exchange as TastytradeAuth with its status, never the credential', async () => {
+    let forwarded = 0
+    const port = await listen((request, response) => {
+      request.resume()
+      request.on('end', () => {
+        if (request.url?.endsWith('/oauth/token')) {
+          // A revoked grant. The body echoes the credential, which must not reach the log.
+          response.writeHead(401, { 'content-type': 'application/json' })
+          response.end(JSON.stringify({ error: 'invalid_grant', refresh_token: REFRESH_TOKEN }))
+          return
+        }
+        forwarded += 1
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ ok: true }))
+      })
+    })
+    const keyring = await fakeKeyring({
+      'heston/mcp-token': HESTON_TOKEN,
+      'tastytrade/client-secret': CLIENT_SECRET,
+      'tastytrade/refresh-token': REFRESH_TOKEN,
+    })
+    const proxyPort = 18_793
+    await startProxy({
+      PATH: `${keyring}:${process.env.PATH ?? ''}`,
+      HESTON_MCP_URL: `http://127.0.0.1:${port}/mcp`,
+      TASTYTRADE_API_BASE: `http://127.0.0.1:${port}`,
+    }, proxyPort)
+    let stderr = ''
+    proxy!.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+
+    const reply = await fetch(`http://127.0.0.1:${proxyPort}/mcp`, {
+      body: JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'tools/list' }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+    })
+    expect(reply.status).toBe(502)
+    await expect.poll(() => stderr).toContain('HestonAgentProxy: POST TastytradeAuth 401\n')
+    expect(stderr).not.toContain(REFRESH_TOKEN)
+    expect(stderr).not.toContain(CLIENT_SECRET)
+    expect(forwarded).toBe(0)
+  }, 30_000)
+
   it('exits non-zero when the keyring cannot be read rather than starting market-only', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'heston-keyring-'))
     keyrings.push(directory)
