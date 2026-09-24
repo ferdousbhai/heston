@@ -47,8 +47,9 @@ the `BriefPublisher` entrypoint over a service binding.
   authoritative over any model's advice. Every tool declares MCP annotations, and an undeclared
   tool throws rather than reaching the wire; annotations are hints the spec tells clients to
   distrust, so the guards, not any prompt, are what bound the damage. Never automatically retry
-  an ambiguous broker mutation: quarantine the account until it is reconciled against order
-  history.
+  an ambiguous broker mutation. An ambiguous submission or replacement quarantines the account
+  until it is reconciled against order history; an ambiguous cancel only reduces exposure, so it
+  is reported as ambiguous and every later placement still runs every guard.
 - **Provider, model, and social content are untrusted.** Deterministic schemas bind symbols,
   dates, provenance, URLs, and actions; model output never authorizes a trade or establishes a
   trusted citation. A research catalyst is always estimated, comes only from a page this Worker
