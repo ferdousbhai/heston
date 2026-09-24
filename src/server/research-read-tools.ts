@@ -16,9 +16,13 @@ import { readLatestDailyBrief } from './daily-brief-store'
 import { CallerVisibleError } from './caller-visible-error'
 
 // A catalyst call shares the normal market-read batch budget. The row ceiling is a model-context
-// budget and is observable through `truncated`; it counts events, each one row once folded. The horizon is the store's own: no research producer may
-// write an event past `CATALYST_HORIZON_DAYS`, so a wider read could only ever return the same
-// rows, and an omitted horizon asks for all of them. The agent can narrow it for a follow-up.
+// budget and is observable through `truncated`; it counts events, each one row once folded. The
+// horizon is the research producers' own: each refuses an event past `CATALYST_HORIZON_DAYS` at
+// its write boundary, so an omitted horizon asks for every row they could have written. The
+// broker's earnings feed is the exception -- it is stored as reported, with no horizon check
+// (catalysts.ts) -- so a wider read could return an earnings row this one leaves out; a next
+// quarterly report falls well inside the window, so that row is rare and far off. The agent can
+// narrow the horizon for a follow-up.
 const MAX_CATALYST_SYMBOLS = MAX_MARKET_SYMBOLS
 /**
  * Measured, not guessed: a stored row with its title, description and source URL serializes to
