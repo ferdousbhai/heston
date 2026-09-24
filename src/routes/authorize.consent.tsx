@@ -60,8 +60,11 @@ function ConsentPage() {
         const reason = FailureSchema.safeParse(await response.json().catch(() => undefined))
         throw new Error(reason.success ? reason.data.error_description : 'Heston could not record that answer.')
       }
-      const { url } = ConsentResponseSchema.parse(await response.json())
-      window.location.replace(url)
+      // A success whose body is not the shape this page reads is reported in our words, never as
+      // the parser's own output.
+      const consented = ConsentResponseSchema.safeParse(await response.json().catch(() => undefined))
+      if (!consented.success) throw new Error('Heston could not record that answer.')
+      window.location.replace(consented.data.url)
     } catch (error) {
       setSubmitting(undefined)
       setFailure(error instanceof Error ? error.message : 'Heston could not record that answer.')

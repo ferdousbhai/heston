@@ -41,3 +41,13 @@ it('shows a Deny in flight on Deny, never as Approve granting access', async () 
   await vi.waitFor(() => expect(deny.querySelector('[data-slot="spinner"], [role="status"]')).not.toBeNull())
   expect(approve.querySelector('[data-slot="spinner"], [role="status"]')).toBeNull()
 })
+
+it('reports a success body it cannot read in its own words, not as parser output', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => String(input).includes('/oauth2/consent')
+    ? Response.json({ redirectURI: 'https://example.com/callback' })
+    : Response.json({ user: { id: 'm', name: 'Dana', role: 'member' } })))
+  const { container } = render(createElement(ConsentPage))
+  fireEvent.click(await screen.findByRole('button', { name: 'Approve' }))
+  await screen.findByText('Heston could not record that answer.')
+  expect(container.textContent).not.toContain('invalid_type')
+})

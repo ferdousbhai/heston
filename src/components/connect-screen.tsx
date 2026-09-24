@@ -113,9 +113,7 @@ function useAgentTokens() {
         headers: { 'content-type': 'application/json' },
         method: 'DELETE',
       }), McpTokenListResponseSchema)
-      // The answer is the whole remaining list, so it settles a failed first read too.
       setTokens(body.tokens)
-      setListError(undefined)
       setIssued((current) => (current?.tokenId === tokenId ? undefined : current))
       setActionError(undefined)
     } catch (cause) {
