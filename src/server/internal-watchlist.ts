@@ -16,8 +16,10 @@ const MAX_SOURCE_LISTS_PER_KIND = 100
 
 /**
  * The origins an automatic prune may evict: the broker seed, a reader's search, and a member
- * agent's `remember_symbols`, the three provenances the ranking places below every curated name
- * (tiers 2-6). Every other origin is a protected row that only an explicit removal deletes.
+ * agent's `remember_symbols`. Every other origin is a protected row (tiers 0-1 of the ranking)
+ * that only an explicit removal deletes. A row of one of these origins ranks in tiers 2-6: in
+ * the curated tiers 2-3 when the retained seed lists it, whatever its origin now says, and
+ * otherwise below every curated name (tiers 4-6).
  * Admission and pruning read this one list: when admission counted only the seed as evictable,
  * visitor searches filled the protected capacity and refused an owner or trade-intent addition
  * while the prune could still have evicted every one of them.
