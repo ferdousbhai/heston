@@ -192,13 +192,22 @@ describe('exa catalyst search', () => {
     expect(run.rejected).toEqual([`catalyst 1: 2026-10-14 not found in a read cut at ${MAX_RESULT_CHARACTERS} characters of its source page`])
   })
 
-  it('reports a search that synthesized nothing instead of inventing an event', async () => {
+  it('fails a search that synthesized nothing rather than reading it as an empty one', async () => {
     stubExa(Response.json({ results: [] }))
 
-    await expect(runExaCatalystSearch(env, 'BE', 'Bloom Energy', NOW)).resolves.toEqual({
-      catalysts: [],
-      rejected: ['Exa returned no structured events'],
-    })
+    await expect(runExaCatalystSearch(env, 'BE', 'Bloom Energy', NOW)).rejects.toThrow('ExaOutputMissing')
+  })
+
+  it('refuses a response without the pages it read instead of assuming none', async () => {
+    stubExa(Response.json({ output: { content: { events: [] } } }))
+
+    await expect(runExaCatalystSearch(env, 'BE', 'Bloom Energy', NOW)).rejects.toThrow()
+  })
+
+  it('reads an empty synthesis over read pages as a search that found nothing', async () => {
+    stubExa(exaResponse([]))
+
+    await expect(runExaCatalystSearch(env, 'BE', 'Bloom Energy', NOW)).resolves.toEqual({ catalysts: [], rejected: [] })
   })
 
   it('fails loudly when Exa refuses the request', async () => {

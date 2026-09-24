@@ -82,7 +82,9 @@ const ExaResponseSchema = z.object({
   output: z.object({
     content: z.object({ events: z.array(z.unknown()).max(MAX_EXA_EVENTS) }).optional(),
   }).optional(),
-  results: z.array(ExaResultSchema).default([]),
+  // No default: a response without the pages it read is not a search that read none, and
+  // synthesizing an empty list here would store "searched, empty" for a search that never ran.
+  results: z.array(ExaResultSchema),
 })
 
 const ExaEventSchema = z.object({
@@ -159,8 +161,11 @@ export async function runExaCatalystSearch(
       ? { markdown: text, readAt, readCharacters: MAX_RESULT_CHARACTERS, truncated }
       : { ...read, markdown: `${read.markdown}\n${text}`, truncated: read.truncated || truncated })
   }
+  // An empty `events` is a search that found nothing; a missing one is a synthesis that did not
+  // happen. Returning normally would record that as a complete, empty search and suppress the
+  // symbol for the whole refresh interval, so it fails and the run's receipt says so.
   const events = payload.output?.content?.events
-  if (!events) return { catalysts: [], rejected: ['Exa returned no structured events'] }
+  if (!events) throw new Error('ExaOutputMissing')
 
   // Exa's own shape is refused here, under the event's number; everything the shared binder
   // checks -- the page, the horizon, the date on the page, duplicates -- is left to it, reported

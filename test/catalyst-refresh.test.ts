@@ -87,6 +87,17 @@ describe('catalyst coverage seeded by favorites', () => {
     store.close()
   })
 
+  it('records a search whose synthesis never happened as failed, not as searched and empty', async () => {
+    const store = await storeWithCatalog()
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ results: [] })))
+
+    await expect(refreshCatalystsForSymbol(env(store), 'BE', NOW))
+      .resolves.toEqual({ catalysts: [], ran: false, reason: 'failed' })
+    expect(store.sqlite.prepare('SELECT status, catalyst_count FROM catalyst_runs').all())
+      .toEqual([{ status: 'failed', catalyst_count: 0 }])
+    store.close()
+  })
+
   it('buys no second search inside the refresh window, and one again after it', async () => {
     const store = await storeWithCatalog()
     const fetchMock = stubExa()
