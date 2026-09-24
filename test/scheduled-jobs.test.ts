@@ -51,6 +51,28 @@ describe('year candle refresh', () => {
     expect(stored.series.get(requested[0]!)).toEqual([100])
   })
 
+  it('counts only the symbols whose series arrived with closes', async () => {
+    seededWatchlist()
+    const readDailyCandles = vi.fn(async (symbols: readonly string[]) => ({
+      asOf: '2026-09-07T13:30:00.000Z',
+      series: symbols.map((symbol, index) => ({
+        symbol,
+        closes: index === 0 ? [] : [{ time: 1_786_000_000_000, sequence: 0, close: 100 }],
+      })),
+      source: 'tastytrade-dxlink' as const,
+    }))
+    const env: AppEnv = {
+      DB: store.database,
+      MARKET_FEED: {
+        getByName: vi.fn(() => ({ fetch: vi.fn(), readDailyCandles, readOptionGreeks: vi.fn() })),
+      },
+    }
+
+    const refresh = await refreshYearCandles(env, new Date('2026-09-07T13:30:00.000Z'))
+
+    expect(refresh).toEqual({ status: 'refreshed', symbolCount: MAX_DAILY_CANDLE_SYMBOLS - 1 })
+  })
+
   it('retires the year row of a symbol that fell out of the refreshed focus', async () => {
     seededWatchlist()
     const outside = symbolAt(MAX_WATCHLIST_SYMBOLS - 1)

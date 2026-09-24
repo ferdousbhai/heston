@@ -114,9 +114,11 @@ export function yearCandlesUpsertStatement(
 /**
  * Write one refresh and retire every row the refresh no longer covers, atomically. A symbol that
  * left the refreshed set would otherwise keep a `year_ago_close` from the day it left, which every
- * later read would present as "a year ago" — true once, then silently wrong. A symbol that was
- * requested but whose snapshot did not arrive keeps its previous row: that row still describes
- * the symbol, and its own `as_of` says how old it is.
+ * later read would present as "a year ago" — true once, then silently wrong. A requested symbol
+ * whose snapshot did not arrive keeps its previous row: nothing was said about it, that row still
+ * describes the symbol, and its own `as_of` says how old it is. A requested symbol whose snapshot
+ * arrived empty is different: the provider answered that it has no year for it, so its old row is
+ * retired in the same batch rather than served on as a current anchor.
  */
 export async function replaceYearCandles(
   db: D1Database,
@@ -125,11 +127,16 @@ export async function replaceYearCandles(
   series: ReadonlyMap<string, readonly CandlePoint[]>,
 ): Promise<void> {
   const requested = requestedSymbols.map((symbol) => EquitySymbolSchema.parse(symbol))
+  const arrivedEmpty = [...series]
+    .filter(([, closes]) => closes.length === 0)
+    .map(([symbol]) => EquitySymbolSchema.parse(symbol))
   await db.batch([
     ...[...series]
       .filter(([, closes]) => closes.length > 0)
       .map(([symbol, closes]) => yearCandlesUpsertStatement(db, symbol, asOf, closes)),
     db.prepare('DELETE FROM year_candles WHERE symbol NOT IN (SELECT value FROM json_each(?))')
       .bind(JSON.stringify(requested)),
+    db.prepare('DELETE FROM year_candles WHERE symbol IN (SELECT value FROM json_each(?))')
+      .bind(JSON.stringify(arrivedEmpty)),
   ])
 }

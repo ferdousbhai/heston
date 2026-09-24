@@ -70,6 +70,17 @@ describe('year candle store', () => {
     await expect(readYearAgoCloses(store.database, ['SPY', 'NVDA'])).resolves.toEqual(new Map([['SPY', 100]]))
   })
 
+  // An empty series is the provider saying it has no year for the symbol, not silence: the old
+  // row would otherwise keep serving a stale `year_ago_close` as current.
+  it('retires the previous row of a requested symbol whose snapshot arrived empty', async () => {
+    await replaceYearCandles(store.database, '2026-08-28', ['SPY', 'NVDA'], new Map([['SPY', closes], ['NVDA', closes]]))
+    await replaceYearCandles(store.database, '2026-08-31', ['SPY', 'NVDA'], new Map([['SPY', closes], ['NVDA', []]]))
+
+    await expect(readYearAgoCloses(store.database, ['SPY', 'NVDA'])).resolves.toEqual(new Map([['SPY', 100]]))
+    await expect(readYearCandleSeries(store.database, ['SPY', 'NVDA']))
+      .resolves.toEqual({ asOf: '2026-08-31', series: new Map([['SPY', [100, 104]]]) })
+  })
+
   it('keeps the previous row of a requested symbol whose snapshot did not arrive', async () => {
     await replaceYearCandles(store.database, '2026-08-28', ['SPY', 'NVDA'], new Map([['SPY', closes], ['NVDA', closes]]))
     await replaceYearCandles(store.database, '2026-08-31', ['SPY', 'NVDA'], new Map([['SPY', closes]]))

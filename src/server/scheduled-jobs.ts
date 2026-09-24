@@ -46,5 +46,8 @@ export async function refreshYearCandles(env: AppEnv, asOf = new Date()): Promis
   const result = await env.MARKET_FEED.getByName(MARKET_FEED_INSTANCE).readDailyCandles(symbols)
   const series = new Map(result.series.map(({ symbol, closes }) => [symbol, closes]))
   await replaceYearCandles(env.DB, marketDate(asOf), symbols, series)
-  return { status: 'refreshed', symbolCount: series.size }
+  // The count is what was stored: a series that arrived empty retires its row rather than
+  // refreshing it, so it is not a refreshed symbol.
+  const symbolCount = result.series.filter(({ closes }) => closes.length > 0).length
+  return { status: 'refreshed', symbolCount }
 }
