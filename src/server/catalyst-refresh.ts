@@ -20,10 +20,12 @@ import { CallerVisibleError } from './caller-visible-error'
  * is therefore limited to the tracked watchlist: the universe this product actually serves, and
  * already bounded at `MAX_WATCHLIST_SYMBOLS`. A reader's search asks for its name to join that
  * list, but the add is not guaranteed: it is refused when protected rows already fill the list,
- * and a prune may later evict it -- after uncurated seed rows, but before a name a member's agent
- * discussed or any curated or protected one (see RANKED_ITEMS_CTE in internal-watchlist). A name
- * that did not stay on the list answers `untracked` here rather than buying a search, which is
- * the bound working, not a fault.
+ * and the prune that runs in the same write can evict it at once, as a later one can. A searched
+ * name on neither curated seed list goes after uncurated seed rows but before a name a member's
+ * agent discussed; one that is a seed member of a private or High Options Volume list keeps that
+ * curated tier, above discussed names (see RANKED_ITEMS_CTE in internal-watchlist). A name that
+ * did not stay on the list answers `untracked` here rather than buying a search, which is the
+ * bound working, not a fault.
  * The owner's forced run is unaffected -- it is deliberate rather than incidental, and already
  * costs an owner credential.
  */

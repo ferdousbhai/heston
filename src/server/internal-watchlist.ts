@@ -114,7 +114,9 @@ const INTERNAL_WATCHLIST_ORIGINS = [
   // overwrites it, and it overwrites only the retired seed's. That overwrite costs the name no
   // rank, because the ranking reads private and volume list membership from the retained seed
   // tables rather than from this column; it only lifts a seed member on no ranked list from
-  // tier 6 to 5. A searched symbol never outranks a discussed, researched or curated one.
+  // tier 6 to 5. A searched symbol on neither curated list ranks below a discussed one; one that is
+  // a seed member of a private or High Options Volume list keeps that curated tier (2 or 3), above
+  // every discussed name. Either way the prune in the same batch that admitted it can evict it.
   'visitor-search',
   // A member agent's `remember_symbols`. It is prunable (see PRUNABLE_ORIGINS), so it ranks below
   // every protected origin here: were it stronger than one, a member could turn a protected row
