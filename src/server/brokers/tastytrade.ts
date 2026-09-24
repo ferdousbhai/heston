@@ -92,15 +92,15 @@ function positionFromRecord(row: JsonObject): BrokerPosition | undefined {
   const quantity = jsonNumber(row.quantity)
   const direction = jsonText(row['quantity-direction'])
   const instrumentType = jsonText(row['instrument-type'])
-  if (!symbol
-    || !underlying
-    || quantity === undefined
-    || quantity < 0
-    || (direction !== 'Long' && direction !== 'Short')
-    || !instrumentType) {
+  if (!symbol || !underlying || quantity === undefined || quantity < 0 || !instrumentType) {
     throw new Error('TastytradeAccount:invalid-position')
   }
-  if (quantity === 0) return undefined
+  // A flat row holds nothing, and tastytrade labels its direction `Zero`, so it is skipped
+  // before the direction check an open position must pass. Any other word is still refused.
+  if (quantity === 0 && (direction === 'Zero' || direction === 'Long' || direction === 'Short')) return undefined
+  if (quantity === 0 || (direction !== 'Long' && direction !== 'Short')) {
+    throw new Error('TastytradeAccount:invalid-position')
+  }
   const averageOpenPrice = jsonNumber(row['average-open-price'])
   if (row['average-open-price'] !== undefined && row['average-open-price'] !== null
     && averageOpenPrice === undefined) throw new Error('TastytradeAccount:invalid-position-average-open-price')
@@ -168,6 +168,9 @@ async function loadAccountSnapshot(
     brokerApi().tastyRequest(env, `/accounts/${account}/orders/live?per-page=${BROKER_ACCOUNT_PAGE_SIZE}`, {}, credential),
     brokerApi().tastyRequest(env, `/accounts/${account}/complex-orders/live?per-page=${BROKER_ACCOUNT_PAGE_SIZE}`, {}, credential),
   ])
+  // Positions are parsed first, then balances, then orders, so the failure a caller sees is the
+  // same whichever of the other pages is also malformed.
+  const positions = normalizedPositions(positionPayload)
   let balances
   try {
     balances = accountBalancesFromPayload(balancePayload, ref.accountNumber)
@@ -177,9 +180,7 @@ async function loadAccountSnapshot(
   return {
     asOf: new Date().toISOString(),
     balances,
-    // Positions are read first so the failure a caller sees is the same whichever of the
-    // pages is also malformed.
-    positions: normalizedPositions(positionPayload),
+    positions,
     orders: normalizedOrders(orderPayload, complexOrderPayload),
   }
 }

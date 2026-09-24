@@ -94,6 +94,26 @@ describe('portfolio guard over the merged account snapshot', () => {
     await expect(guard()).rejects.toThrow('The portfolio guard found an unsupported position record.')
   })
 
+  it('skips a flat position tastytrade labels Zero, and refuses Zero on a held quantity', async () => {
+    const flat = { ...longEquity, 'quantity-direction': 'Zero', quantity: '0', symbol: 'QQQ', 'underlying-symbol': 'QQQ' }
+    respondWith({ positions: { data: { items: [longEquity, flat] } } })
+    await expect(guard()).resolves.toBeUndefined()
+
+    respondWith({ positions: { data: { items: [{ ...flat, quantity: '3' }] } } })
+    await expect(guard()).rejects.toThrow('The portfolio guard found an unsupported position record.')
+
+    respondWith({ positions: { data: { items: [{ ...flat, 'quantity-direction': 'Sideways' }] } } })
+    await expect(guard()).rejects.toThrow('The portfolio guard found an unsupported position record.')
+  })
+
+  it('reports a malformed position before a malformed balance, as the snapshot promises', async () => {
+    respondWith({
+      balances: { data: { items: [] } },
+      positions: { data: { items: [{ ...longEquity, 'quantity-direction': 'Sideways' }] } },
+    })
+    await expect(guard()).rejects.toThrow('The portfolio guard found an unsupported position record.')
+  })
+
   // Newly rejected here: the guard used to parse positions loosely enough that a row with no
   // underlying symbol passed, while the account context refused it. The merged read takes the
   // stricter of the two, so an unidentifiable position now stops a trade rather than sizing it.
