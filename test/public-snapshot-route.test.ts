@@ -407,6 +407,13 @@ describe('provider refresh policy', () => {
   it('errs toward refreshing when the session is unlabelled or names no open', () => {
     expect(providerRefreshDue(storedPublicSnapshot(minute, { marketState: 'unknown' }), NOW)).toBe(true)
     expect(providerRefreshDue(storedPublicSnapshot(minute, { marketOpensAt: undefined, marketState: 'closed' }), NOW)).toBe(true)
+    // Outside the session with no bell named, nothing else would ever move the store: the session
+    // retag needs a named open and the catch-up is a closed book's.
+    for (const marketState of ['after', 'pre'] as const) {
+      const stored = storedPublicSnapshot(minute, { marketOpensAt: undefined, marketState })
+      expect(providerRefreshDue(stored, NOW)).toBe(true)
+      expect(refreshDue(stored, NOW)).toBe(true)
+    }
   })
 
   it('catches up closed quotes that missed a cash session', () => {
