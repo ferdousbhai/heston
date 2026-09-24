@@ -264,6 +264,41 @@ describe('brokerage submission reconciliation', () => {
     expect(store.sqlite.prepare('SELECT status FROM broker_submissions').all()).toEqual([{ status: 'unresolved' }])
   })
 
+  it('refuses to record a matched broker order id that is not all digits', async () => {
+    store = await migrationStore()
+    const submittedAt = new Date().toISOString()
+    store.sqlite.prepare(
+      `INSERT INTO broker_submissions (id, broker_id, account_number, payload_json, resolved_payload_json, submitted_at, status)
+       VALUES ('row-1', 'tastytrade', 'TEST123', ?, ?, ?, 'unresolved')`,
+    ).run(
+      JSON.stringify({
+        action: 'Buy to Open', expiry: '2026-09-18', kind: 'place_option_order', limitPrice: 2.5,
+        optionType: 'C', priceEffect: 'Debit', quantity: 2, strike: 600, underlying: 'SPY',
+      }),
+      JSON.stringify(intended),
+      submittedAt,
+    )
+    setBrokerApi(stubBroker())
+    setBrokerAdapters({
+      tastytrade: {
+        ...tastytradeAdapter,
+        readOrderHistory: async () => ({
+          complete: true,
+          orders: [tastytradeOrderRecord({
+            id: '42/../cancel', legs: intended.legs, 'order-type': 'Limit', price: '2.50', 'price-effect': 'Debit',
+            'received-at': submittedAt, status: 'Filled', 'time-in-force': 'Day',
+          })],
+        }),
+        resolveAccountRef: async () => ({ accountNumber: 'TEST123', broker: 'tastytrade' }),
+      },
+    })
+
+    await expect(reconcileUnknownBrokerageAction({ DB: store.database }, brokerCredential))
+      .rejects.toThrow('TastytradeReconciliation:invalid-match')
+    expect(store.sqlite.prepare('SELECT status, provider_order_id FROM broker_submissions').all())
+      .toEqual([{ provider_order_id: null, status: 'unresolved' }])
+  })
+
   it('identifies a legacy row\'s contract even once it is closing-only and inactive', async () => {
     const brokerage = stubBroker()
     brokerage.tastyRequest.mockResolvedValue({

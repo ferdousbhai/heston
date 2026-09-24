@@ -4,7 +4,7 @@ import { Type } from 'typebox'
 import { echoesOrderPayload, type OrderPayload } from './order-payload'
 import { BROKER_CLOCK_SKEW_MS } from './order-market'
 import { type AppEnv } from './env'
-import { type BrokerAccountRef, type BrokerOrderRecord } from '../domain/broker'
+import { BROKER_ORDER_ID, type BrokerAccountRef, type BrokerOrderRecord } from '../domain/broker'
 import { type JsonValue } from '../domain/json-payload'
 import { resolveStoredOrderFingerprint } from './order-intent'
 import { brokerAdapterFor, type BrokerAdapter } from './brokers'
@@ -270,7 +270,12 @@ async function reconcileUnderLease(
 
   const match = matches[0]!
   const providerOrderId = match.id
-  if (!providerOrderId || !match.status) throw new CallerVisibleError('TastytradeReconciliation:invalid-match')
+  // History reads bound an id's length only, since they report what the broker wrote. This one
+  // is stored as the order's identity and later sent back in a replacement's path, so it must
+  // meet the same all-digits shape a direct placement requires of the id it stores.
+  if (!providerOrderId || !BROKER_ORDER_ID.test(providerOrderId) || !match.status) {
+    throw new CallerVisibleError('TastytradeReconciliation:invalid-match')
+  }
   const rejected = match.rejected
   // An executed match stores the broker's order id: this row is the only source a later
   // price-only replacement can resolve the order's shape from, exactly as if the placement had
