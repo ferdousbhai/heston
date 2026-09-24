@@ -102,9 +102,9 @@ export function accountBalancesFromPayload(payload: JsonValue, accountNumber: st
     dayTradingBuyingPower: requiredNumber(row, 'day-trading-buying-power'),
     derivativeBuyingPower: requiredNumber(row, 'derivative-buying-power'),
     equityBuyingPower: requiredNumber(row, 'equity-buying-power'),
-    netLiquidatingValue: row['net-liquidating-value'] === undefined || row['net-liquidating-value'] === null
-      ? requiredNumber(row, 'net-liquidating-value-snapshot')
-      : requiredNumber(row, 'net-liquidating-value'),
+    // The live figure only. It feeds the portfolio drawdown guard, so a balance that omits it
+    // fails the read rather than borrowing `net-liquidating-value-snapshot`, a different field.
+    netLiquidatingValue: requiredNumber(row, 'net-liquidating-value'),
   }
 }
 

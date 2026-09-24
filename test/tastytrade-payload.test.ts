@@ -42,6 +42,14 @@ describe('tastytrade balance payloads', () => {
     expect(() => accountBalancesFromPayload({ data: { ...balance, 'available-trading-funds': 'NaN' } }, 'A1'))
       .toThrow('invalid-available-trading-funds')
   })
+
+  it('refuses a balance without the live net liquidating value rather than reading the snapshot', () => {
+    const { 'net-liquidating-value': _live, ...withoutLive } = balance
+    for (const row of [withoutLive, { ...balance, 'net-liquidating-value': null }]) {
+      expect(() => accountBalancesFromPayload({ data: { ...row, 'net-liquidating-value-snapshot': '90000' } }, 'A1'))
+        .toThrow('invalid-net-liquidating-value')
+    }
+  })
 })
 
 describe('tastytrade live order payloads', () => {
