@@ -52,6 +52,8 @@ describe('provenance date matching', () => {
     ['2026-09-24', 'Upcoming events will be announced'],
     ['2026-09-24', 'September 25, 2026'],
     ['2026-09-24', 'September 24, 2027'],
+    // The year printed with the date is another one; the claimed year further on is not its year.
+    ['2026-09-09', "Last year's summit was held September 9, 2025; the 2026 date is not yet set."],
     // A longer number or date that merely contains a rendering is a different date.
     ['2026-01-05', 'Rescheduled to 11/5/2026 after the vote'],
     ['2026-02-01', 'Results follow on 12/1/2026'],
@@ -81,6 +83,10 @@ describe('horizon-scoped date matching', () => {
   it('still refuses a mention whose printed year is a different one', () => {
     expect(textMentionsDateWithinHorizon(
       'Back on September 9, 2025 the company said otherwise.',
+      '2026-09-09', TODAY, HORIZON,
+    )).toBe(false)
+    expect(textMentionsDateWithinHorizon(
+      "Last year's summit was held September 9, 2025; the 2026 date is not yet set.",
       '2026-09-09', TODAY, HORIZON,
     )).toBe(false)
   })

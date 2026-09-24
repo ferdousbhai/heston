@@ -88,12 +88,18 @@ export function textMentionsIsoDate(text: string, date: string): boolean {
   const [year, month, day] = date.split('-').map(Number)
   const monthName = MONTHS[month - 1]!
   const spelled = spelledMonthDay(monthName, day)
-  const nearbyYear = new RegExp(`\\b${year}\\b`)
   for (const match of haystack.matchAll(spelled)) {
-    if (nearbyYear.test(haystack.slice(match.index, match.index + DATE_PROXIMITY_CHARS))) return true
+    // The year that binds is the first one printed after the mention — the date's own year, or
+    // a range's closing year. A later year in the window belongs to another date: "September 9,
+    // 2025; the 2026 date is not yet set" does not vouch for 2026-09-09.
+    const printed = PRINTED_YEAR.exec(haystack.slice(match.index, match.index + DATE_PROXIMITY_CHARS))
+    if (printed && Number(printed[0]) === year) return true
   }
   return false
 }
+
+/** A four-digit year as reporting prints one; the horizon matcher uses the same shape. */
+const PRINTED_YEAR = /\b(?:19|20)\d{2}\b/
 
 /** "September 9", "Sept. 9", "September 9th" — the month-day core every rendering shares. */
 function spelledMonthDay(monthName: string, day: number): RegExp {
@@ -120,10 +126,9 @@ export function textMentionsDateWithinHorizon(
   if (!isValidIsoDate(date) || date < today || date > horizon) return false
   const haystack = text.replace(/\s+/g, ' ')
   const [year, month, day] = date.split('-').map(Number)
-  const anyYear = /\b(?:19|20)\d{2}\b/
-  const printedYears = /\b(?:19|20)\d{2}\b/g
+  const printedYears = new RegExp(PRINTED_YEAR.source, 'g')
   for (const match of haystack.matchAll(spelledMonthDay(MONTHS[month! - 1]!, day!))) {
-    if (anyYear.test(haystack.slice(match.index, match.index + DATE_PROXIMITY_CHARS))) continue
+    if (PRINTED_YEAR.test(haystack.slice(match.index, match.index + DATE_PROXIMITY_CHARS))) continue
     const before = haystack.slice(Math.max(0, match.index - DATE_PROXIMITY_CHARS), match.index)
     if ([...before.matchAll(printedYears)].some(([printed]) => Number(printed) !== year)) continue
     return true
