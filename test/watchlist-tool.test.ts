@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { loadBrokerageContext } from '../src/server/brokerage-context'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
-import { createWatchlistReadTool } from '../src/server/watchlist-tool'
+import { instrumentCatalogFromPayload, persistInstrumentCatalog } from '../src/server/instrument-catalog'
+import { publishInternalWatchlistUniverse } from '../src/server/public-market-universe'
+import { createWatchlistIndexTool, createWatchlistReadTool } from '../src/server/watchlist-tool'
 import { brokerCredential, stubBroker, tastytradeBalances } from './broker-stub'
 import { migrationStore, seededItems, seedWatchlist, type SqliteD1Store } from './sqlite-d1'
 
@@ -65,6 +67,21 @@ describe('watchlist context boundary', () => {
       symbols: ['NVDA', 'SPY'],
     })
     expect(tastytrade.tastyRequest).not.toHaveBeenCalled()
+  })
+
+  it('shows a reader the published universe, holding back a name the broker stopped trading', async () => {
+    const env = { DB: store.database }
+    seedWatchlist(store, seededItems(['ATVI']))
+    await persistInstrumentCatalog(env, instrumentCatalogFromPayload([
+      { active: false, description: 'Activision Blizzard', 'instrument-type': 'Equity', symbol: 'ATVI' },
+    ], ['ATVI']))
+    await publishInternalWatchlistUniverse(env)
+
+    const reader = await createWatchlistIndexTool(env).execute({})
+    expect(JSON.parse(reader.content[0]!.text)).toMatchObject({ mode: 'index', status: 'ok', symbols: ['NVDA', 'SPY'] })
+    // The owner's read is the maintained list, which keeps the name.
+    const owner = await createWatchlistReadTool(env).execute({})
+    expect(JSON.parse(owner.content[0]!.text)).toMatchObject({ symbols: ['ATVI', 'NVDA', 'SPY'] })
   })
 
   it('returns retained raw seed provenance for one exact symbol only', async () => {
