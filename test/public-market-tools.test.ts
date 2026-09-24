@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Value } from 'typebox/value'
 
 import { PublicMarketSnapshotSchema } from '../src/domain/market'
 import {
@@ -7,6 +8,12 @@ import {
   selectPublicQuoteRows,
 } from '../src/server/public-market-tools'
 import { MAX_QUERY_LENGTH } from '../src/server/symbol-search'
+import {
+  InstrumentQuoteReadParameters,
+  MarketMetricsReadParameters,
+  MAX_MARKET_SYMBOLS,
+  MAX_QUOTE_INSTRUMENTS,
+} from '../src/server/brokerage-read-contracts'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
 
@@ -53,6 +60,33 @@ describe('anonymous public quote projection', () => {
     }, ['NVDA'])
     expect(projected.rows).toHaveLength(1)
     expect(projected.rows[0]?.symbol).toBe('NVDA')
+  })
+})
+
+describe('anonymous quote and metric parameters', () => {
+  const tools = createPublicMarketReadTools({ AUTH_BASE_URL: 'https://heston.test' }, () => undefined)
+  const parametersOf = (name: string) => {
+    const tool = tools.find((candidate) => candidate.name === name)
+    if (!tool) throw new Error(`${name} is missing`)
+    return tool.parameters
+  }
+  const symbols = (count: number) => Array.from({ length: count }, (_, index) => `$s${index}`)
+
+  it('accepts exactly what the signed-in tool of the same name accepts', () => {
+    const quotes = parametersOf('read_instrument_quotes')
+    for (const count of [MAX_QUOTE_INSTRUMENTS, MAX_QUOTE_INSTRUMENTS + 1]) {
+      expect(Value.Check(quotes, { symbols: symbols(count) }))
+        .toBe(Value.Check(InstrumentQuoteReadParameters, { symbols: symbols(count) }))
+    }
+    expect(Value.Check(quotes, { symbols: symbols(MAX_QUOTE_INSTRUMENTS) })).toBe(true)
+    expect(Value.Check(quotes, { symbols: symbols(MAX_QUOTE_INSTRUMENTS + 1) })).toBe(false)
+
+    const metrics = parametersOf('read_market_metrics')
+    for (const count of [MAX_MARKET_SYMBOLS, MAX_MARKET_SYMBOLS + 1]) {
+      expect(Value.Check(metrics, { symbols: symbols(count) }))
+        .toBe(Value.Check(MarketMetricsReadParameters, { symbols: symbols(count) }))
+    }
+    expect(Value.Check(metrics, { symbols: ['$nvda'] })).toBe(true)
   })
 })
 

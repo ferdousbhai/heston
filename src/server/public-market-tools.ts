@@ -3,13 +3,13 @@ import { type TSchema, Type } from 'typebox'
 import { z } from 'zod'
 
 import { PublicTickerSchema } from '../domain/market'
-import { EquitySymbolSchema, EquitySymbolType, equitySymbolFromModelText } from '../domain/instrument'
+import { EquitySymbolSchema, equitySymbolFromModelText, ModelTextEquitySymbolType } from '../domain/instrument'
 import { type AgentTool } from '../domain/agent-tool'
 import { textResult } from './agent-tool-result'
 import { type AppEnv } from './env'
 import { type BackgroundScheduler, servePublicSnapshot } from './public-snapshot-cache'
 import { servePublicSymbolSearch } from './public-symbol-search'
-import { MAX_MARKET_SYMBOLS } from './brokerage-read-contracts'
+import { MarketMetricsReadParameters, MAX_QUOTE_INSTRUMENTS } from './brokerage-read-contracts'
 import { MAX_QUERY_LENGTH } from './symbol-search'
 import { CallerVisibleError } from './caller-visible-error'
 
@@ -29,11 +29,12 @@ import { CallerVisibleError } from './caller-visible-error'
  * The trade is honest and stated on each tool: the tracked universe only, priced as of the last
  * refresh rather than this instant.
  *
- * The symbol bound is the signed-in tools' own model-context budget: these share their names and
- * answer the same question, so an agent must not find the anonymous tier accepts a different size.
+ * Each tool takes the signed-in tool's own symbol schema and bound: these share their names and
+ * answer the same question, so an agent must not find the anonymous tier accepts a different size
+ * or spelling. Quotes take the signed-in quote budget; metrics reuse the signed-in parameters.
  */
 const PublicQuoteParameters = Type.Object({
-  symbols: Type.Array(EquitySymbolType, { maxItems: MAX_MARKET_SYMBOLS, minItems: 1 }),
+  symbols: Type.Array(ModelTextEquitySymbolType, { maxItems: MAX_QUOTE_INSTRUMENTS, minItems: 1 }),
 }, { additionalProperties: false })
 
 /** The search route's own bound, advertised so an agent is never offered a query it would refuse. */
@@ -163,7 +164,7 @@ export function createPublicMarketReadTools(env: AppEnv, schedule: BackgroundSch
         + 'public snapshot refreshed about once a minute. Sign in for the full broker metrics.',
       execute: async (params) => {
         // SAFETY: the MCP server validates every call against this tool's own JSON Schema before
-        // dispatch, and `PublicQuoteParameters` requires `symbols` as a non-empty string array.
+        // dispatch, and `MarketMetricsReadParameters` requires `symbols` as a non-empty string array.
         const { symbols } = params as { symbols: string[] }
         const { missing, rows, syncedAt } = selectPublicQuoteRows(await readCachedSnapshot(env, schedule), symbols)
         return textResult({
@@ -180,7 +181,7 @@ export function createPublicMarketReadTools(env: AppEnv, schedule: BackgroundSch
         })
       },
       name: 'read_market_metrics',
-      parameters: PublicQuoteParameters,
+      parameters: MarketMetricsReadParameters,
     },
     {
       // The website's own search, which is edge-cached per query and, when a name resolves,
