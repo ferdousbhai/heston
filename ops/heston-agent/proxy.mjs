@@ -71,43 +71,67 @@ async function keyringSecret(service, key) {
 }
 
 /**
- * A refused or unreadable token exchange. Its `code` is the HTTP status or a fixed word of ours,
- * and the handler logs it beside the name: a revoked grant has to read as that in the log, not
- * as a bare `Error`. Neither carries the response body, which can echo credential material.
+ * A refused, unreachable, or unreadable token exchange. Its `code` is the HTTP status or a fixed
+ * word of ours, and the handler logs it beside the name: a revoked grant or an unreachable broker
+ * has to read as that in the log, not as a bare `Error` or `TypeError` indistinguishable from the
+ * Worker failing. `transport`, when present, is the OS- or undici-level code of the failure --
+ * `ENOTFOUND`, `TimeoutError` -- never a message. Nothing here carries the request or response
+ * body, either of which can hold credential material.
  */
 class TastytradeAuthError extends Error {
-  constructor(code) {
+  constructor(code, transport) {
     super(`TastytradeAuth:${code}`)
     this.name = 'TastytradeAuth'
     this.code = code
+    this.transport = transport
   }
+}
+
+/** A fixed-vocabulary code for a failed fetch: the cause's errno word, or the abort's name. */
+function transportCode(error) {
+  const candidate = error instanceof Error && error.cause instanceof Error && 'code' in error.cause
+    ? String(error.cause.code)
+    : error instanceof Error ? error.name : undefined
+  return candidate && /^[A-Za-z0-9_]+$/.test(candidate) ? candidate : undefined
 }
 
 let cachedAccess
 
 async function brokerAccessToken(clientSecret, refreshToken) {
   if (cachedAccess && Date.now() < cachedAccess.expiresAt) return cachedAccess.token
-  const response = await fetch(`${TASTYTRADE_API_BASE}/oauth/token`, {
-    body: JSON.stringify({
-      client_secret: clientSecret,
-      grant_type: 'refresh_token',
-      refresh_token: refreshToken,
-    }),
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      'User-Agent': 'Heston-Agent-Proxy/0.1',
-    },
-    method: 'POST',
-    signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
-  })
+  let response
+  try {
+    response = await fetch(`${TASTYTRADE_API_BASE}/oauth/token`, {
+      body: JSON.stringify({
+        client_secret: clientSecret,
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+      }),
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        'User-Agent': 'Heston-Agent-Proxy/0.1',
+      },
+      method: 'POST',
+      signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
+    })
+  } catch (error) {
+    // The broker, not the Worker, could not be reached or did not answer in time.
+    throw new TastytradeAuthError('unreachable', transportCode(error))
+  }
   if (!response.ok) {
     // Status only. A token endpoint's body can echo credential material.
     throw new TastytradeAuthError(response.status)
   }
   // Parsed at the boundary rather than probed: a token response that does not match this
   // contract is a failure, not something to salvage a field out of.
-  const grant = TokenResponseSchema.safeParse(await response.json())
+  let payload
+  try {
+    payload = await response.json()
+  } catch {
+    throw new TastytradeAuthError('invalid-token-response')
+  }
+  const grant = TokenResponseSchema.safeParse(payload)
   if (!grant.success) throw new TastytradeAuthError('invalid-token-response')
   const { access_token: token, expires_in: lifetimeSeconds } = grant.data
   cachedAccess = { expiresAt: tokenRetiresAt(Date.now(), lifetimeSeconds * 1_000, UPSTREAM_TIMEOUT_MS), token }
@@ -199,7 +223,7 @@ async function main() {
         // undici reports every network failure as an indistinguishable `TypeError`.
         const name = error instanceof Error ? error.name : 'UnknownError'
         const detail = error instanceof TastytradeAuthError
-          ? ` ${String(error.code)}`
+          ? ` ${String(error.code)}${error.transport ? ` ${error.transport}` : ''}`
           : error instanceof Error && error.cause instanceof Error && 'code' in error.cause
             ? ` ${String(error.cause.code)}`
             : ''

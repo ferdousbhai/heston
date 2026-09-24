@@ -340,6 +340,60 @@ describe('local agent proxy', () => {
     expect(forwarded).toBe(0)
   }, 30_000)
 
+  it('logs an unreachable or unreadable token exchange as TastytradeAuth, not as a Worker failure', async () => {
+    let forwarded = 0
+    let tokenAnswer: 'html' | 'refuse' = 'html'
+    const port = await listen((request, response) => {
+      request.resume()
+      request.on('end', () => {
+        if (request.url?.endsWith('/oauth/token')) {
+          if (tokenAnswer === 'refuse') {
+            // The connection drops before any status: a transport failure, like an unreachable host.
+            response.destroy()
+            return
+          }
+          // A 2xx that is not JSON, as a captive portal or a misrouted proxy answers.
+          response.writeHead(200, { 'content-type': 'text/html' })
+          response.end(`<html>${REFRESH_TOKEN}</html>`)
+          return
+        }
+        forwarded += 1
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ ok: true }))
+      })
+    })
+    const keyring = await fakeKeyring({
+      'heston/mcp-token': HESTON_TOKEN,
+      'tastytrade/client-secret': CLIENT_SECRET,
+      'tastytrade/refresh-token': REFRESH_TOKEN,
+    })
+    const proxyPort = 18_794
+    await startProxy({
+      PATH: `${keyring}:${process.env.PATH ?? ''}`,
+      HESTON_MCP_URL: `http://127.0.0.1:${port}/mcp`,
+      TASTYTRADE_API_BASE: `http://127.0.0.1:${port}`,
+    }, proxyPort)
+    let stderr = ''
+    proxy!.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+    const call = () => fetch(`http://127.0.0.1:${proxyPort}/mcp`, {
+      body: JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'tools/list' }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+    })
+
+    expect((await call()).status).toBe(502)
+    await expect.poll(() => stderr).toContain('HestonAgentProxy: POST TastytradeAuth invalid-token-response\n')
+
+    tokenAnswer = 'refuse'
+    expect((await call()).status).toBe(502)
+    await expect.poll(() => stderr).toMatch(/HestonAgentProxy: POST TastytradeAuth unreachable( [A-Za-z0-9_]+)?\n/)
+    expect(stderr).not.toContain('TypeError')
+    expect(stderr).not.toContain('SyntaxError')
+    expect(stderr).not.toContain(REFRESH_TOKEN)
+    expect(stderr).not.toContain(CLIENT_SECRET)
+    expect(forwarded).toBe(0)
+  }, 30_000)
+
   it('exits non-zero when the keyring cannot be read rather than starting market-only', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'heston-keyring-'))
     keyrings.push(directory)
