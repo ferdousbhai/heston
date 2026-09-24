@@ -177,17 +177,23 @@ function compactValueIsAbsent(value: JsonValue): boolean {
   return CompactNonFiniteSchema.safeParse(TextFrameSchema.safeParse(value).data?.trim()).success
 }
 
-/** The numeric slots `optionGreeksFromRow` reads; `eventFlags`, `index` and `sequence` it ignores. */
-const GREEKS_VALUE_SLOTS = ['time', 'price', 'volatility', 'delta', 'gamma', 'theta', 'rho', 'vega'] as const
+/**
+ * The double slots `optionGreeksFromRow` reads. `time` is not among them: dxLink derives it from
+ * `index` and writes it as a number, so the empty-snapshot row carries `index`, `time` and
+ * `sequence` as 0 rather than "NaN" (the Candle terminator in the feed tests has the same shape).
+ */
+const GREEKS_VALUE_SLOTS = ['price', 'volatility', 'delta', 'gamma', 'theta', 'rho', 'vega'] as const
 
 /**
- * True when a Greeks row names a well-formed contract and every value slot is an absence marker:
- * the synthetic row dxLink writes for a contract it has no Greeks for. A row with any slot filled
- * is an observation, and one that failed the parse is damage however many of its other slots
- * say NaN -- reading it as absence would drop a partial or out-of-range reading silently.
+ * True when a Greeks row names a well-formed contract, carries no instant (`time` absent or 0),
+ * and every value slot is an absence marker: the synthetic row dxLink writes for a contract it
+ * has no Greeks for. A row with any slot filled or a real instant is an observation, and one that
+ * failed the parse is damage however many of its other slots say NaN -- reading it as absence
+ * would drop a partial or out-of-range reading silently.
  */
 function greeksRowIsAbsent(row: JsonObject): boolean {
   if (!OptionStreamerSymbolSchema.safeParse(row.eventSymbol).success) return false
+  if (!compactValueIsAbsent(row.time) && jsonNumber(row.time) !== 0) return false
   return GREEKS_VALUE_SLOTS.every((slot) => compactValueIsAbsent(row[slot]))
 }
 

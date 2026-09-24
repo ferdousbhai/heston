@@ -292,7 +292,9 @@ describe('MarketFeed option Greeks RPC', () => {
       type: 'FEED_DATA',
       channel: 7,
       data: ['Greeks', [
-        '.NVDA260814C250', 0, 0, 'NaN', 'NaN',
+        // eventSymbol, eventFlags (SNAPSHOT_BEGIN|SNAPSHOT_END|REMOVE_EVENT), index, time and
+        // sequence as the numbers dxLink writes for an empty snapshot, then seven NaN doubles.
+        '.NVDA260814C250', 0x0e, 0, 0, 0,
         'NaN', 'NaN', 'NaN', 'NaN', 'NaN', 'NaN', 'NaN',
       ]],
     })
@@ -339,6 +341,8 @@ describe('MarketFeed option Greeks RPC', () => {
     ['partly filled', ['.NVDA260814C250', 0, 0, 1_786_629_600_000, 1, 3.2, 0.42, 'NaN', 'NaN', 'NaN', 'NaN', 'NaN']],
     // Numbers out of optionGreeksFromRow's bounds beside one NaN slot are a broken range.
     ['out of range beside a NaN', ['.NVDA260814C250', 0, 0, 1_786_629_600_000, 1, -3.2, 0.42, 0.5, 0.03, -0.04, 0.02, 'NaN']],
+    // A real instant with every double NaN is an observation that failed, not the empty row.
+    ['stamped but empty', ['.NVDA260814C250', 0, 0, 1_786_629_600_000, 1, 'NaN', 'NaN', 'NaN', 'NaN', 'NaN', 'NaN', 'NaN']],
   ])('closes the upstream on a Greeks row that is %s rather than skipping it', async (_label, row) => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
