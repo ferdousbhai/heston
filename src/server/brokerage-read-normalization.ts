@@ -7,8 +7,6 @@ import { CallerVisibleError } from './caller-visible-error'
 
 type ItemEnvelope = { rows: JsonObject[]; totalItems?: number }
 
-/** Broker text fields are compared and length-checked verbatim, so they are not trimmed on the way in. */
-const BrokerTextSchema = z.string()
 
 export function invalidResponse(label: string): never {
   throw new CallerVisibleError(`${label} returned an invalid response.`)
@@ -41,7 +39,7 @@ export function optionalText(
   for (const key of keys) {
     const value = row[key]
     if (value === undefined || value === null || value === '') continue
-    const raw = BrokerTextSchema.safeParse(value).data
+    const raw = z.string().safeParse(value).data
     if (raw === undefined) return invalidResponse(label)
     const normalized = raw.trim()
     if (!normalized || normalized.length > maxLength) return invalidResponse(label)
@@ -110,7 +108,7 @@ export function requiredIdentifier(row: JsonObject, key: string, label: string):
   const value = row[key]
   const numeric = z.number().safeParse(value).data
   if (numeric !== undefined && Number.isSafeInteger(numeric)) return String(numeric)
-  const normalized = BrokerTextSchema.safeParse(value).data?.trim()
+  const normalized = z.string().safeParse(value).data?.trim()
   if (normalized && normalized.length <= BROKER_ORDER_ID_MAX_LENGTH) return normalized
   return invalidResponse(label)
 }
