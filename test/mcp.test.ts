@@ -7,10 +7,10 @@ import { HESTON_GUIDE } from '../src/server/doctrine'
 import {
   handleMcpRequest,
   McpCallerLookupError,
-  mcpEndpointRedirect,
   resolveMcpCaller,
   type McpExecutionContext,
 } from '../src/server/mcp'
+import { mcpEndpointRedirect } from '../src/server/mcp-endpoint-redirect'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
 import { unsupportedDatabase } from './fake-d1'
