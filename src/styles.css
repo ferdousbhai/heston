@@ -557,7 +557,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .connect-issue { margin: 12px 0; display: flex; gap: 8px; }
 .connect-issue input { flex: 1; min-width: 0; }
 .connect-screen .connect-empty { color: var(--ink-faint); }
-.connect-tokens { margin: 12px 0 0; padding: 0; list-style: none; display: grid; gap: 1px; background: var(--hairline); border: 1px solid var(--hairline); border-radius: 6px; overflow: hidden; }
+.connect-tokens { margin: 12px 0; padding: 0; list-style: none; display: grid; gap: 1px; background: var(--hairline); border: 1px solid var(--hairline); border-radius: 6px; overflow: hidden; }
 .connect-tokens li { padding: 9px 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--surface); }
 .connect-tokens li > div { min-width: 0; overflow-wrap: anywhere; }
 .connect-tokens strong { display: block; font-size: 15px; font-weight: 700; }
@@ -644,5 +644,5 @@ button { -webkit-tap-highlight-color: transparent; }
 .focus-recommendation .brief-card { padding: 10px 0 0; border-top: 0; }
 /* Small controls on a phone still take a full touch target. */
 @media (max-width: 959px) {
-  .connect-code-head button, .connect-issue button, .connect-tokens button, .brief-navigation button, .brief-card-head button { min-height: var(--touch-target); }
+  .connect-code-head button, .connect-issue button, .connect-issue input, .connect-tokens button, .brief-navigation button, .brief-card-head button { min-height: var(--touch-target); }
 }
