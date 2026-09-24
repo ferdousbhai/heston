@@ -102,8 +102,9 @@ export function accountBalancesFromPayload(payload: JsonValue, accountNumber: st
     dayTradingBuyingPower: requiredNumber(row, 'day-trading-buying-power'),
     derivativeBuyingPower: requiredNumber(row, 'derivative-buying-power'),
     equityBuyingPower: requiredNumber(row, 'equity-buying-power'),
-    // The live figure only. It feeds the portfolio drawdown guard, so a balance that omits it
-    // fails the read rather than borrowing `net-liquidating-value-snapshot`, a different field.
+    // The live figure only. The portfolio guard refuses an order when it is not positive, so a
+    // balance that omits it fails the read rather than borrowing
+    // `net-liquidating-value-snapshot`, a different field.
     netLiquidatingValue: requiredNumber(row, 'net-liquidating-value'),
   }
 }
