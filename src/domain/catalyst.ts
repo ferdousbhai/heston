@@ -128,10 +128,11 @@ function compareCatalystSchedule(left: Catalyst, right: Catalyst): number {
 }
 
 /**
- * Which of two sightings of the same event a reader is shown. The broker's own calendar
- * outranks a search, because only it can say a date is confirmed; then the more recent
- * sighting, because a producer that looked again is answering for what is scheduled now;
- * then the id, so the choice is stable. Every `updatedAt` a producer writes is an ISO
+ * Which of two sightings of the same event a reader is shown. A confirmed row beats an
+ * estimated one, whichever producer wrote it; among rows of equal confidence the more recent
+ * sighting wins, because a producer that looked again is answering for what is scheduled now --
+ * so a broker calendar row the broker itself marked estimated yields to a newer estimated
+ * search; then the id, so the choice is stable. Every `updatedAt` a producer writes is an ISO
  * instant, which compares lexically.
  */
 function compareCatalystStanding(left: Catalyst, right: Catalyst): number {
