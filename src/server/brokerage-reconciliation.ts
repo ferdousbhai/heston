@@ -182,7 +182,17 @@ export type StoredSubmissionTime = {
   submittedAt: Date
 }
 
-/** Exact order fingerprint match; timestamps keep unrelated duplicate orders from clearing quarantine. */
+/**
+ * Exact order fingerprint match; timestamps keep unrelated duplicate orders from clearing quarantine.
+ *
+ * Only the broker's received-at bounds a match on both sides. The history reader treats it as
+ * optional, and the updated-at it would otherwise lean on moves later on every fill or cancel, so
+ * an upper bound on updated-at would drop the real order -- and once absence became final, settle
+ * a placed order as never placed and lift its quarantine. Without a received-at, updated-at only
+ * excludes a row last touched before the submission could have arrived (nothing is updated before
+ * it is received); any other row stays a candidate, so an extra one keeps the quarantine rather
+ * than letting absence settle it.
+ */
 export function matchesSubmittedOrder(
   row: BrokerOrderRecord,
   intended: OrderPayload,
@@ -190,11 +200,16 @@ export function matchesSubmittedOrder(
   now = new Date(),
   replacedOrderId?: string,
 ): boolean {
-  const receivedAt = Date.parse(row.receivedAt ?? row.updatedAt ?? '')
   const submittedAt = submission.submittedAt.getTime()
   const earliest = submittedAt - (submission.claimed ? BROKER_CLOCK_SKEW_MS : SUBMISSION_RECORD_LAG_MS)
-  const latest = Math.min(submittedAt + SUBMISSION_TRANSPORT_BUDGET_MS, now.getTime()) + BROKER_CLOCK_SKEW_MS
-  if (!Number.isFinite(receivedAt) || receivedAt < earliest || receivedAt > latest) return false
+  const receivedAt = Date.parse(row.receivedAt ?? '')
+  if (Number.isFinite(receivedAt)) {
+    const latest = Math.min(submittedAt + SUBMISSION_TRANSPORT_BUDGET_MS, now.getTime()) + BROKER_CLOCK_SKEW_MS
+    if (receivedAt < earliest || receivedAt > latest) return false
+  } else {
+    const updatedAt = Date.parse(row.updatedAt ?? '')
+    if (Number.isFinite(updatedAt) && updatedAt < earliest) return false
+  }
   return (!replacedOrderId || row.replacesOrderId === replacedOrderId)
     && echoesOrderPayload(row, intended)
 }

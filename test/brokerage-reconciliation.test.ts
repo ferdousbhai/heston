@@ -231,6 +231,54 @@ describe('brokerage submission reconciliation', () => {
     })
   })
 
+  it('keeps a payload-echoing row with no received-at and a late updated-at as a candidate', async () => {
+    const claimed = { claimed: true, submittedAt: new Date('2026-08-14T14:00:00.000Z') }
+    const later = new Date('2026-08-14T15:00:00.000Z')
+    const rowOf = (updatedAt: string) => tastytradeOrderRecord({
+      id: '42', legs: intended.legs, 'order-type': 'Limit', price: '2.50', 'price-effect': 'Debit',
+      status: 'Filled', 'time-in-force': 'Day', 'updated-at': updatedAt,
+    })
+    // Filled long after the transport budget: updated-at moved, the order is still ours.
+    expect(matchesSubmittedOrder(rowOf('2026-08-14T14:40:00.000Z'), intended, claimed, later)).toBe(true)
+    // Last touched before the submission could have arrived: not ours.
+    expect(matchesSubmittedOrder(rowOf('2026-08-14T13:00:00.000Z'), intended, claimed, later)).toBe(false)
+
+    store = await migrationStore()
+    const submittedAt = new Date(Date.now() - 60 * 60_000)
+    store.sqlite.prepare(
+      `INSERT INTO broker_submissions (id, broker_id, account_number, payload_json, resolved_payload_json, submitted_at, status)
+       VALUES ('row-1', 'tastytrade', 'TEST123', ?, ?, ?, 'unresolved')`,
+    ).run(
+      JSON.stringify({
+        action: 'Buy to Open', expiry: '2026-09-18', kind: 'place_option_order', limitPrice: 2.5,
+        optionType: 'C', priceEffect: 'Debit', quantity: 2, strike: 600, underlying: 'SPY',
+      }),
+      JSON.stringify(intended),
+      submittedAt.toISOString(),
+    )
+    const lateUpdate = new Date(submittedAt.getTime() + 30 * 60_000).toISOString()
+    const orders = [rowOf(lateUpdate), { ...rowOf(lateUpdate), id: '43' }]
+    setBrokerApi(stubBroker())
+    setBrokerAdapters({
+      tastytrade: {
+        ...tastytradeAdapter,
+        readOrderHistory: async () => ({ complete: true, orders }),
+        resolveAccountRef: async () => ({ accountNumber: 'TEST123', broker: 'tastytrade' }),
+      },
+    })
+
+    // Two candidates are ambiguous, never an absence: the quarantine stays.
+    const ambiguous = await reconcileUnknownBrokerageAction({ DB: store.database }, brokerCredential)
+    expect(ambiguous).toMatchObject({ status: 'unresolved' })
+    expect(ambiguous.detail).toContain('More than one exact broker match')
+    expect(store.sqlite.prepare('SELECT status FROM broker_submissions').all()).toEqual([{ status: 'unresolved' }])
+
+    // The lone real order settles as executed rather than as BrokerageSubmissionNotFound.
+    orders.pop()
+    await expect(reconcileUnknownBrokerageAction({ DB: store.database }, brokerCredential))
+      .resolves.toMatchObject({ providerOrderId: '42', status: 'executed' })
+  })
+
   it('names an incomplete history, not a past instant, when absence cannot yet be concluded', async () => {
     store = await migrationStore()
     const longAgo = new Date(Date.now() - 24 * 60 * 60_000).toISOString()
