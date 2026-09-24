@@ -248,8 +248,8 @@ describe('the maintained watchlist', () => {
     seedLists()
     const origins = [
       'visitor-search',
-      'scheduled-research',
       'agent-discussion',
+      'scheduled-research',
       'trade-intent',
       'owner',
     ] as const
@@ -338,6 +338,55 @@ describe('a list full of reader searches', () => {
     expect(items.find((item) => item.symbol === 'ZZY')?.origin).toBe('trade-intent')
     expect(items.find((item) => item.symbol === searched[0])?.origin).toBe('owner')
     expect(items.filter((item) => item.origin === 'visitor-search')).toHaveLength(MAX_WATCHLIST_SYMBOLS - 3)
+  })
+})
+
+describe("a member agent's remembered names", () => {
+  // Any signed-in member can call `remember_symbols` with a whole list's worth of names. Were
+  // `agent-discussion` protected, that flood would fill the protected capacity and refuse every
+  // later owner and trade-intent addition.
+  it('cannot fill the list against an owner or trade-intent addition', async () => {
+    const env = { DB: store.database }
+    const flooded = Array.from({ length: MAX_WATCHLIST_SYMBOLS }, (_, index) => symbolAt(index))
+    await expect(ensureInternalWatchlistSymbols(env, flooded, 'agent-discussion'))
+      .resolves.toHaveLength(MAX_WATCHLIST_SYMBOLS)
+
+    await expect(ensureInternalWatchlistSymbols(env, ['ZZZ'], 'owner')).resolves.toEqual(['ZZZ'])
+    await expect(ensureInternalWatchlistSymbols(env, ['ZZY'], 'trade-intent')).resolves.toEqual(['ZZY'])
+
+    const items = await readInternalWatchlist(env)
+    expect(items).toHaveLength(MAX_WATCHLIST_SYMBOLS)
+    expect(items.find((item) => item.symbol === 'ZZZ')?.origin).toBe('owner')
+    expect(items.find((item) => item.symbol === 'ZZY')?.origin).toBe('trade-intent')
+    expect(items.filter((item) => item.origin === 'agent-discussion')).toHaveLength(MAX_WATCHLIST_SYMBOLS - 2)
+  })
+
+  it('cannot demote a protected row to a prunable one by naming it', async () => {
+    const env = { DB: store.database }
+    // Scheduled research is the weakest protected origin, and so the one a discussion once outranked.
+    await ensureInternalWatchlistSymbols(env, ['NVDA'], 'scheduled-research')
+    await ensureInternalWatchlistSymbols(env, ['NVDA'], 'agent-discussion')
+    await expect(readInternalWatchlistSymbolDetails(env, 'NVDA')).resolves.toMatchObject({ origin: 'scheduled-research' })
+  })
+
+  it('outranks reader searches in the prune, and yields to curated names', async () => {
+    const env = { DB: store.database }
+    // The searches are the most recently touched, so only the tier can put the discussed names
+    // ahead of them; the private-list seed row is the oldest and outranks both.
+    const searched = Array.from({ length: MAX_WATCHLIST_SYMBOLS - 1 }, (_, index) => symbolAt(index))
+    seedWatchlist(store, [
+      { symbol: 'ZZZA', updatedAt: '2026-08-01T00:00:00.000Z' },
+      ...searched.map((symbol) => ({ symbol, origin: 'visitor-search' as const, updatedAt: '2026-08-27T00:00:00.000Z' })),
+    ], [{ kind: 'private', name: 'Long vol', entries: [{ symbol: 'ZZZA' }] }])
+
+    await expect(ensureInternalWatchlistSymbols(env, ['ZZZB', 'ZZZC'], 'agent-discussion', new Date('2026-08-02T00:00:00.000Z')))
+      .resolves.toEqual(['ZZZB', 'ZZZC'])
+
+    const items = await readInternalWatchlist(env)
+    expect(items).toHaveLength(MAX_WATCHLIST_SYMBOLS)
+    expect(items.some((item) => item.symbol === 'ZZZA')).toBe(true)
+    expect(items.filter((item) => item.origin === 'visitor-search')).toHaveLength(MAX_WATCHLIST_SYMBOLS - 3)
+    await expect(readInternalWatchlistFocus(env, [], 3)).resolves.toEqual(['ZZZA', 'ZZZB', 'ZZZC'])
   })
 })
 

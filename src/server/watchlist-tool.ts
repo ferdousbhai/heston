@@ -103,9 +103,12 @@ const RememberSymbolsParameters = Type.Object({
 
 /**
  * Additive only, and available to any member. The internal watchlist is shared — it drives the
- * market surface every reader sees — but admitting a name is already what a visitor's search
- * does, so this adds no authority a member did not have. Removing one is not the same act and
- * is owner-only below.
+ * market surface every reader sees — and this admits a whole list's worth of names per call with
+ * no catalog check, which a visitor's one-quoted-name search cannot. What bounds it is the
+ * provenance it writes: `agent-discussion` is prunable and ranks below every curated and
+ * protected name (internal-watchlist.ts), so a member's flood can displace only searches and
+ * uncurated seed rows, never refuse an owner or trade-intent addition. Removing a name is not the
+ * same act and is owner-only below.
  */
 export function createRememberSymbolsTool(
   env: AppEnv,

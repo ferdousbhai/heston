@@ -15,14 +15,19 @@ import { CallerVisibleError } from './caller-visible-error'
 const MAX_SOURCE_LISTS_PER_KIND = 100
 
 /**
- * The origins an automatic prune may evict: the broker seed and a reader's search, the two
- * provenances the ranking places below every curated name (tiers 3-6). Every other origin is a
- * protected row that only an explicit removal deletes. Admission and pruning read this one list:
- * when admission counted only the seed as evictable, visitor searches filled the protected
- * capacity and refused an owner or trade-intent addition while the prune could still have
- * evicted every one of them.
+ * The origins an automatic prune may evict: the broker seed, a reader's search, and a member
+ * agent's `remember_symbols`, the three provenances the ranking places below every curated name
+ * (tiers 3-7). Every other origin is a protected row that only an explicit removal deletes.
+ * Admission and pruning read this one list: when admission counted only the seed as evictable,
+ * visitor searches filled the protected capacity and refused an owner or trade-intent addition
+ * while the prune could still have evicted every one of them.
+ *
+ * `agent-discussion` is here because any signed-in member can write it, a whole list's worth per
+ * call and with no catalog check: were it protected, one member's agent could fill the protected
+ * capacity and so refuse every later owner and trade-intent addition. Prunable, it can displace
+ * only weaker provenance -- searches and uncurated seed rows -- never a curated or protected name.
  */
-const PRUNABLE_ORIGINS = ['tastytrade-seed', 'visitor-search'] as const satisfies readonly InternalWatchlistOrigin[]
+const PRUNABLE_ORIGINS = ['tastytrade-seed', 'visitor-search', 'agent-discussion'] as const satisfies readonly InternalWatchlistOrigin[]
 const PRUNABLE_ORIGINS_SQL = `(${PRUNABLE_ORIGINS.map((origin) => `'${origin}'`).join(', ')})`
 
 /**
@@ -33,15 +38,16 @@ const PRUNABLE_ORIGINS_SQL = `(${PRUNABLE_ORIGINS.map((origin) => `'${origin}'`)
  *
  *   0  a priority symbol the caller names
  *   1  an owner addition
- *   2  any other Heston origin — research, discussion, trade intent
+ *   2  any other protected origin — scheduled research, trade intent, a stored position sync
  *   3  a seed member of one of the owner's private broker lists
  *   4  a seed member of the public High Options Volume list, by its rank there
- *   5  a reader's search, which earns its place but yields to every curated name
- *   6  any other seed member
+ *   5  a name a member's agent discussed, which yields to every curated name
+ *   6  a reader's search, which earns its place but yields to a discussed name too
+ *   7  any other seed member
  *
  * Tiers 3 and 4 read list membership from the retained seed tables, not from the row's origin, so
- * a search that overwrote a seed row's origin (see INTERNAL_WATCHLIST_ORIGINS) keeps the name in
- * its curated tier rather than demoting it to tier 5.
+ * a search or discussion that overwrote a seed row's origin (see INTERNAL_WATCHLIST_ORIGINS) keeps
+ * the name in its curated tier rather than demoting it to tier 5 or 6.
  *
  * Ties break by options-volume rank, then most recently touched, then symbol. The one bound
  * parameter is a JSON array of priority symbols, so its length is not capped by D1's
@@ -77,8 +83,9 @@ const RANKED_ITEMS_CTE = `WITH priority AS (
            WHEN i.origin NOT IN ${PRUNABLE_ORIGINS_SQL} THEN 2
            WHEN p.symbol IS NOT NULL THEN 3
            WHEN v.volume_rank IS NOT NULL THEN 4
-           WHEN i.origin = 'visitor-search' THEN 5
-           ELSE 6
+           WHEN i.origin = 'agent-discussion' THEN 5
+           WHEN i.origin = 'visitor-search' THEN 6
+           ELSE 7
          END AS tier
        FROM internal_watchlist_items i
        LEFT JOIN private_symbols p ON p.symbol = i.symbol
@@ -113,10 +120,13 @@ const INTERNAL_WATCHLIST_ORIGINS = [
   // overwrites it, and it overwrites only the retired seed's. That overwrite costs the name no
   // rank, because the ranking reads private and volume list membership from the retained seed
   // tables rather than from this column; it only lifts a seed member on no ranked list from
-  // tier 6 to 5. A searched symbol never outranks a researched or curated one.
+  // tier 7 to 6. A searched symbol never outranks a discussed, researched or curated one.
   'visitor-search',
-  'scheduled-research',
+  // A member agent's `remember_symbols`. It is prunable (see PRUNABLE_ORIGINS), so it ranks below
+  // every protected origin here: were it stronger than one, a member could turn a protected row
+  // into a prunable one by naming it. It overwrites only a search's or the seed's origin.
   'agent-discussion',
+  'scheduled-research',
   // Written only by the removed one-time finalization (held positions at that moment). Rows
   // that carry it remain in D1 and must still parse and rank, so it stays a stored origin,
   // but no live path may write it.
