@@ -98,8 +98,10 @@ export function createHestonMcpServer(
       ? [
         ...createBrokerageReadTools(env, credential),
         createExactOptionGreeksReadTool(env),
-        // Writing to the shared watchlist, and clearing a quarantined submission, are acts that
-        // want an account behind them even though neither touches one directly.
+        // Remembering symbols wants an account behind it because it admits a whole list of names
+        // to the shared watchlist per call with no catalog check -- unlike the anonymous search,
+        // which admits at most the one name its query resolved to. Clearing a quarantined
+        // submission wants one because it settles an account's own row.
         createRememberSymbolsTool(env),
         createBrokerageReconciliationTool(env, credential),
         // Writing research back to the site: dated events for every reader's calendar, and the
@@ -263,8 +265,11 @@ export type McpCaller = {
  *
  * Reads the website's own cached snapshot and the rows behind it, so an agent can answer a market
  * question with no setup at all -- the same data a visitor gets, out of the same cache entry, at
- * the same cost. Everything that spends a per-call broker request, writes to shared state, or
- * touches an account stays behind a credential.
+ * the same cost. Everything that touches an account stays behind a credential, and so does every
+ * other write to shared state and every per-call broker request, with one exception: the
+ * anonymous `search_symbols` is the website's own search, so a name it resolves is admitted to the
+ * shared watchlist as prunable `visitor-search`, and a query the edge cache has not answered may
+ * spend one broker lookup -- claimed one at a time per query, exactly as the website's does.
  */
 export const ANONYMOUS_CALLER: McpCaller = { owner: false, signedIn: false, userId: '' }
 
