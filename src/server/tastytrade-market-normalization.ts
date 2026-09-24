@@ -438,6 +438,19 @@ export function marketStateFromTastytradeSession(payload: JsonValue): MarketSnap
 }
 
 /**
+ * A session instant: absent (or null) is the provider not naming one, which the reader sees as no
+ * countdown; present but unparseable is the provider saying something this reader cannot
+ * believe, and is refused as `marketStateFromTastytradeSession` refuses a bad state, rather than
+ * shown as the same quiet absence.
+ */
+function sessionInstant(value: JsonValue | undefined, check: string): number | undefined {
+  if (value === undefined || value === null) return undefined
+  const instant = Date.parse(jsonText(value) ?? '')
+  if (!Number.isFinite(instant)) throw new CallerVisibleError(`TastytradeMarketSession:${check}`)
+  return instant
+}
+
+/**
  * The next bell. The provider is the only thing that knows about holidays and half days, so
  * the instant comes from the session it describes rather than from a clock: the current
  * session's open while that is still ahead, otherwise the next session's. A payload naming
@@ -449,8 +462,8 @@ export function marketOpensAtFromTastytradeSession(payload: JsonValue, now = new
   if (!session) return undefined
   const next = jsonObject(session['next-session'])
   const candidates = [session['open-at'], next?.['open-at']]
-    .map((value) => Date.parse(jsonText(value) ?? ''))
-    .filter((instant) => Number.isFinite(instant) && instant > now.getTime())
+    .map((value) => sessionInstant(value, 'invalid-open-at'))
+    .filter((instant): instant is number => instant !== undefined && instant > now.getTime())
   if (!candidates.length) return undefined
   return new Date(Math.min(...candidates)).toISOString()
 }
@@ -460,7 +473,7 @@ export function marketClosesAtFromTastytradeSession(payload: JsonValue, now = ne
   const body = jsonObject(payload)
   const session = jsonObject(body?.data ?? payload)
   if (!session) return undefined
-  const close = Date.parse(jsonText(session['close-at']) ?? '')
-  if (!Number.isFinite(close) || close <= now.getTime()) return undefined
+  const close = sessionInstant(session['close-at'], 'invalid-close-at')
+  if (close === undefined || close <= now.getTime()) return undefined
   return new Date(close).toISOString()
 }
