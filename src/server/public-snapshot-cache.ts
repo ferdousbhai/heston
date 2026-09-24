@@ -116,9 +116,10 @@ function copyAgeMs(stored: Response, now: number): number {
  * While the market is open, prices move and the one-minute bound applies. Outside the session
  * nothing trades, so the reading stands until the bell the provider itself named; refreshing
  * every minute through a night or a weekend spent a full provider round trip per visitor to
- * reproduce the same numbers. A session the store never labelled, or whose named open has
- * already passed, is refreshed on the open-market bound, so an unlabelled store can only err
- * toward asking.
+ * reproduce the same numbers. A session the store never labelled (`unknown`), and a closed book
+ * that names no next open, are refreshed on the open-market bound, so an unlabelled store can
+ * only err toward asking. A named open that has already passed is not due here: that is a stale
+ * session label, which `sessionRefreshDue` retags without a quote rebuild.
  */
 export function providerRefreshDue(stored: StoredPublicMarketSnapshot, now: number): boolean {
   const { snapshot } = stored
