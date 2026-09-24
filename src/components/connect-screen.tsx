@@ -47,12 +47,15 @@ function useAgentTokens() {
   const [busy, setBusy] = useState(false)
   /** True only while the first read is in flight, so a failed read does not spin forever. */
   const [loading, setLoading] = useState(true)
-  /** Shown once, held only in this component's state, never re-fetchable. */
-  const [issued, setIssued] = useState<string>()
+  /**
+   * Shown once, held only in this component's state, never re-fetchable. Its id travels with it
+   * so revoking that very token also takes it off the screen.
+   */
+  const [issued, setIssued] = useState<{ token: string; tokenId: string }>()
 
   // Mirrors useViewer: the first read is owned by the effect and abandoned on unmount, so a
-  // slow response can never write into a component that has gone away. Later reads run from
-  // event handlers, where `reload` below is fine.
+  // slow response can never write into a component that has gone away. After that the list
+  // changes only through create and revoke, whose answers carry what changed.
   useEffect(() => {
     const controller = new AbortController()
     void fetch('/api/mcp-tokens', { credentials: 'same-origin', signal: controller.signal })
@@ -69,11 +72,6 @@ function useAgentTokens() {
     return () => controller.abort()
   }, [])
 
-  const reload = useCallback(async () => {
-    const body = await readJson(await fetch('/api/mcp-tokens', { credentials: 'same-origin' }), McpTokenListResponseSchema)
-    setTokens(body.tokens)
-  }, [])
-
   // Reports whether the token was created, so the caller can keep what the member typed when
   // it was not — a refusal at the token cap is the case where retyping the name is wasted.
   const issue = useCallback(async (label: string): Promise<boolean> => {
@@ -85,9 +83,11 @@ function useAgentTokens() {
         headers: { 'content-type': 'application/json' },
         method: 'POST',
       }), McpTokenIssuedResponseSchema)
-      setIssued(body.token)
+      // The create answers with the new token's metadata, so the list grows from that rather than
+      // from a second read: a re-read that failed would report a created token as not created.
+      setIssued({ token: body.token, tokenId: body.tokenMetadata.tokenId })
+      setTokens((current) => [...(current ?? []), body.tokenMetadata])
       setError(undefined)
-      await reload()
       return true
     } catch (cause) {
       setError(toError(cause)?.message ?? 'The token could not be created')
@@ -95,7 +95,7 @@ function useAgentTokens() {
     } finally {
       setBusy(false)
     }
-  }, [reload])
+  }, [])
 
   const revoke = useCallback(async (tokenId: string) => {
     setBusy(true)
@@ -108,6 +108,7 @@ function useAgentTokens() {
         method: 'DELETE',
       }), McpTokenListResponseSchema)
       setTokens(body.tokens)
+      setIssued((current) => (current?.tokenId === tokenId ? undefined : current))
       setError(undefined)
     } catch (cause) {
       setError(toError(cause)?.message ?? 'The token could not be revoked')
@@ -127,7 +128,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
   // shortest path copy the token, copy the config, then splice one into the other by hand -- and
   // the token is shown exactly once, so that splice is the step with the most to lose. After the
   // reveal the placeholder is all that can honestly be shown: the digest is all the server kept.
-  const bearer = issued ?? 'YOUR_TOKEN'
+  const bearer = issued?.token ?? 'YOUR_TOKEN'
   const mcpConfig = JSON.stringify({
     mcpServers: { heston: { headers: { Authorization: `Bearer ${bearer}` }, type: 'http', url: MCP_URL } },
   }, null, 2)
@@ -245,7 +246,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
                 This is the only time this token is shown. If you lose it, revoke it and create another.
               </AlertDescription>
             </Alert>
-            <CopyBlock label="Your token" value={issued} />
+            <CopyBlock label="Your token" value={issued.token} />
           </>
         )}
 

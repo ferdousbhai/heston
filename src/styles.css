@@ -92,7 +92,9 @@ button { -webkit-tap-highlight-color: transparent; }
 .google-sign-in span { grid-column: 2; }
 .google-sign-in:hover { background: white; }
 .google-sign-in:disabled { color: #65666a; background: #d8d8dc; }
-.auth-inline-error { margin: 12px 0 0 !important; color: #ff9ba5 !important; font-size: 13px !important; }
+/* Both sign-in failures are the same ruled strip, so a session-check failure and a sign-in
+   failure stacked on one screen read as one kind of message. */
+.auth-inline-error { max-width: 420px; margin: 12px 0 0; padding: 13px 0; border-block: 1px solid rgba(255, 107, 120, .25); border-inline: 0; border-radius: 0; background: transparent; color: #efb4b9; font-size: 13px; line-height: 1.5; }
 
 .owner-access { min-height: calc(100dvh - 135px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); width: min(100%, 640px); margin-inline: auto; padding: clamp(58px, 12vh, 104px) 22px 42px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; }
 .owner-access-kicker { margin: 0 0 18px; color: var(--brand); font: 13px/1 var(--sans); }

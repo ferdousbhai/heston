@@ -78,3 +78,45 @@ it('shows the spinner only while the first read is in flight', async () => {
   await screen.findByText('No tokens yet.')
   await waitFor(() => expect(spinner()).toBeNull())
 })
+
+const phone = { createdAt: '2026-09-03T00:00:00Z', label: 'Phone', tokenId: 't2' }
+const SECRET = 'hst_created_secret_value'
+
+it('lists a created token from the create answer, with no second read that could fail it', async () => {
+  let reads = 0
+  vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === 'POST') return Response.json({ token: SECRET, tokenMetadata: phone })
+    reads += 1
+    // Any list read after the first fails: a create must not depend on one.
+    return reads === 1 ? Response.json({ tokens: [token] }) : Response.json({ error: 'Token store unavailable' }, { status: 503 })
+  }))
+  const { container } = render(createElement(ConnectScreen, { owner: false }))
+  await screen.findByText('Laptop')
+  fireEvent.change(screen.getByRole('textbox', { name: 'Token name' }), { target: { value: 'Phone' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Create token' }))
+
+  await screen.findByText('Copy this now')
+  expect(screen.getByText('Phone')).toBeTruthy()
+  expect(container.textContent).not.toContain('Token store unavailable')
+  expect(screen.getByRole('textbox', { name: 'Token name' })).toHaveProperty('value', '')
+  expect(reads).toBe(1)
+})
+
+it('takes a just-created token off the screen once it is revoked', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === 'POST') return Response.json({ token: SECRET, tokenMetadata: phone })
+    if (init?.method === 'DELETE') return Response.json({ tokens: [token] })
+    return Response.json({ tokens: [token] })
+  }))
+  const { container } = render(createElement(ConnectScreen, { owner: false }))
+  await screen.findByText('Laptop')
+  fireEvent.change(screen.getByRole('textbox', { name: 'Token name' }), { target: { value: 'Phone' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Create token' }))
+  await screen.findByText('Copy this now')
+  expect(container.textContent).toContain(SECRET)
+
+  const revokeButtons = screen.getAllByRole('button', { name: 'Revoke' })
+  fireEvent.click(revokeButtons[revokeButtons.length - 1]!)
+  await waitFor(() => expect(screen.queryByText('Copy this now')).toBeNull())
+  expect(container.textContent).not.toContain(SECRET)
+})
