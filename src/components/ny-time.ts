@@ -10,3 +10,12 @@ export const nyDateTime = new Intl.DateTimeFormat('en-US', {
 export const nyDate = new Intl.DateTimeFormat('en-US', {
   day: 'numeric', month: 'short', timeZone: 'America/New_York', year: 'numeric',
 })
+
+const calendarDay = new Intl.DateTimeFormat('en-US', {
+  day: 'numeric', month: 'short', timeZone: 'UTC', year: 'numeric',
+})
+
+/** A date-only value (`YYYY-MM-DD`), printed as the day it names: UTC so no offset can shift it. */
+export function formatCalendarDay(isoDate: string): string {
+  return calendarDay.format(new Date(`${isoDate}T00:00:00Z`))
+}

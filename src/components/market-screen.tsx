@@ -54,7 +54,7 @@ import { loadSymbolEvidence } from '../data/symbol-evidence'
 import { useYearCandles } from '../data/year-candles'
 import { useSymbolSearch, type SymbolSearchState } from '../data/symbol-search'
 import { CatalystStories } from './catalyst-stories'
-import { nyDate } from './ny-time'
+import { formatCalendarDay, nyDate } from './ny-time'
 import { compactElapsedLabel, useElapsedLabel } from './top-bar'
 import { useRetryOnFocus } from '../data/retry-on-focus'
 
@@ -73,14 +73,6 @@ function premiumScore(ticker: Pick<Ticker, 'ivRank' | 'ivPercentile'>): number |
 const compactFormatter = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 1,
   notation: 'compact',
-})
-
-/** A catalyst's date-only day, printed as the day it names: UTC so no offset can shift it. */
-const catalystDateFormatter = new Intl.DateTimeFormat('en-US', {
-  day: 'numeric',
-  month: 'short',
-  timeZone: 'UTC',
-  year: 'numeric',
 })
 
 function compactMetric(value: number | undefined, prefix = '', suffix = ''): string {
@@ -417,7 +409,7 @@ function CatalystRunway({
                     <div className="runway-when">
                       <strong>{catalystCountdown(catalyst, now)}</strong>
                       <time dateTime={catalyst.date}>
-                        {catalystDateFormatter.format(new Date(`${catalyst.date}T00:00:00Z`))}
+                        {formatCalendarDay(catalyst.date)}
                       </time>
                     </div>
                     <span aria-hidden="true" className="runway-mark" />
