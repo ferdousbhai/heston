@@ -151,3 +151,14 @@ it('shows a revoke working on its own row, not on Create token', async () => {
   finish(Response.json({ tokens: [] }))
   await screen.findByText('No tokens yet.')
 })
+
+it('holds Create until the first list read answers, so a late list cannot drop the new token', async () => {
+  let finish!: (response: Response) => void
+  vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => { finish = resolve })))
+  render(createElement(ConnectScreen, { owner: false }))
+  fireEvent.change(screen.getByRole('textbox', { name: 'Token name' }), { target: { value: 'Phone' } })
+  expect(screen.getByRole('button', { name: 'Create token' })).toHaveProperty('disabled', true)
+  finish(Response.json({ tokens: [] }))
+  await screen.findByText('No tokens yet.')
+  expect(screen.getByRole('button', { name: 'Create token' })).toHaveProperty('disabled', false)
+})

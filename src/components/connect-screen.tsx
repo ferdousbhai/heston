@@ -223,7 +223,9 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
           onSubmit={(event) => {
             event.preventDefault()
             const trimmed = label.trim()
-            if (!trimmed || busy) return
+            // Not before the first read answers: a list that lands after the create would not
+            // carry the new token, and would replace the list that did.
+            if (!trimmed || busy || loading) return
             void issue(trimmed).then((created) => { if (created) setLabel('') })
           }}
         >
@@ -234,7 +236,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
             placeholder="Laptop"
             value={label}
           />
-          <Button disabled={busy || !label.trim()} type="submit">
+          <Button disabled={busy || loading || !label.trim()} type="submit">
             {pending?.kind === 'issue' ? <Spinner /> : 'Create token'}
           </Button>
         </form>
