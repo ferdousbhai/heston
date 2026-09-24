@@ -76,6 +76,14 @@ describe('the guide', () => {
     expect(HESTON_GUIDE).toContain('plain broker lookup that admits nothing')
     expect(HESTON_GUIDE).toContain('`remember_symbols`')
   })
+
+  it('does not promise that a searched name stays tracked', () => {
+    // A search can be refused when protected rows fill the list and pruned later; the result's
+    // `watchlisted` is what says whether this one was kept.
+    expect(HESTON_GUIDE).not.toContain('from then on')
+    expect(HESTON_GUIDE).toContain('admitted when the list has room')
+    expect(HESTON_GUIDE).toContain('"watchlisted" field says whether it\n  was kept')
+  })
 })
 
 describe('rules that ride on the tool they govern', () => {

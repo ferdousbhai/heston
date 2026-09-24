@@ -186,10 +186,13 @@ export function createPublicMarketReadTools(env: AppEnv, schedule: BackgroundSch
     },
     {
       // The website's own search, which is edge-cached per query and, when a name resolves,
-      // admits it to the tracked universe. So an agent looking something up leaves the site
-      // knowing about it -- the visitor who never runs an agent sees the same row afterwards.
+      // asks to admit it to the tracked universe. So an agent looking something up leaves the
+      // site knowing about it -- the visitor who never runs an agent sees the same row
+      // afterwards. Admission is not guaranteed: protected rows can fill the list, and a prune
+      // can displace a searched name later, so the description points at `watchlisted`.
       description: 'Resolve a ticker or company name. A name that resolves joins the tracked '
-        + 'universe and is quoted for everyone from then on.',
+        + 'universe when the list has room, where it may later be displaced by stronger names; '
+        + '`watchlisted` in the result says whether it was kept.',
       execute: async (params) => {
         // SAFETY: the MCP server validates every call against this tool's own JSON Schema before
         // dispatch, and `PublicSearchParameters` requires `query` as a non-empty string.

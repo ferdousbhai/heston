@@ -130,8 +130,9 @@ What is not obvious from the tool list:
 
 - \`read_price_history\` is the only historical read. Every other market tool is current-only.
 - \`search_symbols\` differs by tier. With no credential it is the website's own search, and a
-  name it resolves that the tracked universe does not carry is admitted and followed from then on.
-  Signed in, it is a plain broker lookup that admits nothing; \`remember_symbols\` is how a name a
+  name it resolves that the tracked universe does not carry is admitted when the list has room
+  and may later be displaced by stronger names; the result's "watchlisted" field says whether it
+  was kept. Signed in, it is a plain broker lookup that admits nothing; \`remember_symbols\` is how a name a
   conversation developed is kept.
 - \`read_catalysts\` carries a searches entry per symbol, so an empty calendar can be told
   apart: "unsearched" (not searched yet), "complete" (searched, found nothing), "failed" (still
