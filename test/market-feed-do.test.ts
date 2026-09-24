@@ -280,6 +280,60 @@ describe('MarketFeed option Greeks RPC', () => {
     await context.drain()
   })
 
+  // dxLink spells a slot it has no value for as "NaN". A contract with no Greeks right now is
+  // not a broken frame, so it must not close the one upstream every browser shares.
+  it('skips an all-absent Greeks row and keeps the upstream open', async () => {
+    const context = new FakeContext([downstream(['SPY'])])
+    const feed = new MarketFeedCore(context, liveEnvironment())
+    const read = feed.readOptionGreeks(['.NVDA260814C250'])
+    const socket = await openConfiguredUpstream(context)
+
+    socket.message({
+      type: 'FEED_DATA',
+      channel: 7,
+      data: ['Greeks', [
+        '.NVDA260814C250', 0, 0, 'NaN', 'NaN',
+        'NaN', 'NaN', 'NaN', 'NaN', 'NaN', 'NaN', 'NaN',
+      ]],
+    })
+    await context.drain()
+    expect(socket.readyState).toBe(FakeUpstreamWebSocket.OPEN)
+
+    socket.message({
+      type: 'FEED_DATA',
+      channel: 7,
+      data: ['Greeks', [
+        '.NVDA260814C250', 0, 0, 1_786_629_600_000, 1,
+        3.2, 0.42, 0.5, 0.03, -0.04, 0.02, 0.12,
+      ]],
+    })
+    await context.drain()
+    expect((await read).greeks[0]).toMatchObject({ delta: 0.5, streamerSymbol: '.NVDA260814C250' })
+    socket.close()
+    await context.drain()
+  })
+
+  it('still closes the upstream on a Greeks slot that is present but not a number', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const context = new FakeContext([downstream(['SPY'])])
+    const feed = new MarketFeedCore(context, liveEnvironment())
+    const read = feed.readOptionGreeks(['.NVDA260814C250'])
+    read.catch(() => undefined)
+    const socket = await openConfiguredUpstream(context)
+
+    socket.message({
+      type: 'FEED_DATA',
+      channel: 7,
+      data: ['Greeks', [
+        '.NVDA260814C250', 0, 0, 1_786_629_600_000, 1,
+        3.2, 'NaN', 'half', 0.03, -0.04, 0.02, 0.12,
+      ]],
+    })
+    await context.drain()
+    expect(socket.readyState).toBe(FakeUpstreamWebSocket.CLOSED)
+  })
+
   it('does not turn an absent trade change into a false zero-percent move', async () => {
     const client = downstream(['SPY'])
     const context = new FakeContext([client])

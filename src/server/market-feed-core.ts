@@ -21,6 +21,7 @@ import {
   OptionGreeksReadResultSchema,
   OptionGreeksRequestRegistry,
   optionGreeksFromRow,
+  OptionStreamerSymbolSchema,
   parseDailyCandleSymbols,
   parseOptionStreamerSymbols,
   parseRequestedSymbols,
@@ -174,6 +175,20 @@ const CompactNonFiniteSchema = z.enum(['NaN', 'Infinity', '-Infinity'])
 function compactValueIsAbsent(value: JsonValue): boolean {
   if (value === undefined || value === null || value === '') return true
   return CompactNonFiniteSchema.safeParse(TextFrameSchema.safeParse(value).data?.trim()).success
+}
+
+/** The numeric slots `optionGreeksFromRow` reads; `eventFlags`, `index` and `sequence` it ignores. */
+const GREEKS_VALUE_SLOTS = ['time', 'price', 'volatility', 'delta', 'gamma', 'theta', 'rho', 'vega'] as const
+
+/**
+ * True when a Greeks row names a well-formed contract and every slot that is not a number is an
+ * absence marker. A present slot that is not a number, or a symbol that does not parse, is not
+ * absence, and a row whose slots are all numbers yet failed the parse broke a range.
+ */
+function greeksRowIsAbsent(row: JsonObject): boolean {
+  if (!OptionStreamerSymbolSchema.safeParse(row.eventSymbol).success) return false
+  const unreadable = GREEKS_VALUE_SLOTS.filter((slot) => jsonNumber(row[slot]) === undefined)
+  return unreadable.length > 0 && unreadable.every((slot) => compactValueIsAbsent(row[slot]))
 }
 
 /**
@@ -817,9 +832,18 @@ export class MarketFeedCore {
     const rows = batches.flat()
     const type = channelType
     if (type === 'Greeks') {
-      const events = rows.map((row) => optionGreeksFromRow(row)).filter(isPresent)
-      if (events.length !== rows.length) throw new FeedFrameError('Malformed upstream Greeks row.')
-      for (const event of events) this.greekRequests.accept(event)
+      for (const row of rows) {
+        const event = optionGreeksFromRow(row)
+        if (event) {
+          this.greekRequests.accept(event)
+          continue
+        }
+        // A row naming a valid contract whose unreadable slots are all dxLink's absence markers
+        // is "no Greeks for this contract right now", not damage: it is skipped, and the reader
+        // waiting on that symbol times out naming it rather than every browser losing the feed.
+        // Nothing is filled in, since a consumer takes a Greeks event as a complete observation.
+        if (!greeksRowIsAbsent(row)) throw new FeedFrameError('Malformed upstream Greeks row.')
+      }
       return
     }
     // One upstream channel carries both candle periods, so the year series is split off here
