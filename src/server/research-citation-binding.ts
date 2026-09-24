@@ -16,9 +16,11 @@ import { type ReadPage, truncatedReadMiss } from './research-page-retention'
 
 /**
  * Markdown renders the same sentence many ways; only its words decide a match. Exported because
- * every surface that binds a quote to a page this Worker read must normalize it identically --
- * a second copy of these replacements is a second, quietly different definition of "verbatim",
- * and a challenge would then fail on punctuation alone and read as the source having changed.
+ * a symbol-evidence card's id is derived from the quote in this same normal form
+ * (`symbolEvidenceId`), so a repeat recording of one passage upserts the card it already made. A
+ * second copy of these replacements would be a second, quietly different definition of the same
+ * words: the quote this binding accepts could then land under a different card id, and one
+ * passage would reach readers as two cards.
  */
 export function normalizedCitationText(text: string): string {
   return text
