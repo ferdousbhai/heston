@@ -6,7 +6,7 @@ import { EquitySymbolSchema } from './instrument'
  * The maintained D1 list, public projection, and snapshot fetch are one product
  * surface. Sharing that invariant prevents a narrower model or browser schema from
  * silently dropping symbols accepted by the authoritative list. The list grows on
- * its own as searches and research admit names, so this is an observable ceiling
+ * its own as reader searches and member agents admit names, so this is an observable ceiling
  * rather than a curated size: pruning back to a working set stays available for
  * the day the list outgrows what a reader can scan.
  */
