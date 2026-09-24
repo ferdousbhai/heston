@@ -17,6 +17,7 @@ import {
   SymbolSearchQueryError,
 } from '../src/server/brokerage-read-contracts'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
+import { UnreadableTickerError } from '../src/server/ticker-arguments'
 import { stubBroker } from './broker-stub'
 
 describe('anonymous public quote projection', () => {
@@ -50,6 +51,11 @@ describe('anonymous public quote projection', () => {
       syncedAt: '2026-09-16T14:07:48.941Z',
       tickers: [{ symbol: 'NVDA', price: '191.68', change: 4.91, changePercent: 2.63 }],
     }, ['NVDA'])).toThrow()
+  })
+
+  it('refuses a requested entry that does not read as a ticker instead of looking it up', () => {
+    expect(() => selectPublicQuoteRows({ syncedAt: '2026-09-16T14:07:48.941Z', tickers: [] }, ['NVDA', 'not a ticker']))
+      .toThrow(UnreadableTickerError)
   })
 
   it('ignores a malformed row the caller did not ask for', () => {

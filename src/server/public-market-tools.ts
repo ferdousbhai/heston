@@ -3,7 +3,7 @@ import { type TSchema, Type } from 'typebox'
 import { z } from 'zod'
 
 import { PublicTickerSchema } from '../domain/market'
-import { EquitySymbolSchema, equitySymbolFromModelText, ModelTextEquitySymbolType } from '../domain/instrument'
+import { EquitySymbolSchema, ModelTextEquitySymbolType } from '../domain/instrument'
 import { type AgentTool } from '../domain/agent-tool'
 import { textResult } from './agent-tool-result'
 import { type AppEnv } from './env'
@@ -11,6 +11,7 @@ import { type BackgroundScheduler, servePublicSnapshot } from './public-snapshot
 import { servePublicSymbolSearch } from './public-symbol-search'
 import { MarketMetricsReadParameters, MAX_QUOTE_INSTRUMENTS, SymbolSearchQueryError, SymbolSearchQueryType } from './brokerage-read-contracts'
 import { CallerVisibleError } from './caller-visible-error'
+import { tickerSymbolsArgument } from './ticker-arguments'
 
 /**
  * The market reads an unauthenticated caller gets.
@@ -84,7 +85,9 @@ const SearchResultSchema = z.union([
  * A malformed requested row still fails closed; a malformed unrequested row is ignored.
  */
 export function selectPublicQuoteRows(book: PublicQuoteBook, requested: readonly string[]) {
-  const wanted = new Set(requested.map((symbol) => equitySymbolFromModelText(symbol) ?? symbol))
+  // An entry that does not read as a ticker is refused, as the signed-in tools refuse it, rather
+  // than passed through as a lookup key that would only ever come back as "not tracked".
+  const wanted = new Set(tickerSymbolsArgument(requested))
   const rows: PublicQuoteTicker[] = []
   const found = new Set<string>()
   for (const row of book.tickers) {
