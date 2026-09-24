@@ -9,8 +9,7 @@ import { textResult } from './agent-tool-result'
 import { type AppEnv } from './env'
 import { type BackgroundScheduler, servePublicSnapshot } from './public-snapshot-cache'
 import { servePublicSymbolSearch } from './public-symbol-search'
-import { MarketMetricsReadParameters, MAX_QUOTE_INSTRUMENTS } from './brokerage-read-contracts'
-import { MAX_QUERY_LENGTH } from './symbol-search'
+import { MarketMetricsReadParameters, MAX_QUOTE_INSTRUMENTS, SymbolSearchQueryError, SymbolSearchQueryType } from './brokerage-read-contracts'
 import { CallerVisibleError } from './caller-visible-error'
 
 /**
@@ -31,16 +30,15 @@ import { CallerVisibleError } from './caller-visible-error'
  *
  * Each tool takes the signed-in tool's own symbol schema and bound: these share their names and
  * answer the same question, so an agent must not find the anonymous tier accepts a different size
- * or spelling. Quotes take the signed-in quote budget; metrics reuse the signed-in parameters.
+ * or spelling. Quotes take the signed-in quote budget; metrics reuse the signed-in parameters; the
+ * search takes the signed-in query schema, which also keeps a query the route would empty out.
  */
 const PublicQuoteParameters = Type.Object({
   symbols: Type.Array(ModelTextEquitySymbolType, { maxItems: MAX_QUOTE_INSTRUMENTS, minItems: 1 }),
 }, { additionalProperties: false })
 
-/** The search route's own bound, advertised so an agent is never offered a query it would refuse. */
-const PublicSearchParameters = Type.Object({
-  query: Type.String({ description: 'Ticker or company name.', maxLength: MAX_QUERY_LENGTH, minLength: 1 }),
-}, { additionalProperties: false })
+/** The shared query schema, advertised so an agent is never offered a query the route would refuse. */
+const PublicSearchParameters = Type.Object({ query: SymbolSearchQueryType }, { additionalProperties: false })
 
 /**
  * The public search route answered something other than a match or a clean miss. `status` is
@@ -198,9 +196,11 @@ export function createPublicMarketReadTools(env: AppEnv, schedule: BackgroundSch
           env,
           edgeCache(),
         )
-        // A 404 is the route's answer that nothing matches, which is a result. Anything else not
-        // ok -- a refused query, the lookup being down -- is a failure, and returning its body as
-        // an ordinary result would read to the model as a successful search.
+        // A 404 is the route's answer that nothing matches, which is a result. A 400 is the route
+        // refusing the query itself: the caller's to fix, so it is refused in the signed-in tool's
+        // words rather than reported as an outage. Anything else not ok is the lookup failing, and
+        // returning its body as an ordinary result would read to the model as a successful search.
+        if (response.status === 400) throw new SymbolSearchQueryError()
         if (!response.ok && response.status !== 404) throw new PublicSymbolSearchError(response.status)
         return textResult(SearchResultSchema.parse(await response.json()))
       },

@@ -13,6 +13,8 @@ import {
   MarketMetricsReadParameters,
   MAX_MARKET_SYMBOLS,
   MAX_QUOTE_INSTRUMENTS,
+  SymbolSearchParameters,
+  SymbolSearchQueryError,
 } from '../src/server/brokerage-read-contracts'
 import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
@@ -124,9 +126,21 @@ describe('anonymous symbol search', () => {
     expect(JSON.parse(result.content[0]!.text)).toEqual({ error: 'No tradable symbol matches that search' })
   })
 
-  it('fails visibly rather than returning a refused query as a search result', async () => {
-    // Only wildcards: the route refuses it with a 400 before any lookup.
-    await expect(searchTool().execute({ query: '%%' })).rejects.toBeInstanceOf(PublicSymbolSearchError)
+  it('accepts exactly the queries the signed-in search_symbols accepts', () => {
+    const anonymous = searchTool().parameters
+    for (const query of ['NVDA', '$sofi', 'SoFi Technologies', '_a', '%%', '_ %', '   ', 'Soci\u00e9t\u00e9', 'A'.repeat(MAX_QUERY_LENGTH + 1)]) {
+      expect(Value.Check(anonymous, { query })).toBe(Value.Check(SymbolSearchParameters, { query }))
+    }
+    // Nothing the route would empty out, and nothing outside printable ASCII, is advertised.
+    for (const query of ['%%', '_ %', '   ', 'Soci\u00e9t\u00e9']) expect(Value.Check(anonymous, { query })).toBe(false)
+  })
+
+  it('refuses a query the route refuses rather than reporting an outage', async () => {
+    // Only wildcards, reaching execute past the schema: the route answers 400 before any lookup.
+    const refused = searchTool().execute({ query: '%%' })
+    await expect(refused).rejects.toBeInstanceOf(SymbolSearchQueryError)
+    await expect(refused).rejects.not.toBeInstanceOf(PublicSymbolSearchError)
+    expect(broker.lookupPublicMarketSymbol).not.toHaveBeenCalled()
   })
 
   it('fails visibly rather than returning an outage as a search result', async () => {

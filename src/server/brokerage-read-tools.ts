@@ -22,7 +22,9 @@ import {
   MAX_SEARCH_ROWS,
   MarketMetricsReadParameters,
   OptionContractFindParameters,
+  isSymbolSearchQuery,
   SymbolSearchParameters,
+  SymbolSearchQueryError,
   UNDERLYING_SYMBOL,
   type AccountHistoryReadResult,
   type AccountHistoryReadInput,
@@ -68,7 +70,6 @@ import { loadBrokerageContext } from './brokerage-context'
 import { type BrokerCredential } from './broker-credential'
 import { CallerVisibleError } from './caller-visible-error'
 import { FIND_OPTION_CONTRACTS_MODES } from './doctrine'
-import { MAX_QUERY_LENGTH } from './symbol-search'
 import { tickerSymbolArgument, tickerSymbolsArgument } from './ticker-arguments'
 
 function dateDaysAgo(now: Date, days: number): string {
@@ -346,7 +347,7 @@ export async function searchSymbols(
   now = new Date(),
 ): Promise<SymbolSearchResult> {
   const query = requestedQuery.trim()
-  if (!query || query.length > MAX_QUERY_LENGTH || !/^[\x20-\x7E]+$/.test(query)) throw new CallerVisibleError('Symbol search query is invalid.')
+  if (!isSymbolSearchQuery(query)) throw new SymbolSearchQueryError()
   const limit = assertInteger(requestedLimit, 1, MAX_SEARCH_RESULTS, 'Symbol search limit')
   const envelope = itemEnvelope(
     await brokerApi().tastyRequest(env, `/symbols/search/${encodeURIComponent(query)}`),

@@ -13,6 +13,7 @@ import {
 import { IsoDateType } from '../domain/iso-date'
 import { StringEnum } from '../domain/string-enum'
 import { MAX_QUERY_LENGTH } from './symbol-search'
+import { CallerVisibleError } from './caller-visible-error'
 
 // These are model-context budgets, not brokerage or trading policy. Read tools expose
 // pagination/truncation so the agent can make another narrow call instead of receiving
@@ -107,21 +108,43 @@ export const MarketMetricsReadParameters = Type.Object({
 }, { additionalProperties: false })
 
 /**
- * The query bound is the anonymous search's own: the two tools share the name `search_symbols`, so
- * an agent must not find one tier accepts a query the other refuses.
+ * The one search query rule, shared by both `search_symbols` tiers and by the signed-in runtime
+ * check: the two tools share a name, so an agent must not find one tier accepts a query the other
+ * refuses. Printable ASCII, since both the broker path segment and the catalog's LIKE read it as
+ * text; and at least one character that is not whitespace, `%` or `_`, because the public route
+ * reads `%` and `_` as spaces (`searchableQuery`) and refuses what that leaves empty. A query of
+ * only those characters names nothing at the broker either.
  */
+const SYMBOL_SEARCH_QUERY_PATTERN = '^(?=.*[^\\s%_])[\\x20-\\x7E]+$'
+const SYMBOL_SEARCH_QUERY = new RegExp(SYMBOL_SEARCH_QUERY_PATTERN)
+
+export const SymbolSearchQueryType = Type.String({
+  description: 'Ticker or company-name fragment.',
+  maxLength: MAX_QUERY_LENGTH,
+  minLength: 1,
+  pattern: SYMBOL_SEARCH_QUERY_PATTERN,
+})
+
+/** A query `SymbolSearchQueryType` refuses: the caller's to fix, at either tier, never an outage. */
+export class SymbolSearchQueryError extends CallerVisibleError {
+  constructor() {
+    super('Symbol search query is invalid.')
+    this.name = 'SymbolSearchQueryError'
+  }
+}
+
+/** True when `query` passes `SymbolSearchQueryType`; the runtime twin of the advertised schema. */
+export function isSymbolSearchQuery(query: string): boolean {
+  return query.length >= 1 && query.length <= MAX_QUERY_LENGTH && SYMBOL_SEARCH_QUERY.test(query)
+}
+
 export const SymbolSearchParameters = Type.Object({
   limit: Type.Optional(Type.Integer({
     description: `Maximum results to return. Defaults to ${DEFAULT_SEARCH_RESULTS}.`,
     maximum: MAX_SEARCH_RESULTS,
     minimum: 1,
   })),
-  query: Type.String({
-    description: 'Ticker or company-name fragment.',
-    maxLength: MAX_QUERY_LENGTH,
-    minLength: 1,
-    pattern: '^(?=.*\\S)[\\x20-\\x7E]+$',
-  }),
+  query: SymbolSearchQueryType,
 }, { additionalProperties: false })
 
 export const OptionContractFindParameters = Type.Object({

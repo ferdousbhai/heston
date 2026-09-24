@@ -459,6 +459,11 @@ describe('brokerage read tools', () => {
     expect(tastytrade.tastyRequest).not.toHaveBeenCalled()
   })
 
+  it('refuses at runtime a query of only whitespace and LIKE wildcards, as the schema does', async () => {
+    await expect(searchSymbols({}, ' %_ ', 1, now)).rejects.toThrow('Symbol search query is invalid.')
+    expect(tastytrade.tastyRequest).not.toHaveBeenCalled()
+  })
+
   it('finds only exact active Standard option contracts, and returns nothing a caller cannot act on', async () => {
     tastytrade.tastyRequest.mockImplementation((_env, path: string) => {
       if (path === '/option-chains/AAPL') {
