@@ -682,6 +682,50 @@ describe('MarketFeed option Greeks RPC', () => {
     await context.drain()
   })
 
+  // The empty snapshot's one row carries no instant, so it publishes nothing; but its flags are
+  // what close the snapshot, and dropping them left the year read waiting out its whole timeout.
+  it('settles a year read on an empty daily snapshot instead of waiting it out', async () => {
+    const client = downstream(['SPY'])
+    const context = new FakeContext([client])
+    const feed = new MarketFeedCore(context, liveEnvironment())
+    await vi.waitFor(() => expect(FakeUpstreamWebSocket.instances).toHaveLength(1))
+    const socket = FakeUpstreamWebSocket.instances[0]!
+    socket.open()
+    await context.drain()
+    socket.message({ type: 'SETUP', channel: 0, version: '0.1-test' })
+    await context.drain()
+    socket.message({ type: 'AUTH_STATE', channel: 0, state: 'AUTHORIZED' })
+    await context.drain()
+    socket.message({ type: 'CHANNEL_OPENED', channel: 5, service: 'FEED', parameters: { contract: 'AUTO' } })
+    await context.drain()
+    socket.message({
+      type: 'FEED_CONFIG', channel: 5, aggregationPeriod: 0.25,
+      dataFormat: 'COMPACT', eventFields: { Candle: CANDLE_FIELDS },
+    })
+    await context.drain()
+
+    const yearRead = feed.readDailyCandles(['SPY'])
+    await context.drain()
+    socket.message({
+      type: 'FEED_DATA',
+      channel: 5,
+      data: ['Candle', [
+        'SPY{=d}', 0, 0x0e, 0, 0, 0, 'NaN', 'NaN', 'NaN', 'NaN', 'NaN', 'NaN', 'NaN',
+        'NaN', 'NaN', 'NaN', 'NaN',
+      ]],
+    })
+    await context.drain()
+
+    // Settled by the frame itself, long before the read's own timeout could.
+    const year = await Promise.race([
+      yearRead,
+      new Promise<'timed out'>((resolve) => { setTimeout(() => resolve('timed out'), 1_000) }),
+    ])
+    expect(year).toMatchObject({ series: [{ symbol: 'SPY', closes: [] }] })
+    socket.close()
+    await context.drain()
+  })
+
   // A candle reads four numeric slots, so a refusal that named none of them left the
   // production failure above undiagnosable from logs alone.
   it('names the candle field that refused a row', async () => {

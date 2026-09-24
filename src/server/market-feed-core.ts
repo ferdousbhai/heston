@@ -1,6 +1,12 @@
 import { z } from 'zod'
 
-import { MAX_INTRADAY_CANDLES, type CandlePoint, updateCandleSeries } from '../domain/candle'
+import {
+  DXLINK_SNAPSHOT_END,
+  DXLINK_SNAPSHOT_SNIP,
+  MAX_INTRADAY_CANDLES,
+  type CandlePoint,
+  updateCandleSeries,
+} from '../domain/candle'
 import { toError } from '../domain/failure'
 import { EquitySymbolSchema } from '../domain/instrument'
 import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
@@ -257,6 +263,49 @@ function normalizedSymbol(value: JsonValue): string | undefined {
 }
 
 /**
+ * A candle row's four numeric slots, validated. `null` is a row with no instant at all, which is
+ * a frame with nothing to place; a present-but-unreadable slot throws `FeedFrameError` naming it.
+ */
+function candleFieldsFromRow(row: JsonObject): {
+  candleClose: number | undefined
+  candleTime: number
+  eventFlags: number
+  sequence: number
+} | null {
+  const candleClose = jsonNumber(row.close)
+  // COMPACT encodes an absent numeric slot as null or an empty string, and for a candle those
+  // slots are absent precisely when their value is zero — a quiet bucket carries no sequence
+  // and no flags. Reading absence as damage tore the connection down on the first empty bucket
+  // of every daily backfill, in a reconnect loop that also kept the year store empty.
+  const sequence = jsonNumber(row.sequence) ?? (compactValueIsAbsent(row.sequence) ? 0 : undefined)
+  const eventFlags = jsonNumber(row.eventFlags) ?? (compactValueIsAbsent(row.eventFlags) ? 0 : undefined)
+  const candleTime = jsonNumber(row.time)
+  // A candle with no instant at all is a frame with nothing to place; only a present-but-
+  // unreadable instant breaks the contract.
+  if (candleTime === undefined) {
+    if (compactValueIsAbsent(row.time)) return null
+    throw new FeedFrameError('Malformed upstream Candle row: time.')
+  }
+  // A candle carries four numeric slots this reader depends on, so the refusal names which one
+  // broke rather than condemning the row anonymously. A generic message is what made the
+  // production failure that emptied the year store undiagnosable from logs alone; naming a
+  // field of this file's own vocabulary quotes nothing of the frame.
+  if (candleTime < 0 || !Number.isSafeInteger(candleTime)) {
+    throw new FeedFrameError('Malformed upstream Candle row: time out of range.')
+  }
+  if (sequence === undefined || sequence < 0 || !Number.isSafeInteger(sequence)) {
+    throw new FeedFrameError('Malformed upstream Candle row: sequence.')
+  }
+  if (eventFlags === undefined || eventFlags < 0 || !Number.isSafeInteger(eventFlags)) {
+    throw new FeedFrameError('Malformed upstream Candle row: eventFlags.')
+  }
+  if (candleClose === undefined && !compactValueIsAbsent(row.close)) {
+    throw new FeedFrameError('Malformed upstream Candle row: close.')
+  }
+  return { candleClose, candleTime, eventFlags, sequence }
+}
+
+/**
  * `undefined` means the row broke the contract and the connection cannot be trusted;
  * `null` means the row was well formed and simply carries no price to publish. A quote with
  * no bid or no ask is an ordinary market state — a name that is not quoted right now — and
@@ -296,36 +345,9 @@ function eventFromRow(type: Exclude<FeedType, 'Greeks'>, row: JsonObject): LiveM
     if (change !== undefined) trade.change = change
     return trade
   }
-  const candleClose = jsonNumber(row.close)
-  // COMPACT encodes an absent numeric slot as null or an empty string, and for a candle those
-  // slots are absent precisely when their value is zero — a quiet bucket carries no sequence
-  // and no flags. Reading absence as damage tore the connection down on the first empty bucket
-  // of every daily backfill, in a reconnect loop that also kept the year store empty.
-  const sequence = jsonNumber(row.sequence) ?? (compactValueIsAbsent(row.sequence) ? 0 : undefined)
-  const eventFlags = jsonNumber(row.eventFlags) ?? (compactValueIsAbsent(row.eventFlags) ? 0 : undefined)
-  const candleTime = jsonNumber(row.time)
-  // A candle with no instant at all is a frame with nothing to place; only a present-but-
-  // unreadable instant breaks the contract.
-  if (candleTime === undefined) {
-    if (compactValueIsAbsent(row.time)) return null
-    throw new FeedFrameError('Malformed upstream Candle row: time.')
-  }
-  // A candle carries four numeric slots this reader depends on, so the refusal names which one
-  // broke rather than condemning the row anonymously. A generic message is what made the
-  // production failure that emptied the year store undiagnosable from logs alone; naming a
-  // field of this file's own vocabulary quotes nothing of the frame.
-  if (candleTime < 0 || !Number.isSafeInteger(candleTime)) {
-    throw new FeedFrameError('Malformed upstream Candle row: time out of range.')
-  }
-  if (sequence === undefined || sequence < 0 || !Number.isSafeInteger(sequence)) {
-    throw new FeedFrameError('Malformed upstream Candle row: sequence.')
-  }
-  if (eventFlags === undefined || eventFlags < 0 || !Number.isSafeInteger(eventFlags)) {
-    throw new FeedFrameError('Malformed upstream Candle row: eventFlags.')
-  }
-  if (candleClose === undefined && !compactValueIsAbsent(row.close)) {
-    throw new FeedFrameError('Malformed upstream Candle row: close.')
-  }
+  const fields = candleFieldsFromRow(row)
+  if (!fields) return fields
+  const { candleClose, candleTime, eventFlags, sequence } = fields
   // A backfill reaching back days crosses buckets in which nothing traded, and dxFeed marks
   // snapshot boundaries the same way: no close, sometimes no instant at all. Those are ordinary
   // frames with nothing to publish. Reading them as a broken contract tore the whole feed down
@@ -877,7 +899,28 @@ export class MarketFeedCore {
     if (!streamerSymbol || candleFeedPeriod(streamerSymbol) !== 'daily') return false
     const event = eventFromRow('Candle', row)
     if (event === undefined) throw new FeedFrameError('Malformed upstream Candle row.')
-    if (event !== null && event.candle) this.dailyRequests.accept(event.symbol, event.candle)
+    if (event !== null && event.candle) {
+      this.dailyRequests.accept(event.symbol, event.candle)
+      return true
+    }
+    // A row with no price or no instant publishes nothing, but its flags may still open or close
+    // the snapshot: an empty year arrives as one BEGIN|END|REMOVE row with a zero time and every
+    // value NaN. Dropping it left the reader waiting out `DAILY_CANDLE_TIMEOUT_MS` for a snapshot
+    // that had already finished empty. Its boundary is passed on as a removal, so it settles the
+    // snapshot without placing a point the row never carried.
+    // `eventFromRow` returned `null`, not `undefined`, so the symbol normalized and the fields
+    // validated; reading them again cannot throw.
+    const symbol = normalizedSymbol(row.eventSymbol)
+    const fields = candleFieldsFromRow(row)
+    const boundary = DXLINK_SNAPSHOT_BEGIN | DXLINK_SNAPSHOT_END | DXLINK_SNAPSHOT_SNIP
+    if (symbol && fields && fields.eventFlags & boundary) {
+      this.dailyRequests.accept(symbol, {
+        close: 0,
+        eventFlags: fields.eventFlags | DXLINK_REMOVE_EVENT,
+        sequence: fields.sequence,
+        time: fields.candleTime,
+      })
+    }
     return true
   }
 
