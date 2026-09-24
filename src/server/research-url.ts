@@ -1,3 +1,5 @@
+import { isCitablePageUrl, MAX_CITED_SOURCE_URL_LENGTH } from '../domain/https-url'
+
 /** The one identity a cited page has here: what a citation is bound by and a re-read is keyed on. */
 export function citedPageKey(value: string): string | undefined {
   let url: URL
@@ -6,16 +8,16 @@ export function citedPageKey(value: string): string | undefined {
   } catch {
     return undefined
   }
-  if (url.protocol !== 'https:' || url.username || url.password) return undefined
-  if (url.port !== '' && url.port !== '443') return undefined
-  // A published source is never a literal address, and that shape is what turns a reading
-  // tool into a probe of somewhere it was never meant to reach.
-  if (/^\[|^\d{1,3}(\.\d{1,3}){3}$/.test(url.hostname)) return undefined
+  if (!isCitablePageUrl(url)) return undefined
   url.hash = ''
   for (const key of Array.from(url.searchParams.keys())) {
     if (key.toLowerCase().startsWith('utm_') || ['fbclid', 'gclid'].includes(key.toLowerCase())) {
       url.searchParams.delete(key)
     }
   }
-  return url.toString()
+  // Serialization percent-encodes what the parser admitted raw, so an address inside the
+  // envelope on the way in can leave several times longer; the key is what gets stored and
+  // cited, so the envelope binds the key rather than the input.
+  const key = url.toString()
+  return key.length <= MAX_CITED_SOURCE_URL_LENGTH ? key : undefined
 }

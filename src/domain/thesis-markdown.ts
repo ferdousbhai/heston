@@ -1,8 +1,10 @@
+import { isCitablePageAddress } from './https-url'
+
 /*
  * The subset of Markdown a thesis may use, parsed into a tree the site renders itself. A thesis
  * is model output, so it is never handed to an HTML renderer: headings, bold, italic, bullet and
- * ordered lists, and https links are the whole vocabulary. A code span is unwrapped to its plain
- * text rather than styled, and anything else is shown as the text it is.
+ * ordered lists, and links to citable https pages are the whole vocabulary. A code span is
+ * unwrapped to its plain text rather than styled, and anything else is shown as the text it is.
  */
 
 export type ThesisInline =
@@ -90,7 +92,12 @@ function parseInlines(text: string): ThesisInline[] {
     const first = candidates.reduce((best, candidate) => candidate.match.index < best.match.index ? candidate : best)
     const { match, kind } = first
     if (match.index > 0) out.push({ kind: 'text', text: rest.slice(0, match.index) })
-    if (kind === 'link') out.push({ kind: 'link', href: match[2]!, children: parseInlines(match[1]!) })
+    // A link is published as an href only when its address is one a citation may name; any
+    // other https string keeps its bracketed text as plain text and loses the address.
+    if (kind === 'link') {
+      if (isCitablePageAddress(match[2]!)) out.push({ kind: 'link', href: match[2]!, children: parseInlines(match[1]!) })
+      else out.push(...parseInlines(match[1]!))
+    }
     else if (kind === 'strong') out.push({ kind: 'strong', children: parseInlines(match[1]!) })
     else if (kind === 'em') out.push({ kind: 'em', children: parseInlines(match[1]!) })
     else out.push({ kind: 'text', text: match[1]! })

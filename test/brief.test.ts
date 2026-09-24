@@ -23,6 +23,12 @@ describe('brief contract', () => {
     expect(DailyBriefSubmissionSchema.safeParse({
       marketDate: '2026-09-22', model: 'm', links: [{ url: 'http://insecure.example/' }], recommendations: [],
     }).success).toBe(false)
+    // A model's link that names one host and reaches another, or a literal address, is no citation.
+    for (const url of ['https://reuters.com@evil.example/x', 'https://127.0.0.1:8080/']) {
+      expect(DailyBriefSubmissionSchema.safeParse({
+        marketDate: '2026-09-22', model: 'm', links: [{ url }], recommendations: [],
+      }).success).toBe(false)
+    }
   })
 })
 
@@ -43,5 +49,18 @@ describe('thesis markdown', () => {
     expect(JSON.stringify(risk)).toContain('[bad](javascript:alert(1))')
     expect(JSON.stringify(risk)).not.toContain('"href":"javascript')
     expect(blocks[4]).toEqual({ kind: 'paragraph', inlines: [{ kind: 'text', text: 'code stays text' }] })
+  })
+
+  it('renders a link to an uncitable https address as its text alone', () => {
+    for (const href of ['https://reuters.com@evil.example/x', 'https://127.0.0.1:8080/', 'https://[::1]/', 'https://example.com:8443/']) {
+      expect(parseThesisMarkdown(`See [the **filing**](${href}) now`)).toEqual([{
+        kind: 'paragraph',
+        inlines: [
+          { kind: 'text', text: 'See the ' },
+          { kind: 'strong', children: [{ kind: 'text', text: 'filing' }] },
+          { kind: 'text', text: ' now' },
+        ],
+      }])
+    }
   })
 })

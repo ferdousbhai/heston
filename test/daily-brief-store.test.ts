@@ -26,6 +26,11 @@ describe('daily brief store', () => {
     // A caller's claim is not the contract: an id smuggled in with the submission is refused.
     // SAFETY: the widened value is exactly what this case exists to reject.
     await expect(publishDailyBrief(store.database, { ...submission, id: 'brief-2026-08-13' } as never)).rejects.toThrow()
+    // One uncitable link refuses the whole brief rather than publishing it or the rest of it.
+    await expect(publishDailyBrief(store.database, {
+      ...submission,
+      links: [...submission.links, { url: 'https://reuters.com@evil.example/x' }],
+    })).rejects.toThrow()
     await expect(readLatestDailyBrief(store.database)).resolves.toBeUndefined()
     store.close()
   })
