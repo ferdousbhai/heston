@@ -1,5 +1,4 @@
 import { Badge } from '#/components/ui/badge'
-import { Button } from '#/components/ui/button'
 import { type BriefRecommendation } from '../domain/brief'
 import { ThesisMarkdown } from './thesis-markdown'
 
@@ -8,13 +7,16 @@ export function RecommendationCard({ onSymbol, recommendation }: { onSymbol?: (s
   return (
     <article className="brief-card">
       <header className="brief-card-head">
-        <strong className="trade-line">{recommendation.trade}</strong>
+        {/* The trade line is the way into the market for this name: it opens the symbol in Watch.
+            Its visible text stays its accessible name, so a spoken command matches what is read. */}
+        {onSymbol
+          ? (
+            <button className="trade-line trade-link" onClick={() => onSymbol(recommendation.symbol)} title={`Open ${recommendation.symbol} in Watch`} type="button">
+              {recommendation.trade}
+            </button>
+          )
+          : <strong className="trade-line">{recommendation.trade}</strong>}
         <Badge variant={recommendation.direction}>{recommendation.direction}</Badge>
-        {onSymbol && (
-          <Button onClick={() => onSymbol(recommendation.symbol)} size="sm" type="button" variant="link">
-            {recommendation.symbol}
-          </Button>
-        )}
       </header>
       <ThesisMarkdown text={recommendation.thesis} />
     </article>

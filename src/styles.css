@@ -435,6 +435,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .connect-footer { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 18px var(--page-gutter) 24px; color: var(--ink-faint); font-size: 13px; }
 .connect-footer a { color: inherit; text-decoration: none; }
 .connect-footer a:hover { color: var(--ink-muted); }
+.brief-footer { margin-top: 20px; padding-inline: 22px; }
 
 @media (max-width: 760px) {
   .site-header { padding: 18px 0; align-items: flex-start; }
@@ -628,6 +629,8 @@ button { -webkit-tap-highlight-color: transparent; }
 .brief-card { padding: 18px 0 20px; border-top: 1px solid var(--hairline); }
 .brief-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .trade-line { color: var(--brand); font: 700 17px/1.2 var(--sans); }
+.trade-link { padding: 0; border: 0; background: none; text-align: left; cursor: pointer; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; }
+.trade-link:hover, .trade-link:focus-visible { text-decoration-color: currentColor; }
 .thesis { max-width: 60ch; margin-top: 10px; color: var(--ink-muted); font-size: var(--type-secondary); line-height: 1.6; }
 .thesis p { margin: 0 0 10px; white-space: pre-line; }
 .thesis > :last-child { margin-bottom: 0; }
@@ -641,7 +644,6 @@ button { -webkit-tap-highlight-color: transparent; }
 .thesis a { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
 .brief-empty { padding: 26px 22px; }
 .brief-empty p { margin: 8px 0 0; color: var(--ink-faint); font-size: 15px; }
-.disclaimer { color: var(--ink-faint); font-size: 13px; line-height: 1.5; text-align: center; margin: 18px 12px 0; }
 /* One column only: at 960px and up the runway is its own column beside the rail, so a
    recommendation above it in source order must not give it a top rule. */
 @media (max-width: 959px) {

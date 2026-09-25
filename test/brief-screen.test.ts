@@ -2,7 +2,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import { BriefScreen } from '../src/components/brief-screen'
+import { BriefScreen, publishedLabel } from '../src/components/brief-screen'
 import { type DailyBrief } from '../src/domain/brief'
 import { dailyBriefFixture } from './fixtures/market'
 
@@ -57,5 +57,33 @@ describe('the brief screen', () => {
     const html = render(undefined)
     expect(html).toContain('No brief yet')
     expect(html).not.toContain('Previous')
+  })
+})
+
+describe('brief publication line', () => {
+  it('shows only the time when the brief was published on its own market day in New York', () => {
+    // 16:37 UTC on Sep 25 is 12:37 PM EDT the same day.
+    expect(publishedLabel({ marketDate: '2026-09-25', publishedAt: '2026-09-25T16:37:30.152Z' })).toBe('12:37 PM EDT')
+  })
+
+  it('keeps the date when the New York day differs from the market day', () => {
+    // 02:00 UTC on Sep 26 is still Sep 25 in New York, so that is the same day...
+    expect(publishedLabel({ marketDate: '2026-09-25', publishedAt: '2026-09-26T02:00:00.000Z' })).toBe('10:00 PM EDT')
+    // ...while a republication days later names its own date.
+    expect(publishedLabel({ marketDate: '2026-09-25', publishedAt: '2026-09-28T14:00:00.000Z' })).toBe('Sep 28, 2026, 10:00 AM EDT')
+  })
+
+  it('makes the trade line the way into Watch, without a second symbol button', () => {
+    const html = render(dailyBriefFixture)
+    const trade = dailyBriefFixture.recommendations[0]!
+    expect(html).toContain(`title="Open ${trade.symbol} in Watch"`)
+    expect(html).toContain(`>${trade.trade}</button>`)
+    expect(html).not.toContain(`>${trade.symbol}</button>`)
+  })
+  it('says "Not financial advice." once, in the footer after the headlines', () => {
+    const html = render(dailyBriefFixture)
+    expect(html.split('Not financial advice.')).toHaveLength(2)
+    expect(html.indexOf('brief-headlines-title')).toBeLessThan(html.indexOf('Not financial advice.'))
+    expect(html).toContain('href="/disclosures"')
   })
 })

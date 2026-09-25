@@ -520,8 +520,8 @@ test('mobile market, recommendations, search, sorting, and connect flows remain 
   await expect(page.getByRole('heading', { name: 'Trades' })).toBeVisible()
   // The age describes the market, so it is shown only where the market is.
   await expect(page.locator('.last-updated')).toHaveCount(0)
-  // A symbol in the brief is a way into the market: it selects the name and moves to Watch.
-  await page.locator('.brief-card').getByRole('button', { exact: true, name: 'NVDA' }).first().click()
+  // A trade line in the brief is a way into the market: it selects the name and moves to Watch.
+  await page.locator('.brief-card').getByRole('button', { name: /NVDA/ }).first().click()
   await expect(page).toHaveURL(/\/watch$/)
   await expect(page.locator('.focus-strip-symbol')).toHaveText('NVDA')
   await page.goBack()
