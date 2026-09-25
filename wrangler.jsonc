@@ -47,7 +47,7 @@
     {
       // Store-backed rather than a per-Worker secret: a Secrets Store entry binds to any
       // Worker by name, so renaming or recreating this Worker never asks a human to retype
-      // the credential. `GOOGLE_CLIENT_ID` stays a plain secret because it is not one.
+      // the credential. Its client id is the `GOOGLE_CLIENT_ID` var below.
       "binding": "GOOGLE_CLIENT_SECRET",
       "store_id": "a436a6cefedc4acd8bb920cdbc202c1c",
       "secret_name": "google-client-secret"
@@ -91,12 +91,14 @@
   },
   "vars": {
     "AUTH_BASE_URL": "https://heston.io",
+    // Public, like the tastytrade client id below: Google puts it in every sign-in URL. Only the
+    // client secret is private, so only it is a Secrets Store binding.
+    "GOOGLE_CLIENT_ID": "890440130563-5p7tuhn68bmbo6bhckc0jsdo573u3ce7.apps.googleusercontent.com",
     "TASTYTRADE_API_BASE": "https://api.tastyworks.com",
     // A var, not a secret: the client id is public, in every consent URL this Worker issues, and
     // versioning it here keeps it beside the redirect URI it was registered with. The client
-    // secret is what must stay private, so it is the Secrets Store binding above. The owner
-    // fills in the issued id; empty or whitespace reads as missing and closes the connect
-    // endpoints with a 503.
-    "TASTYTRADE_OAUTH_CLIENT_ID": ""
+    // secret is what must stay private, so it is the Secrets Store binding above. Empty or
+    // whitespace reads as missing and closes the connect endpoints with a 503.
+    "TASTYTRADE_OAUTH_CLIENT_ID": "4053389c-831d-47b1-9001-b21c6ad9e2f0"
   }
 }

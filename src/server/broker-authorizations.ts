@@ -61,9 +61,8 @@ type ConnectConfig = {
 /**
  * Every piece this flow needs, or undefined. A missing piece closes every endpoint, not only
  * the one that spends it: a consent the Worker could not later redeem would send a member
- * through tastytrade for nothing. The client id is a `wrangler.jsonc` var committed empty until
- * the owner fills in the issued id, so empty or whitespace is missing; the client secret is a
- * Secrets Store binding. Only binding names are logged.
+ * through tastytrade for nothing. The client id is a `wrangler.jsonc` var, and empty or
+ * whitespace there reads as missing; the client secret is a Secrets Store binding. Only binding names are logged.
  */
 function connectConfig(env: AppEnv): ConnectConfig | undefined {
   if (!env.DB) return unconfigured('DB')
