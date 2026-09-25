@@ -32,7 +32,7 @@ function PrivacyPage() {
       </section>
       <section>
         <h2>Who else handles data</h2>
-        <p>Cloudflare hosts Spice, its database, and its request logs. Google handles sign-in. tastytrade supplies market data and, on requests that present your credential, your account data and orders. Exa and Yahoo Finance receive symbols and company names for research and price history, never your identity. The agent you connect receives what its tools return, under its provider&apos;s terms. Spice does not sell personal data or use it for advertising.</p>
+        <p>Cloudflare hosts Spice, its database, and its request logs. Google handles sign-in, and when your profile picture is shown, your browser loads it directly from Google. tastytrade supplies market data and, on requests that present your credential, your account data and orders. Exa and Yahoo Finance receive symbols and company names for research and price history, never your identity. The agent you connect receives what its tools return, under its provider&apos;s terms. Spice does not sell personal data or use it for advertising.</p>
       </section>
       <section>
         <h2>Your choices</h2>

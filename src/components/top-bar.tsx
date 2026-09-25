@@ -7,7 +7,7 @@ import { authClient } from '../data/auth-client'
 import { useLiveFeedIndicator } from '../data/live-market'
 import { type MarketState } from '../domain/market'
 
-import { Avatar, AvatarFallback } from '#/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '#/components/ui/avatar'
 import { Button } from '#/components/ui/button'
 import {
   DropdownMenu,
@@ -158,7 +158,7 @@ export function liveFeedSourceLabel(source: 'live' | 'snapshot'): LiveFeedSource
  * the one path that provably drops all of them. A failed sign-out stays in the menu and says
  * so, since leaving the reader believing they are signed out is the worse outcome.
  */
-function ViewerMenu({ viewerName }: { viewerName: string }) {
+function ViewerMenu({ viewerImage, viewerName }: { viewerImage?: string; viewerName: string }) {
   const [phase, setPhase] = useState<'idle' | 'signing-out' | 'failed'>('idle')
   const signOut = async () => {
     setPhase('signing-out')
@@ -174,6 +174,10 @@ function ViewerMenu({ viewerName }: { viewerName: string }) {
     <DropdownMenu onOpenChange={(open) => { if (open && phase === 'failed') setPhase('idle') }}>
       <DropdownMenuTrigger aria-label={`Account menu for ${viewerName}`} className="viewer-menu-trigger" title={viewerName}>
         <Avatar className="viewer-avatar">
+          {/* alt="" because the trigger already carries the account name as its aria-label; a
+              second label here would read it twice to a screen reader. no-referrer keeps
+              Google from seeing which Spice page requested the image. */}
+          {viewerImage && <AvatarImage alt="" referrerPolicy="no-referrer" src={viewerImage} />}
           <AvatarFallback>{viewerName.trim().charAt(0).toUpperCase()}</AvatarFallback>
         </Avatar>
       </DropdownMenuTrigger>
@@ -196,12 +200,14 @@ export function TopBar({
   marketClosesAt,
   marketOpensAt,
   marketState,
+  viewerImage,
   viewerName,
 }: {
   lastUpdatedAt?: string
   marketClosesAt?: string
   marketOpensAt?: string
   marketState?: MarketState
+  viewerImage?: string
   viewerName?: string
 }) {
   // One clock for both readings, on one timer. It also keeps ticking while another tab is
@@ -268,7 +274,7 @@ export function TopBar({
           </span>
         )}
         <Button nativeButton={false} render={<a className="top-link" href="mailto:support@spicy.trade" />} size="sm" variant="link">Support</Button>
-        {viewerName && <ViewerMenu viewerName={viewerName} />}
+        {viewerName && <ViewerMenu viewerImage={viewerImage} viewerName={viewerName} />}
         {!viewerName && <GoogleSignInButton compact />}
       </div>
     </header>

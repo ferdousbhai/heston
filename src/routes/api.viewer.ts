@@ -13,6 +13,7 @@ export const Route = createFileRoute('/api/viewer')({
           return jsonNoStore({
             user: identity ? {
               id: identity.id,
+              image: identity.image,
               name: identity.name,
               role: isOwnerEmail(identity.email) ? 'owner' : 'member',
             } : null,

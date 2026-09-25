@@ -120,6 +120,7 @@ function SpiceWorkspace({
           marketClosesAt={snapshot?.marketClosesAt}
           marketOpensAt={snapshot?.marketOpensAt}
           marketState={snapshot?.marketState}
+          viewerImage={viewer?.image}
           viewerName={viewer?.name}
         />
         <TabsContent value={tab}>

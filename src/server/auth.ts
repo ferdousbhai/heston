@@ -20,7 +20,21 @@ export function isOwnerEmail(email: string): boolean {
   return email.toLowerCase() === OWNER_EMAIL
 }
 
-export type AuthenticatedIdentity = { email: string; id: string; name: string }
+export type AuthenticatedIdentity = { email: string; id: string; image?: string; name: string }
+
+/**
+ * Google's profile image URL, as better-auth stores it verbatim from the provider. It is
+ * untrusted provider data — never coerced or repaired — so anything that does not parse as an
+ * https URL is dropped rather than passed through malformed.
+ */
+export function parseTrustedProfileImage(image: string | null | undefined): string | undefined {
+  if (!image) return undefined
+  try {
+    return new URL(image).protocol === 'https:' ? image : undefined
+  } catch {
+    return undefined
+  }
+}
 
 export function requireProductionOrigin(value: string | undefined): string {
   if (!value) throw new ConfigurationError('AuthBaseUrlMissing')
@@ -169,7 +183,12 @@ export async function getAuthenticatedIdentity(
   const runtime = await getAuthRuntime(env)
   const session = await runtime.auth.api.getSession({ headers: request.headers })
   if (!session) return null
-  return { email: session.user.email, id: session.user.id, name: session.user.name }
+  return {
+    email: session.user.email,
+    id: session.user.id,
+    image: parseTrustedProfileImage(session.user.image),
+    name: session.user.name,
+  }
 }
 
 /**

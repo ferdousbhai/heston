@@ -9,6 +9,9 @@ import { toError } from '../domain/failure'
 
 const ViewerSchema = z.object({
   id: z.string().min(1),
+  // Omitted whenever the server's own https check on the Google-supplied URL failed; never
+  // repaired here.
+  image: z.url({ protocol: /^https$/ }).optional(),
   name: z.string(),
   role: z.enum(['member', 'owner']),
 })
