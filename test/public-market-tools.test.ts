@@ -72,7 +72,7 @@ describe('anonymous public quote projection', () => {
 })
 
 describe('anonymous quote and metric parameters', () => {
-  const tools = createPublicMarketReadTools({ AUTH_BASE_URL: 'https://heston.test' }, () => undefined)
+  const tools = createPublicMarketReadTools({ AUTH_BASE_URL: 'https://spice.test' }, () => undefined)
   const parametersOf = (name: string) => {
     const tool = tools.find((candidate) => candidate.name === name)
     if (!tool) throw new Error(`${name} is missing`)
@@ -116,7 +116,7 @@ describe('anonymous symbol search', () => {
   })
 
   function searchTool() {
-    const tool = createPublicMarketReadTools({ AUTH_BASE_URL: 'https://heston.test' }, () => undefined)
+    const tool = createPublicMarketReadTools({ AUTH_BASE_URL: 'https://spice.test' }, () => undefined)
       .find((candidate) => candidate.name === 'search_symbols')
     if (!tool) throw new Error('search_symbols is missing')
     return tool

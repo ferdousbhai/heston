@@ -3,8 +3,8 @@ import {
   type MarketSnapshot,
   type PublicMarketSnapshot,
 } from '../domain/market'
-import { HESTON_DEPLOYMENT_ID } from '../deployment'
-import { HESTON_DEPLOYMENT_ID_HEADER } from '../domain/deployment'
+import { SPICE_DEPLOYMENT_ID } from '../deployment'
+import { SPICE_DEPLOYMENT_ID_HEADER } from '../domain/deployment'
 import { type AppEnv } from './env'
 import { jsonNoStore, jsonPublic, PUBLIC_RESPONSE_CACHE_CONTROL } from './http'
 import { brokerApi, type StoredPublicMarketSnapshot } from './tastytrade'
@@ -71,7 +71,7 @@ function notModified(request: Request, stored: Response): Response | undefined {
   const headers = new Headers()
   headers.set('Cache-Control', PUBLIC_RESPONSE_CACHE_CONTROL)
   headers.set('ETag', etag)
-  headers.set(HESTON_DEPLOYMENT_ID_HEADER, HESTON_DEPLOYMENT_ID)
+  headers.set(SPICE_DEPLOYMENT_ID_HEADER, SPICE_DEPLOYMENT_ID)
   for (const name of [SNAPSHOT_CACHED_AT_HEADER, SNAPSHOT_GENERATED_AT_HEADER]) {
     const value = stored.headers.get(name)
     if (value) headers.set(name, value)
@@ -94,7 +94,7 @@ function cacheKeyFor(request: Request): Request {
   // Scope the private Cache API copy to the code that serialized it. The request's
   // query remains untrusted and is discarded, so visitors cannot create cache shards.
   cacheUrl.searchParams.set('schema', '6')
-  cacheUrl.searchParams.set('deployment', HESTON_DEPLOYMENT_ID)
+  cacheUrl.searchParams.set('deployment', SPICE_DEPLOYMENT_ID)
   cacheUrl.searchParams.set('copy', 'fresh')
   return new Request(cacheUrl, { method: 'GET' })
 }
@@ -178,7 +178,7 @@ function responseForVisitor(stored: Response): Response {
   response.headers.set('Cache-Control', PUBLIC_RESPONSE_CACHE_CONTROL)
   // The body contract is schema-versioned in the Cache API key, but this header describes
   // the Worker serving it now. Never leak the deployment id retained with an older copy.
-  response.headers.set(HESTON_DEPLOYMENT_ID_HEADER, HESTON_DEPLOYMENT_ID)
+  response.headers.set(SPICE_DEPLOYMENT_ID_HEADER, SPICE_DEPLOYMENT_ID)
   return response
 }
 

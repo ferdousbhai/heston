@@ -44,30 +44,30 @@ describe('market feed subscription boundary', () => {
   })
 
   it('normalizes and deduplicates only after the whole subscription is valid', () => {
-    const url = new URL('https://heston.test/api/stream?symbols=spy,NVDA,spy,BRK/B')
+    const url = new URL('https://spice.test/api/stream?symbols=spy,NVDA,spy,BRK/B')
     expect(parseRequestedSymbols(url)).toEqual(['SPY', 'NVDA', 'BRK/B'])
     expect(() => parseRequestedSymbols(new URL(
-      'https://heston.test/api/stream?symbols=SPY,../secret,NVDA',
+      'https://spice.test/api/stream?symbols=SPY,../secret,NVDA',
     ))).toThrow()
   })
 
   it('rejects missing, repeated, empty, and oversized symbol parameters', () => {
-    expect(() => parseRequestedSymbols(new URL('https://heston.test/api/stream'))).toThrow()
-    expect(() => parseRequestedSymbols(new URL('https://heston.test/api/stream?symbols='))).toThrow()
+    expect(() => parseRequestedSymbols(new URL('https://spice.test/api/stream'))).toThrow()
+    expect(() => parseRequestedSymbols(new URL('https://spice.test/api/stream?symbols='))).toThrow()
     expect(() => parseRequestedSymbols(new URL(
-      'https://heston.test/api/stream?symbols=SPY&symbols=NVDA',
+      'https://spice.test/api/stream?symbols=SPY&symbols=NVDA',
     ))).toThrow()
     const symbols = Array.from({ length: 101 }, (_, index) => `A${index}`)
     expect(() => parseRequestedSymbols(new URL(
-      `https://heston.test/api/stream?symbols=${symbols.join(',')}`,
+      `https://spice.test/api/stream?symbols=${symbols.join(',')}`,
     ))).toThrow()
   })
 
   it('rejects cross-origin WebSocket handshakes', () => {
-    expect(isSameOriginWebSocketRequest(new Request('https://heston.test/api/stream', {
-      headers: { Origin: 'https://heston.test' },
+    expect(isSameOriginWebSocketRequest(new Request('https://spice.test/api/stream', {
+      headers: { Origin: 'https://spice.test' },
     }))).toBe(true)
-    expect(isSameOriginWebSocketRequest(new Request('https://heston.test/api/stream', {
+    expect(isSameOriginWebSocketRequest(new Request('https://spice.test/api/stream', {
       headers: { Origin: 'https://evil.test' },
     }))).toBe(false)
   })

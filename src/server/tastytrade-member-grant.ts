@@ -10,7 +10,7 @@ import {
 } from './tastytrade'
 
 /*
- * Token requests on a member's behalf, under Heston's tastytrade OAuth app.
+ * Token requests on a member's behalf, under Spice's tastytrade OAuth app.
  *
  * Deliberately apart from `refreshAccessToken` / `cachedAccess` in `tastytrade.ts`. Those spend
  * the Worker's own market-data grant (`TASTYTRADE_CLIENT_SECRET` / `TASTYTRADE_REFRESH_TOKEN`),

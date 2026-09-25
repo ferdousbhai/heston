@@ -60,12 +60,12 @@ describe('default market focus', () => {
 describe('offline snapshot boundary', () => {
   it('retires legacy snapshot storage without deleting user-authored browser state', () => {
     const rows = new Map([
-      ['heston.snapshot.v8', 'old schema'],
-      ['heston.snapshot.v9.previous-build', 'old deployment'],
-      ['heston.tickers.v6', 'old split snapshot'],
+      ['spice.snapshot.v8', 'old schema'],
+      ['spice.snapshot.v9.previous-build', 'old deployment'],
+      ['spice.tickers.v6', 'old split snapshot'],
       [OFFLINE_SNAPSHOT_STORAGE_KEY, 'current schema'],
-      ['heston.preferences.v2', 'preferences'],
-      ['heston.favorite-stage.v1', 'favorite staging'],
+      ['spice.preferences.v2', 'preferences'],
+      ['spice.favorite-stage.v1', 'favorite staging'],
     ])
     const storage = {
       get length() { return rows.size },
@@ -77,8 +77,8 @@ describe('offline snapshot boundary', () => {
 
     expect([...rows.keys()]).toEqual([
       OFFLINE_SNAPSHOT_STORAGE_KEY,
-      'heston.preferences.v2',
-      'heston.favorite-stage.v1',
+      'spice.preferences.v2',
+      'spice.favorite-stage.v1',
     ])
   })
 

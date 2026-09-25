@@ -10,7 +10,7 @@ import { stubBrokerGate } from './broker-stub'
 const executionContext: McpExecutionContext = { props: undefined, waitUntil: () => undefined }
 
 function mcpRequest(method: string, params: JsonObject, token: string): Request {
-  return new Request('https://heston.test/mcp', {
+  return new Request('https://spice.test/mcp', {
     body: JSON.stringify({ id: 1, jsonrpc: '2.0', method, params }),
     headers: {
       Accept: 'application/json, text/event-stream',
@@ -35,19 +35,19 @@ afterEach(() => {
 describe('request-scoped broker credential', () => {
   it('parses a supported broker and trims its token', () => {
     const credential = brokerCredentialFromHeaders(new Headers({
-      'X-Heston-Broker': 'tastytrade',
-      'X-Heston-Broker-Token': '  request-token  ',
+      'X-Spice-Broker': 'tastytrade',
+      'X-Spice-Broker-Token': '  request-token  ',
     }))
 
     expect(credential).toEqual({ accessToken: 'request-token', broker: 'tastytrade' })
   })
 
   it.each([
-    ['missing broker', { 'X-Heston-Broker-Token': 'request-token' }],
-    ['missing token', { 'X-Heston-Broker': 'tastytrade' }],
-    ['empty broker', { 'X-Heston-Broker': ' ', 'X-Heston-Broker-Token': 'request-token' }],
-    ['empty token', { 'X-Heston-Broker': 'tastytrade', 'X-Heston-Broker-Token': ' ' }],
-    ['unknown broker', { 'X-Heston-Broker': 'another-broker', 'X-Heston-Broker-Token': 'request-token' }],
+    ['missing broker', { 'X-Spice-Broker-Token': 'request-token' }],
+    ['missing token', { 'X-Spice-Broker': 'tastytrade' }],
+    ['empty broker', { 'X-Spice-Broker': ' ', 'X-Spice-Broker-Token': 'request-token' }],
+    ['empty token', { 'X-Spice-Broker': 'tastytrade', 'X-Spice-Broker-Token': ' ' }],
+    ['unknown broker', { 'X-Spice-Broker': 'another-broker', 'X-Spice-Broker-Token': 'request-token' }],
   ])('refuses %s', (_label, values) => {
     expect(brokerCredentialFromHeaders(new Headers(values))).toBeUndefined()
   })
@@ -175,7 +175,7 @@ describe('request-scoped broker credential', () => {
     ))
     expect(called.error).toBeUndefined()
     expect(called.result.content).toEqual([{
-      text: 'No brokerage is connected for this request. Connect a brokerage from the Connect tab in the Heston web app, then try again.',
+      text: 'No brokerage is connected for this request. Connect a brokerage from the Connect tab in the Spice web app, then try again.',
       type: 'text',
     }])
     expect(fetchMock).not.toHaveBeenCalled()

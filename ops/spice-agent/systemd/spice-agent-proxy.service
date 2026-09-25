@@ -1,19 +1,20 @@
 # The local brokerage credential broker for an agent on this machine. Enable with
-#   systemctl --user enable --now heston-agent-proxy.service
+#   systemctl --user enable --now spice-agent-proxy.service
 # Credentials are read from the OS keyring once, at startup, so nothing secret lives in this
 # unit, in the environment block, or in any argv. Restart the unit after changing them.
 [Unit]
-Description=Heston agent proxy
+Description=Spice agent proxy
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=%h/github.com/ferdousbhai/heston/ops/heston-agent/proxy.mjs
+# The checkout directory keeps the repository's pre-rebrand name.
+ExecStart=%h/github.com/ferdousbhai/heston/ops/spice-agent/proxy.mjs
 Restart=on-failure
 RestartSec=5
 # The keyring is unlocked per login session, so this follows the session rather than the boot.
-# A keyring that cannot be read, a missing Heston token, or a keyring holding both kinds of
+# A keyring that cannot be read, a missing Spice token, or a keyring holding both kinds of
 # tastytrade credential exits non-zero and is restarted. A
 # missing brokerage credential is not a failure: the proxy starts and forwards the market and
 # research tools only, and the Worker refuses account tools with its own message.

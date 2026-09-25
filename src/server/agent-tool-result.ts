@@ -37,7 +37,7 @@ export function toolErrorResult(toolName: string, error: Error | undefined) {
   } else {
     const name = errorName(error)
     console.error('McpToolFailed', toolName, name)
-    text = `Heston could not complete ${toolName}: ${name}`
+    text = `Spice could not complete ${toolName}: ${name}`
   }
   return { content: [{ text, type: 'text' as const }], isError: true }
 }

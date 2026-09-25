@@ -19,14 +19,14 @@ export type WatchlistReadResult =
   | {
     fetchedAt: string
     mode: 'index'
-    source: 'heston'
+    source: 'spice'
     status: 'ok'
     symbols: string[]
   }
   | {
     fetchedAt: string
     mode: 'detail'
-    source: 'heston'
+    source: 'spice'
     status: 'not_found'
     symbol: string
   }
@@ -34,7 +34,7 @@ export type WatchlistReadResult =
     details: InternalWatchlistSymbolDetails
     fetchedAt: string
     mode: 'detail'
-    source: 'heston'
+    source: 'spice'
     status: 'ok'
   }
 
@@ -51,7 +51,7 @@ export const WatchlistIndexParameters = Type.Object({}, { additionalProperties: 
 // Symbols only, alphabetized, which reveals nothing about which source put a name there or how
 // strongly. Provenance and instrument type are the detail mode's.
 function indexResult(symbols: string[]): WatchlistReadResult {
-  return { fetchedAt: new Date().toISOString(), mode: 'index', source: 'heston', status: 'ok', symbols }
+  return { fetchedAt: new Date().toISOString(), mode: 'index', source: 'spice', status: 'ok', symbols }
 }
 
 /** The owner's index: the maintained list itself, including names held back from readers. */
@@ -64,8 +64,8 @@ async function readWatchlist(env: AppEnv, symbol?: string): Promise<WatchlistRea
   const fetchedAt = new Date().toISOString()
   const details = await readInternalWatchlistSymbolDetails(env, symbol)
   return details
-    ? { details, fetchedAt, mode: 'detail', source: 'heston', status: 'ok' }
-    : { fetchedAt, mode: 'detail', source: 'heston', status: 'not_found', symbol }
+    ? { details, fetchedAt, mode: 'detail', source: 'spice', status: 'ok' }
+    : { fetchedAt, mode: 'detail', source: 'spice', status: 'not_found', symbol }
 }
 
 /**
@@ -90,7 +90,7 @@ export function createWatchlistReadTool(env: AppEnv): AgentTool<typeof Watchlist
  */
 export function createWatchlistIndexTool(env: AppEnv): AgentTool<typeof WatchlistIndexParameters> {
   return {
-    description: 'Every symbol Heston keeps loaded, alphabetized.',
+    description: 'Every symbol Spice keeps loaded, alphabetized.',
     execute: async () => textResult(indexResult((await loadStoredPublicMarketUniverse(env)).symbols)),
     name: 'read_watchlist',
     parameters: WatchlistIndexParameters,

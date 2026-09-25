@@ -36,7 +36,7 @@ import { clearDeploymentReload, DeploymentMismatchError, newerResponseDeployment
 export const OFFLINE_SNAPSHOT_VERSION = 9 as const
 export type SnapshotAudience = 'owner' | 'public'
 
-const OFFLINE_SNAPSHOT_STORAGE_PREFIX = 'heston.snapshot.v'
+const OFFLINE_SNAPSHOT_STORAGE_PREFIX = 'spice.snapshot.v'
 export const OFFLINE_SNAPSHOT_STORAGE_KEY = `${OFFLINE_SNAPSHOT_STORAGE_PREFIX}${OFFLINE_SNAPSHOT_VERSION}`
 
 type SnapshotStorage = Pick<EnumerableStorage, 'key' | 'length' | 'removeItem'>
@@ -49,12 +49,12 @@ type SnapshotStorage = Pick<EnumerableStorage, 'key' | 'length' | 'removeItem'>
  * this one.
  */
 const LEGACY_SNAPSHOT_STORAGE_PREFIXES = [
-  'heston.catalysts.v',
-  'heston.research.v',
-  'heston.recommendations.v',
-  'heston.sync-state.v',
-  'heston.tickers.v',
-  'heston.watchlists.v',
+  'spice.catalysts.v',
+  'spice.research.v',
+  'spice.recommendations.v',
+  'spice.sync-state.v',
+  'spice.tickers.v',
+  'spice.watchlists.v',
 ]
 
 export function retireLegacySnapshotStorage(storage: SnapshotStorage): void {
@@ -98,7 +98,7 @@ const OfflineSnapshotSchema = z.object({
 
 export const offlineSnapshotCollection = createCollection(
   localStorageCollectionOptions({
-    id: 'heston-offline-snapshot',
+    id: 'spice-offline-snapshot',
     storageKey: OFFLINE_SNAPSHOT_STORAGE_KEY,
     storage: browserStorage,
     schema: OfflineSnapshotSchema,
@@ -113,7 +113,7 @@ export const offlineSnapshotCollection = createCollection(
  */
 export const tickerCollection = createCollection(
   localOnlyCollectionOptions<typeof TickerSchema, string>({
-    id: 'heston-live-tickers',
+    id: 'spice-live-tickers',
     schema: TickerSchema,
     getKey: (ticker) => ticker.symbol,
   }),
@@ -121,8 +121,8 @@ export const tickerCollection = createCollection(
 
 export const preferenceCollection = createCollection(
   localStorageCollectionOptions({
-    id: 'heston-preferences',
-    storageKey: 'heston.preferences.v2',
+    id: 'spice-preferences',
+    storageKey: 'spice.preferences.v2',
     storage: browserStorage,
     schema: PreferenceSchema,
     getKey: (preference) => preference.id,

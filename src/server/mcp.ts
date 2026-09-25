@@ -26,8 +26,8 @@ import { createResearchReadTools } from './research-read-tools'
 import {
   PLACE_BROKERAGE_ORDER_DESCRIPTION,
   PORTFOLIO_REVIEW_PROMPT,
-  HESTON_GUIDE,
-  hestonMcpInstructions,
+  SPICE_GUIDE,
+  spiceMcpInstructions,
   tradeIdeaPrompt,
 } from './doctrine'
 import { toolAnnotations } from './mcp-annotations'
@@ -64,7 +64,7 @@ const MAX_THESIS_LENGTH = 2_000
  * their turn. It is required because there is no honest fallback -- dropping the promise would
  * leave that work running detached and unawaited, not done inline.
  */
-export function createHestonMcpServer(
+export function createSpiceMcpServer(
   env: AppEnv,
   caller: McpCaller,
   credential: BrokerCredential | undefined,
@@ -75,8 +75,8 @@ export function createHestonMcpServer(
   // built for this caller's tier: it is paid for on every turn, and a rule about a tool they
   // were not given is a per-turn tax on a refusal they cannot reach.
   const server = new McpServer(
-    { name: 'heston', version: '1.0.0' },
-    { instructions: hestonMcpInstructions(caller.signedIn) },
+    { name: 'spice', version: '1.0.0' },
+    { instructions: spiceMcpInstructions(caller.signedIn) },
   )
 
   const tools: AgentTool<TSchema>[] = [
@@ -194,9 +194,9 @@ export function createHestonMcpServer(
   // at this URI, and the guide describes the credential-free tier as well.
   server.registerResource(
     'guide',
-    'heston://guide',
-    { description: 'What Heston can answer and which tool answers it.', mimeType: 'text/markdown', title: 'Heston guide' },
-    (uri) => ({ contents: [{ text: HESTON_GUIDE, uri: uri.href }] }),
+    'spice://guide',
+    { description: 'What Spice can answer and which tool answers it.', mimeType: 'text/markdown', title: 'Spice guide' },
+    (uri) => ({ contents: [{ text: SPICE_GUIDE, uri: uri.href }] }),
   )
 
   return server
@@ -246,7 +246,7 @@ function createOrderTools(
  * own machine and a cookie jar is the wrong shape for it. Ownership is decided by the same
  * `isOwnerEmail` the cookie surface uses, so there is exactly one definition of it.
  *
- * Every signed-in caller is a Heston user row, reached one of two ways: a minted token's digest
+ * Every signed-in caller is a Spice user row, reached one of two ways: a minted token's digest
  * in `user_mcp_tokens`, or an OAuth access token whose verified `sub` names the user. A caller who
  * presents nothing is `ANONYMOUS_CALLER`, which is no row at all and holds only the public tier.
  * There is no shared secret: the `HESTON_MCP_TOKEN` that authenticated as the owner during the
@@ -332,7 +332,7 @@ function serveMcp(
   // SAFETY: the handler reads only `props` from the context (verified against its dist) and this
   // module calls only `waitUntil`, both of which McpExecutionContext carries; the platform type's
   // other members are never touched.
-  return createMcpHandler(() => createHestonMcpServer(env, caller, credential, (task) => ctx.waitUntil(task)), {
+  return createMcpHandler(() => createSpiceMcpServer(env, caller, credential, (task) => ctx.waitUntil(task)), {
     route: '/mcp',
     // Out-of-band failures — a rejected request, an error raised after the response is under
     // way — are otherwise dropped without a trace. Named, never bodied: the argument may carry
@@ -362,7 +362,7 @@ function authChallenge(request: Request, description: string): Response {
  */
 function callerLookupFailed(request: Request, errorName: string): Response {
   console.error('McpCallerLookupFailed', errorName)
-  return authChallenge(request, 'Heston could not verify this request.')
+  return authChallenge(request, 'Spice could not verify this request.')
 }
 
 /**
@@ -419,7 +419,7 @@ export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpEx
     // would be the one shape that risks opening the surface. The outage is observable in this log
     // line rather than in the status code.
     console.error('McpAuthUnavailable', error instanceof Error ? error.name : 'UnknownError')
-    return authChallenge(request, 'Heston could not verify this request.')
+    return authChallenge(request, 'Spice could not verify this request.')
   }
 
   let claims
@@ -433,7 +433,7 @@ export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpEx
     // loses the challenge that would let them authenticate; it also reads as a broken endpoint
     // rather than a bad token, which is how a whole broken flow stayed invisible.
     console.error('McpOAuthVerificationFailed', error instanceof Error ? error.name : 'UnknownError')
-    return authChallenge(request, 'Heston could not verify this token.')
+    return authChallenge(request, 'Spice could not verify this token.')
   }
 
   let caller
@@ -445,7 +445,7 @@ export async function handleMcpRequest(request: Request, env: AppEnv, ctx: McpEx
   // A token whose subject is not a user this server knows authenticates nothing.
   if (!caller) {
     console.error('McpAuthRejected')
-    return authChallenge(request, 'This token does not identify a Heston member.')
+    return authChallenge(request, 'This token does not identify a Spice member.')
   }
   return serveMcp(request, env, ctx, caller)
 }

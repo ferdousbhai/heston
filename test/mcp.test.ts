@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import { type JsonValue } from '../src/domain/json-payload'
 
-import { HESTON_GUIDE } from '../src/server/doctrine'
+import { SPICE_GUIDE } from '../src/server/doctrine'
 import {
   handleMcpRequest,
   McpCallerLookupError,
@@ -45,7 +45,7 @@ function mcpRequest(body: JsonRpcFrame | Record<string, never>, token?: string):
     'content-type': 'application/json',
   })
   if (token !== undefined) headers.set('Authorization', `Bearer ${token}`)
-  return new Request('https://heston.io/mcp', {
+  return new Request('https://spicy.trade/mcp', {
     body: JSON.stringify(body),
     headers,
     method: 'POST',
@@ -67,13 +67,13 @@ describe('MCP bearer authentication', () => {
       .resolves.toMatchObject({ owner: true, userId: 'member-1' })
     await expect(resolveMcpCaller(mcpRequest({}, `${token}x`), env)).resolves.toBeUndefined()
     await expect(resolveMcpCaller(mcpRequest({}), env)).resolves.toBeUndefined()
-    await expect(resolveMcpCaller(mcpRequest({}, 'not-a-heston-token'), env)).resolves.toBeUndefined()
+    await expect(resolveMcpCaller(mcpRequest({}, 'not-a-spice-token'), env)).resolves.toBeUndefined()
     store.close()
   })
 
   it('reads the bearer scheme case-insensitively, as RFC 9110 defines it', async () => {
     const { env, store, token } = await harness('member@example.com')
-    const request = new Request('https://heston.io/mcp', { headers: { Authorization: `bearer  ${token}` } })
+    const request = new Request('https://spicy.trade/mcp', { headers: { Authorization: `bearer  ${token}` } })
     await expect(resolveMcpCaller(request, env)).resolves.toMatchObject({ owner: false, userId: 'member-1' })
     store.close()
   })
@@ -94,7 +94,7 @@ describe('MCP bearer authentication', () => {
       expect(response.status).toBe(401)
       const challenge = response.headers.get('WWW-Authenticate') ?? ''
       expect(challenge).toContain('invalid_token')
-      expect(challenge).toContain('Heston could not verify this request.')
+      expect(challenge).toContain('Spice could not verify this request.')
       expect(challenge).not.toContain('Issue a new one')
       expect(logged.mock.calls).toEqual([['McpCallerLookupFailed', 'McpCallerLookupError']])
     } finally {
@@ -126,7 +126,7 @@ describe('MCP bearer authentication', () => {
           executionContext,
         )
         expect(response.status).toBe(401)
-        expect(response.headers.get('WWW-Authenticate')).toContain('Heston could not verify this request.')
+        expect(response.headers.get('WWW-Authenticate')).toContain('Spice could not verify this request.')
       }
       expect(logged.mock.calls).toEqual([['McpCallerLookupFailed', 'D1Error'], ['McpCallerLookupFailed', 'D1Error']])
     } finally {
@@ -181,7 +181,7 @@ describe('MCP bearer authentication', () => {
     // to be anybody cannot, which is why only this case is refused. The challenge must also say
     // how to authenticate, or a stale token is indistinguishable from a broken endpoint.
     const response = await handleMcpRequest(
-      mcpRequest({ id: 1, jsonrpc: '2.0', method: 'tools/list' }, 'heston_0000000000000000_notarealsecret'),
+      mcpRequest({ id: 1, jsonrpc: '2.0', method: 'tools/list' }, 'spice_0000000000000000_notarealsecret'),
       {},
       executionContext,
     )
@@ -191,7 +191,7 @@ describe('MCP bearer authentication', () => {
     expect(challenge).toContain('invalid_token')
     // RFC 9728: the discovery document a client starts the OAuth flow from, at the path
     // `handleWellKnownDiscovery` serves.
-    expect(challenge).toContain('resource_metadata="https://heston.io/.well-known/oauth-protected-resource/mcp"')
+    expect(challenge).toContain('resource_metadata="https://spicy.trade/.well-known/oauth-protected-resource/mcp"')
   })
 })
 
@@ -513,15 +513,15 @@ describe('the guide resource', () => {
       }, token), env, executionContext)
       const resources = z.object({ result: z.object({ resources: z.array(z.object({ uri: z.string() })) }) })
         .parse(await mcpPayload(listed))
-      expect(resources.result.resources.map((entry) => entry.uri)).toContain('heston://guide')
+      expect(resources.result.resources.map((entry) => entry.uri)).toContain('spice://guide')
 
       const read = await handleMcpRequest(mcpRequest({
-        id: 21, jsonrpc: '2.0', method: 'resources/read', params: { uri: 'heston://guide' },
+        id: 21, jsonrpc: '2.0', method: 'resources/read', params: { uri: 'spice://guide' },
       }, token), env, executionContext)
       const contents = z.object({ result: z.object({ contents: z.array(z.object({ text: z.string() })) }) })
         .parse(await mcpPayload(read))
       const guide = contents.result.contents[0]!.text
-      expect(guide).toBe(HESTON_GUIDE)
+      expect(guide).toBe(SPICE_GUIDE)
 
       // An index that names something gone is worse than no index: it sends an agent looking for
       // a tool that will never answer. Every backticked name in the guide must be real.
@@ -552,14 +552,14 @@ describe('the guide resource', () => {
       }), env, executionContext)
       const resources = z.object({ result: z.object({ resources: z.array(z.object({ uri: z.string() })) }) })
         .parse(await mcpPayload(listed))
-      expect(resources.result.resources.map((entry) => entry.uri)).toContain('heston://guide')
+      expect(resources.result.resources.map((entry) => entry.uri)).toContain('spice://guide')
 
       const read = await handleMcpRequest(mcpRequest({
-        id: 31, jsonrpc: '2.0', method: 'resources/read', params: { uri: 'heston://guide' },
+        id: 31, jsonrpc: '2.0', method: 'resources/read', params: { uri: 'spice://guide' },
       }), env, executionContext)
       const contents = z.object({ result: z.object({ contents: z.array(z.object({ text: z.string() })) }) })
         .parse(await mcpPayload(read))
-      expect(contents.result.contents[0]!.text).toBe(HESTON_GUIDE)
+      expect(contents.result.contents[0]!.text).toBe(SPICE_GUIDE)
     } finally {
       store.close()
     }
@@ -568,7 +568,7 @@ describe('the guide resource', () => {
 
 describe('misdirected MCP clients', () => {
   it('names the endpoint when an agent connects to the site instead of /mcp', async () => {
-    const response = await mcpEndpointRedirect(new Request('https://heston.io/', {
+    const response = await mcpEndpointRedirect(new Request('https://spicy.trade/', {
       body: JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'initialize' }),
       headers: { 'content-type': 'application/json' },
       method: 'POST',
@@ -576,19 +576,19 @@ describe('misdirected MCP clients', () => {
     expect(response?.status).toBe(404)
     const body = z.object({ error: z.object({ message: z.string() }) })
       .parse(await (response ?? Response.json({})).json())
-    expect(body.error.message).toContain('https://heston.io/mcp')
+    expect(body.error.message).toContain('https://spicy.trade/mcp')
   })
 
   it('leaves every request that is not an MCP handshake alone', async () => {
     const cases = [
-      new Request('https://heston.io/', { method: 'GET' }),
+      new Request('https://spicy.trade/', { method: 'GET' }),
       // A server function posting ordinary JSON must pass straight through.
-      new Request('https://heston.io/api/favorites', {
+      new Request('https://spicy.trade/api/favorites', {
         body: JSON.stringify({ symbols: ['NVDA'] }),
         headers: { 'content-type': 'application/json' },
         method: 'POST',
       }),
-      new Request('https://heston.io/', {
+      new Request('https://spicy.trade/', {
         body: 'not json at all',
         headers: { 'content-type': 'text/plain' },
         method: 'POST',
@@ -691,7 +691,7 @@ describe('tool error redaction boundary', () => {
       }), { DB: store.database }, executionContext))
       expect(called.error).toBeUndefined()
       expect(called.result).toEqual({
-        content: [{ text: 'Heston could not complete read_daily_brief: TypeError', type: 'text' }],
+        content: [{ text: 'Spice could not complete read_daily_brief: TypeError', type: 'text' }],
         isError: true,
       })
       expect(logged.mock.calls).toEqual([['McpToolFailed', 'read_daily_brief', 'TypeError']])
@@ -736,8 +736,8 @@ describe('tool error redaction boundary', () => {
     odd.name = 'Name with <payload>'
     const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     try {
-      expect(toolErrorResult('read_catalysts', odd).content[0]!.text).toBe('Heston could not complete read_catalysts: UnknownError')
-      expect(toolErrorResult('read_catalysts', undefined).content[0]!.text).toBe('Heston could not complete read_catalysts: UnknownError')
+      expect(toolErrorResult('read_catalysts', odd).content[0]!.text).toBe('Spice could not complete read_catalysts: UnknownError')
+      expect(toolErrorResult('read_catalysts', undefined).content[0]!.text).toBe('Spice could not complete read_catalysts: UnknownError')
     } finally {
       logged.mockRestore()
     }

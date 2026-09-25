@@ -14,7 +14,7 @@ self.addEventListener('install', (event) => {
 //
 // The prefix tracks the app's own storage namespace, so a rebrand renames it: a cache written
 // under a previous brand sat on that brand's origin, which this worker can never see.
-const LEGACY_CACHE_PREFIX = 'heston-public-shell-'
+const LEGACY_CACHE_PREFIX = 'spice-public-shell-'
 
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {

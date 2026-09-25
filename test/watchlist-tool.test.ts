@@ -54,7 +54,7 @@ describe('watchlist context boundary', () => {
     expect(JSON.stringify(account)).not.toContain('watchlist')
   })
 
-  it('reads the consolidated Heston list without touching tastytrade watchlist endpoints', async () => {
+  it('reads the consolidated Spice list without touching tastytrade watchlist endpoints', async () => {
     const result = await createWatchlistReadTool({ DB: store.database }).execute({})
 
     // Symbols only. The index answers "what is loaded" across up to 500 names; provenance and
@@ -62,7 +62,7 @@ describe('watchlist context boundary', () => {
     // more than it told anyone.
     expect(JSON.parse(result.content[0]!.text)).toMatchObject({
       mode: 'index',
-      source: 'heston',
+      source: 'spice',
       status: 'ok',
       symbols: ['NVDA', 'SPY'],
     })
@@ -89,7 +89,7 @@ describe('watchlist context boundary', () => {
 
     expect(JSON.parse(result.content[0]!.text)).toMatchObject({
       mode: 'detail',
-      source: 'heston',
+      source: 'spice',
       status: 'ok',
       details: {
         symbol: 'NVDA',
@@ -107,7 +107,7 @@ describe('watchlist context boundary', () => {
     const result = await createWatchlistReadTool({ DB: store.database }).execute({ symbol: 'META' })
 
     expect(JSON.parse(result.content[0]!.text)).toEqual(expect.objectContaining({
-      mode: 'detail', source: 'heston', status: 'not_found', symbol: 'META',
+      mode: 'detail', source: 'spice', status: 'not_found', symbol: 'META',
     }))
     expect(tastytrade.tastyRequest).not.toHaveBeenCalled()
   })

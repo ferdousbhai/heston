@@ -13,7 +13,7 @@ import { z } from 'zod'
  * so a run never opens a browser or restarts a service on the machine running the tests.
  */
 
-const HESTON_TOKEN = 'heston_0123456789abcdef_AAAAAAAAAAAAAAAAAAAA'
+const SPICE_TOKEN = 'spice_0123456789abcdef_AAAAAAAAAAAAAAAAAAAA'
 const STATE = 'S'.repeat(43)
 const CODE = 'authorization-code-from-tastytrade'
 const REFRESH_TOKEN = 'app-refresh-token-that-belongs-in-the-keyring'
@@ -42,7 +42,7 @@ afterEach(async () => {
 
 /** A keyring stored as one file per `service/key`, plus inert `xdg-open`, `open`, and `systemctl`. */
 async function fakeTools(entries: Record<string, string>): Promise<string> {
-  const directory = await mkdtemp(join(tmpdir(), 'heston-connect-'))
+  const directory = await mkdtemp(join(tmpdir(), 'spice-connect-'))
   directories.push(directory)
   await mkdir(join(directory, 'store'))
   for (const [path, value] of Object.entries(entries)) {
@@ -95,8 +95,8 @@ async function fakeWorker(exchangeAnswer: () => { body: unknown; status: number 
 function startCli(tools: string, workerPort: number) {
   let stdout = ''
   let stderr = ''
-  cli = spawn(process.execPath, ['ops/heston-agent/connect-tastytrade.mjs'], {
-    env: { ...process.env, HESTON_MCP_URL: `http://127.0.0.1:${workerPort}/mcp`, PATH: `${tools}:${process.env.PATH ?? ''}` },
+  cli = spawn(process.execPath, ['ops/spice-agent/connect-tastytrade.mjs'], {
+    env: { ...process.env, SPICE_MCP_URL: `http://127.0.0.1:${workerPort}/mcp`, PATH: `${tools}:${process.env.PATH ?? ''}` },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   cli.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
@@ -120,7 +120,7 @@ function visit(port: number, path: string, headers: Record<string, string> = {})
 
 async function loopbackPort(calls: WorkerCall[], output: () => { stdout: string }): Promise<number> {
   // The listener takes the state from the authorize answer, which the CLI prints the URL after.
-  await expect.poll(() => output().stdout, { timeout: 10_000 }).toContain('Approve Heston on tastytrade')
+  await expect.poll(() => output().stdout, { timeout: 10_000 }).toContain('Approve Spice on tastytrade')
   const port = calls.find((call) => call.path === '/api/brokers/tastytrade/authorize')?.body.port
   if (port === undefined) throw new Error('the CLI started without naming its loopback port')
   return port
@@ -128,7 +128,7 @@ async function loopbackPort(calls: WorkerCall[], output: () => { stdout: string 
 
 describe('connect-tastytrade', () => {
   it('redeems the return through the Worker and stores the refresh token in the keyring only', async () => {
-    const tools = await fakeTools({ 'heston/mcp-token': HESTON_TOKEN })
+    const tools = await fakeTools({ 'spice/mcp-token': SPICE_TOKEN })
     const { calls, port } = await fakeWorker(() => ({ body: { refreshToken: REFRESH_TOKEN }, status: 200 }))
     const run = startCli(tools, port)
     const listener = await loopbackPort(calls, run.output)
@@ -147,10 +147,10 @@ describe('connect-tastytrade', () => {
       '/api/brokers/tastytrade/authorize',
       '/api/brokers/tastytrade/exchange',
     ])
-    for (const call of calls) expect(call.headers.authorization).toBe(`Bearer ${HESTON_TOKEN}`)
+    for (const call of calls) expect(call.headers.authorization).toBe(`Bearer ${SPICE_TOKEN}`)
     expect(calls[1]?.body).toEqual({ code: CODE, state: STATE })
     const { stderr, stdout } = run.output()
-    for (const secret of [REFRESH_TOKEN, CODE, HESTON_TOKEN]) {
+    for (const secret of [REFRESH_TOKEN, CODE, SPICE_TOKEN]) {
       expect(stdout).not.toContain(secret)
       expect(stderr).not.toContain(secret)
     }
@@ -161,7 +161,7 @@ describe('connect-tastytrade', () => {
   }, 30_000)
 
   it('reports a refusal by its OAuth code and stores nothing', async () => {
-    const tools = await fakeTools({ 'heston/mcp-token': HESTON_TOKEN })
+    const tools = await fakeTools({ 'spice/mcp-token': SPICE_TOKEN })
     const { calls, port } = await fakeWorker(() => ({ body: { refreshToken: REFRESH_TOKEN }, status: 200 }))
     const run = startCli(tools, port)
     const listener = await loopbackPort(calls, run.output)
@@ -173,7 +173,7 @@ describe('connect-tastytrade', () => {
   }, 30_000)
 
   it('reports a tastytrade refusal of the code by status, never a body', async () => {
-    const tools = await fakeTools({ 'heston/mcp-token': HESTON_TOKEN })
+    const tools = await fakeTools({ 'spice/mcp-token': SPICE_TOKEN })
     const { calls, port } = await fakeWorker(() => ({
       body: { error: 'tastytrade refused the grant', tastytradeStatus: 400 },
       status: 502,
@@ -188,7 +188,7 @@ describe('connect-tastytrade', () => {
 
   it('refuses to start over a personal grant, before reaching the Worker', async () => {
     const tools = await fakeTools({
-      'heston/mcp-token': HESTON_TOKEN,
+      'spice/mcp-token': SPICE_TOKEN,
       'tastytrade/client-secret': 'personal-client-secret',
     })
     const { calls, port } = await fakeWorker(() => ({ body: {}, status: 500 }))

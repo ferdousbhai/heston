@@ -70,7 +70,7 @@ import {
 } from './tastytrade-market-store'
 import { CallerVisibleError } from './caller-visible-error'
 
-export const USER_AGENT = 'Heston/0.1'
+export const USER_AGENT = 'Spice/0.1'
 /**
  * The symbols one tastytrade request names. tastytrade's market-data endpoint documents a
  * combined limit of 100 symbols per request, and every symbol-listing read here — metrics,

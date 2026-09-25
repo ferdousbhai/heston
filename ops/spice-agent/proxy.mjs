@@ -8,10 +8,10 @@ import { TOKEN_REQUEST_TIMEOUT_MS, tokenRetiresAt, UPSTREAM_TIMEOUT_MS } from '.
 /**
  * The brokerage credential broker for a local agent.
  *
- * Heston holds no member's brokerage credential, so one has to reach the Worker on each request.
+ * Spice holds no member's brokerage credential, so one has to reach the Worker on each request.
  * It must not reach it through the agent: an MCP config's `${VAR}` interpolation reads the agent
  * process's own environment, which its Bash tool inherits, and a tastytrade refresh token never
- * expires and bypasses every Heston guard. One prompt-injected `printenv | curl` out of the
+ * expires and bypasses every Spice guard. One prompt-injected `printenv | curl` out of the
  * untrusted-content pipeline would be permanent, unguarded trading authority.
  *
  * So this runs as its own process. It reads the long-lived credential from the OS keyring,
@@ -24,7 +24,7 @@ import { TOKEN_REQUEST_TIMEOUT_MS, tokenRetiresAt, UPSTREAM_TIMEOUT_MS } from '.
  * A tastytrade credential comes in one of two kinds, told apart by the keyring entries present:
  *   personal grant  `client-secret` + `refresh-token`, from the member's own OAuth app; minted
  *                   directly against tastytrade.
- *   app grant       `app-refresh-token`, from `connect-tastytrade.mjs` under Heston's OAuth app,
+ *   app grant       `app-refresh-token`, from `connect-tastytrade.mjs` under Spice's OAuth app,
  *                   whose client secret only the Worker holds; minted through the Worker.
  * Either way only the 15-minute access token is attached to forwarded requests. A keyring holding
  * both is refused rather than resolved by a precedence rule: which account the agent trades
@@ -48,12 +48,12 @@ const AppGrantRefusalSchema = z.object({ tastytradeStatus: z.number().int() })
 const BROKER = 'tastytrade'
 const LISTEN_HOST = '127.0.0.1'
 const DEFAULT_PORT = 8787
-const UPSTREAM = process.env.HESTON_MCP_URL ?? 'https://heston.io/mcp'
+const UPSTREAM = process.env.SPICE_MCP_URL ?? 'https://spicy.trade/mcp'
 const TASTYTRADE_API_BASE = process.env.TASTYTRADE_API_BASE ?? 'https://api.tastyworks.com'
 // An app grant is minted by the Worker that UPSTREAM names, so it is the same origin: the agent
 // token that authenticates the forwarded call is the one that authenticates the mint.
 const APP_GRANT_TOKEN_URL = new URL('/api/brokers/tastytrade/token', UPSTREAM)
-const PROGRAM = 'HestonAgentProxy'
+const PROGRAM = 'SpiceAgentProxy'
 // UPSTREAM_TIMEOUT_MS and TOKEN_REQUEST_TIMEOUT_MS live in token-refresh.mjs because importing
 // this file starts the proxy (`await main()`), so the retirement test takes them from there.
 // A mint runs before, and in addition to, the forwarded call's own UPSTREAM_TIMEOUT_MS, so a call
@@ -61,7 +61,7 @@ const PROGRAM = 'HestonAgentProxy'
 
 /**
  * A refused, unreachable, or unreadable token exchange. Its `code` is tastytrade's HTTP status, a
- * fixed word of ours, or `heston-` and the Worker's status when the Worker refused an app-grant
+ * fixed word of ours, or `spice-` and the Worker's status when the Worker refused an app-grant
  * mint itself, and the handler logs it beside the name: a revoked grant or an unreachable broker
  * has to read as that in the log, not as a bare `Error` or `TypeError` indistinguishable from the
  * Worker failing. `transport`, when present, is the OS- or undici-level code of the failure --
@@ -108,7 +108,7 @@ async function mintPersonalGrant(clientSecret, refreshToken) {
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
-        'User-Agent': 'Heston-Agent-Proxy/0.1',
+        'User-Agent': 'Spice-Agent-Proxy/0.1',
       },
       method: 'POST',
       signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
@@ -136,23 +136,23 @@ async function mintPersonalGrant(clientSecret, refreshToken) {
 
 /**
  * An app grant: the member's refresh token, minted by the Worker, which adds the app's client
- * secret. The refresh token leaves this machine only in this request's body, to Heston, over the
+ * secret. The refresh token leaves this machine only in this request's body, to Spice, over the
  * same authenticated channel every forwarded call uses.
  *
  * A refusal is reported by tastytrade's status when the Worker relays one, so a revoked grant
- * reads the same in this log whichever kind it is; a refusal of the Worker's own is `heston-`
+ * reads the same in this log whichever kind it is; a refusal of the Worker's own is `spice-`
  * and its status.
  */
-async function mintAppGrant(hestonToken, refreshToken) {
+async function mintAppGrant(spiceToken, refreshToken) {
   let response
   try {
     response = await fetch(APP_GRANT_TOKEN_URL, {
       body: JSON.stringify({ refreshToken }),
       headers: {
         Accept: 'application/json',
-        Authorization: `Bearer ${hestonToken}`,
+        Authorization: `Bearer ${spiceToken}`,
         'Content-Type': 'application/json',
-        'User-Agent': 'Heston-Agent-Proxy/0.1',
+        'User-Agent': 'Spice-Agent-Proxy/0.1',
       },
       method: 'POST',
       signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
@@ -164,11 +164,11 @@ async function mintAppGrant(hestonToken, refreshToken) {
   try {
     payload = await response.json()
   } catch {
-    throw new TastytradeAuthError(response.ok ? 'invalid-token-response' : `heston-${response.status}`)
+    throw new TastytradeAuthError(response.ok ? 'invalid-token-response' : `spice-${response.status}`)
   }
   if (!response.ok) {
     const refusal = AppGrantRefusalSchema.safeParse(payload)
-    throw new TastytradeAuthError(refusal.success ? refusal.data.tastytradeStatus : `heston-${response.status}`)
+    throw new TastytradeAuthError(refusal.success ? refusal.data.tastytradeStatus : `spice-${response.status}`)
   }
   const grant = AppGrantResponseSchema.safeParse(payload)
   if (!grant.success) throw new TastytradeAuthError('invalid-token-response')
@@ -182,11 +182,11 @@ async function readBody(request) {
 }
 
 async function main() {
-  const hestonToken = await keyringSecret(PROGRAM, 'heston', 'mcp-token')
-  if (!hestonToken) {
+  const spiceToken = await keyringSecret(PROGRAM, 'spice', 'mcp-token')
+  if (!spiceToken) {
     process.stderr.write(
-      'HestonAgentProxy: no Heston token in the keyring. Create one in the Connect tab, then:\n'
-      + '  ./ops/heston-agent/store-credentials.sh mcp-token\n',
+      'SpiceAgentProxy: no Spice token in the keyring. Create one in the Connect tab, then:\n'
+      + '  ./ops/spice-agent/store-credentials.sh mcp-token\n',
     )
     process.exit(1)
   }
@@ -197,7 +197,7 @@ async function main() {
   ])
   if (appRefreshToken && (clientSecret || refreshToken)) {
     process.stderr.write(
-      'HestonAgentProxy: the keyring holds both a tastytrade app grant (tastytrade/app-refresh-token)\n'
+      'SpiceAgentProxy: the keyring holds both a tastytrade app grant (tastytrade/app-refresh-token)\n'
       + 'and a personal grant (tastytrade/client-secret, tastytrade/refresh-token). Remove one kind:\n'
       + '  secret-tool clear service tastytrade key app-refresh-token\n'
       + 'or\n'
@@ -210,17 +210,17 @@ async function main() {
   // research surface, and the Worker answers account tools with its own connect-a-brokerage
   // message. Starting anyway beats refusing to run for a capability the user may not want.
   const mint = appRefreshToken
-    ? () => mintAppGrant(hestonToken, appRefreshToken)
+    ? () => mintAppGrant(spiceToken, appRefreshToken)
     : clientSecret && refreshToken
       ? () => mintPersonalGrant(clientSecret, refreshToken)
       : undefined
   if (!mint) {
-    process.stderr.write('HestonAgentProxy: no brokerage credential in the keyring; forwarding market tools only\n')
+    process.stderr.write('SpiceAgentProxy: no brokerage credential in the keyring; forwarding market tools only\n')
   }
 
-  const port = Number(process.env.HESTON_AGENT_PORT ?? DEFAULT_PORT)
+  const port = Number(process.env.SPICE_AGENT_PORT ?? DEFAULT_PORT)
   // DNS rebinding: a web page can resolve its own name to 127.0.0.1 and reach this port from the
-  // browser, and every request here leaves carrying the Heston token and a broker token. A
+  // browser, and every request here leaves carrying the Spice token and a broker token. A
   // browser always sends that page's name as Host, and sends Origin on a cross-origin request;
   // an MCP client does neither, so a request naming any other host, or carrying an Origin at
   // all, is refused before anything is attached.
@@ -230,12 +230,12 @@ async function main() {
     if (!allowedHosts.has(request.headers.host ?? '') || request.headers.origin !== undefined) {
       request.resume()
       response.writeHead(403, { 'content-type': 'application/json' })
-      response.end(JSON.stringify({ error: 'The Heston proxy only answers local MCP clients' }))
+      response.end(JSON.stringify({ error: 'The Spice proxy only answers local MCP clients' }))
       return
     }
     void (async () => {
       try {
-        const headers = new Headers({ Authorization: `Bearer ${hestonToken}` })
+        const headers = new Headers({ Authorization: `Bearer ${spiceToken}` })
         // Node gives a repeated header as an array; MCP sends none of these more than once,
         // so the first value is the whole value.
         for (const name of ['accept', 'content-type', 'mcp-session-id', 'mcp-protocol-version', 'last-event-id']) {
@@ -244,8 +244,8 @@ async function main() {
           if (value) headers.set(name, value)
         }
         if (mint) {
-          headers.set('X-Heston-Broker', BROKER)
-          headers.set('X-Heston-Broker-Token', await brokerAccessToken(mint))
+          headers.set('X-Spice-Broker', BROKER)
+          headers.set('X-Spice-Broker-Token', await brokerAccessToken(mint))
         }
         const body = request.method === 'GET' || request.method === 'HEAD'
           ? undefined
@@ -280,7 +280,7 @@ async function main() {
           : error instanceof Error && error.cause instanceof Error && 'code' in error.cause
             ? ` ${String(error.cause.code)}`
             : ''
-        process.stderr.write(`HestonAgentProxy: ${request.method} ${name}${detail}\n`)
+        process.stderr.write(`SpiceAgentProxy: ${request.method} ${name}${detail}\n`)
         // Once the upstream status and headers are relayed -- an event stream already under way,
         // then the timeout or a dropped connection -- a JSON error written now would arrive as the
         // tail of that stream and end it cleanly, reading as a complete reply. Cutting the
@@ -290,7 +290,7 @@ async function main() {
           return
         }
         response.writeHead(502, { 'content-type': 'application/json' })
-        response.end(JSON.stringify({ error: 'The Heston proxy could not complete this request' }))
+        response.end(JSON.stringify({ error: 'The Spice proxy could not complete this request' }))
       }
     })()
   })
@@ -298,7 +298,7 @@ async function main() {
   // Loopback only. This process holds a credential that grants trading, so it must never be
   // reachable from the network, only from processes on this machine.
   server.listen(port, LISTEN_HOST, () => {
-    process.stdout.write(`HestonAgentProxy: http://${LISTEN_HOST}:${port}/mcp -> ${UPSTREAM}\n`)
+    process.stdout.write(`SpiceAgentProxy: http://${LISTEN_HOST}:${port}/mcp -> ${UPSTREAM}\n`)
   })
 }
 

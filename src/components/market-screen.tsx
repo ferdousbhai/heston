@@ -343,26 +343,26 @@ function RunwayEmpty({
   const [heading, detail] = searching
     ? [
         'Looking for what’s coming.',
-        ` Nothing is on ${symbol}'s calendar yet, so Heston is searching for scheduled ${CATALYST_SCOPE} dates.`,
+        ` Nothing is on ${symbol}'s calendar yet, so Spice is searching for scheduled ${CATALYST_SCOPE} dates.`,
       ]
     : failed
     ? [
         'The calendar search didn’t finish.',
-        ` Heston couldn't search for ${symbol}'s scheduled ${CATALYST_SCOPE} dates just now, so this calendar is unknown rather than empty.`,
+        ` Spice couldn't search for ${symbol}'s scheduled ${CATALYST_SCOPE} dates just now, so this calendar is unknown rather than empty.`,
       ]
     : readFailed
     ? [
         'The calendar didn’t load.',
-        ` Heston couldn't read ${symbol}'s ${CATALYST_SCOPE} dates just now, so this calendar is unknown rather than empty.`,
+        ` Spice couldn't read ${symbol}'s ${CATALYST_SCOPE} dates just now, so this calendar is unknown rather than empty.`,
       ]
     : confirmedEmpty
     ? [
         'Searched — nothing scheduled.',
-        ` Heston just searched for ${symbol}'s ${CATALYST_SCOPE} dates and found none. A re-rating from here would have to come from something unannounced.`,
+        ` Spice just searched for ${symbol}'s ${CATALYST_SCOPE} dates and found none. A re-rating from here would have to come from something unannounced.`,
       ]
     : [
         'Nothing is on the calendar.',
-        ` Heston tracks ${CATALYST_SCOPE} dates for ${symbol} and has none on file.`,
+        ` Spice tracks ${CATALYST_SCOPE} dates for ${symbol} and has none on file.`,
       ]
   return (
     <div className="runway-empty" aria-live="polite">
@@ -459,7 +459,7 @@ function CatalystRunway({
       )}
       {readFailed && upcoming.length > 0 && (
         <p className="runway-searching" aria-live="polite">
-          {symbol}’s full calendar didn’t load; these are the dates Heston already had.
+          {symbol}’s full calendar didn’t load; these are the dates Spice already had.
         </p>
       )}
       {/* A search runs at most once a month for any symbol, so coverage can read thin long

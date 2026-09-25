@@ -1,7 +1,7 @@
 import { type Static, type TSchema } from 'typebox'
 
 /**
- * The tool shape every Heston tool factory produces and the MCP surface consumes.
+ * The tool shape every Spice tool factory produces and the MCP surface consumes.
  *
  * This was imported as a type from `@earendil-works/pi-agent-core`, the runtime that used to
  * run an agent loop inside the Worker. That loop is gone; nothing but this one interface was

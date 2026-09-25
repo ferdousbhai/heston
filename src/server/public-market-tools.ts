@@ -154,7 +154,7 @@ export function createPublicMarketReadTools(env: AppEnv, schedule: BackgroundSch
             price: row.price,
             symbol: row.symbol,
           })),
-          source: 'heston-public-snapshot',
+          source: 'spice-public-snapshot',
         })
       },
       name: 'read_instrument_quotes',
@@ -178,7 +178,7 @@ export function createPublicMarketReadTools(env: AppEnv, schedule: BackgroundSch
             symbol: row.symbol,
           })),
           note: unavailableNote(missing),
-          source: 'heston-public-snapshot',
+          source: 'spice-public-snapshot',
         })
       },
       name: 'read_market_metrics',

@@ -1,5 +1,11 @@
-export const HESTON_DEPLOYMENT_ID_HEADER = 'X-Heston-Deployment-Id'
-const HESTON_DEPLOYMENT_QUERY_PARAMETER = 'app'
+/**
+ * Renamed from `X-Heston-Deployment-Id` with the move to spicy.trade, without sending both. A
+ * bundle only reads this header on its own origin's responses, and every bundle that reads the
+ * old name was served from heston.io, which now answers only with a cross-origin 308 its fetches
+ * cannot follow. A response without the header reads as "not newer", so nothing reload-loops.
+ */
+export const SPICE_DEPLOYMENT_ID_HEADER = 'X-Spice-Deployment-Id'
+const SPICE_DEPLOYMENT_QUERY_PARAMETER = 'app'
 
 /**
  * How long a browser may reuse a public response. It lives here, beside the other contract
@@ -10,7 +16,7 @@ const HESTON_DEPLOYMENT_QUERY_PARAMETER = 'app'
 export const PUBLIC_RESPONSE_MAX_AGE_SECONDS = 30
 
 export function deploymentScopedPath(path: string, deploymentId: string): string {
-  const url = new URL(path, 'https://heston.local')
-  url.searchParams.set(HESTON_DEPLOYMENT_QUERY_PARAMETER, deploymentId)
+  const url = new URL(path, 'https://spice.local')
+  url.searchParams.set(SPICE_DEPLOYMENT_QUERY_PARAMETER, deploymentId)
   return `${url.pathname}${url.search}${url.hash}`
 }

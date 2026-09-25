@@ -97,7 +97,7 @@ function readOrderResponse(payload: JsonValue, intended: OrderPayload): OrderRes
 
 export class BrokerageSubmissionUnknownError extends CallerVisibleError {
   constructor() {
-    super('Tastytrade may have received this order, but Heston could not verify the result. Reconciliation is required before another trade.')
+    super('Tastytrade may have received this order, but Spice could not verify the result. Reconciliation is required before another trade.')
     this.name = 'BrokerageSubmissionUnknownError'
   }
 }
@@ -117,7 +117,7 @@ class TastytradeOrderRejectedError extends BrokerRefusalError {
  * stays `unresolved`, which quarantines the account, so the caller must hear why the next
  * placement will be refused and what clears it.
  */
-const UNRECORDED_RESULT = 'Heston could not record this result, so this account stays quarantined until reconcile_brokerage_action confirms it.'
+const UNRECORDED_RESULT = 'Spice could not record this result, so this account stays quarantined until reconcile_brokerage_action confirms it.'
 
 export class TastytradeOrderWarningError extends BrokerRefusalError {
   constructor(warnings: readonly string[]) {

@@ -13,7 +13,7 @@ import {
   createOptionContractFindTool,
   createSymbolSearchTool,
 } from '../src/server/brokerage-read-tools'
-import { FIND_OPTION_CONTRACTS_MODES, HESTON_GUIDE } from '../src/server/doctrine'
+import { FIND_OPTION_CONTRACTS_MODES, SPICE_GUIDE } from '../src/server/doctrine'
 import { createPublicMarketReadTools } from '../src/server/public-market-tools'
 import { MAX_QUERY_LENGTH } from '../src/server/symbol-search'
 import {
@@ -586,7 +586,7 @@ describe('brokerage read tools', () => {
     expect(FIND_OPTION_CONTRACTS_MODES).toMatch(/no expiry, strike, or nearStrike, lists expirations/)
     expect(FIND_OPTION_CONTRACTS_MODES).toMatch(/across every listed expiration unless expiry names one/)
     expect(createOptionContractFindTool({}).description.startsWith(FIND_OPTION_CONTRACTS_MODES)).toBe(true)
-    expect(HESTON_GUIDE).toContain(FIND_OPTION_CONTRACTS_MODES)
+    expect(SPICE_GUIDE).toContain(FIND_OPTION_CONTRACTS_MODES)
   })
 
   it('returns listed contracts nearest a target strike', async () => {

@@ -23,7 +23,7 @@ export const SNAPSHOT_REFETCH_MS = PUBLIC_RESPONSE_MAX_AGE_SECONDS * 1_000
 export function snapshotSyncQueryOptions(audience: SnapshotAudience) {
   return {
     queryFn: ({ signal }: { signal?: AbortSignal }) => syncFromCloud(audience, signal),
-    queryKey: ['heston-snapshot', audience] as const,
+    queryKey: ['spice-snapshot', audience] as const,
     // Visibility, not window focus: a sitting tab on a second screen is still open.
     refetchInterval: () => document.visibilityState === 'hidden' ? false : SNAPSHOT_REFETCH_MS,
     refetchIntervalInBackground: true,
@@ -71,7 +71,7 @@ export function applySnapshotQueryResult(
     // one thing that actually clears it — closing the tab, not the app, which iOS restores.
     const reloading = reloadForDeployment()
     if (failure.hydrated) setWarning(undefined)
-    else if (!reloading) setWarning('Heston needs a newer version. Close this tab and open the site again.')
+    else if (!reloading) setWarning('Spice needs a newer version. Close this tab and open the site again.')
     return
   }
   // A failed sync is not something to interrupt a reader over: the saved data is still on

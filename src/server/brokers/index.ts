@@ -5,7 +5,7 @@ import { UnknownBrokerError, type BrokerAdapter } from './contract'
 import { tastytradeAdapter } from './tastytrade'
 
 /**
- * Every brokerage Heston can read an account from. Adding one is this entry plus the
+ * Every brokerage Spice can read an account from. Adding one is this entry plus the
  * adapter file it names — no account reader above this layer learns a second provider.
  *
  * It is a seam so a test can register a stub broker and drive the account readers end to

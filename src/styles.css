@@ -8,7 +8,7 @@
 
 /*
  * Stocks-inspired reading hierarchy across phone and desktop: system UI text, tabular
- * prices, neutral separators, and Heston's amber accent. These type and spacing tokens
+ * prices, neutral separators, and Spice's amber accent. These type and spacing tokens
  * are the product scale; code samples alone retain the terminal font.
  */
 :root {
@@ -65,7 +65,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .market-state p { margin: 0; font-size: 15px; }
 .top-bar { height: auto; padding: calc(20px + env(safe-area-inset-top)) var(--page-gutter) 16px; display: flex; align-items: center; justify-content: space-between; width: 100%; position: relative; z-index: 5; min-height: calc(84px + env(safe-area-inset-top)); gap: 16px; }
 .brand { display: grid; color: inherit; line-height: .9; text-decoration: none; }
-/* Keep the Heston wordmark consistent across the two layouts. */
+/* Keep the Spice wordmark consistent across the two layouts. */
 .brand > span { font-size: 28px; font-weight: 700; letter-spacing: -.045em; color: var(--text); }
 .top-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
 /* Session is a traffic light. Green open, yellow pre-market, red closed, muted when the session
@@ -482,7 +482,7 @@ button { -webkit-tap-highlight-color: transparent; }
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* The shadcn names read Heston's tokens wherever the two agree, so a colour is set once. `--accent`
+/* The shadcn names read Spice's tokens wherever the two agree, so a colour is set once. `--accent`
    is shadcn's hover surface, not the brand: it only has to stand clear of the popover. */
 .dark {
   --background: var(--bg);

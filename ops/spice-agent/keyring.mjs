@@ -9,7 +9,7 @@ import { promisify } from 'node:util'
  * prints the value to our stdout, a store reads it from our stdin.
  *
  * Credentials are filed under the service that issued them, not the app that spends them: the
- * agent token is Heston's, while a client secret and refresh token are tastytrade's and would be
+ * agent token is Spice's, while a client secret and refresh token are tastytrade's and would be
  * Schwab's for a Schwab adapter. That keeps the keyring laid out the way the Worker's adapter
  * registry (`brokerAdaptersSeam` in `src/server/brokers/index.ts`) is, so adding a broker adds a
  * service rather than more keys under this one.

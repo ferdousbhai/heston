@@ -8,6 +8,7 @@ import {
   McpTokenLimitError,
   revokeMcpToken,
 } from '../src/server/mcp-tokens'
+import { sha256Base64Url } from '../src/server/digest'
 import { migrationStore, seedMember, type SqliteD1Store } from './sqlite-d1'
 
 async function storeWithMembers(): Promise<SqliteD1Store> {
@@ -21,15 +22,15 @@ describe('per-user MCP tokens', () => {
   it('authenticates only the exact issued token and never leaks its digest', async () => {
     const store = await storeWithMembers()
     const issued = await issueMcpToken(store.database, 'user-a', 'laptop')
-    expect(issued.token).toMatch(/^heston_[0-9a-f]{16}_[A-Za-z0-9_-]{16,}$/)
+    expect(issued.token).toMatch(/^spice_[0-9a-f]{16}_[A-Za-z0-9_-]{16,}$/)
 
     await expect(authenticateMcpToken(store.database, issued.token))
       .resolves.toEqual({ tokenId: issued.tokenMetadata.tokenId, userId: 'user-a' })
     // A tampered secret, an unknown id, and a malformed prefix are all simply not authenticated.
     await expect(authenticateMcpToken(store.database, `${issued.token}x`)).resolves.toBeUndefined()
-    await expect(authenticateMcpToken(store.database, `heston_${'0'.repeat(16)}_AAAAAAAAAAAAAAAA`))
+    await expect(authenticateMcpToken(store.database, `spice_${'0'.repeat(16)}_AAAAAAAAAAAAAAAA`))
       .resolves.toBeUndefined()
-    await expect(authenticateMcpToken(store.database, 'not-a-heston-token')).resolves.toBeUndefined()
+    await expect(authenticateMcpToken(store.database, 'not-a-spice-token')).resolves.toBeUndefined()
     await expect(authenticateMcpToken(store.database, '')).resolves.toBeUndefined()
 
     const listed = await listMcpTokens(store.database, 'user-a')
@@ -37,6 +38,24 @@ describe('per-user MCP tokens', () => {
     // Nothing on a read path may carry material a token could be reconstructed from.
     expect(JSON.stringify(listed)).not.toContain(issued.token)
     expect(JSON.stringify(listed)).not.toMatch(/digest/i)
+    store.close()
+  })
+
+  it('mints only spice_ tokens and still authenticates a heston_ token issued before the rebrand', async () => {
+    const store = await storeWithMembers()
+    const issued = await issueMcpToken(store.database, 'user-a', 'laptop')
+    expect(issued.token.startsWith('spice_')).toBe(true)
+
+    // A token minted before the rebrand: the same row shape, its digest taken over the
+    // `heston_` string it was issued as.
+    const { tokenId } = issued.tokenMetadata
+    const legacy = issued.token.replace(/^spice_/, 'heston_')
+    await store.database.prepare('UPDATE user_mcp_tokens SET token_digest = ? WHERE token_id = ?')
+      .bind(await sha256Base64Url(legacy), tokenId).run()
+
+    await expect(authenticateMcpToken(store.database, legacy)).resolves.toEqual({ tokenId, userId: 'user-a' })
+    // The digest covers the prefix, so the same id and secret under the other prefix is refused.
+    await expect(authenticateMcpToken(store.database, issued.token)).resolves.toBeUndefined()
     store.close()
   })
 

@@ -13,7 +13,7 @@ import { migrationStore, seedMember, type SqliteD1Store } from './sqlite-d1'
  * token it signed itself with the same issuer and audience a real authorization would carry.
  * The runtime is cached per isolate, so the file shares one store.
  */
-const BASE_URL = 'https://heston.io'
+const BASE_URL = 'https://spicy.trade'
 const executionContext: McpExecutionContext = { props: undefined, waitUntil: () => undefined }
 
 let store: SqliteD1Store
@@ -96,7 +96,7 @@ describe('MCP OAuth callers', () => {
 
     const response = await handleMcpRequest(toolsList(`Bearer ${token}`), env, executionContext)
     expect(response.status).toBe(401)
-    expect(response.headers.get('WWW-Authenticate')).toContain('Heston could not verify this request.')
+    expect(response.headers.get('WWW-Authenticate')).toContain('Spice could not verify this request.')
     expect(logged.mock.calls).toEqual([['McpCallerLookupFailed', 'D1Error']])
   })
 

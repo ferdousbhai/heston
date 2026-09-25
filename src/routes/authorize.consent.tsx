@@ -19,7 +19,7 @@ import { useViewer } from '../components/auth-gate'
  */
 export const Route = createFileRoute('/authorize/consent')({
   component: ConsentPage,
-  head: () => ({ meta: [{ title: 'Approve access | Heston' }] }),
+  head: () => ({ meta: [{ title: 'Approve access | Spice' }] }),
 })
 
 /**
@@ -58,16 +58,16 @@ function ConsentPage() {
         // Say what the provider said. A generic message here is how a refused consent looked
         // like a button that did nothing at all.
         const reason = FailureSchema.safeParse(await response.json().catch(() => undefined))
-        throw new Error(reason.success ? reason.data.error_description : 'Heston could not record that answer.')
+        throw new Error(reason.success ? reason.data.error_description : 'Spice could not record that answer.')
       }
       // A success whose body is not the shape this page reads is reported in our words, never as
       // the parser's own output.
       const consented = ConsentResponseSchema.safeParse(await response.json().catch(() => undefined))
-      if (!consented.success) throw new Error('Heston could not record that answer.')
+      if (!consented.success) throw new Error('Spice could not record that answer.')
       window.location.replace(consented.data.url)
     } catch (error) {
       setSubmitting(undefined)
-      setFailure(error instanceof Error ? error.message : 'Heston could not record that answer.')
+      setFailure(error instanceof Error ? error.message : 'Spice could not record that answer.')
     }
   }
 
@@ -79,7 +79,7 @@ function ConsentPage() {
           page stopped at its heading, and the member could not tell whether to wait or retry. */}
       {viewer.phase === 'error' && (
         <p className="authorize-error">
-          Heston could not check whether you are signed in. Reload to try again.
+          Spice could not check whether you are signed in. Reload to try again.
         </p>
       )}
       {viewer.phase === 'ready' && viewer.user === null && (
@@ -88,19 +88,19 @@ function ConsentPage() {
       {viewer.phase === 'ready' && viewer.user !== null && (
         <>
           <p>
-            An agent is asking to connect to your Heston account, signed in as{' '}
+            An agent is asking to connect to your Spice account, signed in as{' '}
             <strong>{viewer.user.name}</strong>. It will be able to read live market data, option
             chains and Greeks, and the shared research, to add symbols to the watchlist, and to record
-            catalysts and evidence that every Heston reader sees.
+            catalysts and evidence that every Spice reader sees.
           </p>
           <p>
             It cannot reach your brokerage this way. Balances, positions and order placement need a
             broker credential that stays on your own machine and is sent with each request.
           </p>
           <p>
-            Approve only if you started this from your own agent. Removing Heston from that agent
-            ends its use of this connection; to revoke it on Heston&apos;s side, email{' '}
-            <a href="mailto:support@heston.io">support@heston.io</a>.
+            Approve only if you started this from your own agent. Removing Spice from that agent
+            ends its use of this connection; to revoke it on Spice&apos;s side, email{' '}
+            <a href="mailto:support@spicy.trade">support@spicy.trade</a>.
           </p>
           {failure && <p className="authorize-error">{failure}</p>}
           <div className="authorize-actions">

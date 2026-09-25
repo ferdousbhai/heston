@@ -18,7 +18,7 @@ import { type AppEnv } from '../src/server/env'
 import { issueMcpToken } from '../src/server/mcp-tokens'
 import { migrationStore, seedMember, type SqliteD1Store } from './sqlite-d1'
 
-const BASE_URL = 'https://heston.io'
+const BASE_URL = 'https://spicy.trade'
 const TASTYTRADE = 'https://tastytrade.test'
 const APP_SECRET = 'app-client-secret-held-only-by-the-worker'
 const MEMBER_REFRESH_TOKEN = 'member-refresh-token-that-belongs-in-a-keyring'
@@ -51,7 +51,7 @@ beforeEach(async () => {
     AUTH_BASE_URL: BASE_URL,
     DB: store.database,
     TASTYTRADE_API_BASE: TASTYTRADE,
-    TASTYTRADE_OAUTH_CLIENT_ID: 'heston-app-client-id',
+    TASTYTRADE_OAUTH_CLIENT_ID: 'spice-app-client-id',
     TASTYTRADE_OAUTH_CLIENT_SECRET: { get: async () => APP_SECRET },
   }
   tokenCalls = []
@@ -119,7 +119,7 @@ describe('tastytrade connect: authorize', () => {
     const url = new URL(body.authorizationUrl)
     expect(`${url.origin}${url.pathname}`).toBe('https://my.tastytrade.com/auth.html')
     expect(Object.fromEntries(url.searchParams)).toEqual({
-      client_id: 'heston-app-client-id',
+      client_id: 'spice-app-client-id',
       redirect_uri: `${BASE_URL}${TASTYTRADE_CALLBACK_PATH}`,
       response_type: 'code',
       scope: 'read trade',
@@ -134,7 +134,7 @@ describe('tastytrade connect: authorize', () => {
   })
 
   it('refuses an absent, foreign-shaped, or unknown bearer', async () => {
-    for (const bearer of [undefined, 'eyJhbGciOiJIUzI1NiJ9.e30.signature', `heston_${'0'.repeat(16)}_AAAAAAAAAAAAAAAA`]) {
+    for (const bearer of [undefined, 'eyJhbGciOiJIUzI1NiJ9.e30.signature', `spice_${'0'.repeat(16)}_AAAAAAAAAAAAAAAA`]) {
       const response = await authorizeTastytrade(post('/api/brokers/tastytrade/authorize', { port: 43_210 }, bearer), env, NOW)
       expect(response.status).toBe(401)
     }
@@ -221,7 +221,7 @@ describe('tastytrade connect: exchange', () => {
     expect(await response.json()).toEqual({ refreshToken: MEMBER_REFRESH_TOKEN })
     expect(tokenCalls).toEqual([{
       body: {
-        client_id: 'heston-app-client-id',
+        client_id: 'spice-app-client-id',
         client_secret: APP_SECRET,
         code: CODE,
         grant_type: 'authorization_code',

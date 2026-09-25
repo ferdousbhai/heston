@@ -14,9 +14,9 @@ export function SitePage({
     <div className="site-page">
       <a className="skip-link" href="#page-content">Skip to content</a>
       <header className="site-header">
-        <Link aria-label="Heston home" className="site-brand" to="/">
-          <img alt="" src="/heston-mark.svg" />
-          <span>HESTON</span>
+        <Link aria-label="Spice home" className="site-brand" to="/">
+          <img alt="" src="/spice-mark.svg" />
+          <span>SPICE</span>
         </Link>
         <nav aria-label="Information">
           <Link to="/support">Support</Link>
@@ -33,8 +33,8 @@ export function SitePage({
         <div className="site-prose">{children}</div>
       </main>
       <footer className="site-footer">
-        <span>© 2026 Heston</span>
-        <a href="mailto:support@heston.io">support@heston.io</a>
+        <span>© 2026 Spice</span>
+        <a href="mailto:support@spicy.trade">support@spicy.trade</a>
       </footer>
     </div>
   )

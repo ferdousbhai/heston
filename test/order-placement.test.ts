@@ -301,7 +301,7 @@ describe('brokerage order placement', () => {
     const refusal = placeBrokerageOrder({ DB: unsettleable(db) }, EQUITY_ORDER, brokerCredential, waitUntil)
     await expect(refusal).rejects.toBeInstanceOf(CallerVisibleError)
     await expect(refusal).rejects.toThrow(
-      'Tastytrade refused this order (TastytradeApiError), so it was not placed. Heston could not record this result, so this account stays quarantined until reconcile_brokerage_action confirms it.',
+      'Tastytrade refused this order (TastytradeApiError), so it was not placed. Spice could not record this result, so this account stays quarantined until reconcile_brokerage_action confirms it.',
     )
     expect(rows(db)).toMatchObject([{ status: 'unresolved' }])
   })
@@ -315,7 +315,7 @@ describe('brokerage order placement', () => {
     const refusal = placeBrokerageOrder({ DB: unsettleable(db) }, EQUITY_ORDER, brokerCredential, waitUntil)
     await expect(refusal).rejects.toMatchObject({
       check: 'broker-rejected',
-      message: 'Tastytrade rejected this order, so it was not placed. Heston could not record this result, so this account stays quarantined until reconcile_brokerage_action confirms it.',
+      message: 'Tastytrade rejected this order, so it was not placed. Spice could not record this result, so this account stays quarantined until reconcile_brokerage_action confirms it.',
       untrustedBrokerData: { messages: [] },
     })
     await expect(refusal).rejects.toBeInstanceOf(BrokerRefusalError)

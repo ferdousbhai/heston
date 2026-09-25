@@ -96,7 +96,7 @@ describe('equity symbol rule', () => {
   it.each([
     ['AAPL', 'the documented plain example'],
     ['BRK/A', 'the documented class-share example'],
-    ['BRK/B', 'the class share Heston actually holds'],
+    ['BRK/B', 'the class share Spice actually holds'],
     ['V2X', 'a listed equity carrying a digit'],
     ['F', 'a single-character root'],
     ['GOOGL', 'a five-character root'],

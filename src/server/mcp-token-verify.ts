@@ -5,7 +5,7 @@ const JwksSchema = z.object({ keys: z.array(z.record(z.string(), z.unknown())).m
 
 const ClaimsSchema = z.object({
   /**
-   * Proof-of-possession confirmation. Heston issues plain bearer tokens and implements no DPoP
+   * Proof-of-possession confirmation. Spice issues plain bearer tokens and implements no DPoP
    * check, so a token that carries one is refused rather than accepted as a bearer: honouring
    * half of a sender-constrained token is weaker than the constraint promised.
    */

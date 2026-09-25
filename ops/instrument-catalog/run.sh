@@ -3,11 +3,11 @@ set -euo pipefail
 
 source ops/shared/temporary-worker.sh
 
-ops_worker="$(temporary_worker_name 'heston-instrument-catalog')"
-ops_mode="${HESTON_CATALOG_MODE:-preview}"
+ops_worker="$(temporary_worker_name 'spice-instrument-catalog')"
+ops_mode="${SPICE_CATALOG_MODE:-preview}"
 
 if [[ "$ops_mode" != 'preview' && "$ops_mode" != 'apply' ]]; then
-  echo 'HESTON_CATALOG_MODE must be preview or apply.' >&2
+  echo 'SPICE_CATALOG_MODE must be preview or apply.' >&2
   exit 2
 fi
 

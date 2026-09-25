@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { HESTON_DEPLOYMENT_ID_HEADER } from '../src/domain/deployment'
+import { SPICE_DEPLOYMENT_ID_HEADER } from '../src/domain/deployment'
 import { type JsonValue } from '../src/domain/json-payload'
 import { marketSnapshotFixture } from './fixtures/market'
 
@@ -13,11 +13,11 @@ afterEach(() => {
 })
 
 function snapshotResponse(body: JsonValue, headers: Record<string, string>): Response {
-  return Response.json(body, { headers: { [HESTON_DEPLOYMENT_ID_HEADER]: CURRENT_DEPLOYMENT, ...headers } })
+  return Response.json(body, { headers: { [SPICE_DEPLOYMENT_ID_HEADER]: CURRENT_DEPLOYMENT, ...headers } })
 }
 
 function notModified(deploymentId = CURRENT_DEPLOYMENT): Response {
-  return new Response(null, { status: 304, headers: { [HESTON_DEPLOYMENT_ID_HEADER]: deploymentId } })
+  return new Response(null, { status: 304, headers: { [SPICE_DEPLOYMENT_ID_HEADER]: deploymentId } })
 }
 
 /** A fresh module per test: the recorded ETag is module state and must not leak between cases. */
@@ -125,8 +125,8 @@ describe('snapshot sync deployment check', () => {
     await syncFromCloud('owner')
     const responses = [
       notModified('next-deployment'),
-      snapshotResponse(snapshot, { ETag: '"next"', [HESTON_DEPLOYMENT_ID_HEADER]: 'next-deployment' }),
-      snapshotResponse({ unreadable: true }, { [HESTON_DEPLOYMENT_ID_HEADER]: 'next-deployment' }),
+      snapshotResponse(snapshot, { ETag: '"next"', [SPICE_DEPLOYMENT_ID_HEADER]: 'next-deployment' }),
+      snapshotResponse({ unreadable: true }, { [SPICE_DEPLOYMENT_ID_HEADER]: 'next-deployment' }),
     ]
     vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       sent.push(new Headers(init?.headers).get('If-None-Match'))

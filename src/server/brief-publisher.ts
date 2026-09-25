@@ -10,6 +10,9 @@ import { type AppEnv } from './env'
  * can reach it. The caller is the private long-vol Workflow; what it sends is treated as
  * untrusted model output: the type on the parameter is the caller's claim, and the store
  * re-parses the value against this Worker's own contract before anything is written.
+ *
+ * The class name, like the Worker name it is reached through, is fixed across rebrands: the
+ * Workflow's service binding names this entrypoint, so renaming it breaks that repo's binding.
  */
 export class BriefPublisher extends WorkerEntrypoint<AppEnv> {
   async publish(submission: DailyBriefSubmission): Promise<Pick<DailyBrief, 'id' | 'publishedAt'>> {

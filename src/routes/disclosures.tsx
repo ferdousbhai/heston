@@ -6,8 +6,8 @@ export const Route = createFileRoute('/disclosures')({
   component: DisclosuresPage,
   head: () => ({
     meta: [
-      { title: 'Risk disclosures | Heston' },
-      { name: 'description', content: 'Important market-data, options-trading, and automated-analysis disclosures for Heston.' },
+      { title: 'Risk disclosures | Spice' },
+      { name: 'description', content: 'Important market-data, options-trading, and automated-analysis disclosures for Spice.' },
     ],
   }),
 })
@@ -21,7 +21,7 @@ function DisclosuresPage() {
       </section>
       <section>
         <h2>Not a broker or adviser</h2>
-        <p>Heston is a software tool. It is not a broker-dealer, investment adviser, exchange, tax adviser, or fiduciary. Research, scores, summaries, risk estimates, recommendations, and agent responses are informational and may not be suitable for your circumstances.</p>
+        <p>Spice is a software tool. It is not a broker-dealer, investment adviser, exchange, tax adviser, or fiduciary. Research, scores, summaries, risk estimates, recommendations, and agent responses are informational and may not be suitable for your circumstances.</p>
       </section>
       <section>
         <h2>Data and models have limits</h2>
@@ -29,7 +29,7 @@ function DisclosuresPage() {
       </section>
       <section>
         <h2>Guards are safeguards, not guarantees</h2>
-        <p>Heston places an order only through your own brokerage credentials, and it does not hold orders for a separate confirmation step. Before submitting, it resolves the exact contract from the live option chain, applies its portfolio guard, which admits only defined-risk orders (a debit opening trade or a close of a position it has verified, never a naked short), checks the limit price against the live market, and requires a clean dry-run from your broker. Any confirmation prompt comes from the agent you run on your own machine, not from Heston. Cancellations are not guarded, because they only reduce exposure. None of this makes a trade safe, profitable, appropriate, or certain to execute. When a network or provider failure leaves a submission's outcome uncertain, Heston does not retry it and refuses further orders on that account until the submission is reconciled against the broker's order history; check with your broker directly before placing the order again.</p>
+        <p>Spice places an order only through your own brokerage credentials, and it does not hold orders for a separate confirmation step. Before submitting, it resolves the exact contract from the live option chain, applies its portfolio guard, which admits only defined-risk orders (a debit opening trade or a close of a position it has verified, never a naked short), checks the limit price against the live market, and requires a clean dry-run from your broker. Any confirmation prompt comes from the agent you run on your own machine, not from Spice. Cancellations are not guarded, because they only reduce exposure. None of this makes a trade safe, profitable, appropriate, or certain to execute. When a network or provider failure leaves a submission's outcome uncertain, Spice does not retry it and refuses further orders on that account until the submission is reconciled against the broker's order history; check with your broker directly before placing the order again.</p>
       </section>
       <section>
         <h2>Your responsibility</h2>
@@ -37,7 +37,7 @@ function DisclosuresPage() {
       </section>
       <section>
         <h2>Questions</h2>
-        <p>Questions about these disclosures may be sent to <a href="mailto:legal@heston.io">legal@heston.io</a>.</p>
+        <p>Questions about these disclosures may be sent to <a href="mailto:legal@spicy.trade">legal@spicy.trade</a>.</p>
       </section>
     </SitePage>
   )

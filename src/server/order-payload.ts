@@ -5,7 +5,7 @@ import { type BrokerOrderRecord } from '../domain/broker'
 import { CallerVisibleError } from './caller-visible-error'
 
 /**
- * The order body Heston sends, as a schema so a stored copy can be read back at the D1 boundary
+ * The order body Spice sends, as a schema so a stored copy can be read back at the D1 boundary
  * rather than trusted. Exact literals where the builder only ever writes one value.
  */
 export const OrderPayloadSchema = z.strictObject({
@@ -61,7 +61,7 @@ export function replacementOrderPayload(payload: OrderPayload): Omit<OrderPayloa
 }
 
 /**
- * Whether a broker's own record of an order states exactly the order Heston built: type, time in
+ * Whether a broker's own record of an order states exactly the order Spice built: type, time in
  * force, price effect, price, and every leg in order. The dry-run and placement receipts, the
  * replacement receipt, the replaceable-order check and the reconciliation match all start here
  * and add only what is specific to them, so the rule cannot drift between them. An unreadable

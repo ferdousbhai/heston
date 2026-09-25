@@ -8,14 +8,21 @@ import {
 import { base64Url, sha256Base64Url } from './digest'
 
 /**
- * `heston_<token_id>_<secret>`.
+ * `spice_<token_id>_<secret>`.
  *
  * The id travels inside the token on purpose. Verification cannot scan every row in constant
  * time, so the id selects exactly one row and only the digest comparison has to be constant
  * time. The id is not a secret and grants nothing on its own.
  */
-const TOKEN_PREFIX = 'heston_'
-const TOKEN_PATTERN = new RegExp(`^${TOKEN_PREFIX}(${TOKEN_ID_PATTERN})_([A-Za-z0-9_-]{16,})$`)
+const TOKEN_PREFIX = 'spice_'
+/**
+ * `heston_` is the retired prefix, on tokens issued before the rebrand to Spice. They keep
+ * authenticating so no member's agent is cut off by a rename, and accepting them is not a bypass:
+ * the stored digest covers the whole string, prefix included, so a token only ever matches under
+ * the exact prefix it was minted with. Nothing mints this prefix any more.
+ */
+const LEGACY_TOKEN_PREFIX = 'heston_'
+const TOKEN_PATTERN = new RegExp(`^(?:${TOKEN_PREFIX}|${LEGACY_TOKEN_PREFIX})(${TOKEN_ID_PATTERN})_([A-Za-z0-9_-]{16,})$`)
 /**
  * `last_used_at` exists so a member can recognise a stale token in the Connect tab. Writing it
  * on every call would cost a D1 write per tool call for a display detail, so it is refreshed at

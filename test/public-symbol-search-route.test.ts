@@ -7,7 +7,7 @@ import { resetBrokerApi, setBrokerApi } from '../src/server/tastytrade'
 import { stubBroker } from './broker-stub'
 import { marketSnapshotFixture } from './fixtures/market'
 
-const SEARCH_URL = 'https://heston.io/api/public-symbol-search'
+const SEARCH_URL = 'https://spicy.trade/api/public-symbol-search'
 const broker = stubBroker()
 
 class MemoryCache implements PublicSnapshotCache {

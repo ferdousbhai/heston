@@ -53,7 +53,7 @@ describe('order replacement source boundary', () => {
       .toThrow('order-changed-or-not-editable')
   })
 
-  it('expands a price-only replacement from the exact prior Heston action', async () => {
+  it('expands a price-only replacement from the exact prior Spice action', async () => {
     const source = {
       kind: 'place_equity_order', symbol: 'SPY', action: 'Buy to Open',
       quantity: 2, limitPrice: 700, priceEffect: 'Debit',

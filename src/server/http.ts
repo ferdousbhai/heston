@@ -1,7 +1,7 @@
 import { type JsonValue } from '../domain/json-payload'
 import { toError } from '../domain/failure'
-import { HESTON_DEPLOYMENT_ID } from '../deployment'
-import { HESTON_DEPLOYMENT_ID_HEADER, PUBLIC_RESPONSE_MAX_AGE_SECONDS } from '../domain/deployment'
+import { SPICE_DEPLOYMENT_ID } from '../deployment'
+import { SPICE_DEPLOYMENT_ID_HEADER, PUBLIC_RESPONSE_MAX_AGE_SECONDS } from '../domain/deployment'
 import { hasStoragePurge, STORAGE_PURGE_COOKIE, STORAGE_PURGE_GENERATION } from '../domain/storage-purge'
 import {
   getAuthenticatedIdentity,
@@ -10,12 +10,19 @@ import {
 } from './auth'
 import { type AppEnv } from './env'
 
-const CANONICAL_ORIGIN = 'https://heston.io'
+const CANONICAL_ORIGIN = 'https://spicy.trade'
 /**
- * `www` plus the retired tryspice.xyz brand, whose zone still routes here so its links keep
- * resolving. 308 preserves method and body, so a page load and a form POST both survive the hop.
+ * `www` plus the retired heston.io and tryspice.xyz brands, whose zones still route here so their
+ * links keep resolving. 308 preserves method and body, so a page load and a form POST both
+ * survive the hop.
  */
-const NON_CANONICAL_HOSTS = new Set(['www.heston.io', 'tryspice.xyz', 'www.tryspice.xyz'])
+const NON_CANONICAL_HOSTS = new Set([
+  'www.spicy.trade',
+  'heston.io',
+  'www.heston.io',
+  'tryspice.xyz',
+  'www.tryspice.xyz',
+])
 /**
  * The MCP endpoint on an old host is refused rather than redirected. A cross-origin redirect
  * drops `Authorization`, and `/mcp` serves a header-less request as the anonymous caller, so a
@@ -39,7 +46,7 @@ export function canonicalHostRedirect(request: Request): Response | undefined {
     return Response.json({
       error: {
         code: -32_600,
-        message: `Heston's MCP endpoint is ${endpoint} — this host no longer serves it. Reconnect to ${endpoint}.`,
+        message: `Spice's MCP endpoint is ${endpoint} — this host no longer serves it. Reconnect to ${endpoint}.`,
       },
       id: null,
       jsonrpc: '2.0',
@@ -51,7 +58,7 @@ export function canonicalHostRedirect(request: Request): Response | undefined {
 export function jsonNoStore(value: JsonValue, init: ResponseInit = {}): Response {
   const headers = new Headers(init.headers)
   headers.set('Cache-Control', 'no-store')
-  headers.set(HESTON_DEPLOYMENT_ID_HEADER, HESTON_DEPLOYMENT_ID)
+  headers.set(SPICE_DEPLOYMENT_ID_HEADER, SPICE_DEPLOYMENT_ID)
   return Response.json(value, { ...init, headers })
 }
 
@@ -60,7 +67,7 @@ export function jsonPrivateRevalidate(request: Request, value: JsonValue, etag: 
   const headers = new Headers()
   headers.set('Cache-Control', 'private, no-cache')
   headers.set('ETag', etag)
-  headers.set(HESTON_DEPLOYMENT_ID_HEADER, HESTON_DEPLOYMENT_ID)
+  headers.set(SPICE_DEPLOYMENT_ID_HEADER, SPICE_DEPLOYMENT_ID)
   const tags = (request.headers.get('If-None-Match') ?? '').split(',').map((part) => part.trim())
   if (tags.includes(etag) || tags.includes('*')) return new Response(null, { headers, status: 304 })
   return Response.json(value, { headers })
@@ -98,7 +105,7 @@ export function finalizeDocumentResponse(request: Request, response: Response): 
   if (!response.headers.get('content-type')?.includes('text/html')) return response
   const headers = new Headers(response.headers)
   headers.set('Cache-Control', 'no-cache')
-  headers.set(HESTON_DEPLOYMENT_ID_HEADER, HESTON_DEPLOYMENT_ID)
+  headers.set(SPICE_DEPLOYMENT_ID_HEADER, SPICE_DEPLOYMENT_ID)
   if (!hasStoragePurge(request.headers.get('cookie'))) {
     headers.set('Clear-Site-Data', '"cache", "storage"')
     // Readable by the inline guard, which drops it before reloading; Secure only where the
@@ -113,7 +120,7 @@ export function finalizeDocumentResponse(request: Request, response: Response): 
 export function jsonPublic(value: JsonValue, init: ResponseInit = {}): Response {
   const headers = new Headers(init.headers)
   headers.set('Cache-Control', PUBLIC_RESPONSE_CACHE_CONTROL)
-  headers.set(HESTON_DEPLOYMENT_ID_HEADER, HESTON_DEPLOYMENT_ID)
+  headers.set(SPICE_DEPLOYMENT_ID_HEADER, SPICE_DEPLOYMENT_ID)
   return Response.json(value, { ...init, headers })
 }
 

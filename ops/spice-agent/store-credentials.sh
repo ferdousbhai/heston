@@ -12,8 +12,8 @@ usage() {
   cat <<'EOF'
 Usage: store-credentials.sh [mcp-token|tastytrade|all]
 
-  mcp-token   The Heston agent token, created in the web app's Connect tab.
-  tastytrade  A personal grant instead of Heston's tastytrade app: the client
+  mcp-token   The Spice agent token, created in the web app's Connect tab.
+  tastytrade  A personal grant instead of Spice's tastytrade app: the client
               secret and refresh token from my.tastytrade.com > OAuth
               Applications > Manage > Create Grant. The read and trade scopes
               need two-factor auth on your account.
@@ -21,17 +21,17 @@ Usage: store-credentials.sh [mcp-token|tastytrade|all]
 
 Each value is prompted for; nothing is passed on the command line.
 
-To connect tastytrade the usual way -- approve Heston on tastytrade's own page,
-with no client secret to copy -- store the Heston token, then run:
+To connect tastytrade the usual way -- approve Spice on tastytrade's own page,
+with no client secret to copy -- store the Spice token, then run:
 
-  ./ops/heston-agent/connect-tastytrade.mjs
+  ./ops/spice-agent/connect-tastytrade.mjs
 
 Keep one kind of tastytrade credential: the proxy refuses to start with both.
 EOF
 }
 
 # Filed under the service that issued the credential, not the app that spends it, so a second
-# broker becomes its own service rather than more keys under Heston's. The label is only what
+# broker becomes its own service rather than more keys under Spice's. The label is only what
 # Seahorse displays; the service and key attributes are what the proxy looks up.
 store() {
   local service=$1 key=$2 label=$3 prompt=$4
@@ -55,7 +55,7 @@ case "${1:-all}" in
 esac
 
 if [[ ${want_mcp} -eq 1 ]]; then
-  store heston mcp-token 'Heston agent token' 'Heston agent token (Connect tab in the web app):'
+  store spice mcp-token 'Spice agent token' 'Spice agent token (Connect tab in the web app):'
 fi
 
 if [[ ${want_tasty} -eq 1 ]]; then
@@ -64,16 +64,16 @@ if [[ ${want_tasty} -eq 1 ]]; then
 fi
 
 # The proxy reads the keyring once at startup, so it has to be restarted to see a new value.
-if systemctl --user is-enabled heston-agent-proxy.service >/dev/null 2>&1; then
-  systemctl --user restart heston-agent-proxy.service
+if systemctl --user is-enabled spice-agent-proxy.service >/dev/null 2>&1; then
+  systemctl --user restart spice-agent-proxy.service
   echo
-  systemctl --user is-active heston-agent-proxy.service >/dev/null \
+  systemctl --user is-active spice-agent-proxy.service >/dev/null \
     && echo 'Proxy restarted. Check what it picked up with:' \
     || echo 'Proxy failed to restart; check:'
-  echo '  journalctl --user -u heston-agent-proxy.service -n 5'
+  echo '  journalctl --user -u spice-agent-proxy.service -n 5'
 else
   echo
   echo 'Proxy service is not installed. Enable it with:'
-  echo '  cp ops/heston-agent/systemd/heston-agent-proxy.service ~/.config/systemd/user/'
-  echo '  systemctl --user daemon-reload && systemctl --user enable --now heston-agent-proxy.service'
+  echo '  cp ops/spice-agent/systemd/spice-agent-proxy.service ~/.config/systemd/user/'
+  echo '  systemctl --user daemon-reload && systemctl --user enable --now spice-agent-proxy.service'
 fi

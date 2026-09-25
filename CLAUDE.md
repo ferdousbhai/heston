@@ -1,4 +1,4 @@
-# Heston
+# Spice
 
 Options application on Cloudflare with a public market surface, member favorites, and an MCP
 tool surface each member drives from their own agent. Agent loops and brokerage credentials
@@ -85,7 +85,7 @@ the `BriefPublisher` entrypoint over a service binding.
 
 ## Working rules
 
-- An interactive agent reaches Heston through the local proxy, which attaches the token from the
+- An interactive agent reaches Spice through the local proxy, which attaches the token from the
   keyring, so no agent configuration holds a credential. An unattended research run instead
   connects directly with its own token and *no* broker header, so every account tool refuses
   structurally rather than by allowlist. Keep that asymmetry — it is what makes an unattended

@@ -7,21 +7,21 @@ import { ConnectScreen } from '../src/components/connect-screen'
 describe('Connect screen copy', () => {
   it('gives a proxy add command with no Authorization header, for Claude and Grok', () => {
     const html = renderToStaticMarkup(createElement(ConnectScreen, { owner: false }))
-    expect(html).toContain('claude mcp add --transport http heston http://127.0.0.1:8787/mcp')
-    expect(html).toContain('grok mcp add --transport http heston http://127.0.0.1:8787/mcp')
+    expect(html).toContain('claude mcp add --transport http spice http://127.0.0.1:8787/mcp')
+    expect(html).toContain('grok mcp add --transport http spice http://127.0.0.1:8787/mcp')
     expect(html).toContain('Grok lists tools, not prompts')
-    expect(html).toContain('./ops/heston-agent/store-credentials.sh mcp-token')
-    expect(html).toContain('./ops/heston-agent/store-credentials.sh tastytrade')
-    // Heston's tastytrade app is the usual way; a personal grant stays documented beside it.
-    expect(html).toContain('./ops/heston-agent/connect-tastytrade.mjs')
+    expect(html).toContain('./ops/spice-agent/store-credentials.sh mcp-token')
+    expect(html).toContain('./ops/spice-agent/store-credentials.sh tastytrade')
+    // Spice's tastytrade app is the usual way; a personal grant stays documented beside it.
+    expect(html).toContain('./ops/spice-agent/connect-tastytrade.mjs')
     // OAuth to the public URL remains for clients that can complete a browser sign-in.
-    expect(html).toContain('claude mcp add --transport http heston https://heston.io/mcp')
+    expect(html).toContain('claude mcp add --transport http spice https://spicy.trade/mcp')
     // A header-less request is served at the public tier, never challenged, so adding the
     // server must not be described as what opens the browser.
     expect(html).toContain('connects straight away at the public tier')
     expect(html).not.toContain('Run this and your agent opens a browser')
     // The proxy path must not put a bearer token in the command the agent will store.
-    const proxyClaude = html.match(/claude mcp add --transport http heston http:\/\/127\.0\.0\.1:8787\/mcp/)
+    const proxyClaude = html.match(/claude mcp add --transport http spice http:\/\/127\.0\.0\.1:8787\/mcp/)
     expect(proxyClaude).not.toBeNull()
     expect(html).not.toMatch(/http:\/\/127\.0\.0\.1:8787\/mcp[^<]*Authorization/)
   })

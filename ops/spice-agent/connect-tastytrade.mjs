@@ -8,15 +8,15 @@ import { keyringSecret, keyringStore } from './keyring.mjs'
 import { TOKEN_REQUEST_TIMEOUT_MS } from './token-refresh.mjs'
 
 /**
- * Connect tastytrade through Heston's OAuth app, once, and keep the result in the OS keyring.
+ * Connect tastytrade through Spice's OAuth app, once, and keep the result in the OS keyring.
  *
- * The member approves Heston on tastytrade's own page; the browser comes back through the Worker
+ * The member approves Spice on tastytrade's own page; the browser comes back through the Worker
  * to a listener here on the loopback address; this process redeems the code through the Worker
  * and stores the refresh token under `tastytrade/app-refresh-token`, where the local proxy finds
  * it. The Worker holds the app's client secret and never keeps the refresh token; this machine
  * keeps the refresh token and never needs a client secret.
  *
- * Every Worker call carries the member's Heston agent token from the keyring, which is what binds
+ * Every Worker call carries the member's Spice agent token from the keyring, which is what binds
  * the whole connection to that member: a started connection can be redeemed only with the same
  * token, so the consent URL, the code, and the state are each useless to anyone else.
  *
@@ -24,8 +24,8 @@ import { TOKEN_REQUEST_TIMEOUT_MS } from './token-refresh.mjs'
  * following it is the whole point, and its state grants nothing without the agent token.
  */
 
-const PROGRAM = 'HestonConnectTastytrade'
-const ORIGIN = new URL(process.env.HESTON_MCP_URL ?? 'https://heston.io/mcp').origin
+const PROGRAM = 'SpiceConnectTastytrade'
+const ORIGIN = new URL(process.env.SPICE_MCP_URL ?? 'https://spicy.trade/mcp').origin
 const LISTEN_HOST = '127.0.0.1'
 const CALLBACK_PATH = '/callback'
 const BROKER = 'tastytrade'
@@ -56,28 +56,28 @@ function fail(message) {
  * Worker relays, tastytrade's status; never by body text, which for the exchange could carry
  * credential material.
  */
-async function callWorker(path, hestonToken, body) {
+async function callWorker(path, spiceToken, body) {
   let response
   try {
     response = await fetch(new URL(path, ORIGIN), {
       body: JSON.stringify(body),
       headers: {
         Accept: 'application/json',
-        Authorization: `Bearer ${hestonToken}`,
+        Authorization: `Bearer ${spiceToken}`,
         'Content-Type': 'application/json',
       },
       method: 'POST',
       signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
     })
   } catch (error) {
-    fail(`Heston could not be reached (${error instanceof Error ? error.name : 'UnknownError'})`)
+    fail(`Spice could not be reached (${error instanceof Error ? error.name : 'UnknownError'})`)
   }
   const payload = await response.json().catch(() => undefined)
   if (!response.ok) {
     const tastytradeStatus = z.object({ tastytradeStatus: z.number().int() }).safeParse(payload)
-    if (response.status === 401) fail('Heston did not accept the agent token in the keyring')
+    if (response.status === 401) fail('Spice did not accept the agent token in the keyring')
     if (tastytradeStatus.success) fail(`tastytrade refused the grant (HTTP ${tastytradeStatus.data.tastytradeStatus})`)
-    fail(`Heston refused ${path} (HTTP ${response.status})`)
+    fail(`Spice refused ${path} (HTTP ${response.status})`)
   }
   return payload
 }
@@ -137,7 +137,7 @@ async function loopbackListener() {
       settle({ error: error && OAUTH_ERRORS.has(error) ? error : 'unrecognized' })
       return
     }
-    page(response, 200, 'Heston received the authorization. You can close this tab and return to the terminal.')
+    page(response, 200, 'Spice received the authorization. You can close this tab and return to the terminal.')
     settle({ code })
   })
   await new Promise((resolve, reject) => {
@@ -169,10 +169,10 @@ function openBrowser(url) {
 }
 
 async function main() {
-  const hestonToken = await keyringSecret(PROGRAM, 'heston', 'mcp-token')
-  if (!hestonToken) {
-    fail('no Heston token in the keyring. Create one in the Connect tab, then:\n'
-      + '  ./ops/heston-agent/store-credentials.sh mcp-token')
+  const spiceToken = await keyringSecret(PROGRAM, 'spice', 'mcp-token')
+  if (!spiceToken) {
+    fail('no Spice token in the keyring. Create one in the Connect tab, then:\n'
+      + '  ./ops/spice-agent/store-credentials.sh mcp-token')
   }
   // The proxy refuses a keyring holding both kinds, so connecting over a personal grant would
   // only leave it unable to start. Say so now, before the member goes through tastytrade.
@@ -187,13 +187,13 @@ async function main() {
 
   const listener = await loopbackListener()
   const authorization = AuthorizeResponseSchema.safeParse(
-    await callWorker('/api/brokers/tastytrade/authorize', hestonToken, { port: listener.port }),
+    await callWorker('/api/brokers/tastytrade/authorize', spiceToken, { port: listener.port }),
   )
-  if (!authorization.success) fail('Heston answered the authorization request with an unreadable response')
+  if (!authorization.success) fail('Spice answered the authorization request with an unreadable response')
   const { authorizationUrl, expiresAt, state } = authorization.data
   listener.expect(state)
 
-  process.stdout.write(`Approve Heston on tastytrade to connect your account:\n\n  ${authorizationUrl}\n\n`)
+  process.stdout.write(`Approve Spice on tastytrade to connect your account:\n\n  ${authorizationUrl}\n\n`)
   openBrowser(authorizationUrl)
 
   // Waits no longer than the Worker keeps the connection redeemable.
@@ -206,30 +206,30 @@ async function main() {
   if (outcome.error) fail(`tastytrade did not grant access (${outcome.error})`)
 
   const exchanged = ExchangeResponseSchema.safeParse(
-    await callWorker('/api/brokers/tastytrade/exchange', hestonToken, { code: outcome.code, state }),
+    await callWorker('/api/brokers/tastytrade/exchange', spiceToken, { code: outcome.code, state }),
   )
-  if (!exchanged.success) fail('Heston answered the exchange with an unreadable response')
+  if (!exchanged.success) fail('Spice answered the exchange with an unreadable response')
   const { refreshToken } = exchanged.data
 
-  if (!await keyringStore(BROKER, KEY, 'tastytrade refresh token (Heston app)', refreshToken)) {
+  if (!await keyringStore(BROKER, KEY, 'tastytrade refresh token (Spice app)', refreshToken)) {
     fail(`failed to store ${BROKER}/${KEY}`)
   }
   if (await keyringSecret(PROGRAM, BROKER, KEY) !== refreshToken) fail(`failed to store ${BROKER}/${KEY}`)
   process.stdout.write(`Stored ${BROKER}/${KEY}.\n`)
 
   // The proxy reads the keyring once at startup, so it has to be restarted to see a new value.
-  const enabled = spawnSync('systemctl', ['--user', 'is-enabled', 'heston-agent-proxy.service'], { stdio: 'ignore' })
+  const enabled = spawnSync('systemctl', ['--user', 'is-enabled', 'spice-agent-proxy.service'], { stdio: 'ignore' })
   if (enabled.status === 0) {
-    spawnSync('systemctl', ['--user', 'restart', 'heston-agent-proxy.service'], { stdio: 'ignore' })
-    const active = spawnSync('systemctl', ['--user', 'is-active', 'heston-agent-proxy.service'], { stdio: 'ignore' })
+    spawnSync('systemctl', ['--user', 'restart', 'spice-agent-proxy.service'], { stdio: 'ignore' })
+    const active = spawnSync('systemctl', ['--user', 'is-active', 'spice-agent-proxy.service'], { stdio: 'ignore' })
     process.stdout.write(active.status === 0
       ? '\nProxy restarted. Check what it picked up with:\n'
       : '\nProxy failed to restart; check:\n')
-    process.stdout.write('  journalctl --user -u heston-agent-proxy.service -n 5\n')
+    process.stdout.write('  journalctl --user -u spice-agent-proxy.service -n 5\n')
   } else {
     process.stdout.write('\nProxy service is not installed. Enable it with:\n'
-      + '  cp ops/heston-agent/systemd/heston-agent-proxy.service ~/.config/systemd/user/\n'
-      + '  systemctl --user daemon-reload && systemctl --user enable --now heston-agent-proxy.service\n')
+      + '  cp ops/spice-agent/systemd/spice-agent-proxy.service ~/.config/systemd/user/\n'
+      + '  systemctl --user daemon-reload && systemctl --user enable --now spice-agent-proxy.service\n')
   }
 }
 

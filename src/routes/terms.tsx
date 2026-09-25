@@ -6,31 +6,31 @@ export const Route = createFileRoute('/terms')({
   component: TermsPage,
   head: () => ({
     meta: [
-      { title: 'Terms | Heston' },
-      { name: 'description', content: 'Terms governing use of the Heston options-intelligence application.' },
+      { title: 'Terms | Spice' },
+      { name: 'description', content: 'Terms governing use of the Spice options-intelligence application.' },
     ],
   }),
 })
 
 function TermsPage() {
   return (
-    <SitePage intro="The rules for using Heston and its connected market and brokerage tools." title="Terms of use">
+    <SitePage intro="The rules for using Spice and its connected market and brokerage tools." title="Terms of use">
       <p className="site-effective">Effective <time dateTime="2026-09-23">September 23, 2026</time></p>
       <section>
         <h2>1. Agreement</h2>
-        <p>By accessing Heston, you agree to these terms and the <Link to="/privacy">Privacy Policy</Link>. If you do not agree, do not use the service.</p>
+        <p>By accessing Spice, you agree to these terms and the <Link to="/privacy">Privacy Policy</Link>. If you do not agree, do not use the service.</p>
       </section>
       <section>
         <h2>2. Personal, authorized use</h2>
-        <p>You may use Heston only through an account you are authorized to access and only for lawful purposes. You are responsible for protecting your sign-in methods, connected accounts, and devices. Do not probe, bypass, overload, or interfere with the service or another user’s data.</p>
+        <p>You may use Spice only through an account you are authorized to access and only for lawful purposes. You are responsible for protecting your sign-in methods, connected accounts, and devices. Do not probe, bypass, overload, or interfere with the service or another user’s data.</p>
       </section>
       <section>
         <h2>3. Market and brokerage connections</h2>
-        <p>Heston can display information from third parties and, when you request it, place an order through your own brokerage credentials. Heston has no confirmation step of its own: any confirmation prompt comes from the agent you run. Third-party providers, including your broker, control their own services, data, executions, fees, and terms. An order Heston submits, or a status it reports, is not a guarantee that the order was accepted, filled, cancelled, or priced as shown. Verify material activity with the broker.</p>
+        <p>Spice can display information from third parties and, when you request it, place an order through your own brokerage credentials. Spice has no confirmation step of its own: any confirmation prompt comes from the agent you run. Third-party providers, including your broker, control their own services, data, executions, fees, and terms. An order Spice submits, or a status it reports, is not a guarantee that the order was accepted, filled, cancelled, or priced as shown. Verify material activity with the broker.</p>
       </section>
       <section>
         <h2>4. No investment advice</h2>
-        <p>Heston provides software, research organization, and automated analysis. It does not provide personalized investment, legal, tax, or accounting advice and does not act as a fiduciary. You make every investment decision and bear the resulting risk. The <Link to="/disclosures">Risk Disclosures</Link> are part of these terms.</p>
+        <p>Spice provides software, research organization, and automated analysis. It does not provide personalized investment, legal, tax, or accounting advice and does not act as a fiduciary. You make every investment decision and bear the resulting risk. The <Link to="/disclosures">Risk Disclosures</Link> are part of these terms.</p>
       </section>
       <section>
         <h2>5. Availability and changes</h2>
@@ -38,11 +38,11 @@ function TermsPage() {
       </section>
       <section>
         <h2>6. Disclaimers and responsibility</h2>
-        <p>To the fullest extent permitted by applicable law, Heston is provided “as is” and “as available,” without warranties of accuracy, fitness, non-infringement, uninterrupted operation, or trading results. To the fullest extent permitted by law, Heston is not liable for indirect, incidental, special, consequential, or trading losses arising from use of the service.</p>
+        <p>To the fullest extent permitted by applicable law, Spice is provided “as is” and “as available,” without warranties of accuracy, fitness, non-infringement, uninterrupted operation, or trading results. To the fullest extent permitted by law, Spice is not liable for indirect, incidental, special, consequential, or trading losses arising from use of the service.</p>
       </section>
       <section>
         <h2>7. Contact</h2>
-        <p>Questions or legal notices may be sent to <a href="mailto:legal@heston.io">legal@heston.io</a>.</p>
+        <p>Questions or legal notices may be sent to <a href="mailto:legal@spicy.trade">legal@spicy.trade</a>.</p>
       </section>
     </SitePage>
   )

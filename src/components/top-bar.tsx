@@ -218,8 +218,8 @@ export function TopBar({
   const statusPinned = useRef(false)
   return (
     <header className="top-bar">
-      <Link aria-label="Heston home" className="brand" to="/">
-        <span>HESTON</span>
+      <Link aria-label="Spice home" className="brand" to="/">
+        <span>SPICE</span>
       </Link>
       <div className="top-actions">
         {status && (

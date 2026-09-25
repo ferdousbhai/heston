@@ -23,7 +23,7 @@ import {
 } from './tastytrade-member-grant'
 
 /*
- * The one-click tastytrade connection, driven by `ops/heston-agent/connect-tastytrade.mjs`.
+ * The one-click tastytrade connection, driven by `ops/spice-agent/connect-tastytrade.mjs`.
  *
  *   authorize  the CLI, holding the member's agent token, opens a pending row and gets the
  *              consent URL;
@@ -114,7 +114,7 @@ async function agentRequest<T>(
   invalid: string,
 ): Promise<{ data: T; userId: string } | Response> {
   const userId = await agentUserId(request, database)
-  if (!userId) return jsonNoStore({ error: 'A Heston agent token is required' }, { status: 401 })
+  if (!userId) return jsonNoStore({ error: 'A Spice agent token is required' }, { status: 401 })
   const parsed = schema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return jsonNoStore({ error: invalid }, { status: 400 })
   return { data: parsed.data, userId }

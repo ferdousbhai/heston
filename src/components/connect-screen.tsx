@@ -14,13 +14,13 @@ import {
 import { toError } from '../domain/failure'
 import { CopyBlock } from './copy-block'
 
-const MCP_URL = 'https://heston.io/mcp'
+const MCP_URL = 'https://spicy.trade/mcp'
 const PROXY_URL = 'http://127.0.0.1:8787/mcp'
 /** No Authorization header: the proxy attaches the keyring token so the agent holds none. */
-const PROXY_CLAUDE_COMMAND = `claude mcp add --transport http heston ${PROXY_URL}`
-const PROXY_GROK_COMMAND = `grok mcp add --transport http heston ${PROXY_URL}`
-/** Reads the Heston token from the keyring, so it needs the token stored first. */
-const CONNECT_TASTYTRADE_COMMAND = './ops/heston-agent/connect-tastytrade.mjs'
+const PROXY_CLAUDE_COMMAND = `claude mcp add --transport http spice ${PROXY_URL}`
+const PROXY_GROK_COMMAND = `grok mcp add --transport http spice ${PROXY_URL}`
+/** Reads the Spice token from the keyring, so it needs the token stored first. */
+const CONNECT_TASTYTRADE_COMMAND = './ops/spice-agent/connect-tastytrade.mjs'
 
 /** The shape every failing handler in api.mcp-tokens returns. */
 const ErrorResponseSchema = z.object({ error: z.string() })
@@ -140,12 +140,12 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
   // reveal the placeholder is all that can honestly be shown: the digest is all the server kept.
   const bearer = issued?.token ?? 'YOUR_TOKEN'
   const mcpConfig = JSON.stringify({
-    mcpServers: { heston: { headers: { Authorization: `Bearer ${bearer}` }, type: 'http', url: MCP_URL } },
+    mcpServers: { spice: { headers: { Authorization: `Bearer ${bearer}` }, type: 'http', url: MCP_URL } },
   }, null, 2)
   // No header. Claude Code skips the OAuth flow entirely when a static `Authorization` is
   // configured, so handing one out as the default would ship the browser sign-in and guarantee
   // nobody ever reaches it.
-  const claudeCommand = `claude mcp add --transport http heston ${MCP_URL}`
+  const claudeCommand = `claude mcp add --transport http spice ${MCP_URL}`
   const headlessCommand = `${claudeCommand} --header "Authorization: Bearer ${bearer}"`
 
   return (
@@ -153,7 +153,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
       <header>
         <h1>Connect your agent</h1>
         <p>
-          Heston is a tool surface for an agent running on your own machine — Claude Code, Grok, Codex, or
+          Spice is a tool surface for an agent running on your own machine — Claude Code, Grok, Codex, or
           anything that speaks MCP. Any agent can read the public market surface without signing in
           at all. Signing yours in adds live quotes, option chains and Greeks, lets it add symbols
           to the watchlist, and lets it record catalysts and evidence everyone reads.
@@ -161,10 +161,10 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
       </header>
 
       <section className="connect-step">
-        <h2>1 · Point your agent at Heston</h2>
+        <h2>1 · Point your agent at Spice</h2>
         {/* A request with no credential is served, not challenged (src/server/mcp.ts), so adding
             the server never starts a sign-in by itself. Sign-in is whatever the client does with
-            the OAuth discovery documents Heston publishes, which varies by client. */}
+            the OAuth discovery documents Spice publishes, which varies by client. */}
         <p>
           Run this and your agent connects straight away at the public tier: the cached market
           snapshot, price history, and the shared research, with nothing to copy and no sign-in.
@@ -172,7 +172,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         <CopyBlock label="Claude Code" value={claudeCommand} />
         <p>
           To add live quotes, option chains, and Greeks, sign in from your client&apos;s own
-          authenticate action for this server. Heston publishes standard OAuth discovery, so a
+          authenticate action for this server. Spice publishes standard OAuth discovery, so a
           client that supports it opens a browser to sign you in with Google and renews its own
           access — you should not need to come back here.
         </p>
@@ -186,13 +186,13 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
       <section className="connect-step">
         <h2>2 · Local proxy <span className="connect-optional">optional</span></h2>
         <p>
-          A process on this machine attaches the Heston token from the keyring so the agent holds
+          A process on this machine attaches the Spice token from the keyring so the agent holds
           none. That is how live quotes, chains, and Greeks reach a client that cannot complete a
           browser sign-in.
         </p>
         <CopyBlock
-          label="Store your Heston token"
-          value={'./ops/heston-agent/store-credentials.sh mcp-token'}
+          label="Store your Spice token"
+          value={'./ops/spice-agent/store-credentials.sh mcp-token'}
         />
         <p>Issue the token in step 3, paste it at the prompt. The script restarts the proxy.</p>
         <CopyBlock label="Claude Code" value={PROXY_CLAUDE_COMMAND} />
@@ -204,8 +204,8 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         </p>
         <p>
           A brokerage is a second store: balances, positions, order history, and orders against
-          your account only. Run this, approve Heston on tastytrade&apos;s own page, and the grant
-          lands in your keyring — Heston never keeps it. The script restarts the proxy.
+          your account only. Run this, approve Spice on tastytrade&apos;s own page, and the grant
+          lands in your keyring — Spice never keeps it. The script restarts the proxy.
         </p>
         <CopyBlock label="Connect tastytrade" value={CONNECT_TASTYTRADE_COMMAND} />
         <p className="connect-note">
@@ -214,7 +214,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         </p>
         <CopyBlock
           label="Store a personal grant"
-          value={'./ops/heston-agent/store-credentials.sh tastytrade'}
+          value={'./ops/spice-agent/store-credentials.sh tastytrade'}
         />
       </section>
 
@@ -320,7 +320,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
           Orders run the same server-side guards regardless of what any agent recommends: the exact
           contract is resolved from the live chain, the portfolio and market checks
           run against fresh broker state, and the broker&apos;s own dry-run must come back clean. A
-          refusal is final. Heston has no confirmation step of its own: any prompt before an order
+          refusal is final. Spice has no confirmation step of its own: any prompt before an order
           comes from your agent, and the server-side guards are what bound the risk.
         </p>
         {owner && (

@@ -90,7 +90,7 @@ export function assertReplaceableOrder(order: BrokerOrderRecord, orderId: string
 }
 
 /**
- * The action Heston placed as `orderId`, read only from this broker account's own rows. The broker
+ * The action Spice placed as `orderId`, read only from this broker account's own rows. The broker
  * re-verifies the live order afterwards, but another account's row must never be the source of an
  * order's shape: the per-account rule holds here too, not only at the broker. Rows carried forward
  * by migration 0029 have an empty account number and so are never found; they were all Day

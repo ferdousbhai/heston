@@ -90,7 +90,7 @@ export type CatalystReadResult = {
   horizonDays: number
   /** One entry per requested symbol, in the order of `symbols`. */
   searches: CatalystSearchState[]
-  source: 'heston-catalyst-store'
+  source: 'spice-catalyst-store'
   symbols: string[]
   truncated: boolean
 }
@@ -99,14 +99,14 @@ const BriefReadParameters = Type.Object({}, { additionalProperties: false })
 
 export type DailyBriefReadResult = {
   fetchedAt: string
-  source: 'heston-brief-store'
+  source: 'spice-brief-store'
 } & ({ brief: DailyBrief; status: 'ok' } | { status: 'not_found' })
 
 async function readLatestDailyBriefState(env: AppEnv, now = new Date()): Promise<DailyBriefReadResult> {
   if (!env.DB) throw new CallerVisibleError('Daily brief is unavailable.')
   const brief = await readLatestDailyBrief(env.DB)
   const fetchedAt = now.toISOString()
-  return brief ? { brief, fetchedAt, source: 'heston-brief-store', status: 'ok' } : { fetchedAt, source: 'heston-brief-store', status: 'not_found' }
+  return brief ? { brief, fetchedAt, source: 'spice-brief-store', status: 'ok' } : { fetchedAt, source: 'spice-brief-store', status: 'not_found' }
 }
 
 export async function readCatalysts(
@@ -177,7 +177,7 @@ export async function readCatalysts(
     fetchedAt: now.toISOString(),
     horizonDays,
     searches,
-    source: 'heston-catalyst-store',
+    source: 'spice-catalyst-store',
     symbols,
     truncated,
   }

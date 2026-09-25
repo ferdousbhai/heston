@@ -170,7 +170,7 @@ describe('MarketFeed option Greeks RPC', () => {
     const context = new FakeContext([])
     const feed = new MarketFeedCore(context, liveEnvironment())
     const initial = await feed.fetch(new Request(
-      'https://heston.test/api/stream?symbols=SPY,../secret,NVDA',
+      'https://spice.test/api/stream?symbols=SPY,../secret,NVDA',
       { headers: { Upgrade: 'websocket' } },
     ))
     expect(initial.status).toBe(400)
