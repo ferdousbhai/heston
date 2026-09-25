@@ -19,6 +19,9 @@ const PROXY_URL = 'http://127.0.0.1:8787/mcp'
 /** No Authorization header: the proxy attaches the keyring token so the agent holds none. */
 const PROXY_CLAUDE_COMMAND = `claude mcp add --transport http spice ${PROXY_URL}`
 const PROXY_GROK_COMMAND = `grok mcp add --transport http spice ${PROXY_URL}`
+const PROXY_CODEX_COMMAND = `codex mcp add spice --url ${PROXY_URL}`
+const CODEX_COMMAND = `codex mcp add spice --url ${MCP_URL}`
+const GROK_COMMAND = `grok mcp add --transport http spice ${MCP_URL}`
 /** Reads the Spice token from the keyring, so it needs the token stored first. */
 const CONNECT_TASTYTRADE_COMMAND = './ops/spice-agent/connect-tastytrade.mjs'
 
@@ -170,16 +173,24 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
           snapshot, price history, and the shared research, with nothing to copy and no sign-in.
         </p>
         <CopyBlock label="Claude Code" value={claudeCommand} />
+        <CopyBlock label="Codex" value={CODEX_COMMAND} />
+        <CopyBlock label="Grok" value={GROK_COMMAND} />
+        <p className="connect-note">
+          Muse: add a streamable-HTTP <code>spice</code> entry under <code>mcpServers</code> in its
+          <code> settings.json</code>. Pi has no built-in MCP client; add one with an extension
+          (<code>pi install</code>). Any other MCP client: a streamable-HTTP server at{' '}
+          <code>{MCP_URL}</code>.
+        </p>
         <p>
           To add live quotes, option chains, and Greeks, sign in from your client&apos;s own
           authenticate action for this server. Spice publishes standard OAuth discovery, so a
           client that supports it opens a browser to sign you in with Google and renews its own
-          access — you should not need to come back here.
+          access — you should not need to come back here. In Claude Code that is <code>/mcp</code>;
+          in Codex, <code>codex mcp login spice</code>; in Muse, <code>muse mcp login spice</code>.
         </p>
         <p className="connect-note">
-          Any MCP client can point at <code>{MCP_URL}</code>; signing in needs one that can start
-          OAuth from that discovery. If you already run the local proxy below, skip this and point
-          the agent there instead.
+          If your client cannot sign in this way, use the local proxy below. If you already run the
+          proxy, point the agent there instead.
         </p>
       </section>
 
@@ -196,6 +207,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         />
         <p>Issue the token in step 3, paste it at the prompt. The script restarts the proxy.</p>
         <CopyBlock label="Claude Code" value={PROXY_CLAUDE_COMMAND} />
+        <CopyBlock label="Codex" value={PROXY_CODEX_COMMAND} />
         <CopyBlock label="Grok" value={PROXY_GROK_COMMAND} />
         <p className="connect-note">
           No <code>Authorization</code> header. Pointing at <code>{MCP_URL}</code> without signing
