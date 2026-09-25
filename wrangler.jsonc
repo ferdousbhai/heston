@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   // Keeps the pre-rebrand name: renaming a Worker creates a new one, which loses its per-Worker
   // secrets (BETTER_AUTH_SECRET), its Durable Object state, the Workers Builds connection, and the
-  // service binding the private long-vol Workflow uses to reach `BriefPublisher`. Durable Object
+  // service binding the private spice-workflow Workflow uses to reach `BriefPublisher`. Durable Object
   // class names and migration tags below stay for the same reason: renaming a class needs a
   // migration and drops its state.
   "name": "heston",
