@@ -7,42 +7,36 @@ export const Route = createFileRoute('/privacy')({
   head: () => ({
     meta: [
       { title: 'Privacy | Spice' },
-      { name: 'description', content: 'How Spice handles account, brokerage, market, device, and operational data.' },
+      { name: 'description', content: 'What Spice stores, what it never stores, and who else handles your data.' },
     ],
   }),
 })
 
 function PrivacyPage() {
   return (
-    <SitePage intro="What Spice processes, why it is needed, and the choices available to you." title="Privacy policy">
-      <p className="site-effective">Effective <time dateTime="2026-09-23">September 23, 2026</time></p>
+    <SitePage intro="What Spice stores, what it never stores, and who else handles your data." title="Privacy policy">
+      <p className="site-effective">Effective <time dateTime="2026-09-25">September 25, 2026</time></p>
       <section>
-        <h2>Information processed</h2>
-        <p>Spice may process your Google account identity for sign-in; your ticker favorites; the labels of agent tokens you create (only a digest of each token is stored) and the agent clients you approve; symbols you or your agent look up, which join the shared watchlist; catalysts and evidence your agent records, which every reader sees; balance, position, order, trade, and cash-movement data read from your brokerage through your own credential, only on a request that presents it; records of orders placed through Spice, kept so an ambiguous submission can be reconciled; market and research data requested on your behalf; and limited technical records needed to secure, operate, and diagnose the service. Your brokerage credential is never stored by Spice, and your agent&apos;s prompts run on your own machine rather than here.</p>
+        <h2>What Spice stores</h2>
+        <p>If you sign in: your Google name, email, and profile picture link; your Google sign-in tokens, encrypted; your sessions, which may record your IP address and browser; your ticker favorites; your agent tokens (a label and a digest, never the token itself) and when each was last used; and the agent apps you approve. While you connect tastytrade, a pending record that holds no credential exists for a few minutes and is then deleted.</p>
+        <p>If your agent records evidence, it is shown publicly under the byline you choose; the link to your account is never shown. Catalysts your agent records are shown publicly without attribution. Every order placed through Spice is kept with its brokerage account number, so an unclear submission can be checked against the broker&apos;s order history.</p>
+        <p>Symbols that anyone looks up, adds through an agent, or trades join a shared watchlist that is not linked to anyone.</p>
       </section>
       <section>
-        <h2>How information is used</h2>
-        <p>This information is used to authenticate you, synchronize the workspace, provide analysis, prepare or carry out actions you explicitly request, enforce risk and authorization boundaries, prevent abuse, and maintain service reliability. Spice does not sell personal information or use connected brokerage data for advertising.</p>
+        <h2>What Spice never stores</h2>
+        <p>Your brokerage credential stays in your computer&apos;s keyring. It passes through Spice only in memory, when you connect and when your local proxy exchanges it for a short-lived access token. Balances, positions, and order history are read from your broker only on a request that presents that token, and are not saved. Your agent runs on your own machine, not here.</p>
       </section>
       <section>
-        <h2>Local and cloud storage</h2>
-        <p>Some preferences and validated market snapshots are stored on your device for responsiveness. If you sign in, ticker favorites are also stored with your account so they can sync across devices. Public and owner snapshots carry separate audience markers so signed-out pages do not render owner-cached rows. Server-side application state is hosted on Cloudflare. Clearing browser storage removes local data but may not remove server records or data held by connected providers.</p>
+        <h2>Cookies and browser storage</h2>
+        <p>Spice sets a sign-in cookie and two cookies that let a page recover from a broken update. Your browser also keeps your preferences and the latest market data so pages open quickly. There are no advertising or analytics cookies.</p>
       </section>
       <section>
-        <h2>Service providers</h2>
-        <p>Information is shared only as needed with infrastructure, authentication, market-data, artificial-intelligence, research, and brokerage providers that perform the requested function. Their handling of information is also governed by their own terms and privacy policies.</p>
-      </section>
-      <section>
-        <h2>Retention and security</h2>
-        <p>Records are kept only as long as reasonably needed for the service, security, legal obligations, and dispute resolution. Spice uses access controls and encrypted transport, but no system can guarantee absolute security. Do not include secrets or unnecessary personal information in research your agent records or in support emails.</p>
+        <h2>Who else handles data</h2>
+        <p>Cloudflare hosts Spice, its database, and its request logs. Google handles sign-in. tastytrade supplies market data and, on requests that present your credential, your account data and orders. Exa and Yahoo Finance receive symbols and company names for research and price history, never your identity. The agent you connect receives what its tools return, under its provider&apos;s terms. Spice does not sell personal data or use it for advertising.</p>
       </section>
       <section>
         <h2>Your choices</h2>
-        <p>You can disconnect providers, clear local browser data, or request access, correction, or deletion by emailing <a href="mailto:privacy@spicy.trade">privacy@spicy.trade</a>. Some records may be retained when required for security, legal compliance, or the integrity of completed transactions.</p>
-      </section>
-      <section>
-        <h2>Updates</h2>
-        <p>Material changes will be reflected here with a new effective date. Privacy questions can be sent to <a href="mailto:privacy@spicy.trade">privacy@spicy.trade</a>.</p>
+        <p>You can revoke agent tokens on the Connect tab and clear browser storage at any time. To request access, correction, or deletion, email <a href="mailto:privacy@spicy.trade">privacy@spicy.trade</a>. Deleting your account removes your profile, sessions, favorites, tokens, approved apps, and recorded evidence. Order records are kept so past trades stay verifiable. Material changes to this policy will appear here with a new effective date.</p>
       </section>
     </SitePage>
   )

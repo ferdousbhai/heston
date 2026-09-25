@@ -7,37 +7,33 @@ export const Route = createFileRoute('/disclosures')({
   head: () => ({
     meta: [
       { title: 'Risk disclosures | Spice' },
-      { name: 'description', content: 'Important market-data, options-trading, and automated-analysis disclosures for Spice.' },
+      { name: 'description', content: 'Options risk, market data, AI-generated content, and order placement disclosures for Spice.' },
     ],
   }),
 })
 
 function DisclosuresPage() {
   return (
-    <SitePage intro="Important limits of market data, automated analysis, and options trading." title="Risk disclosures">
+    <SitePage intro="What to know before acting on anything Spice shows you." title="Risk disclosures">
       <section>
-        <h2>Trading can cause substantial loss</h2>
-        <p>Stocks, options, and other securities can lose value rapidly. Options may expire worthless, involve leverage, and expose you to losses that can exceed the amount initially paid or received, depending on the strategy. Past performance and simulated results do not predict future outcomes.</p>
+        <h2>Not investment advice</h2>
+        <p>Spice is software run by an individual. It is not a broker-dealer or registered investment adviser, and nothing on it, including the daily brief and its trade ideas, is a recommendation suited to your circumstances. Past performance does not predict future results.</p>
       </section>
       <section>
-        <h2>Not a broker or adviser</h2>
-        <p>Spice is a software tool. It is not a broker-dealer, investment adviser, exchange, tax adviser, or fiduciary. Research, scores, summaries, risk estimates, recommendations, and agent responses are informational and may not be suitable for your circumstances.</p>
+        <h2>Options are risky</h2>
+        <p>Options are complex and can lose value quickly; a long option can expire worthless and lose everything paid for it. Read <a href="https://www.theocc.com/company-information/documents-and-archives/options-disclosure-document" rel="noreferrer" target="_blank">Characteristics and Risks of Standardized Options</a> before trading them. Do not trade what you do not understand or cannot afford to lose.</p>
       </section>
       <section>
-        <h2>Data and models have limits</h2>
-        <p>Quotes, Greeks, volatility measures, news, catalysts, balances, and order status may be delayed, estimated, incomplete, or wrong. Automated and artificial-intelligence outputs can omit context or make errors. Confirm prices, contract details, buying power, disclosures, and order status with the relevant primary source before acting.</p>
+        <h2>Data and AI can be wrong</h2>
+        <p>Quotes, Greeks, volatility figures, charts, news, and catalyst dates come from third parties, may be delayed, incomplete, wrong, or unavailable, and catalyst dates are estimates. The daily brief is written automatically by an AI model, and research summaries and agent answers are also model output; any of it can be mistaken. Confirm prices and contract details with your broker before acting.</p>
       </section>
       <section>
-        <h2>Guards are safeguards, not guarantees</h2>
-        <p>Spice places an order only through your own brokerage credentials, and it does not hold orders for a separate confirmation step. Before submitting, it resolves the exact contract from the live option chain, applies its portfolio guard, which admits only defined-risk orders (a debit opening trade or a close of a position it has verified, never a naked short), checks the limit price against the live market, and requires a clean dry-run from your broker. Any confirmation prompt comes from the agent you run on your own machine, not from Spice. Cancellations are not guarded, because they only reduce exposure. None of this makes a trade safe, profitable, appropriate, or certain to execute. When a network or provider failure leaves a submission's outcome uncertain, Spice does not retry it and refuses further orders on that account until the submission is reconciled against the broker's order history; check with your broker directly before placing the order again.</p>
+        <h2>Order placement</h2>
+        <p>Spice places an order only through your own tastytrade connection, when your agent asks it to. Spice has no confirmation step of its own; any confirmation prompt comes from the agent you run. Before submitting, it resolves the exact contract, admits only defined-risk orders (a debit opening trade or a close of a verified position), checks the limit price against the current bid and ask, and requires a clean dry-run from your broker. These checks limit mistakes; they do not make a trade sound. A submitted order, or an order status or balance Spice reports, is not proof the order was accepted, filled, cancelled, or priced as shown; verify with your broker. If a submission's outcome is uncertain, Spice does not retry it and blocks further orders on that account until it is reconciled; check your broker before placing it again.</p>
       </section>
       <section>
-        <h2>Your responsibility</h2>
-        <p>You are solely responsible for deciding whether to trade, reviewing every order, understanding the applicable broker and exchange rules, and monitoring open positions. If you do not understand an instrument or cannot bear its potential loss, do not trade it.</p>
-      </section>
-      <section>
-        <h2>Questions</h2>
-        <p>Questions about these disclosures may be sent to <a href="mailto:legal@spicy.trade">legal@spicy.trade</a>.</p>
+        <h2>No affiliation</h2>
+        <p>Spice connects to tastytrade through tastytrade’s OAuth app program. It is not affiliated with or endorsed by tastytrade or any data provider, and your broker alone executes, clears, and reports your trades.</p>
       </section>
     </SitePage>
   )
