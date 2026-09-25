@@ -13,7 +13,6 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthorizeRouteImport } from './routes/authorize'
 import { Route as DisclosuresRouteImport } from './routes/disclosures'
 import { Route as PrivacyRouteImport } from './routes/privacy'
-import { Route as SupportRouteImport } from './routes/support'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as ApiFavoritesRouteImport } from './routes/api.favorites'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
@@ -54,11 +53,6 @@ const DisclosuresRoute = DisclosuresRouteImport.update({
 const PrivacyRoute = PrivacyRouteImport.update({
   id: '/privacy',
   path: '/privacy',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SupportRoute = SupportRouteImport.update({
-  id: '/support',
-  path: '/support',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TermsRoute = TermsRouteImport.update({
@@ -177,7 +171,6 @@ export interface FileRoutesByFullPath {
   '/authorize': typeof AuthorizeRouteWithChildren
   '/disclosures': typeof DisclosuresRoute
   '/privacy': typeof PrivacyRoute
-  '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
   '/api/favorites': typeof ApiFavoritesRoute
   '/api/health': typeof ApiHealthRoute
@@ -204,7 +197,6 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/disclosures': typeof DisclosuresRoute
   '/privacy': typeof PrivacyRoute
-  '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
   '/api/favorites': typeof ApiFavoritesRoute
   '/api/health': typeof ApiHealthRoute
@@ -233,7 +225,6 @@ export interface FileRoutesById {
   '/authorize': typeof AuthorizeRouteWithChildren
   '/disclosures': typeof DisclosuresRoute
   '/privacy': typeof PrivacyRoute
-  '/support': typeof SupportRoute
   '/terms': typeof TermsRoute
   '/api/favorites': typeof ApiFavoritesRoute
   '/api/health': typeof ApiHealthRoute
@@ -263,7 +254,6 @@ export interface FileRouteTypes {
     | '/authorize'
     | '/disclosures'
     | '/privacy'
-    | '/support'
     | '/terms'
     | '/api/favorites'
     | '/api/health'
@@ -290,7 +280,6 @@ export interface FileRouteTypes {
     | '/'
     | '/disclosures'
     | '/privacy'
-    | '/support'
     | '/terms'
     | '/api/favorites'
     | '/api/health'
@@ -318,7 +307,6 @@ export interface FileRouteTypes {
     | '/authorize'
     | '/disclosures'
     | '/privacy'
-    | '/support'
     | '/terms'
     | '/api/favorites'
     | '/api/health'
@@ -347,7 +335,6 @@ export interface RootRouteChildren {
   AuthorizeRoute: typeof AuthorizeRouteWithChildren
   DisclosuresRoute: typeof DisclosuresRoute
   PrivacyRoute: typeof PrivacyRoute
-  SupportRoute: typeof SupportRoute
   TermsRoute: typeof TermsRoute
   ApiFavoritesRoute: typeof ApiFavoritesRoute
   ApiHealthRoute: typeof ApiHealthRoute
@@ -397,13 +384,6 @@ declare module '@tanstack/react-router' {
       path: '/privacy'
       fullPath: '/privacy'
       preLoaderRoute: typeof PrivacyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/support': {
-      id: '/support'
-      path: '/support'
-      fullPath: '/support'
-      preLoaderRoute: typeof SupportRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/terms': {
@@ -575,7 +555,6 @@ const rootRouteChildren: RootRouteChildren = {
   AuthorizeRoute: AuthorizeRouteWithChildren,
   DisclosuresRoute: DisclosuresRoute,
   PrivacyRoute: PrivacyRoute,
-  SupportRoute: SupportRoute,
   TermsRoute: TermsRoute,
   ApiFavoritesRoute: ApiFavoritesRoute,
   ApiHealthRoute: ApiHealthRoute,

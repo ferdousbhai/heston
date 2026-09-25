@@ -152,7 +152,7 @@ function SpiceWorkspace({
                 account carries them for every width. */}
             {tab === 'connect' && (
               <nav aria-label="Legal and support" className="connect-footer">
-                <Link to="/support">Support</Link>
+                <a href="mailto:support@spicy.trade">Support</a>
                 <Link to="/terms">Terms</Link>
                 <Link to="/privacy">Privacy</Link>
                 <Link to="/disclosures">Disclosures</Link>

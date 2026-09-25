@@ -267,7 +267,7 @@ export function TopBar({
             <span className="last-updated-word">Updated </span>{updated}
           </span>
         )}
-        <Button nativeButton={false} render={<Link className="top-link" to="/support" />} size="sm" variant="link">Support</Button>
+        <Button nativeButton={false} render={<a className="top-link" href="mailto:support@spicy.trade" />} size="sm" variant="link">Support</Button>
         {viewerName && <ViewerMenu viewerName={viewerName} />}
         {!viewerName && <GoogleSignInButton compact />}
       </div>

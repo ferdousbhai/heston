@@ -273,9 +273,7 @@ test('unauthenticated visitors can read market data but connecting an agent need
   await expect(page.getByRole('heading', { name: 'Your agent. Your account.' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeVisible()
 
-  await page.goto('/support')
-  await expect(page.getByRole('heading', { name: 'Support' })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'support@spicy.trade' }).first()).toHaveAttribute('href', 'mailto:support@spicy.trade')
+  await expect(page.getByRole('link', { name: 'Support' }).first()).toHaveAttribute('href', 'mailto:support@spicy.trade')
 
   await page.goto('/privacy')
   await expect(page.getByRole('heading', { name: 'Privacy policy' })).toBeVisible()

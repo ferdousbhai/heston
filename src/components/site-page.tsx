@@ -19,7 +19,7 @@ export function SitePage({
           <span>SPICE</span>
         </Link>
         <nav aria-label="Information">
-          <Link to="/support">Support</Link>
+          <a href="mailto:support@spicy.trade">Support</a>
           <Link to="/terms">Terms</Link>
           <Link to="/privacy">Privacy</Link>
           <Link to="/disclosures">Disclosures</Link>
