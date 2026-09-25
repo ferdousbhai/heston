@@ -61,6 +61,15 @@
       "binding": "TASTYTRADE_REFRESH_TOKEN",
       "store_id": "a436a6cefedc4acd8bb920cdbc202c1c",
       "secret_name": "tastytrade-refresh-token"
+    },
+    {
+      // Heston's tastytrade OAuth app, which members connect through. Not the market-data grant
+      // above: that one is the Worker's own account, and this one only ever mints tokens from a
+      // refresh token a member presents (`src/server/tastytrade-member-grant.ts`). Its client id
+      // is the `TASTYTRADE_OAUTH_CLIENT_ID` var below.
+      "binding": "TASTYTRADE_OAUTH_CLIENT_SECRET",
+      "store_id": "a436a6cefedc4acd8bb920cdbc202c1c",
+      "secret_name": "tastytrade-oauth-client-secret"
     }
   ],
   "d1_databases": [
@@ -82,6 +91,12 @@
   },
   "vars": {
     "AUTH_BASE_URL": "https://heston.io",
-    "TASTYTRADE_API_BASE": "https://api.tastyworks.com"
+    "TASTYTRADE_API_BASE": "https://api.tastyworks.com",
+    // A var, not a secret: the client id is public, in every consent URL this Worker issues, and
+    // versioning it here keeps it beside the redirect URI it was registered with. The client
+    // secret is what must stay private, so it is the Secrets Store binding above. The owner
+    // fills in the issued id; empty or whitespace reads as missing and closes the connect
+    // endpoints with a 503.
+    "TASTYTRADE_OAUTH_CLIENT_ID": ""
   }
 }

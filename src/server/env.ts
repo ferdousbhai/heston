@@ -34,5 +34,7 @@ export interface AppEnv {
   MARKET_FEED?: MarketFeedNamespace
   TASTYTRADE_API_BASE?: string
   TASTYTRADE_CLIENT_SECRET?: SecretsStoreSecret
+  TASTYTRADE_OAUTH_CLIENT_ID?: string
+  TASTYTRADE_OAUTH_CLIENT_SECRET?: SecretsStoreSecret
   TASTYTRADE_REFRESH_TOKEN?: SecretsStoreSecret
 }

@@ -22,7 +22,7 @@ export function isOwnerEmail(email: string): boolean {
 
 export type AuthenticatedIdentity = { email: string; id: string; name: string }
 
-function requireProductionOrigin(value: string | undefined): string {
+export function requireProductionOrigin(value: string | undefined): string {
   if (!value) throw new ConfigurationError('AuthBaseUrlMissing')
   const url = new URL(value)
   if (url.protocol !== 'https:' || url.pathname !== '/' || url.search || url.hash) {

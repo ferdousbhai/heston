@@ -415,6 +415,133 @@ esac
     expect(code).not.toBe(0)
     expect(stdout).not.toContain('HestonAgentProxy: http://')
   }, 30_000)
+
+  it('mints an app grant through the Worker and forwards only the access token', async () => {
+    const captured: Captured[] = []
+    const mints: Captured[] = []
+    let directMints = 0
+    const port = await listen((request, response) => {
+      const chunks: Buffer[] = []
+      request.on('data', (chunk: Buffer) => chunks.push(chunk))
+      request.on('end', () => {
+        const body = Buffer.concat(chunks).toString()
+        if (request.url?.endsWith('/oauth/token')) {
+          // An app grant never goes to tastytrade directly: it has no client secret to send.
+          directMints += 1
+          response.writeHead(500)
+          response.end()
+          return
+        }
+        if (request.url === '/api/brokers/tastytrade/token') {
+          mints.push({ body, headers: request.headers })
+          response.writeHead(200, { 'content-type': 'application/json' })
+          response.end(JSON.stringify({ accessToken: MINTED, expiresIn: 900 }))
+          return
+        }
+        captured.push({ body, headers: request.headers })
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ ok: true }))
+      })
+    })
+    const keyring = await fakeKeyring({
+      'heston/mcp-token': HESTON_TOKEN,
+      'tastytrade/app-refresh-token': REFRESH_TOKEN,
+    })
+    const proxyPort = 18_795
+    await startProxy({
+      PATH: `${keyring}:${process.env.PATH ?? ''}`,
+      HESTON_MCP_URL: `http://127.0.0.1:${port}/mcp`,
+      TASTYTRADE_API_BASE: `http://127.0.0.1:${port}`,
+    }, proxyPort)
+
+    const call = () => fetch(`http://127.0.0.1:${proxyPort}/mcp`, {
+      body: JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'tools/list' }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+    })
+    expect(await (await call()).json()).toEqual({ ok: true })
+    expect(await (await call()).json()).toEqual({ ok: true })
+
+    // Minted once, by the Worker, with the agent token and the refresh token and nothing else.
+    expect(mints).toHaveLength(1)
+    expect(directMints).toBe(0)
+    expect(mints[0]?.headers.authorization).toBe(`Bearer ${HESTON_TOKEN}`)
+    expect(JSON.parse(mints[0]!.body)).toEqual({ refreshToken: REFRESH_TOKEN })
+    expect(captured).toHaveLength(2)
+    for (const request of captured) {
+      expect(request.headers['x-heston-broker']).toBe('tastytrade')
+      expect(request.headers['x-heston-broker-token']).toBe(MINTED)
+      expect(JSON.stringify(request)).not.toContain(REFRESH_TOKEN)
+    }
+  }, 30_000)
+
+  it('logs a relayed tastytrade refusal of an app grant by tastytrade status, never the credential', async () => {
+    let forwarded = 0
+    const port = await listen((request, response) => {
+      request.resume()
+      request.on('end', () => {
+        if (request.url === '/api/brokers/tastytrade/token') {
+          response.writeHead(502, { 'content-type': 'application/json' })
+          response.end(JSON.stringify({ error: 'tastytrade refused the grant', tastytradeStatus: 401 }))
+          return
+        }
+        forwarded += 1
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ ok: true }))
+      })
+    })
+    const keyring = await fakeKeyring({
+      'heston/mcp-token': HESTON_TOKEN,
+      'tastytrade/app-refresh-token': REFRESH_TOKEN,
+    })
+    const proxyPort = 18_796
+    await startProxy({
+      PATH: `${keyring}:${process.env.PATH ?? ''}`,
+      HESTON_MCP_URL: `http://127.0.0.1:${port}/mcp`,
+    }, proxyPort)
+    let stderr = ''
+    proxy!.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+
+    const reply = await fetch(`http://127.0.0.1:${proxyPort}/mcp`, {
+      body: JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'tools/list' }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+    })
+    expect(reply.status).toBe(502)
+    await expect.poll(() => stderr).toContain('HestonAgentProxy: POST TastytradeAuth 401\n')
+    expect(stderr).not.toContain(REFRESH_TOKEN)
+    expect(forwarded).toBe(0)
+  }, 30_000)
+
+  it('refuses to start when the keyring holds both an app grant and a personal grant', async () => {
+    const personalGrants: Array<Record<string, string>> = [
+      { 'tastytrade/client-secret': CLIENT_SECRET, 'tastytrade/refresh-token': REFRESH_TOKEN },
+      // Even half a personal grant beside an app grant is ambiguous, not a partial one to ignore.
+      { 'tastytrade/client-secret': CLIENT_SECRET },
+    ]
+    for (const personal of personalGrants) {
+      const keyring = await fakeKeyring({
+        'heston/mcp-token': HESTON_TOKEN,
+        'tastytrade/app-refresh-token': 'app-refresh-token-value',
+        ...personal,
+      })
+      const child = spawn(process.execPath, ['ops/heston-agent/proxy.mjs'], {
+        env: { ...process.env, HESTON_AGENT_PORT: '18797', PATH: `${keyring}:${process.env.PATH ?? ''}` },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      proxy = child
+      let stdout = ''
+      let stderr = ''
+      child.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
+      child.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+      const code = await new Promise<number | null>((resolve) => child.on('exit', resolve))
+      expect(code).not.toBe(0)
+      expect(stdout).not.toContain('HestonAgentProxy: http://')
+      expect(stderr).toContain('the keyring holds both a tastytrade app grant')
+      expect(stderr).not.toContain(CLIENT_SECRET)
+      expect(stderr).not.toContain('app-refresh-token-value')
+    }
+  }, 30_000)
 })
 
 describe('broker token retirement', () => {

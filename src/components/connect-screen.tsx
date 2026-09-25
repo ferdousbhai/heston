@@ -19,6 +19,8 @@ const PROXY_URL = 'http://127.0.0.1:8787/mcp'
 /** No Authorization header: the proxy attaches the keyring token so the agent holds none. */
 const PROXY_CLAUDE_COMMAND = `claude mcp add --transport http heston ${PROXY_URL}`
 const PROXY_GROK_COMMAND = `grok mcp add --transport http heston ${PROXY_URL}`
+/** Reads the Heston token from the keyring, so it needs the token stored first. */
+const CONNECT_TASTYTRADE_COMMAND = './ops/heston-agent/connect-tastytrade.mjs'
 
 /** The shape every failing handler in api.mcp-tokens returns. */
 const ErrorResponseSchema = z.object({ error: z.string() })
@@ -202,10 +204,16 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         </p>
         <p>
           A brokerage is a second store: balances, positions, order history, and orders against
-          your account only. tastytrade needs a personal OAuth app and two-factor authentication.
+          your account only. Run this, approve Heston on tastytrade&apos;s own page, and the grant
+          lands in your keyring — Heston never keeps it. The script restarts the proxy.
+        </p>
+        <CopyBlock label="Connect tastytrade" value={CONNECT_TASTYTRADE_COMMAND} />
+        <p className="connect-note">
+          Already use a personal OAuth grant from my.tastytrade.com? Store it instead; keep only
+          one kind, or the proxy will not start.
         </p>
         <CopyBlock
-          label="Store your brokerage credentials"
+          label="Store a personal grant"
           value={'./ops/heston-agent/store-credentials.sh tastytrade'}
         />
       </section>

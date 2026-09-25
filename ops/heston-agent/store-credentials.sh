@@ -13,12 +13,20 @@ usage() {
 Usage: store-credentials.sh [mcp-token|tastytrade|all]
 
   mcp-token   The Heston agent token, created in the web app's Connect tab.
-  tastytrade  The personal-grant client secret and refresh token, from
-              my.tastytrade.com > OAuth Applications > Manage > Create Grant.
-              The read and trade scopes need two-factor auth on your account.
+  tastytrade  A personal grant instead of Heston's tastytrade app: the client
+              secret and refresh token from my.tastytrade.com > OAuth
+              Applications > Manage > Create Grant. The read and trade scopes
+              need two-factor auth on your account.
   all         Both (default).
 
 Each value is prompted for; nothing is passed on the command line.
+
+To connect tastytrade the usual way -- approve Heston on tastytrade's own page,
+with no client secret to copy -- store the Heston token, then run:
+
+  ./ops/heston-agent/connect-tastytrade.mjs
+
+Keep one kind of tastytrade credential: the proxy refuses to start with both.
 EOF
 }
 

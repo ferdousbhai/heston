@@ -85,5 +85,17 @@ export default {
         'UnresolvedInstrumentSweepFailed',
         cause instanceof Error ? cause.name : 'UnknownError',
       )))
+    // A member's lapsed brokerage connections are dropped whenever they start another; the tick
+    // drops those of members who never came back.
+    context.waitUntil(import('./server/broker-authorizations')
+      .then(({ sweepExpiredBrokerAuthorizations }) => sweepExpiredBrokerAuthorizations(env, scheduledAt))
+      .then((authorizationCount) => console.info(JSON.stringify({
+        event: 'BrokerAuthorizationsSwept',
+        authorizationCount,
+      })))
+      .catch((cause: unknown) => console.error(
+        'BrokerAuthorizationSweepFailed',
+        cause instanceof Error ? cause.name : 'UnknownError',
+      )))
   },
 }

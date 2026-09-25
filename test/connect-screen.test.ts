@@ -12,6 +12,8 @@ describe('Connect screen copy', () => {
     expect(html).toContain('Grok lists tools, not prompts')
     expect(html).toContain('./ops/heston-agent/store-credentials.sh mcp-token')
     expect(html).toContain('./ops/heston-agent/store-credentials.sh tastytrade')
+    // Heston's tastytrade app is the usual way; a personal grant stays documented beside it.
+    expect(html).toContain('./ops/heston-agent/connect-tastytrade.mjs')
     // OAuth to the public URL remains for clients that can complete a browser sign-in.
     expect(html).toContain('claude mcp add --transport http heston https://heston.io/mcp')
     // A header-less request is served at the public tier, never challenged, so adding the

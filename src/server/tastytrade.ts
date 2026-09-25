@@ -70,7 +70,7 @@ import {
 } from './tastytrade-market-store'
 import { CallerVisibleError } from './caller-visible-error'
 
-const USER_AGENT = 'Heston/0.1'
+export const USER_AGENT = 'Heston/0.1'
 /**
  * The symbols one tastytrade request names. tastytrade's market-data endpoint documents a
  * combined limit of 100 symbols per request, and every symbol-listing read here — metrics,
@@ -86,7 +86,7 @@ export const BROKER_SYMBOL_CHUNK_SIZE = 100
  */
 export const TASTYTRADE_REQUEST_TIMEOUT_MS = 20_000
 // An OAuth token response is a handful of fields; this bounds the buffered parse of one.
-const MAX_TASTYTRADE_AUTH_RESPONSE_BYTES = 256_000
+export const MAX_TASTYTRADE_AUTH_RESPONSE_BYTES = 256_000
 // A cached token must outlive any request it is handed to, so it is retired one request timeout
 // before the provider's expiry — or a tenth of its life, for a token too short-lived to spare a
 // whole timeout and still be worth caching.
@@ -99,7 +99,7 @@ const MAX_TASTYTRADE_RESPONSE_BYTES = 16 * 1024 * 1024
 // never cached across requests because this module state is shared by every isolate user.
 let cachedAccess: { expiresAt: number; token: string } | undefined
 
-function apiBase(env: AppEnv) {
+export function apiBase(env: AppEnv) {
   return env.TASTYTRADE_API_BASE || 'https://api.tastyworks.com'
 }
 

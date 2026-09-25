@@ -32,6 +32,16 @@ export function isMintedMcpToken(presented: string): boolean {
   return TOKEN_PATTERN.test(presented)
 }
 
+/**
+ * The credential in an `Authorization: Bearer` header, parsed once for every way in. The scheme
+ * is case-insensitive (RFC 9110 §11.1), so `bearer` is the same claim as `Bearer`. Undefined for
+ * a header that is absent, carries another scheme, or carries nothing after it.
+ */
+export function presentedBearer(request: Request): string | undefined {
+  const match = /^Bearer\s+(.+)$/i.exec(request.headers.get('Authorization') ?? '')
+  return match?.[1]?.trim() || undefined
+}
+
 export type McpTokenIdentity = { tokenId: string; userId: string }
 
 export class McpTokenLimitError extends Error {

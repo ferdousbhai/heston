@@ -31,7 +31,7 @@ import {
   tradeIdeaPrompt,
 } from './doctrine'
 import { toolAnnotations } from './mcp-annotations'
-import { authenticateMcpToken, isMintedMcpToken } from './mcp-tokens'
+import { authenticateMcpToken, isMintedMcpToken, presentedBearer } from './mcp-tokens'
 import { getAuthRuntime, isOwnerEmail } from './auth'
 import { verifyMcpAccessToken } from './mcp-token-verify'
 import {
@@ -272,16 +272,6 @@ export type McpCaller = {
  * spend one broker lookup -- claimed one at a time per query, exactly as the website's does.
  */
 export const ANONYMOUS_CALLER: McpCaller = { owner: false, signedIn: false, userId: '' }
-
-/**
- * The credential in an `Authorization: Bearer` header, parsed once for both ways in. The scheme
- * is case-insensitive (RFC 9110 §11.1), so `bearer` is the same claim as `Bearer`. Undefined for
- * a header that is absent, carries another scheme, or carries nothing after it.
- */
-function presentedBearer(request: Request): string | undefined {
-  const match = /^Bearer\s+(.+)$/i.exec(request.headers.get('Authorization') ?? '')
-  return match?.[1]?.trim() || undefined
-}
 
 /**
  * The token store could not answer: a missing binding or a failed read. Distinct from a token

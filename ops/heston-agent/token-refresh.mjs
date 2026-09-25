@@ -18,6 +18,13 @@ const REFRESH_SKEW_FRACTION = 0.1
 // broker token must outlive the moment it is attached; see tokenRetiresAt below.
 export const UPSTREAM_TIMEOUT_MS = 60_000
 
+// Minting a broker token is one tastytrade request, so it gets the budget the Worker gives one
+// (TASTYTRADE_REQUEST_TIMEOUT_MS). Every local call whose answer waits on exactly one such
+// request uses it too: the Worker's `/api/brokers/tastytrade/*` endpoints each make at most one,
+// and abandon it at this same budget, so waiting longer would only hear the Worker's own
+// timeout. It lives here, beside UPSTREAM_TIMEOUT_MS, because importing the proxy starts it.
+export const TOKEN_REQUEST_TIMEOUT_MS = 20_000
+
 export function tokenRetiresAt(issuedAtMs, lifetimeMs, upstreamTimeoutMs) {
   const skewMs = Math.min(upstreamTimeoutMs, lifetimeMs * REFRESH_SKEW_FRACTION)
   return issuedAtMs + lifetimeMs - skewMs

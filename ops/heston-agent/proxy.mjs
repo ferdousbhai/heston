@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 import { createServer } from 'node:http'
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
 import { z } from 'zod'
 
-import { tokenRetiresAt, UPSTREAM_TIMEOUT_MS } from './token-refresh.mjs'
+import { keyringSecret } from './keyring.mjs'
+import { TOKEN_REQUEST_TIMEOUT_MS, tokenRetiresAt, UPSTREAM_TIMEOUT_MS } from './token-refresh.mjs'
 
 /**
  * The brokerage credential broker for a local agent.
@@ -21,14 +20,29 @@ import { tokenRetiresAt, UPSTREAM_TIMEOUT_MS } from './token-refresh.mjs'
  *
  * It is also why the 15-minute lifetime never surfaces: tastytrade sets it and it cannot be
  * raised, but re-minting happens here, ahead of expiry, so a long session never re-authenticates.
+ *
+ * A tastytrade credential comes in one of two kinds, told apart by the keyring entries present:
+ *   personal grant  `client-secret` + `refresh-token`, from the member's own OAuth app; minted
+ *                   directly against tastytrade.
+ *   app grant       `app-refresh-token`, from `connect-tastytrade.mjs` under Heston's OAuth app,
+ *                   whose client secret only the Worker holds; minted through the Worker.
+ * Either way only the 15-minute access token is attached to forwarded requests. A keyring holding
+ * both is refused rather than resolved by a precedence rule: which account the agent trades
+ * would otherwise turn on an ordering nobody chose.
  */
-
-const execFileAsync = promisify(execFile)
 
 const TokenResponseSchema = z.object({
   access_token: z.string().min(1),
   expires_in: z.number().int().positive(),
 })
+
+// What the Worker's `/api/brokers/tastytrade/token` answers: a mint, or a refusal that carries
+// tastytrade's own status when tastytrade was the one that refused.
+const AppGrantResponseSchema = z.object({
+  accessToken: z.string().min(1),
+  expiresIn: z.number().int().positive(),
+})
+const AppGrantRefusalSchema = z.object({ tastytradeStatus: z.number().int() })
 
 /** The only broker with an adapter that can place orders; also its keyring service name. */
 const BROKER = 'tastytrade'
@@ -36,43 +50,19 @@ const LISTEN_HOST = '127.0.0.1'
 const DEFAULT_PORT = 8787
 const UPSTREAM = process.env.HESTON_MCP_URL ?? 'https://heston.io/mcp'
 const TASTYTRADE_API_BASE = process.env.TASTYTRADE_API_BASE ?? 'https://api.tastyworks.com'
-// UPSTREAM_TIMEOUT_MS lives in token-refresh.mjs because importing this file starts the proxy
-// (`await main()`), so the retirement test takes the constant from there instead.
-// Minting the broker token is one tastytrade request, so it gets the budget the Worker gives one
-// (TASTYTRADE_REQUEST_TIMEOUT_MS). It runs before, and in addition to, the forwarded call's own
-// UPSTREAM_TIMEOUT_MS, so a call that also mints can take up to the sum of the two.
-const TOKEN_REQUEST_TIMEOUT_MS = 20_000
+// An app grant is minted by the Worker that UPSTREAM names, so it is the same origin: the agent
+// token that authenticates the forwarded call is the one that authenticates the mint.
+const APP_GRANT_TOKEN_URL = new URL('/api/brokers/tastytrade/token', UPSTREAM)
+const PROGRAM = 'HestonAgentProxy'
+// UPSTREAM_TIMEOUT_MS and TOKEN_REQUEST_TIMEOUT_MS live in token-refresh.mjs because importing
+// this file starts the proxy (`await main()`), so the retirement test takes them from there.
+// A mint runs before, and in addition to, the forwarded call's own UPSTREAM_TIMEOUT_MS, so a call
+// that also mints can take up to the sum of the two.
 
 /**
- * Keyring reads go through the secret-tool binary, so no secret is ever an argv value here.
- *
- * Credentials are filed under the service that issued them, not the app that spends them: the
- * agent token is Heston's, while a client secret and refresh token are tastytrade's and would be
- * Schwab's for a Schwab adapter. That keeps the keyring laid out the way the Worker's adapter
- * registry (`brokerAdaptersSeam` in `src/server/brokers/index.ts`) is, so adding a broker adds a
- * service rather than more keys under this one.
- *
- * "Not stored" and "could not read the keyring" are different facts. `secret-tool lookup` exits 1
- * and prints nothing when the entry is absent; anything else -- a missing binary, a locked or
- * unreachable keyring, which it reports on stderr -- is a failure, and this exits rather than
- * start in market-only mode on a credential that is in fact stored.
- */
-async function keyringSecret(service, key) {
-  try {
-    const { stdout } = await execFileAsync('secret-tool', ['lookup', 'service', service, 'key', key])
-    const value = stdout.trim()
-    return value || undefined
-  } catch (error) {
-    if (error?.code === 1 && !String(error.stderr ?? '').trim()) return undefined
-    // Fixed vocabulary only: secret-tool's stderr is not echoed.
-    process.stderr.write(`HestonAgentProxy: the keyring could not be read (${service}/${key})\n`)
-    process.exit(1)
-  }
-}
-
-/**
- * A refused, unreachable, or unreadable token exchange. Its `code` is the HTTP status or a fixed
- * word of ours, and the handler logs it beside the name: a revoked grant or an unreachable broker
+ * A refused, unreachable, or unreadable token exchange. Its `code` is tastytrade's HTTP status, a
+ * fixed word of ours, or `heston-` and the Worker's status when the Worker refused an app-grant
+ * mint itself, and the handler logs it beside the name: a revoked grant or an unreachable broker
  * has to read as that in the log, not as a bare `Error` or `TypeError` indistinguishable from the
  * Worker failing. `transport`, when present, is the OS- or undici-level code of the failure --
  * `ENOTFOUND`, `TimeoutError` -- never a message. Nothing here carries the request or response
@@ -97,8 +87,16 @@ function transportCode(error) {
 
 let cachedAccess
 
-async function brokerAccessToken(clientSecret, refreshToken) {
+/** The cached access token, or a fresh one from `mint`, retired ahead of its expiry. */
+async function brokerAccessToken(mint) {
   if (cachedAccess && Date.now() < cachedAccess.expiresAt) return cachedAccess.token
+  const { lifetimeSeconds, token } = await mint()
+  cachedAccess = { expiresAt: tokenRetiresAt(Date.now(), lifetimeSeconds * 1_000, UPSTREAM_TIMEOUT_MS), token }
+  return token
+}
+
+/** A personal grant: the member's own client secret and refresh token, straight to tastytrade. */
+async function mintPersonalGrant(clientSecret, refreshToken) {
   let response
   try {
     response = await fetch(`${TASTYTRADE_API_BASE}/oauth/token`, {
@@ -133,9 +131,48 @@ async function brokerAccessToken(clientSecret, refreshToken) {
   }
   const grant = TokenResponseSchema.safeParse(payload)
   if (!grant.success) throw new TastytradeAuthError('invalid-token-response')
-  const { access_token: token, expires_in: lifetimeSeconds } = grant.data
-  cachedAccess = { expiresAt: tokenRetiresAt(Date.now(), lifetimeSeconds * 1_000, UPSTREAM_TIMEOUT_MS), token }
-  return token
+  return { lifetimeSeconds: grant.data.expires_in, token: grant.data.access_token }
+}
+
+/**
+ * An app grant: the member's refresh token, minted by the Worker, which adds the app's client
+ * secret. The refresh token leaves this machine only in this request's body, to Heston, over the
+ * same authenticated channel every forwarded call uses.
+ *
+ * A refusal is reported by tastytrade's status when the Worker relays one, so a revoked grant
+ * reads the same in this log whichever kind it is; a refusal of the Worker's own is `heston-`
+ * and its status.
+ */
+async function mintAppGrant(hestonToken, refreshToken) {
+  let response
+  try {
+    response = await fetch(APP_GRANT_TOKEN_URL, {
+      body: JSON.stringify({ refreshToken }),
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${hestonToken}`,
+        'Content-Type': 'application/json',
+        'User-Agent': 'Heston-Agent-Proxy/0.1',
+      },
+      method: 'POST',
+      signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
+    })
+  } catch (error) {
+    throw new TastytradeAuthError('unreachable', transportCode(error))
+  }
+  let payload
+  try {
+    payload = await response.json()
+  } catch {
+    throw new TastytradeAuthError(response.ok ? 'invalid-token-response' : `heston-${response.status}`)
+  }
+  if (!response.ok) {
+    const refusal = AppGrantRefusalSchema.safeParse(payload)
+    throw new TastytradeAuthError(refusal.success ? refusal.data.tastytradeStatus : `heston-${response.status}`)
+  }
+  const grant = AppGrantResponseSchema.safeParse(payload)
+  if (!grant.success) throw new TastytradeAuthError('invalid-token-response')
+  return { lifetimeSeconds: grant.data.expiresIn, token: grant.data.accessToken }
 }
 
 async function readBody(request) {
@@ -145,7 +182,7 @@ async function readBody(request) {
 }
 
 async function main() {
-  const hestonToken = await keyringSecret('heston', 'mcp-token')
+  const hestonToken = await keyringSecret(PROGRAM, 'heston', 'mcp-token')
   if (!hestonToken) {
     process.stderr.write(
       'HestonAgentProxy: no Heston token in the keyring. Create one in the Connect tab, then:\n'
@@ -153,15 +190,31 @@ async function main() {
     )
     process.exit(1)
   }
-  const [clientSecret, refreshToken] = await Promise.all([
-    keyringSecret(BROKER, 'client-secret'),
-    keyringSecret(BROKER, 'refresh-token'),
+  const [clientSecret, refreshToken, appRefreshToken] = await Promise.all([
+    keyringSecret(PROGRAM, BROKER, 'client-secret'),
+    keyringSecret(PROGRAM, BROKER, 'refresh-token'),
+    keyringSecret(PROGRAM, BROKER, 'app-refresh-token'),
   ])
+  if (appRefreshToken && (clientSecret || refreshToken)) {
+    process.stderr.write(
+      'HestonAgentProxy: the keyring holds both a tastytrade app grant (tastytrade/app-refresh-token)\n'
+      + 'and a personal grant (tastytrade/client-secret, tastytrade/refresh-token). Remove one kind:\n'
+      + '  secret-tool clear service tastytrade key app-refresh-token\n'
+      + 'or\n'
+      + '  secret-tool clear service tastytrade key client-secret\n'
+      + '  secret-tool clear service tastytrade key refresh-token\n',
+    )
+    process.exit(1)
+  }
   // Brokerage credentials are optional: without them this still forwards the market and
   // research surface, and the Worker answers account tools with its own connect-a-brokerage
   // message. Starting anyway beats refusing to run for a capability the user may not want.
-  const brokerageConfigured = Boolean(clientSecret && refreshToken)
-  if (!brokerageConfigured) {
+  const mint = appRefreshToken
+    ? () => mintAppGrant(hestonToken, appRefreshToken)
+    : clientSecret && refreshToken
+      ? () => mintPersonalGrant(clientSecret, refreshToken)
+      : undefined
+  if (!mint) {
     process.stderr.write('HestonAgentProxy: no brokerage credential in the keyring; forwarding market tools only\n')
   }
 
@@ -190,9 +243,9 @@ async function main() {
           const value = Array.isArray(raw) ? raw[0] : raw
           if (value) headers.set(name, value)
         }
-        if (brokerageConfigured) {
+        if (mint) {
           headers.set('X-Heston-Broker', BROKER)
-          headers.set('X-Heston-Broker-Token', await brokerAccessToken(clientSecret, refreshToken))
+          headers.set('X-Heston-Broker-Token', await brokerAccessToken(mint))
         }
         const body = request.method === 'GET' || request.method === 'HEAD'
           ? undefined
