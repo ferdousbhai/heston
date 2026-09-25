@@ -1,3 +1,5 @@
+import { type z } from 'zod'
+
 import {
   BROKER_AUTHORIZATION_STATE_BYTES,
   BROKER_AUTHORIZATION_TTL_MS,
@@ -13,7 +15,7 @@ import { base64Url, sha256Base64Url } from './digest'
 import { type AppEnv } from './env'
 import { jsonNoStore } from './http'
 import { authenticateMcpToken, isMintedMcpToken, presentedBearer } from './mcp-tokens'
-import { ConfigurationError, readStoredSecret } from './secrets'
+import { ConfigurationError, readBoundSecret, readStoredSecret } from './secrets'
 import {
   exchangeTastytradeAuthorizationCode,
   refreshTastytradeMemberAccess,
@@ -66,11 +68,11 @@ type ConnectConfig = {
  */
 function connectConfig(env: AppEnv): ConnectConfig | undefined {
   if (!env.DB) return unconfigured('DB')
-  const clientId = env.TASTYTRADE_OAUTH_CLIENT_ID?.trim()
-  if (!clientId) return unconfigured('TASTYTRADE_OAUTH_CLIENT_ID')
   if (!env.TASTYTRADE_OAUTH_CLIENT_SECRET) return unconfigured('TASTYTRADE_OAUTH_CLIENT_SECRET')
+  let clientId: string
   let origin: string
   try {
+    clientId = readBoundSecret(env.TASTYTRADE_OAUTH_CLIENT_ID, 'TASTYTRADE_OAUTH_CLIENT_ID')
     origin = requireProductionOrigin(env.AUTH_BASE_URL)
   } catch (error) {
     return unconfigured(error instanceof Error ? error.name : 'UnknownError')
@@ -101,7 +103,22 @@ async function agentUserId(request: Request, database: D1Database): Promise<stri
   return (await authenticateMcpToken(database, presented))?.userId
 }
 
-const agentTokenRequired = () => jsonNoStore({ error: 'A Heston agent token is required' }, { status: 401 })
+/**
+ * The member a minted agent token names and the body parsed against `schema`, or the refusal to
+ * return. Every endpoint but the callback, which the browser reaches unauthenticated, opens so.
+ */
+async function agentRequest<T>(
+  request: Request,
+  database: D1Database,
+  schema: z.ZodType<T>,
+  invalid: string,
+): Promise<{ data: T; userId: string } | Response> {
+  const userId = await agentUserId(request, database)
+  if (!userId) return jsonNoStore({ error: 'A Heston agent token is required' }, { status: 401 })
+  const parsed = schema.safeParse(await request.json().catch(() => null))
+  if (!parsed.success) return jsonNoStore({ error: invalid }, { status: 400 })
+  return { data: parsed.data, userId }
+}
 
 /** The response for a token request tastytrade did not complete: our words, its status. */
 function grantFailure(error: TastytradeMemberGrantError): Response {
@@ -130,10 +147,9 @@ export async function authorizeTastytrade(request: Request, env: AppEnv, now = n
   const config = connectConfig(env)
   if (!config) return unavailable()
   try {
-    const userId = await agentUserId(request, config.database)
-    if (!userId) return agentTokenRequired()
-    const parsed = BrokerAuthorizeRequestSchema.safeParse(await request.json().catch(() => null))
-    if (!parsed.success) return jsonNoStore({ error: 'Invalid loopback port' }, { status: 400 })
+    const parsed = await agentRequest(request, config.database, BrokerAuthorizeRequestSchema, 'Invalid loopback port')
+    if (parsed instanceof Response) return parsed
+    const { userId } = parsed
 
     const state = randomState()
     const nowIso = now.toISOString()
@@ -254,10 +270,9 @@ export async function exchangeTastytrade(request: Request, env: AppEnv, now = ne
   const config = connectConfig(env)
   if (!config) return unavailable()
   try {
-    const userId = await agentUserId(request, config.database)
-    if (!userId) return agentTokenRequired()
-    const parsed = BrokerExchangeRequestSchema.safeParse(await request.json().catch(() => null))
-    if (!parsed.success) return jsonNoStore({ error: 'Invalid authorization' }, { status: 400 })
+    const parsed = await agentRequest(request, config.database, BrokerExchangeRequestSchema, 'Invalid authorization')
+    if (parsed instanceof Response) return parsed
+    const { userId } = parsed
     // Read before the row is consumed, so a misconfigured secret does not burn the attempt.
     const clientSecret = await readStoredSecret(config.clientSecret, 'TASTYTRADE_OAUTH_CLIENT_SECRET')
 
@@ -294,10 +309,8 @@ export async function tastytradeAccessToken(request: Request, env: AppEnv): Prom
   const config = connectConfig(env)
   if (!config) return unavailable()
   try {
-    const userId = await agentUserId(request, config.database)
-    if (!userId) return agentTokenRequired()
-    const parsed = BrokerTokenRequestSchema.safeParse(await request.json().catch(() => null))
-    if (!parsed.success) return jsonNoStore({ error: 'Invalid refresh token' }, { status: 400 })
+    const parsed = await agentRequest(request, config.database, BrokerTokenRequestSchema, 'Invalid refresh token')
+    if (parsed instanceof Response) return parsed
     const clientSecret = await readStoredSecret(config.clientSecret, 'TASTYTRADE_OAUTH_CLIENT_SECRET')
     const access = await refreshTastytradeMemberAccess(env, { clientSecret, refreshToken: parsed.data.refreshToken })
     return jsonNoStore(access)
