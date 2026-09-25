@@ -10,14 +10,14 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: store-credentials.sh [mcp-token|tastytrade|all]
+Usage: store-credentials.sh [mcp-token|tastytrade]
 
-  mcp-token   The Spice agent token, created in the web app's Connect tab.
+  mcp-token   The Spice agent token, created in the web app's Connect tab
+              (default).
   tastytrade  A personal grant instead of Spice's tastytrade app: the client
               secret and refresh token from my.tastytrade.com > OAuth
               Applications > Manage > Create Grant. The read and trade scopes
               need two-factor auth on your account.
-  all         Both (default).
 
 Each value is prompted for; nothing is passed on the command line.
 
@@ -46,16 +46,24 @@ store() {
 
 command -v secret-tool >/dev/null || { echo 'secret-tool is not installed (package: libsecret).' >&2; exit 1; }
 
-case "${1:-all}" in
+# The default is the Spice token alone. A personal grant is the exception now that tastytrade
+# connects through Spice's app (connect-tastytrade.mjs), and storing one beside an app grant
+# stops the proxy, so it is only ever asked for by name.
+case "${1:-mcp-token}" in
   mcp-token) want_mcp=1; want_tasty=0 ;;
   tastytrade) want_mcp=0; want_tasty=1 ;;
-  all) want_mcp=1; want_tasty=1 ;;
   -h|--help) usage; exit 0 ;;
   *) usage >&2; exit 1 ;;
 esac
 
 if [[ ${want_mcp} -eq 1 ]]; then
   store spice mcp-token 'Spice agent token' 'Spice agent token (Connect tab in the web app):'
+  if ! secret-tool lookup service tastytrade key app-refresh-token >/dev/null 2>&1 \
+    && ! secret-tool lookup service tastytrade key refresh-token >/dev/null 2>&1; then
+    echo
+    echo 'No tastytrade connection yet. To add one, approve Spice on tastytrade with:'
+    echo '  ./ops/spice-agent/connect-tastytrade.mjs'
+  fi
 fi
 
 if [[ ${want_tasty} -eq 1 ]]; then
