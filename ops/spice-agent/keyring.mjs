@@ -56,3 +56,45 @@ export function keyringStore(service, key, label, value) {
     child.stdin.end(value)
   })
 }
+
+/**
+ * A tastytrade credential comes in one of two kinds, told apart by which keyring entries are
+ * present:
+ *   personal grant  `client-secret` + `refresh-token`, from the member's own OAuth app; minted
+ *                   directly against tastytrade.
+ *   app grant       `app-refresh-token`, from `connect-tastytrade.mjs` under Spice's OAuth app,
+ *                   whose client secret only the Worker holds; minted through the Worker.
+ * Both the proxy and `connect-tastytrade.mjs` need to tell these apart the same way, so the key
+ * names and the read live here rather than duplicated in each.
+ */
+export const TASTYTRADE = 'tastytrade'
+export const APP_REFRESH_TOKEN_KEY = 'app-refresh-token'
+export const CLIENT_SECRET_KEY = 'client-secret'
+export const REFRESH_TOKEN_KEY = 'refresh-token'
+
+/**
+ * Reads every tastytrade keyring entry in parallel and classifies what is there. `kind` is
+ * `'none'`; `'personal'` (a client secret and/or refresh token present -- even half a personal
+ * grant counts, since it is still ambiguous beside an app grant and still not usable alone);
+ * `'app'` (an app-grant refresh token, nothing else); or `'ambiguous'` (an app grant alongside
+ * any personal-grant key -- which account trades would otherwise turn on an ordering nobody
+ * chose). The raw values come back alongside `kind` so a caller that needs them to mint -- the
+ * proxy -- does not read the keyring twice; `connect-tastytrade.mjs` only inspects `kind`. Never
+ * logs a value.
+ */
+export async function tastytradeCredentialKind(program) {
+  const [clientSecret, refreshToken, appRefreshToken] = await Promise.all([
+    keyringSecret(program, TASTYTRADE, CLIENT_SECRET_KEY),
+    keyringSecret(program, TASTYTRADE, REFRESH_TOKEN_KEY),
+    keyringSecret(program, TASTYTRADE, APP_REFRESH_TOKEN_KEY),
+  ])
+  const hasPersonal = Boolean(clientSecret || refreshToken)
+  const kind = appRefreshToken && hasPersonal
+    ? 'ambiguous'
+    : appRefreshToken
+      ? 'app'
+      : hasPersonal
+        ? 'personal'
+        : 'none'
+  return { appRefreshToken, clientSecret, kind, refreshToken }
+}

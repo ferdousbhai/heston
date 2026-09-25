@@ -4,7 +4,10 @@ import { timingSafeEqual } from 'node:crypto'
 import { createServer } from 'node:http'
 import { z } from 'zod'
 
-import { keyringSecret, keyringStore } from './keyring.mjs'
+import {
+  APP_REFRESH_TOKEN_KEY, CLIENT_SECRET_KEY, keyringSecret, keyringStore, REFRESH_TOKEN_KEY, TASTYTRADE,
+  tastytradeCredentialKind,
+} from './keyring.mjs'
 import { TOKEN_REQUEST_TIMEOUT_MS } from './token-refresh.mjs'
 
 /**
@@ -28,9 +31,8 @@ const PROGRAM = 'SpiceConnectTastytrade'
 const ORIGIN = new URL(process.env.SPICE_MCP_URL ?? 'https://spicy.trade/mcp').origin
 const LISTEN_HOST = '127.0.0.1'
 const CALLBACK_PATH = '/callback'
-const BROKER = 'tastytrade'
-const KEY = 'app-refresh-token'
-const PERSONAL_GRANT_KEYS = ['client-secret', 'refresh-token']
+const BROKER = TASTYTRADE
+const KEY = APP_REFRESH_TOKEN_KEY
 
 // The codes RFC 6749 §4.1.2.1 defines for a refused authorization. Anything else tastytrade
 // returns is reported without its text, since the text is not ours.
@@ -176,13 +178,12 @@ async function main() {
   }
   // The proxy refuses a keyring holding both kinds, so connecting over a personal grant would
   // only leave it unable to start. Say so now, before the member goes through tastytrade.
-  for (const key of PERSONAL_GRANT_KEYS) {
-    if (await keyringSecret(PROGRAM, BROKER, key)) {
-      fail('the keyring already holds a tastytrade personal grant, and the proxy refuses to start with both.\n'
-        + 'Remove it first:\n'
-        + '  secret-tool clear service tastytrade key client-secret\n'
-        + '  secret-tool clear service tastytrade key refresh-token')
-    }
+  const { kind } = await tastytradeCredentialKind(PROGRAM)
+  if (kind === 'personal' || kind === 'ambiguous') {
+    fail('the keyring already holds a tastytrade personal grant, and the proxy refuses to start with both.\n'
+      + 'Remove it first:\n'
+      + `  secret-tool clear service ${BROKER} key ${CLIENT_SECRET_KEY}\n`
+      + `  secret-tool clear service ${BROKER} key ${REFRESH_TOKEN_KEY}`)
   }
 
   const listener = await loopbackListener()

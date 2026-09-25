@@ -1,11 +1,12 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer, request as httpRequest, type IncomingMessage, type Server } from 'node:http'
 import { type AddressInfo } from 'node:net'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
+
+import { fakeSecretTool } from './fake-secret-tool.ts'
 
 /*
  * `connect-tastytrade.mjs` end to end against a stand-in Worker: the real loopback listener, the
@@ -40,23 +41,10 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { force: true, recursive: true })))
 })
 
-/** A keyring stored as one file per `service/key`, plus inert `xdg-open`, `open`, and `systemctl`. */
+/** The shared `secret-tool` stand-in, plus inert `xdg-open`, `open`, and `systemctl` beside it. */
 async function fakeTools(entries: Record<string, string>): Promise<string> {
-  const directory = await mkdtemp(join(tmpdir(), 'spice-connect-'))
+  const directory = await fakeSecretTool(entries)
   directories.push(directory)
-  await mkdir(join(directory, 'store'))
-  for (const [path, value] of Object.entries(entries)) {
-    await writeFile(join(directory, 'store', path.replace('/', '_')), value)
-  }
-  await writeFile(join(directory, 'secret-tool'), `#!/usr/bin/env bash
-store='${directory}/store'
-if [[ $1 == lookup ]]; then
-  [[ -f "$store/$3_$5" ]] || exit 1
-  cat "$store/$3_$5"
-elif [[ $1 == store ]]; then
-  cat > "$store/$4_$6"
-fi
-`)
   await writeFile(join(directory, 'xdg-open'), `#!/usr/bin/env bash\necho "$1" > '${directory}/opened'\n`)
   await writeFile(join(directory, 'open'), `#!/usr/bin/env bash\necho "$1" > '${directory}/opened'\n`)
   await writeFile(join(directory, 'systemctl'), '#!/usr/bin/env bash\nexit 1\n')

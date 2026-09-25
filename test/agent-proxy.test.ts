@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { tokenRetiresAt, UPSTREAM_TIMEOUT_MS } from '../ops/spice-agent/token-refresh.mjs'
+import { fakeSecretTool } from './fake-secret-tool.ts'
 
 const REFRESH_TOKEN = 'refresh-token-that-must-never-leave-this-machine'
 const CLIENT_SECRET = 'client-secret-that-must-never-leave-this-machine'
@@ -40,24 +41,9 @@ async function listen(handler: (request: IncomingMessage, response: ServerRespon
   return (upstream.address() as AddressInfo).port
 }
 
-/**
- * A `secret-tool` stand-in on PATH, so the proxy's own keyring code path is what runs. Keyed by
- * `service/key` rather than key alone, because the service is what separates Spice's own token
- * from a broker's credentials and a stub that ignored it would not notice them being confused.
- */
+/** The shared `secret-tool` stand-in, tracked here so its directory is cleaned up after each test. */
 async function fakeKeyring(entries: Record<string, string>): Promise<string> {
-  const directory = await mkdtemp(join(tmpdir(), 'spice-keyring-'))
-  const cases = Object.entries(entries)
-    .map(([path, value]) => `    ${path}) printf '%s' '${value}' ;;`)
-    .join('\n')
-  await writeFile(join(directory, 'secret-tool'), `#!/usr/bin/env bash
-# usage: secret-tool lookup service <service> key <key>
-case "$3/$5" in
-${cases}
-  *) exit 1 ;;
-esac
-`)
-  await chmod(join(directory, 'secret-tool'), 0o755)
+  const directory = await fakeSecretTool(entries)
   keyrings.push(directory)
   return directory
 }

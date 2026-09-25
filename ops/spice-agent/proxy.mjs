@@ -2,7 +2,7 @@
 import { createServer } from 'node:http'
 import { z } from 'zod'
 
-import { keyringSecret } from './keyring.mjs'
+import { APP_REFRESH_TOKEN_KEY, CLIENT_SECRET_KEY, keyringSecret, REFRESH_TOKEN_KEY, TASTYTRADE, tastytradeCredentialKind } from './keyring.mjs'
 import { TOKEN_REQUEST_TIMEOUT_MS, tokenRetiresAt, UPSTREAM_TIMEOUT_MS } from './token-refresh.mjs'
 
 /**
@@ -45,7 +45,7 @@ const AppGrantResponseSchema = z.object({
 const AppGrantRefusalSchema = z.object({ tastytradeStatus: z.number().int() })
 
 /** The only broker with an adapter that can place orders; also its keyring service name. */
-const BROKER = 'tastytrade'
+const BROKER = TASTYTRADE
 const LISTEN_HOST = '127.0.0.1'
 const DEFAULT_PORT = 8787
 const UPSTREAM = process.env.SPICE_MCP_URL ?? 'https://spicy.trade/mcp'
@@ -190,19 +190,15 @@ async function main() {
     )
     process.exit(1)
   }
-  const [clientSecret, refreshToken, appRefreshToken] = await Promise.all([
-    keyringSecret(PROGRAM, BROKER, 'client-secret'),
-    keyringSecret(PROGRAM, BROKER, 'refresh-token'),
-    keyringSecret(PROGRAM, BROKER, 'app-refresh-token'),
-  ])
-  if (appRefreshToken && (clientSecret || refreshToken)) {
+  const { appRefreshToken, clientSecret, kind, refreshToken } = await tastytradeCredentialKind(PROGRAM)
+  if (kind === 'ambiguous') {
     process.stderr.write(
-      'SpiceAgentProxy: the keyring holds both a tastytrade app grant (tastytrade/app-refresh-token)\n'
-      + 'and a personal grant (tastytrade/client-secret, tastytrade/refresh-token). Remove one kind:\n'
-      + '  secret-tool clear service tastytrade key app-refresh-token\n'
+      `SpiceAgentProxy: the keyring holds both a tastytrade app grant (${BROKER}/${APP_REFRESH_TOKEN_KEY})\n`
+      + `and a personal grant (${BROKER}/${CLIENT_SECRET_KEY}, ${BROKER}/${REFRESH_TOKEN_KEY}). Remove one kind:\n`
+      + `  secret-tool clear service ${BROKER} key ${APP_REFRESH_TOKEN_KEY}\n`
       + 'or\n'
-      + '  secret-tool clear service tastytrade key client-secret\n'
-      + '  secret-tool clear service tastytrade key refresh-token\n',
+      + `  secret-tool clear service ${BROKER} key ${CLIENT_SECRET_KEY}\n`
+      + `  secret-tool clear service ${BROKER} key ${REFRESH_TOKEN_KEY}\n`,
     )
     process.exit(1)
   }
