@@ -34,6 +34,25 @@ describe('the brief screen', () => {
     expect(html).toContain('[x](javascript:alert(1))')
   })
 
+  it('puts the trades before the headlines, and shows a headline as its title, snippet and host', () => {
+    const html = render({
+      ...dailyBriefFixture,
+      links: [
+        { url: 'https://www.reuters.com/markets/us/capex-2026', title: 'Capex <b>holds</b>', snippet: 'Hyperscalers keep spending.' },
+        { url: 'https://www.bloomberg.com/news/x' },
+      ],
+    })
+    expect(html.indexOf('Trades')).toBeLessThan(html.indexOf('Headlines'))
+    expect(html).not.toContain('Reading')
+    expect(html).toContain('Capex &lt;b&gt;holds&lt;/b&gt;')
+    expect(html).toContain('Hyperscalers keep spending.')
+    expect(html).toContain('>www.reuters.com<')
+    // A titled headline does not repeat its URL as text; an untitled one falls back to it.
+    expect(html).not.toContain('>https://www.reuters.com/markets/us/capex-2026')
+    expect(html).toContain('>https://www.bloomberg.com/news/x')
+    expect(html).toContain('rel="noreferrer" target="_blank"')
+  })
+
   it('says so when nothing has been published', () => {
     const html = render(undefined)
     expect(html).toContain('No brief yet')

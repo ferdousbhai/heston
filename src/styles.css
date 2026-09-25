@@ -614,14 +614,18 @@ button { -webkit-tap-highlight-color: transparent; }
 .brief-published { margin: 6px 0 0; color: var(--ink-faint); font: 13px/1.3 var(--sans); }
 .brief-byline { margin: 8px 0 0; color: var(--ink-faint); font-size: 13px; }
 .brief-byline strong { color: var(--text); font-weight: 600; }
-.brief-links-section, .brief-trades { padding: 20px 22px 0; }
-.brief-links-section h2, .brief-trades h2, .brief-empty h2 { margin: 0 0 10px; font-size: 15px; font-weight: 700; line-height: 1.1; }
-.brief-links { margin: 0; padding: 0; border-top: 1px solid var(--hairline); list-style: none; }
-.brief-links li { border-bottom: 1px solid var(--hairline); }
-.brief-links a { display: block; padding: 9px 0; color: var(--ink-faint); font-size: 13px; line-height: 1.4; text-decoration: none; overflow-wrap: anywhere; }
-.brief-links a span { display: block; color: var(--text); font-size: 15px; }
-.brief-links a:hover span, .brief-links a:focus-visible span { color: var(--brand); }
-.brief-links svg { display: inline-block; width: 10px; height: 10px; margin-left: 3px; vertical-align: -1px; }
+.brief-headlines-section, .brief-trades { padding: 20px 22px 0; }
+.brief-headlines-section h2, .brief-trades h2, .brief-empty h2 { margin: 0 0 10px; font-size: 15px; font-weight: 700; line-height: 1.1; }
+.brief-headlines { margin: 0; padding: 0; border-top: 1px solid var(--hairline); list-style: none; }
+.brief-headlines li { border-bottom: 1px solid var(--hairline); }
+.brief-headlines a { display: flex; flex-direction: column; gap: 2px; padding: 9px 0; text-decoration: none; overflow-wrap: anywhere; }
+.brief-headline-title { color: var(--text); font-size: 15px; line-height: 1.35; }
+.brief-headlines a:hover .brief-headline-title, .brief-headlines a:focus-visible .brief-headline-title { color: var(--brand); }
+/* The list stays scannable: a snippet shows its first three lines, and the linked page holds the rest. The
+   whole snippet is still in the markup and in the brief tool's result. */
+.brief-headline-snippet { display: -webkit-box; overflow: hidden; color: var(--ink-muted); font-size: 13px; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; }
+.brief-headline-host { color: var(--ink-faint); font-size: 12px; line-height: 1.3; }
+.brief-headlines svg { display: inline-block; width: 10px; height: 10px; margin-left: 3px; vertical-align: -1px; }
 .brief-card { padding: 18px 0 20px; border-top: 1px solid var(--hairline); }
 .brief-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .trade-line { color: var(--brand); font: 700 17px/1.2 var(--sans); }

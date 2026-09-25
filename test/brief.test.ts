@@ -3,7 +3,10 @@ import { describe, expect, it } from 'vitest'
 import {
   BriefRecommendationSchema,
   DailyBriefSchema,
+  BriefLinkSchema,
   DailyBriefSubmissionSchema,
+  MAX_BRIEF_LINK_SNIPPET_LENGTH,
+  MAX_BRIEF_LINK_TITLE_LENGTH,
   MAX_THESIS_LENGTH,
 } from '../src/domain/brief'
 import { parseThesisMarkdown } from '../src/domain/thesis-markdown'
@@ -29,6 +32,25 @@ describe('brief contract', () => {
         marketDate: '2026-09-22', model: 'm', links: [{ url }], recommendations: [],
       }).success).toBe(false)
     }
+  })
+
+  it('takes an optional headline and snippet on a link, and refuses rather than cuts them', () => {
+    const url = 'https://www.reuters.com/markets/us/capex-2026'
+    // A link stored before headlines existed, or sent by a producer that has none, still parses.
+    expect(BriefLinkSchema.parse({ url })).toEqual({ url })
+    const full = { url, title: 'x'.repeat(MAX_BRIEF_LINK_TITLE_LENGTH), snippet: 'y'.repeat(MAX_BRIEF_LINK_SNIPPET_LENGTH) }
+    expect(BriefLinkSchema.parse(full)).toEqual(full)
+    for (const refused of [
+      { url, title: 'x'.repeat(MAX_BRIEF_LINK_TITLE_LENGTH + 1) },
+      { url, snippet: 'y'.repeat(MAX_BRIEF_LINK_SNIPPET_LENGTH + 1) },
+      { url, title: '' },
+      { url, title: '   ' },
+      { url, snippet: '\t' },
+      { url, title: 'two\nlines' },
+      { url, snippet: 'bell\u0007' },
+      { url, title: 7 },
+      { url, title: null },
+    ]) expect(BriefLinkSchema.safeParse(refused).success).toBe(false)
   })
 })
 
