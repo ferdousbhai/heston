@@ -169,7 +169,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
             the server never starts a sign-in by itself. Sign-in is whatever the client does with
             the OAuth discovery documents Spice publishes, which varies by client. */}
         <p>
-          Run this and your agent connects straight away at the public tier: the cached market
+          Run the command for your agent and it connects straight away at the public tier: the cached market
           snapshot, price history, and the shared research, with nothing to copy and no sign-in.
         </p>
         <CopyBlock label="Claude Code" value={claudeCommand} />
