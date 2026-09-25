@@ -9,8 +9,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# The checkout directory keeps the repository's pre-rebrand name.
-ExecStart=%h/github.com/ferdousbhai/heston/ops/spice-agent/proxy.mjs
+ExecStart=%h/github.com/ferdousbhai/spicy-trade/ops/spice-agent/proxy.mjs
 Restart=on-failure
 RestartSec=5
 # The keyring is unlocked per login session, so this follows the session rather than the boot.
