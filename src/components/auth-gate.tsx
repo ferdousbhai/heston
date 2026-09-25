@@ -63,10 +63,11 @@ function GoogleMark() {
 }
 /**
  * `callbackURL` exists for the OAuth authorization page, which must return the browser to the
- * signed authorization request it arrived with rather than to the application root.
+ * signed authorization request it arrived with, and for the Connect view, which returns the
+ * reader to itself. Anywhere else a sign-in lands on Watch, the application's own address.
  */
 export function GoogleSignInButton(
-  { callbackURL = '/', compact = false }: { callbackURL?: string; compact?: boolean },
+  { callbackURL = '/watch', compact = false }: { callbackURL?: string; compact?: boolean },
 ) {
   const [submitting, setSubmitting] = useState(false)
   const [signInError, setSignInError] = useState<string>()
@@ -114,7 +115,7 @@ export function GoogleSignInButton(
   )
 }
 
-export function SignInScreen({ authError }: { authError?: string }) {
+export function SignInScreen({ authError, callbackURL }: { authError?: string; callbackURL?: string }) {
   return (
     <section className="owner-access" aria-labelledby="owner-access-title">
       <p className="owner-access-kicker">Connect your agent</p>
@@ -126,7 +127,7 @@ export function SignInScreen({ authError }: { authError?: string }) {
           <AlertDescription>{authError}</AlertDescription>
         </Alert>
       )}
-      <GoogleSignInButton />
+      <GoogleSignInButton callbackURL={callbackURL} />
     </section>
   )
 }

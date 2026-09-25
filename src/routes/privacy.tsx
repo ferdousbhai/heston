@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, Link } from '@tanstack/react-router'
 
 import { SitePage } from '../components/site-page'
 
@@ -36,7 +36,7 @@ function PrivacyPage() {
       </section>
       <section>
         <h2>Your choices</h2>
-        <p>You can revoke agent tokens on the Connect tab and clear browser storage at any time. To request access, correction, or deletion, email <a href="mailto:privacy@spicy.trade">privacy@spicy.trade</a>. Deleting your account removes your profile, sessions, favorites, tokens, approved apps, and recorded evidence. Order records are kept so past trades stay verifiable. Material changes to this policy will appear here with a new effective date.</p>
+        <p>You can revoke agent tokens on the <Link to="/connect">Connect</Link> tab and clear browser storage at any time. To request access, correction, or deletion, email <a href="mailto:privacy@spicy.trade">privacy@spicy.trade</a>. Deleting your account removes your profile, sessions, favorites, tokens, approved apps, and recorded evidence. Order records are kept so past trades stay verifiable. Material changes to this policy will appear here with a new effective date.</p>
       </section>
     </SitePage>
   )

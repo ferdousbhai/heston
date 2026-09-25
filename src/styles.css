@@ -343,7 +343,6 @@ button { -webkit-tap-highlight-color: transparent; }
 
 .archive-error { width: auto; margin: 16px 20px 0; }
 
-.app-shell[data-slot="tabs"] { display: block; gap: 0; }
 .market-state-loading { width: min(100%, 260px); display: flex; flex-direction: column; gap: 10px; }
 .market-state-loading [data-slot="skeleton"]:first-child { width: 54%; height: 13px; margin-inline: auto; }
 .market-state-loading [data-slot="skeleton"]:nth-child(2) { width: 100%; height: 42px; }
@@ -360,9 +359,9 @@ button { -webkit-tap-highlight-color: transparent; }
 .premium-axis [data-slot="progress-track"] { height: 3px; overflow: visible; background: var(--axis-gradient); }
 .premium-axis [data-slot="progress-indicator"] { position: relative; height: 3px; background: rgba(245, 245, 247, .62); mix-blend-mode: overlay; }
 .premium-axis [data-slot="progress-indicator"]::after { content: ""; position: absolute; right: -4px; top: -3px; width: 8px; height: 8px; rotate: 45deg; border: 2px solid var(--bg); background: var(--text); }
-.bottom-nav [data-slot="tabs-trigger"] { height: auto; min-height: 54px; padding: 0; border: 0; background: transparent; box-shadow: none; color: var(--ink-muted); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; cursor: pointer; font-size: 12px; font-weight: 500; }
-.bottom-nav [data-slot="tabs-trigger"][data-active] { color: var(--text); }
-.bottom-nav [data-slot="tabs-trigger"][data-active] svg { color: var(--brand); }
+.bottom-nav .primary-link { height: auto; min-height: 54px; padding: 0; border: 0; background: transparent; box-shadow: none; color: var(--ink-muted); text-decoration: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; cursor: pointer; font-size: 12px; font-weight: 500; }
+.bottom-nav .primary-link[aria-current="page"] { color: var(--text); }
+.bottom-nav .primary-link[aria-current="page"] svg { color: var(--brand); }
 
 @media (min-width: 960px) {
   :root { --page-gutter: 28px; }
@@ -370,9 +369,9 @@ button { -webkit-tap-highlight-color: transparent; }
   .top-bar { padding-inline: var(--page-gutter); }
 
   .bottom-nav { top: 20px; bottom: auto; width: auto; height: auto; padding: 4px; border: 0; border-radius: 12px; background: var(--surface); display: flex; }
-  .bottom-nav [data-slot="tabs-trigger"] { min-height: 36px; flex-direction: row; gap: 7px; padding: 0 16px; border: 0; font-size: 14px; border-radius: 8px; }
-  .bottom-nav [data-slot="tabs-trigger"][data-active] { background: var(--surface-2); color: var(--text); }
-  .bottom-nav [data-slot="tabs-trigger"] svg { width: 15px; height: 15px; }
+  .bottom-nav .primary-link { min-height: 36px; flex-direction: row; gap: 7px; padding: 0 16px; border: 0; font-size: 14px; border-radius: 8px; }
+  .bottom-nav .primary-link[aria-current="page"] { background: var(--surface-2); color: var(--text); }
+  .bottom-nav .primary-link svg { width: 15px; height: 15px; }
 
   /* Wide screens read as one dense block rather than a header band above two sparse columns:
      a left rail stacks the instrument, its premium axis, and the metric tape while the runway
@@ -589,7 +588,7 @@ button { -webkit-tap-highlight-color: transparent; }
   .premium-axis[data-slot="progress"] { width: 104px; }
   .focus-sheet .premium-verdict { font-size: 16px; }
   .watch-row .ticker-table-button strong { font-size: 20px; letter-spacing: -.025em; }
-  .bottom-nav [data-slot="tabs-trigger"] svg { width: 23px; height: 23px; }
+  .bottom-nav .primary-link svg { width: 23px; height: 23px; }
 }
 
 @media (max-width: 374px) {

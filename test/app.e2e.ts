@@ -21,6 +21,18 @@ async function closeDetail(page: Page): Promise<void> {
   await expect(page.locator('.instrument-focus')).toHaveCount(0)
 }
 
+/** The bottom nav: router links, one per view, the current one marked as the page. */
+function primaryLink(page: Page, name: 'Watch' | 'Recommendations' | 'Connect') {
+  return page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { exact: true, name })
+}
+
+/** Moves to a view through the nav, and proves the address followed. */
+async function navigateTo(page: Page, name: 'Watch' | 'Recommendations' | 'Connect'): Promise<void> {
+  await primaryLink(page, name).click()
+  await expect(page).toHaveURL(new RegExp(`/${name.toLowerCase()}$`))
+  await expect(primaryLink(page, name)).toHaveAttribute('aria-current', 'page')
+}
+
 function isoDateAfter(days: number): string {
   const date = new Date()
   date.setUTCDate(date.getUTCDate() + days)
@@ -152,6 +164,62 @@ test('a newer deployment reloads a tab whose unchanged data only ever answers 30
   expect(documentRequests).toBe(2)
 })
 
+test('each view is an address: a direct load renders it, and moving between them keeps the market', async ({ page }) => {
+  const snapshot = marketSnapshotFixture()
+  snapshot.watchlists = [{
+    id: 'public-options-watch',
+    kind: 'public',
+    name: 'Options Watch',
+    symbols: snapshot.watchlists[0]!.symbols,
+  }]
+  await page.route('**/api/viewer', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ user: null }),
+  }))
+  let snapshotRequests = 0
+  await page.route('**/api/public-snapshot*', (route) => {
+    snapshotRequests += 1
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(snapshot) })
+  })
+
+  await page.goto('/recommendations')
+  await expect(page).toHaveTitle('Recommendations | Spice')
+  await expect(page.getByRole('heading', { name: 'Trades' })).toBeVisible()
+  await expect(primaryLink(page, 'Recommendations')).toHaveAttribute('aria-current', 'page')
+  await expect(page.locator('.last-updated')).toHaveCount(0)
+
+  await page.goto('/connect')
+  await expect(page).toHaveTitle('Connect | Spice')
+  await expect(page.getByRole('heading', { name: 'Your agent. Your account.' })).toBeVisible()
+  await expect(primaryLink(page, 'Connect')).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('navigation', { name: 'Legal and support' })).toBeVisible()
+
+  await page.goto('/watch')
+  await expect(page).toHaveTitle('Watch | Spice')
+  await expect(page.getByRole('region', { name: 'Options Watch' })).toBeVisible()
+  await expect(primaryLink(page, 'Watch')).toHaveAttribute('aria-current', 'page')
+  await expect(page.locator('.last-updated')).toContainText('Updated')
+  await expect(page.getByRole('navigation', { name: 'Legal and support' })).toHaveCount(0)
+
+  // The old address of the whole application forwards to Watch, keeping what it carried, and
+  // leaves no entry behind that would bounce Back straight to Watch again.
+  await page.goto('/?from=bookmark#main-content')
+  await expect(page).toHaveURL(/\/watch\?from=bookmark#main-content$/)
+  await expect(page.getByRole('region', { name: 'Options Watch' })).toBeVisible()
+  await page.goBack()
+  await expect(page).toHaveURL(/\/watch$/)
+
+  // The views share one layout, so moving between them neither remounts nor refetches the market.
+  const settledRequests = snapshotRequests
+  await navigateTo(page, 'Recommendations')
+  await expect(page.getByRole('heading', { name: 'Trades' })).toBeVisible()
+  await navigateTo(page, 'Connect')
+  await expect(page.getByRole('heading', { name: 'Your agent. Your account.' })).toBeVisible()
+  await navigateTo(page, 'Watch')
+  await expect(page.getByRole('region', { name: 'Options Watch' })).toBeVisible()
+  expect(snapshotRequests).toBe(settledRequests)
+})
+
 test('unauthenticated visitors can read market data but connecting an agent needs Google sign-in', async ({ page }) => {
   const publicSnapshot = marketSnapshotFixture()
   publicSnapshot.catalysts = publicSnapshot.catalysts.map((catalyst) => (
@@ -266,10 +334,10 @@ test('unauthenticated visitors can read market data but connecting an agent need
   await expect(page.locator('.story').first()).toContainText('NVDA')
   await expect(page.getByText('Long vol')).toHaveCount(0)
 
-  await page.getByRole('tab', { name: 'Recommendations' }).click()
+  await navigateTo(page, 'Recommendations')
   await expect(page.getByRole('heading', { name: 'Trades' })).toBeVisible()
 
-  await page.getByRole('tab', { name: 'Connect' }).click()
+  await navigateTo(page, 'Connect')
   await expect(page.getByRole('heading', { name: 'Your agent. Your account.' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeVisible()
 
@@ -364,7 +432,9 @@ test('mobile market, recommendations, search, sorting, and connect flows remain 
   await expect(page.locator('.intent-label')).toHaveCount(0)
   await expect(page.locator('.watch-list [data-slot="badge"]')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /NVDA, NVIDIA, Expensive option premium/ })).toBeVisible()
-  await expect(page.getByRole('tab', { name: 'Watch', exact: true })).toHaveAttribute('aria-selected', 'true')
+  // `/` is the old address of the whole application; it lands on Watch.
+  await expect(page).toHaveURL(/\/watch$/)
+  await expect(primaryLink(page, 'Watch')).toHaveAttribute('aria-current', 'page')
   await expect(page.locator('.focus-strip .strip-verdict')).toHaveText('Expensive')
   // The rail appears with the first pin; a phone spends no row on it empty.
   await expect(page.getByRole('region', { name: 'Upcoming catalysts' })).toHaveCount(0)
@@ -445,11 +515,25 @@ test('mobile market, recommendations, search, sorting, and connect flows remain 
   await expect(selectedSymbol).toHaveText('INTC')
   await closeDetail(page)
 
-  await page.getByRole('tab', { name: 'Recommendations' }).click()
-  await expect(page.getByRole('tab', { name: 'Recommendations' })).toHaveAttribute('aria-selected', 'true')
+  await navigateTo(page, 'Recommendations')
+  await expect(primaryLink(page, 'Watch')).not.toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('heading', { name: 'Trades' })).toBeVisible()
+  // The age describes the market, so it is shown only where the market is.
+  await expect(page.locator('.last-updated')).toHaveCount(0)
+  // A symbol in the brief is a way into the market: it selects the name and moves to Watch.
+  await page.locator('.brief-card').getByRole('button', { exact: true, name: 'NVDA' }).first().click()
+  await expect(page).toHaveURL(/\/watch$/)
+  await expect(page.locator('.focus-strip-symbol')).toHaveText('NVDA')
+  await page.goBack()
+  await expect(page).toHaveURL(/\/recommendations$/)
+  await expect(page.getByRole('heading', { name: 'Trades' })).toBeVisible()
+  await page.goForward()
+  await expect(page).toHaveURL(/\/watch$/)
+  await page.getByRole('button', { name: /INTC, Intel, Cheap/ }).click()
+  await expect(selectedSymbol).toHaveText('INTC')
+  await closeDetail(page)
 
-  await page.getByRole('tab', { name: 'Connect' }).click()
+  await navigateTo(page, 'Connect')
   // A signed-in member is first class here: the setup surface is theirs, not the owner's.
   await expect(page.getByRole('heading', { name: 'Connect your agent' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Create token' })).toBeVisible()
@@ -460,7 +544,7 @@ test('mobile market, recommendations, search, sorting, and connect flows remain 
 
   await context.setOffline(true)
   await page.evaluate(() => window.dispatchEvent(new Event('offline')))
-  await page.getByRole('tab', { name: 'Watch', exact: true }).click()
+  await navigateTo(page, 'Watch')
   // Going offline is not an alarm. The saved data stays on screen with the reader's selection
   // intact, and the top bar's age line is what says how current it is — a reconnecting feed
   // and a failed sync used to flash a stale-data banner on and off over nothing.
@@ -727,7 +811,7 @@ test('two signed-out devices converge on the account union without granting owne
   await page.reload()
   await expect(page.getByRole('button', { name: 'Pin META' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Unpin BE' })).toBeVisible()
-  await page.getByRole('tab', { name: 'Connect' }).click()
+  await navigateTo(page, 'Connect')
   await expect(page.getByRole('heading', { name: 'Connect your agent' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Continue with Google' })).toHaveCount(0)
   expect(ownerSnapshotRequests).toBe(0)

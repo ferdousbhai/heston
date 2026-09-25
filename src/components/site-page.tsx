@@ -14,7 +14,7 @@ export function SitePage({
     <div className="site-page">
       <a className="skip-link" href="#page-content">Skip to content</a>
       <header className="site-header">
-        <Link aria-label="Spice home" className="site-brand" to="/">
+        <Link aria-label="Spice home" className="site-brand" to="/watch">
           <img alt="" src="/spice-mark.svg" />
           <span>SPICE</span>
         </Link>

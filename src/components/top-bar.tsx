@@ -165,7 +165,7 @@ function ViewerMenu({ viewerImage, viewerName }: { viewerImage?: string; viewerN
     try {
       const result = await authClient.signOut()
       if (result.error) throw new Error('sign-out refused')
-      window.location.assign('/')
+      window.location.assign('/watch')
     } catch {
       setPhase('failed')
     }
@@ -224,7 +224,7 @@ export function TopBar({
   const statusPinned = useRef(false)
   return (
     <header className="top-bar">
-      <Link aria-label="Spice home" className="brand" to="/">
+      <Link aria-label="Spice home" className="brand" to="/watch">
         <span>SPICE</span>
       </Link>
       <div className="top-actions">

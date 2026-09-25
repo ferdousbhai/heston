@@ -12,9 +12,10 @@ import { GoogleSignInButton, useViewer } from '../components/auth-gate'
  * never inspects or rebuilds the parameters, because they are signed as a set and altering any of
  * them invalidates the request.
  *
- * The first version of this pointed `loginPage` at `/connect`, which is a tab inside the
+ * The first version of this pointed `loginPage` at `/connect`, which was then a tab inside the
  * application rather than a route -- so the browser reached a 404 with the authorization request
- * in its address bar and the flow simply stopped.
+ * in its address bar and the flow simply stopped. `/connect` is a route now, but it still must not
+ * be the login page: it signs a reader in and returns them to itself, never to the request.
  */
 export const Route = createFileRoute('/authorize/')({
   component: AuthorizePage,

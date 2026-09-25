@@ -10,10 +10,14 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AppRouteImport } from './routes/_app'
 import { Route as AuthorizeRouteImport } from './routes/authorize'
 import { Route as DisclosuresRouteImport } from './routes/disclosures'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as TermsRouteImport } from './routes/terms'
+import { Route as AppConnectRouteImport } from './routes/_app.connect'
+import { Route as AppRecommendationsRouteImport } from './routes/_app.recommendations'
+import { Route as AppWatchRouteImport } from './routes/_app.watch'
 import { Route as ApiFavoritesRouteImport } from './routes/api.favorites'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
 import { Route as ApiMcpTokensRouteImport } from './routes/api.mcp-tokens'
@@ -40,6 +44,10 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppRoute = AppRouteImport.update({
+  id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthorizeRoute = AuthorizeRouteImport.update({
   id: '/authorize',
   path: '/authorize',
@@ -59,6 +67,21 @@ const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AppConnectRoute = AppConnectRouteImport.update({
+  id: '/connect',
+  path: '/connect',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppRecommendationsRoute = AppRecommendationsRouteImport.update({
+  id: '/recommendations',
+  path: '/recommendations',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppWatchRoute = AppWatchRouteImport.update({
+  id: '/watch',
+  path: '/watch',
+  getParentRoute: () => AppRoute,
 } as any)
 const ApiFavoritesRoute = ApiFavoritesRouteImport.update({
   id: '/api/favorites',
@@ -172,6 +195,9 @@ export interface FileRoutesByFullPath {
   '/disclosures': typeof DisclosuresRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
+  '/connect': typeof AppConnectRoute
+  '/recommendations': typeof AppRecommendationsRoute
+  '/watch': typeof AppWatchRoute
   '/api/favorites': typeof ApiFavoritesRoute
   '/api/health': typeof ApiHealthRoute
   '/api/mcp-tokens': typeof ApiMcpTokensRoute
@@ -198,6 +224,9 @@ export interface FileRoutesByTo {
   '/disclosures': typeof DisclosuresRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
+  '/connect': typeof AppConnectRoute
+  '/recommendations': typeof AppRecommendationsRoute
+  '/watch': typeof AppWatchRoute
   '/api/favorites': typeof ApiFavoritesRoute
   '/api/health': typeof ApiHealthRoute
   '/api/mcp-tokens': typeof ApiMcpTokensRoute
@@ -222,10 +251,14 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_app': typeof AppRouteWithChildren
   '/authorize': typeof AuthorizeRouteWithChildren
   '/disclosures': typeof DisclosuresRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
+  '/_app/connect': typeof AppConnectRoute
+  '/_app/recommendations': typeof AppRecommendationsRoute
+  '/_app/watch': typeof AppWatchRoute
   '/api/favorites': typeof ApiFavoritesRoute
   '/api/health': typeof ApiHealthRoute
   '/api/mcp-tokens': typeof ApiMcpTokensRoute
@@ -255,6 +288,9 @@ export interface FileRouteTypes {
     | '/disclosures'
     | '/privacy'
     | '/terms'
+    | '/connect'
+    | '/recommendations'
+    | '/watch'
     | '/api/favorites'
     | '/api/health'
     | '/api/mcp-tokens'
@@ -281,6 +317,9 @@ export interface FileRouteTypes {
     | '/disclosures'
     | '/privacy'
     | '/terms'
+    | '/connect'
+    | '/recommendations'
+    | '/watch'
     | '/api/favorites'
     | '/api/health'
     | '/api/mcp-tokens'
@@ -304,10 +343,14 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/_app'
     | '/authorize'
     | '/disclosures'
     | '/privacy'
     | '/terms'
+    | '/_app/connect'
+    | '/_app/recommendations'
+    | '/_app/watch'
     | '/api/favorites'
     | '/api/health'
     | '/api/mcp-tokens'
@@ -332,6 +375,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AppRoute: typeof AppRouteWithChildren
   AuthorizeRoute: typeof AuthorizeRouteWithChildren
   DisclosuresRoute: typeof DisclosuresRoute
   PrivacyRoute: typeof PrivacyRoute
@@ -365,6 +409,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app': {
+      id: '/_app'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/authorize': {
       id: '/authorize'
       path: '/authorize'
@@ -392,6 +443,27 @@ declare module '@tanstack/react-router' {
       fullPath: '/terms'
       preLoaderRoute: typeof TermsRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_app/connect': {
+      id: '/_app/connect'
+      path: '/connect'
+      fullPath: '/connect'
+      preLoaderRoute: typeof AppConnectRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/recommendations': {
+      id: '/_app/recommendations'
+      path: '/recommendations'
+      fullPath: '/recommendations'
+      preLoaderRoute: typeof AppRecommendationsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/watch': {
+      id: '/_app/watch'
+      path: '/watch'
+      fullPath: '/watch'
+      preLoaderRoute: typeof AppWatchRouteImport
+      parentRoute: typeof AppRoute
     }
     '/api/favorites': {
       id: '/api/favorites'
@@ -536,6 +608,20 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AppRouteChildren {
+  AppConnectRoute: typeof AppConnectRoute
+  AppRecommendationsRoute: typeof AppRecommendationsRoute
+  AppWatchRoute: typeof AppWatchRoute
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppConnectRoute: AppConnectRoute,
+  AppRecommendationsRoute: AppRecommendationsRoute,
+  AppWatchRoute: AppWatchRoute,
+}
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
+
 interface AuthorizeRouteChildren {
   AuthorizeConsentRoute: typeof AuthorizeConsentRoute
   AuthorizeIndexRoute: typeof AuthorizeIndexRoute
@@ -552,6 +638,7 @@ const AuthorizeRouteWithChildren = AuthorizeRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AppRoute: AppRouteWithChildren,
   AuthorizeRoute: AuthorizeRouteWithChildren,
   DisclosuresRoute: DisclosuresRoute,
   PrivacyRoute: PrivacyRoute,
