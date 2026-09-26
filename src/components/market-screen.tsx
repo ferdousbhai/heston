@@ -165,14 +165,19 @@ function listPill(ticker: Ticker, metric: ListMetric): ListPill {
   }
 }
 
-const SORT_COLUMNS: { defaultDirection: SortDirection; key: SortKey; label: string }[] = [
-  { defaultDirection: 'asc', key: 'symbol', label: 'Instrument' },
-  { defaultDirection: 'desc', key: 'marketCap', label: 'Market cap' },
-  { defaultDirection: 'desc', key: 'price', label: 'Price' },
-  { defaultDirection: 'desc', key: 'year', label: '1Y' },
-  { defaultDirection: 'desc', key: 'volume', label: 'Volume' },
-  { defaultDirection: 'desc', key: 'premium', label: 'Option premium' },
-  { defaultDirection: 'desc', key: 'liquidity', label: 'Liquidity' },
+/**
+ * Each header carries its column's cell class, because the column widths live on those classes:
+ * a table with no rows otherwise sized its columns from the header labels alone and the headers
+ * shifted under a search that matched nothing.
+ */
+const SORT_COLUMNS: { cellClass: string; defaultDirection: SortDirection; key: SortKey; label: string }[] = [
+  { cellClass: 'instrument-cell', defaultDirection: 'asc', key: 'symbol', label: 'Instrument' },
+  { cellClass: 'market-cap-cell', defaultDirection: 'desc', key: 'marketCap', label: 'Market cap' },
+  { cellClass: 'price-cell', defaultDirection: 'desc', key: 'price', label: 'Price' },
+  { cellClass: 'year-cell', defaultDirection: 'desc', key: 'year', label: '1Y' },
+  { cellClass: 'volume-cell', defaultDirection: 'desc', key: 'volume', label: 'Volume' },
+  { cellClass: 'premium-cell', defaultDirection: 'desc', key: 'premium', label: 'Option premium' },
+  { cellClass: 'liquidity-cell', defaultDirection: 'desc', key: 'liquidity', label: 'Liquidity' },
 ]
 
 /**
@@ -1104,7 +1109,7 @@ export function MarketScreen({
               {SORT_COLUMNS.map((column) => (
                 <TableHead
                   aria-sort={!relevance && sort.key === column.key ? (sort.direction === 'asc' ? 'ascending' : 'descending') : undefined}
-                  className={column.key === 'year' ? 'year-cell' : undefined}
+                  className={column.cellClass}
                   key={column.key}
                 >
                   <button className="sort-button" onClick={() => toggleSort(column)} type="button">

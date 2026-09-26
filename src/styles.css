@@ -390,7 +390,9 @@ button { -webkit-tap-highlight-color: transparent; }
   .app-shell { max-width: 1600px; margin-inline: auto; padding-bottom: 48px; }
   .top-bar { padding-inline: var(--page-gutter); }
 
-  .bottom-nav { top: 20px; bottom: auto; width: auto; height: auto; padding: 4px; border: 0; border-radius: 12px; background: var(--surface); display: flex; }
+  /* Absolute, not fixed: the pill scrolls away with the bar it sits in. Fixed, it floated alone
+     over the table's rows once the brand and the sign-in had scrolled off. */
+  .bottom-nav { position: absolute; top: 20px; bottom: auto; width: auto; height: auto; padding: 4px; border: 0; border-radius: 12px; background: var(--surface); display: flex; }
   .bottom-nav .primary-link { min-height: 36px; flex-direction: row; gap: 7px; padding: 0 16px; border: 0; font-size: 14px; border-radius: 8px; }
   .bottom-nav .primary-link[aria-current="page"] { background: var(--surface-2); color: var(--text); }
   .bottom-nav .primary-link svg { width: 15px; height: 15px; }
@@ -464,11 +466,13 @@ button { -webkit-tap-highlight-color: transparent; }
 .brief-footer { margin-top: 20px; padding-inline: 22px; }
 
 @media (max-width: 760px) {
-  .site-header { padding: 18px 0; align-items: flex-start; }
-  .site-header nav { max-width: 190px; gap: 9px 14px; }
+  /* The nav takes its own row under the brand rather than a 190px column beside it, which
+     stranded Disclosures on a second line. */
+  .site-header { padding: 18px 0; flex-direction: column; align-items: flex-start; gap: 14px; }
+  .site-header nav { justify-content: flex-start; gap: 9px 18px; }
   .site-content { display: block; padding: 56px 0 64px; }
   .site-title { position: static; margin-bottom: 48px; }
-  .site-title h1 { font-size: clamp(40px, 13vw, 60px); }
+  .site-title h1 { font-size: clamp(34px, 10vw, 60px); }
   .site-footer { align-items: flex-start; }
 }
 
