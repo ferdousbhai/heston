@@ -1,7 +1,7 @@
 import { Link } from '@tanstack/react-router'
 import { type ReactNode } from 'react'
 import { SUPPORT_EMAIL } from '../domain/site'
-import { HOME_LINK_LABEL, Wordmark } from './wordmark'
+import { BrandMark, HOME_LINK_LABEL } from './wordmark'
 
 export function SitePage({
   children,
@@ -17,8 +17,7 @@ export function SitePage({
       <a className="skip-link" href="#page-content">Skip to content</a>
       <header className="site-header">
         <Link aria-label={HOME_LINK_LABEL} className="site-brand" to="/watch">
-          <img alt="" src="/spice-mark.svg" />
-          <Wordmark />
+          <BrandMark />
         </Link>
         <nav aria-label="Information">
           <a href={`mailto:${SUPPORT_EMAIL}`}>Support</a>

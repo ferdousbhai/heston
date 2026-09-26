@@ -66,7 +66,11 @@ button { -webkit-tap-highlight-color: transparent; }
 .market-state { min-height: 50vh; min-height: 50dvh; padding: 24px var(--page-gutter); display: grid; place-items: center; color: var(--ink-muted); text-align: center; }
 .market-state p { margin: 0; font-size: 15px; }
 .top-bar { height: auto; padding: calc(20px + env(safe-area-inset-top)) var(--page-gutter) 16px; display: flex; align-items: center; justify-content: space-between; width: 100%; position: relative; z-index: 5; min-height: calc(84px + env(safe-area-inset-top)); gap: 16px; }
-.brand { display: grid; color: inherit; line-height: .9; text-decoration: none; }
+.brand { display: flex; align-items: center; gap: 10px; color: inherit; line-height: .9; text-decoration: none; }
+.brand .brand-pepper { width: 34px; height: 34px; }
+/* Below 400px, measured with the session light and Sign in beside it, the pepper pushes the
+   actions onto a second line; the wordmark alone still names the site there. */
+@media (max-width: 399px) { .brand .brand-pepper { display: none; } }
 /* Keep the spicy.trade wordmark consistent across the two layouts. */
 .brand > span { font-size: 28px; font-weight: 700; letter-spacing: -.045em; color: var(--text); }
 .brand em, .site-brand em { color: var(--pepper); font-style: normal; }
@@ -112,6 +116,10 @@ button { -webkit-tap-highlight-color: transparent; }
 .site-header { min-height: 84px; display: flex; align-items: center; justify-content: space-between; gap: 28px; border-bottom: 1px solid var(--hairline); }
 .site-brand { display: flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; }
 .site-brand img { width: 32px; height: 32px; }
+.authorize-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; color: var(--text); }
+.authorize-brand img { width: 32px; height: 32px; }
+.authorize-brand span { font-size: 18px; line-height: .85; font-weight: 700; letter-spacing: -.03em; }
+.authorize-brand em { color: var(--pepper); font-style: normal; }
 .site-brand span { font-size: 16px; line-height: .85; font-weight: 700; }
 .site-header nav { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px 22px; }
 .site-header nav a { color: var(--ink-muted); font-size: 15px; font-weight: 400; text-decoration: none; }

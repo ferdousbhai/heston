@@ -3,6 +3,7 @@ import { createFileRoute } from '@tanstack/react-router'
 
 import { Spinner } from '#/components/ui/spinner'
 import { GoogleSignInButton, useViewer } from '../components/auth-gate'
+import { BrandMark } from '../components/wordmark'
 import { pageTitle } from '../domain/site'
 
 /**
@@ -49,6 +50,9 @@ function AuthorizePage() {
 
   return (
     <main className="authorize-page">
+      {/* Whose page this is, before anything asks for a sign-in or an approval. Not a link: it
+          would lead out of a flow the provider expects to finish here. */}
+      <div className="authorize-brand"><BrandMark /></div>
       <h1>Connect your agent</h1>
       {viewer.phase === 'checking' && <Spinner />}
       {viewer.phase === 'error' && (

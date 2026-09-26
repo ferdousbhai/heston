@@ -4,6 +4,7 @@ import { z } from 'zod'
 
 import { Button } from '#/components/ui/button'
 import { Spinner } from '#/components/ui/spinner'
+import { BrandMark } from '../components/wordmark'
 import { useViewer } from '../components/auth-gate'
 import { SUPPORT_EMAIL, pageTitle } from '../domain/site'
 
@@ -74,6 +75,9 @@ function ConsentPage() {
 
   return (
     <main className="authorize-page">
+      {/* Whose page this is, before anything asks for a sign-in or an approval. Not a link: it
+          would lead out of a flow the provider expects to finish here. */}
+      <div className="authorize-brand"><BrandMark /></div>
       <h1>Approve access</h1>
       {viewer.phase === 'checking' && <Spinner />}
       {/* Mid-OAuth, an unanswered session check must still say something: without this the

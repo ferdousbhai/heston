@@ -21,7 +21,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '#/components/ui/tooltip'
 import { GoogleSignInButton } from './auth-gate'
 import { SUPPORT_EMAIL } from '../domain/site'
-import { HOME_LINK_LABEL, Wordmark } from './wordmark'
+import { BrandMark, HOME_LINK_LABEL } from './wordmark'
 
 // Fine enough that "just now" becomes "1 min ago" while a reader is still looking at it.
 const ELAPSED_TICK_MS = 15_000
@@ -227,7 +227,7 @@ export function TopBar({
   return (
     <header className="top-bar">
       <Link aria-label={HOME_LINK_LABEL} className="brand" to="/watch">
-        <Wordmark />
+        <BrandMark />
       </Link>
       <div className="top-actions">
         {status && (
