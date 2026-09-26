@@ -48,9 +48,12 @@ describe('the brief screen', () => {
     expect(html).toContain('Capex &lt;b&gt;holds&lt;/b&gt;')
     expect(html).toContain('Hyperscalers keep spending.')
     expect(html).toContain('>www.reuters.com<')
-    // A titled headline does not repeat its URL as text; an untitled one falls back to it.
+    // A titled headline does not repeat its URL as text; an untitled one is titled by its host,
+    // with its path, never a title derived from the slug.
     expect(html).not.toContain('>https://www.reuters.com/markets/us/capex-2026')
-    expect(html).toContain('>https://www.bloomberg.com/news/x')
+    expect(html).toContain('<span class="brief-headline-title">www.bloomberg.com<')
+    expect(html).toContain('>/news/x<')
+    expect(html).toContain('href="https://www.bloomberg.com/news/x"')
     expect(html).toContain('rel="noreferrer" target="_blank"')
   })
 

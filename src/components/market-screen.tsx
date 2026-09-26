@@ -678,11 +678,13 @@ const MarketTickerRow = memo(function MarketTickerRow({
       <TableCell className="volume-cell">
         <strong>{compactMetric(ticker.volume)}</strong>
       </TableCell>
-      {/* IV rank rides along as the premium cell's third line rather than a column of its own,
-          so the verdict keeps the reading that produced it next to it. */}
+      {/* The IV level rides on the verdict's line and IV rank on the next, rather than columns
+          of their own, so the verdict keeps the readings that produced it beside it. */}
       <TableCell className={`premium-cell ${verdict}`}>
-        <strong>{copy}</strong>
-        <small>{formatIfReported(ticker.ivIndex, (iv) => `${formatMarketMetric(iv)}% IV`) ?? '—'}</small>
+        <span className="premium-reading">
+          <small>{formatIfReported(ticker.ivIndex, (iv) => `${formatMarketMetric(iv)}% IV`) ?? '—'}</small>
+          <strong>{copy}</strong>
+        </span>
         <small>
           {[formatIfReported(ticker.ivRank, (rank) => `${formatMarketMetric(rank)} rank`) ?? '—', metricsAgeLabel(ticker)]
             .filter(Boolean)
@@ -978,8 +980,8 @@ export function MarketScreen({
 
   return (
     <div className="market-screen">
-      {/* A phone has no row to spare for an empty rail; the star on every row says what pinning does. */}
-      {(!narrow || pinnedTickers.length > 0) && (
+      {/* No screen spends a band on an empty rail; the star on every row says what pinning does. */}
+      {pinnedTickers.length > 0 && (
         <CatalystStories catalysts={visibleCatalysts} now={now} onSelect={selectFromList} tickers={pinnedTickers} />
       )}
 
@@ -1098,7 +1100,7 @@ export function MarketScreen({
         <Table className="premium-data-table">
           <TableHeader>
             <TableRow>
-              <TableHead><span className="sr-only">Pinned</span></TableHead>
+              <TableHead className="pin-cell"><span className="sr-only">Pinned</span></TableHead>
               {SORT_COLUMNS.map((column) => (
                 <TableHead
                   aria-sort={!relevance && sort.key === column.key ? (sort.direction === 'asc' ? 'ascending' : 'descending') : undefined}

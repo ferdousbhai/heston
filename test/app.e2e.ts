@@ -282,7 +282,6 @@ test('unauthenticated visitors can read market data but connecting an agent need
   await expect(page.getByRole('region', { name: 'Options Watch' })).toBeVisible()
   // A phone spends no row on an empty rail; it appears once something is pinned.
   await expect(page.getByRole('region', { name: 'Upcoming catalysts' })).toHaveCount(0)
-  await expect(page.getByText('Pin a ticker to see its upcoming events.')).toHaveCount(0)
   await expect(page.locator('.story')).toHaveCount(0)
   // The list is the screen; the selected name keeps a two-line strip and the card is a sheet.
   await expect(page.locator('.focus-strip-symbol')).toHaveText('NVDA')

@@ -218,11 +218,12 @@ button { -webkit-tap-highlight-color: transparent; }
 .evidence-meta svg { display: inline-block; width: 10px; height: 10px; margin-left: 3px; vertical-align: -1px; }
 .evidence-unavailable { margin: 0; color: var(--ink-faint); font-size: 13px; line-height: 1.4; }
 
-.focus-tape { margin: 22px 0 0; padding: 12px 0 18px; border-top: 1px solid var(--hairline); display: flex; flex-wrap: wrap; row-gap: 12px; font: var(--type-caption)/1.5 var(--sans); font-variant-numeric: tabular-nums; }
-.focus-tape > div { display: inline-flex; gap: 5px; white-space: nowrap; }
-.focus-tape > div:not(:last-child)::after { content: "·"; margin: 0 9px; color: color-mix(in srgb, var(--ink-faint) 36%, var(--bg)); }
+/* A grid of label-over-value cells rather than an inline run with separators: a run wraps
+   wherever the width falls and strands its separator at the end of each line. */
+.focus-tape { margin: 22px 0 0; padding: 14px 0 18px; border-top: 1px solid var(--hairline); display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 12px 16px; font: var(--type-caption)/1.35 var(--sans); font-variant-numeric: tabular-nums; }
+.focus-tape > div { min-width: 0; display: grid; align-content: start; gap: 2px; }
 .focus-tape dt { color: var(--ink-faint); }
-.focus-tape dd { margin: 0; color: var(--ink-soft); font-weight: 400; }
+.focus-tape dd { margin: 0; color: var(--ink-soft); font-weight: 400; overflow-wrap: anywhere; }
 /* The age of each fact on the card, under the readings it describes. */
 .focus-freshness { margin: 0; padding: 0 0 16px; display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-faint); font: 13px/1.4 var(--sans); font-variant-numeric: tabular-nums; }
 .focus-freshness time { color: var(--ink-muted); }
@@ -255,12 +256,15 @@ button { -webkit-tap-highlight-color: transparent; }
 .premium-data-table .pin-cell { width: 34px; padding-inline: 0; }
 .pin-button[data-slot="button"] { color: color-mix(in srgb, var(--ink-faint) 62%, var(--bg)); }
 .pin-button[data-slot="button"].pinned { color: var(--brand); }
-.instrument-cell { width: 22%; min-width: 180px; }
+/* The one column without a share of the width, so the auto table layout hands it the spare
+   width; with every data column sized, the pin column took it and opened a gap before the symbol. */
+.instrument-cell { min-width: 180px; }
 .premium-data-table .market-cap-cell { width: 10%; min-width: 84px; text-align: right; }
 .premium-data-table .price-cell { width: 18%; min-width: 145px; text-align: right; }
 .price-session { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .price-session > span { flex: 0 0 auto; }
-.price-session > span small { display: block; }
+/* The change rides the price's line, leaving the 52-week bar as the cell's only second line. */
+.price-session > span small { margin-left: 6px; }
 .price-cell > small { display: block; margin-top: 4px; }
 .price-range[data-slot="progress"] { width: 72px; height: 8px; margin: 5px 0 0 auto; display: flex; gap: 0; }
 .price-range [data-slot="progress-track"] { height: 2px; overflow: visible; background: var(--hairline); }
@@ -275,6 +279,11 @@ button { -webkit-tap-highlight-color: transparent; }
 .ticker-table-button > span small { color: var(--ink-faint); font-size: 13px; }
 .ticker-table-button > small { width: 100%; overflow: hidden; color: var(--ink-faint); font-size: var(--type-caption); text-overflow: ellipsis; white-space: nowrap; font-weight: 400; line-height: 1.3; }
 .ticker-table-button > small:last-child:not(:nth-child(2)) { color: var(--brand); }
+/* In the table the next catalyst sits on the symbol's line, so a row is two lines, not three. */
+.instrument-cell .ticker-table-button[data-slot="button"] { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 10px; row-gap: 3px; align-items: baseline; }
+.instrument-cell .ticker-table-button > span { grid-column: 1; grid-row: 1; }
+.instrument-cell .ticker-table-button > small:nth-child(2) { grid-column: 1 / -1; grid-row: 2; }
+.instrument-cell .ticker-table-button > small:nth-child(3) { grid-column: 2; grid-row: 1; width: auto; }
 /* The year chart is the one column that only earns its width on a laptop, so it is absent
    rather than cramped below the widest breakpoint. */
 .premium-data-table .year-cell { display: none; }
@@ -282,12 +291,14 @@ button { -webkit-tap-highlight-color: transparent; }
 .premium-data-table .premium-cell, .premium-data-table .liquidity-cell { width: 11%; min-width: 92px; text-align: right; }
 .premium-data-table .market-cap-cell strong, .premium-data-table .price-cell strong, .premium-data-table .premium-cell strong, .premium-data-table .liquidity-cell strong, .premium-data-table .volume-cell strong { display: block; font-variant-numeric: tabular-nums; }
 .premium-data-table .premium-cell strong { font-size: 15px; }
+.premium-data-table .price-session strong { display: inline; }
 .premium-data-table .premium-cell.cheap strong { color: var(--cheap); }
 .premium-data-table .premium-cell.fair strong { color: var(--fair-tone); }
 .premium-data-table .premium-cell.rich strong { color: var(--rich); }
 .premium-data-table .market-cap-cell strong, .premium-data-table .price-cell strong, .premium-data-table .liquidity-cell strong, .premium-data-table .volume-cell strong { font-size: 15px; }
 .premium-data-table .price-cell small, .premium-data-table .premium-cell small, .premium-data-table .liquidity-cell small, .premium-data-table .volume-cell small { color: var(--ink-faint); font-size: 13px; font-variant-numeric: tabular-nums; }
 .premium-data-table .premium-cell > small, .premium-data-table .liquidity-cell > small, .premium-data-table .volume-cell > small { display: block; margin-top: 2px; }
+.premium-reading { display: flex; align-items: baseline; justify-content: flex-end; gap: 7px; white-space: nowrap; }
 .watch-empty { min-height: 100px; margin: 0; display: grid; place-items: center; color: var(--ink-muted); font-size: 13px; }
 
 /* The phone list. One row is one screen wide: star, instrument, the session chart when there
@@ -377,12 +388,13 @@ button { -webkit-tap-highlight-color: transparent; }
   .bottom-nav .primary-link svg { width: 15px; height: 15px; }
 
   /* Wide screens read as one dense block rather than a header band above two sparse columns:
-     a left rail stacks the instrument, its premium axis, the runway and the metric tape, while
-     the recommendation and its evidence take the rest of the row beside them, so the narrative
-     grid dissolves into this one. The runway is a compact timeline and the thesis is long prose,
-     so the prose gets the width. The rail's rows size to their content and a trailing row
-     absorbs whatever height the reading column adds, so it never opens gaps in the rail. */
-  .instrument-focus { padding: 28px var(--page-gutter); display: grid; grid-template-columns: clamp(300px, 24vw, 420px) minmax(0, 1fr); grid-template-rows: auto auto auto 1fr; column-gap: clamp(22px, 2.4vw, 40px); align-items: start; }
+     a left rail stacks the instrument, its premium axis and the runway, while the recommendation,
+     its evidence and the metric grid take the rest of the row beside them, so the narrative grid
+     dissolves into this one. The runway is a compact timeline and the thesis is long prose, so
+     the prose gets the width, and the metrics fill it under the thesis rather than lengthening
+     the rail. The runway's row is the flexible one, so a thesis longer than the rail's top
+     opens space below the runway rather than between the rail's sections. */
+  .instrument-focus { padding: 28px var(--page-gutter); display: grid; grid-template-columns: clamp(300px, 24vw, 420px) minmax(0, 1fr); grid-template-rows: auto 1fr auto; column-gap: clamp(22px, 2.4vw, 40px); align-items: start; }
   .instrument-focus [data-slot="card-header"] { grid-column: 1; grid-row: 1; display: block; }
   .selected-instrument p { font-size: 13px; }
   .selected-price { margin-top: 7px; }
@@ -393,18 +405,22 @@ button { -webkit-tap-highlight-color: transparent; }
   /* Dissolving the narrative grid drops its gap, so the rail's own sections carry the spacing:
      the runway clears the premium axis, and freshness keeps the tape's row gap. */
   .focus-runway { grid-column: 1; grid-row: 2; margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--hairline); }
-  .focus-tape { margin-top: 24px; padding: 20px 0 0; }
+  .focus-tape { margin-top: 24px; padding: 20px 0 0; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); row-gap: 16px; }
   .focus-freshness { margin-top: 12px; }
-  .instrument-focus [data-slot="card-footer"] { grid-column: 1; grid-row: 3; }
+  /* The reading column spans the rail's first two rows and the metrics take the third, so the
+     metrics start below whichever of the rail or the thesis runs longer. */
+  .instrument-focus [data-slot="card-footer"] { grid-column: 2; grid-row: 3; align-self: stretch; padding-left: clamp(22px, 2.4vw, 40px); border-left: 1px solid var(--hairline); }
   /* The reading column is the second column, beside the rail, and it stretches so its rule runs
      the full height. Evidence stacks directly under the recommendation, however short the thesis
      is against the rail, and takes the column's top when there is no recommendation. */
-  .focus-reading { display: block; grid-column: 2; grid-row: 1 / -1; align-self: stretch; padding: 0 0 0 clamp(22px, 2.4vw, 40px); border-left: 1px solid var(--hairline); }
+  .focus-reading { display: block; grid-column: 2; grid-row: 1 / 3; align-self: stretch; padding: 0 0 0 clamp(22px, 2.4vw, 40px); border-left: 1px solid var(--hairline); }
   .focus-reading > .focus-evidence:first-child { padding-top: 0; border-top: 0; }
   .focus-recommendation + .focus-evidence { margin-top: 22px; }
-  /* A name with neither a recommendation nor evidence would leave the main column blank beside
-     the rail, so the runway takes that column back instead. */
-  .instrument-focus:has(.focus-reading:empty) .focus-runway { grid-column: 2; grid-row: 1 / -1; align-self: stretch; margin-top: 0; padding: 0 0 0 clamp(22px, 2.4vw, 40px); border-top: 0; border-left: 1px solid var(--hairline); }
+  /* A name with neither a recommendation nor evidence has nothing to read, so the metrics
+     take the main column from its top instead of sitting under a blank one. */
+  .focus-reading:empty { display: none; }
+  .instrument-focus:has(.focus-reading:empty) [data-slot="card-footer"] { grid-row: 1 / -1; }
+  .instrument-focus:has(.focus-reading:empty) .focus-tape { margin-top: 0; padding-top: 0; border-top: 0; }
   .runway { margin-top: 0; }
   .runway-event { grid-template-columns: 68px 10px minmax(0, 1fr); padding-bottom: 13px; }
   .runway-event::before { left: 86.5px; }
@@ -624,6 +640,8 @@ button { -webkit-tap-highlight-color: transparent; }
    whole snippet is still in the markup and in the brief tool's result. */
 .brief-headline-snippet { display: -webkit-box; overflow: hidden; color: var(--ink-muted); font-size: 13px; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; }
 .brief-headline-host { color: var(--ink-faint); font-size: 12px; line-height: 1.3; }
+/* A path is an address, not prose: one clipped line, with the whole URL still in the href. */
+.brief-headline-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: normal; }
 .brief-headlines svg { display: inline-block; width: 10px; height: 10px; margin-left: 3px; vertical-align: -1px; }
 .brief-card { padding: 18px 0 20px; border-top: 1px solid var(--hairline); }
 .trade-line { color: var(--brand); font: 700 17px/1.2 var(--sans); }
@@ -642,6 +660,15 @@ button { -webkit-tap-highlight-color: transparent; }
 .thesis a { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
 .brief-empty { padding: 26px 22px; }
 .brief-empty p { margin: 8px 0 0; color: var(--ink-faint); font-size: 15px; }
+/* A wide screen reads the brief as trades beside their headlines rather than one narrow column
+   with the headlines below it: the theses keep their measure and the sources fill the width. */
+@media (min-width: 1120px) {
+  .brief-screen { max-width: 1040px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); }
+  .brief-screen > * { grid-column: 1 / -1; }
+  .brief-screen > .brief-trades { grid-column: 1; }
+  .brief-screen > .brief-headlines-section { grid-column: 2; align-self: start; padding: 24px 22px 0; border-left: 1px solid var(--hairline); }
+}
+
 /* One column only: at 960px and up the runway sits in the rail and carries its own rule. */
 @media (max-width: 959px) {
   .focus-narrative:has(.focus-recommendation) .focus-runway { padding-top: 20px; border-top: 1px solid var(--hairline); }

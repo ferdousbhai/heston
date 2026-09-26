@@ -79,17 +79,24 @@ function BriefIssue({ brief, focusTarget, onSymbol }: {
         <section aria-labelledby="brief-headlines-title" className="brief-headlines-section">
           <h2 id="brief-headlines-title">Headlines</h2>
           <ol className="brief-headlines">
-            {brief.links.map((link) => (
-              <li key={link.url}>
-                {/* Title and snippet are third-party page text: React escapes them, and the URL
-                    stands in as the link's text when the producer sent no headline. */}
-                <a href={link.url} rel="noreferrer" target="_blank">
-                  <span className="brief-headline-title">{link.title ?? link.url}<ArrowUpRight aria-hidden="true" /></span>
-                  {link.snippet && <span className="brief-headline-snippet">{link.snippet}</span>}
-                  <span className="brief-headline-host">{new URL(link.url).host}</span>
-                </a>
-              </li>
-            ))}
+            {brief.links.map((link) => {
+              const url = new URL(link.url)
+              return (
+                <li key={link.url}>
+                  {/* Title and snippet are third-party page text: React escapes them. With no
+                      headline the host stands in as the title and the path follows on one
+                      clipped line; nothing is derived from the slug, since that would put words
+                      in the reader's view the page never said. The href keeps the whole URL. */}
+                  <a href={link.url} rel="noreferrer" target="_blank">
+                    <span className="brief-headline-title">{link.title ?? url.host}<ArrowUpRight aria-hidden="true" /></span>
+                    {link.snippet && <span className="brief-headline-snippet">{link.snippet}</span>}
+                    {link.title
+                      ? <span className="brief-headline-host">{url.host}</span>
+                      : <span className="brief-headline-host brief-headline-path">{url.pathname + url.search}</span>}
+                  </a>
+                </li>
+              )
+            })}
           </ol>
         </section>
       )}

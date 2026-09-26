@@ -8,7 +8,10 @@ import {
 } from '../domain/catalyst'
 import { volatilityVerdict, type Ticker } from '../domain/market'
 
-/** This rail receives only a neutral visible universe; it never sees source watchlist categories. */
+/**
+ * This rail receives only a neutral visible universe; it never sees source watchlist categories.
+ * It is drawn only once something is pinned, so its empty state speaks to pins, not their absence.
+ */
 export function CatalystStories({
   catalysts,
   now,
@@ -51,7 +54,7 @@ export function CatalystStories({
           <Empty className="story-empty">
             <EmptyHeader>
               <EmptyDescription>
-                {tickers.length ? 'No pinned catalysts are scheduled.' : 'Pin a ticker to see its upcoming events.'}
+                No pinned catalysts are scheduled.
               </EmptyDescription>
             </EmptyHeader>
           </Empty>

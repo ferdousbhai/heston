@@ -38,8 +38,8 @@ describe('the phone list', () => {
     expect(nvda.querySelector('.watch-row-quote')?.textContent).toContain('$191.68')
     expect(nvda.querySelector('.watch-pill')?.textContent).toBe('+2.6%')
     expect(nvda.querySelector('.watch-pill')?.getAttribute('data-tone')).toBe('up')
-    // The empty rail is not drawn on a phone; nothing is pinned here.
-    expect(screen.queryByText('Pin a ticker to see its upcoming events.')).toBeNull()
+    // The rail is not drawn until something is pinned; nothing is pinned here.
+    expect(screen.queryByRole('region', { name: 'Upcoming catalysts' })).toBeNull()
   })
 
   it('cycles every pill together through the readings the table has columns for', () => {
