@@ -81,7 +81,8 @@ const MAX_RELAYED_SYMBOLS = MAX_WATCHLIST_SYMBOLS
  * copy is read only while the union exceeds `MAX_RELAYED_SYMBOLS`, so an uncrowded relay never
  * reads D1 for it. The universe changes only when the maintained list is written, and a stale copy
  * can only misorder names on a relay that is already cutting — it never refuses a symbol — so one
- * read per this interval per crowded relay is the whole cost.
+ * read per this interval per crowded relay is the whole cost. A named budget, the owner's choice:
+ * the list changes a few times a day at most, so five minutes keeps that to a dozen reads an hour.
  */
 const PUBLISHED_UNIVERSE_REFRESH_MS = 5 * 60 * 1_000
 // These bound one interactive read/setup attempt; the persistent relay reconnects separately.

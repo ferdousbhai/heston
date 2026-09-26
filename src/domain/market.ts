@@ -260,10 +260,10 @@ export function fiftyTwoWeekPosition(
 }
 
 /*
- * Verdict thresholds on tastytrade's 0-100 IV rank and IV percentile. They arrived with the
- * app's first commit and no stated rationale; none has been recorded since. The and/or
- * asymmetry is likewise unexplained: `cheap` needs both measures at or under their bound,
- * while `rich` needs only one at or over its bound, so a split reading is never called cheap.
+ * Verdict thresholds on tastytrade's 0-100 IV rank and IV percentile: the owner's product bands,
+ * roughly the bottom and top third of the year's range. The rule is symmetric by the owner's
+ * choice -- a label needs both measures to agree, at or under the cheap bounds or at or over the
+ * rich ones -- so a split reading is `fair` either way, and every label is backed by both.
  */
 const CHEAP_MAX_IV_RANK = 30
 const CHEAP_MAX_IV_PERCENTILE = 35
@@ -273,7 +273,7 @@ const RICH_MIN_IV_PERCENTILE = 80
 export function volatilityVerdict(ticker: Pick<Ticker, 'ivRank' | 'ivPercentile'>): VolatilityVerdict {
   if (ticker.ivRank === undefined || ticker.ivPercentile === undefined) return 'unavailable'
   if (ticker.ivRank <= CHEAP_MAX_IV_RANK && ticker.ivPercentile <= CHEAP_MAX_IV_PERCENTILE) return 'cheap'
-  if (ticker.ivRank >= RICH_MIN_IV_RANK || ticker.ivPercentile >= RICH_MIN_IV_PERCENTILE) return 'rich'
+  if (ticker.ivRank >= RICH_MIN_IV_RANK && ticker.ivPercentile >= RICH_MIN_IV_PERCENTILE) return 'rich'
   return 'fair'
 }
 

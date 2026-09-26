@@ -1,12 +1,13 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 
 import { SitePage } from '../components/site-page'
+import { LEGAL_EMAIL, pageTitle } from '../domain/site'
 
 export const Route = createFileRoute('/terms')({
   component: TermsPage,
   head: () => ({
     meta: [
-      { title: 'Terms | spicy.trade' },
+      { title: pageTitle('Terms') },
       { name: 'description', content: 'Terms governing use of the spicy.trade options-intelligence application.' },
     ],
   }),
@@ -38,7 +39,7 @@ function TermsPage() {
       </section>
       <section>
         <h2>6. Contact</h2>
-        <p>Send questions and legal notices to <a href="mailto:legal@spicy.trade">legal@spicy.trade</a>.</p>
+        <p>Send questions and legal notices to <a href={`mailto:${LEGAL_EMAIL}`}>{LEGAL_EMAIL}</a>.</p>
       </section>
     </SitePage>
   )

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { jsonObject, type JsonObject } from '../domain/json-payload'
-import { EQUITY_SYMBOL_GLOBS, EquitySymbolSchema } from '../domain/instrument'
+import { EQUITY_SYMBOL_GLOBS, EquitySymbolSchema, MAX_PROVIDER_LABEL_LENGTH } from '../domain/instrument'
 import { MAX_WATCHLIST_SYMBOLS } from '../domain/watchlist'
 import { type AppEnv } from './env'
 import { MAX_INSTRUMENT_CATALOG_ITEMS } from './instrument-catalog'
@@ -298,7 +298,7 @@ export async function removeInternalWatchlistSymbols(env: AppEnv, symbols: reado
 
 const StoredItemSchema = z.object({
   created_at: z.string().datetime(),
-  instrument_type: z.string().min(1).max(128),
+  instrument_type: z.string().min(1).max(MAX_PROVIDER_LABEL_LENGTH),
   metadata_json: z.string().max(MAX_ITEM_METADATA_CHARS),
   origin: InternalWatchlistOriginSchema,
   symbol: SymbolSchema,

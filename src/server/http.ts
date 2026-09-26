@@ -9,15 +9,15 @@ import {
   type AuthenticatedIdentity,
 } from './auth'
 import { type AppEnv } from './env'
+import { MCP_ENDPOINT, MCP_PATH, SITE_NAME, SITE_ORIGIN } from '../domain/site'
 
-const CANONICAL_ORIGIN = 'https://spicy.trade'
 /**
  * `www` plus the retired heston.io and tryspice.xyz brands, whose zones still route here so their
  * links keep resolving. 308 preserves method and body, so a page load and a form POST both
  * survive the hop.
  */
 const NON_CANONICAL_HOSTS = new Set([
-  'www.spicy.trade',
+  `www.${SITE_NAME}`,
   'heston.io',
   'www.heston.io',
   'tryspice.xyz',
@@ -29,8 +29,8 @@ const NON_CANONICAL_HOSTS = new Set([
  * member's agent following the 308 would silently lose its account tools instead of failing.
  * An error naming the canonical endpoint is what tells the member to re-point the config.
  */
-const MCP_PATH = '/mcp'
-export const PUBLIC_RESPONSE_CACHE_CONTROL = `public, max-age=${PUBLIC_RESPONSE_MAX_AGE_SECONDS}, s-maxage=60`
+// The edge copy is shared by every reader, so it may hold twice what one browser keeps.
+export const PUBLIC_RESPONSE_CACHE_CONTROL = `public, max-age=${PUBLIC_RESPONSE_MAX_AGE_SECONDS}, s-maxage=${2 * PUBLIC_RESPONSE_MAX_AGE_SECONDS}`
 /**
  * An archived page is keyed by a market date and answered with the brief for the latest date
  * before it, which changes only when that date is republished or a missing date in between is
@@ -42,17 +42,16 @@ export function canonicalHostRedirect(request: Request): Response | undefined {
   const url = new URL(request.url)
   if (!NON_CANONICAL_HOSTS.has(url.hostname)) return undefined
   if (url.pathname === MCP_PATH) {
-    const endpoint = `${CANONICAL_ORIGIN}${MCP_PATH}`
     return Response.json({
       error: {
         code: -32_600,
-        message: `spicy.trade's MCP endpoint is ${endpoint} — this host no longer serves it. Reconnect to ${endpoint}.`,
+        message: `${SITE_NAME}'s MCP endpoint is ${MCP_ENDPOINT} — this host no longer serves it. Reconnect to ${MCP_ENDPOINT}.`,
       },
       id: null,
       jsonrpc: '2.0',
     }, { headers: { 'Cache-Control': 'no-store' }, status: 404 })
   }
-  return Response.redirect(`${CANONICAL_ORIGIN}${url.pathname}${url.search}`, 308)
+  return Response.redirect(`${SITE_ORIGIN}${url.pathname}${url.search}`, 308)
 }
 
 export function jsonNoStore(value: JsonValue, init: ResponseInit = {}): Response {

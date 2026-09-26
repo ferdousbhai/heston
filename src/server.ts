@@ -5,6 +5,7 @@ import { type AppEnv } from './server/env'
 import { canonicalHostRedirect, finalizeDocumentResponse } from './server/http'
 import { mcpEndpointRedirect } from './server/mcp-endpoint-redirect'
 import { configureTypeboxRuntime } from './server/typebox-runtime'
+import { MCP_PATH } from './domain/site'
 
 /*
  * The MCP surface and the scheduled jobs are loaded when a request needs them rather than when
@@ -36,7 +37,7 @@ export default {
     // The tool surface for the agent each caller runs on their own machine -- the owner, any
     // member, or an anonymous caller at the public tier. Bearer-authed inside the handler; the
     // session/cookie path stays untouched and the token opens nothing else.
-    if (url.pathname === '/mcp') return (await mcpSurface()).handleMcpRequest(request, env, ctx)
+    if (url.pathname === MCP_PATH) return (await mcpSurface()).handleMcpRequest(request, env, ctx)
     // An agent aimed at the site rather than at `/mcp` would otherwise be handed the web app's
     // HTML with a 200 and fail inside its JSON parser, saying nothing useful to anyone. The
     // probe is its own zod-only module, so an ordinary JSON POST never loads the MCP graph; the

@@ -15,6 +15,7 @@ import { useWorkspaceFavorites } from '../data/use-workspace-favorites'
 import { SignInScreen, type Viewer, useViewer } from './auth-gate'
 import { MarketScreen } from './market-screen'
 import { TopBar } from './top-bar'
+import { SUPPORT_EMAIL } from '../domain/site'
 
 const ConnectScreen = lazy(async () => {
   const { ConnectScreen: Screen } = await import('./connect-screen')
@@ -309,7 +310,7 @@ export function ConnectView() {
       {/* The top bar has no room for these on a phone, so the view about the reader's own
           account carries them for every width. */}
       <nav aria-label="Legal and support" className="connect-footer">
-        <a href="mailto:support@spicy.trade">Support</a>
+        <a href={`mailto:${SUPPORT_EMAIL}`}>Support</a>
         <Link to="/terms">Terms</Link>
         <Link to="/privacy">Privacy</Link>
         <Link to="/disclosures">Disclosures</Link>

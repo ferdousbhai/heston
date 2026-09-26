@@ -3,6 +3,7 @@ import { createFileRoute } from '@tanstack/react-router'
 
 import { Spinner } from '#/components/ui/spinner'
 import { GoogleSignInButton, useViewer } from '../components/auth-gate'
+import { pageTitle } from '../domain/site'
 
 /**
  * Where an MCP client's authorization request lands when nobody is signed in.
@@ -19,7 +20,7 @@ import { GoogleSignInButton, useViewer } from '../components/auth-gate'
  */
 export const Route = createFileRoute('/authorize/')({
   component: AuthorizePage,
-  head: () => ({ meta: [{ title: 'Connect your agent | spicy.trade' }] }),
+  head: () => ({ meta: [{ title: pageTitle('Connect your agent') }] }),
 })
 
 /**

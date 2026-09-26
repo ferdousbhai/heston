@@ -20,6 +20,8 @@ import {
 } from '#/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#/components/ui/tooltip'
 import { GoogleSignInButton } from './auth-gate'
+import { SUPPORT_EMAIL } from '../domain/site'
+import { HOME_LINK_LABEL, Wordmark } from './wordmark'
 
 // Fine enough that "just now" becomes "1 min ago" while a reader is still looking at it.
 const ELAPSED_TICK_MS = 15_000
@@ -224,8 +226,8 @@ export function TopBar({
   const statusPinned = useRef(false)
   return (
     <header className="top-bar">
-      <Link aria-label="spicy.trade home" className="brand" to="/watch">
-        <span>spicy<em>.trade</em></span>
+      <Link aria-label={HOME_LINK_LABEL} className="brand" to="/watch">
+        <Wordmark />
       </Link>
       <div className="top-actions">
         {status && (
@@ -273,7 +275,7 @@ export function TopBar({
             <span className="last-updated-word">Updated </span>{updated}
           </span>
         )}
-        <Button nativeButton={false} render={<a className="top-link" href="mailto:support@spicy.trade" />} size="sm" variant="link">Support</Button>
+        <Button nativeButton={false} render={<a className="top-link" href={`mailto:${SUPPORT_EMAIL}`} />} size="sm" variant="link">Support</Button>
         {viewerName && <ViewerMenu viewerImage={viewerImage} viewerName={viewerName} />}
         {!viewerName && <GoogleSignInButton compact />}
       </div>

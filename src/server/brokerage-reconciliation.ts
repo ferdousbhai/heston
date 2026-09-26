@@ -141,8 +141,10 @@ export type ReconciliationResult = {
 }
 
 const ReconcileParameters = Type.Object({}, { additionalProperties: false })
-// A recent absence is not proof that an ambiguous broker mutation failed; wait through the
-// provider's order-history propagation window before allowing a deterministic absence result.
+// A recent absence is not proof that an ambiguous broker mutation failed; wait before allowing a
+// deterministic absence result. tastytrade documents no order-history propagation window, so this
+// is the owner's risk policy rather than a provider figure: a duplicate order is the costly error,
+// so an absence is trusted only after a conservative quarter hour.
 // `submitted_at` is the write-ahead claim, taken before the request leaves, so the window runs
 // from no later than the send. A claimed row whose request never left at all (a transport
 // failure before sending is still treated as ambiguous) is covered the same way: it stays

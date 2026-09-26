@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { Button } from '#/components/ui/button'
 import { Spinner } from '#/components/ui/spinner'
 import { useViewer } from '../components/auth-gate'
+import { SUPPORT_EMAIL, pageTitle } from '../domain/site'
 
 /**
  * The consent step: what stands between a self-registered client and a member's account.
@@ -19,7 +20,7 @@ import { useViewer } from '../components/auth-gate'
  */
 export const Route = createFileRoute('/authorize/consent')({
   component: ConsentPage,
-  head: () => ({ meta: [{ title: 'Approve access | spicy.trade' }] }),
+  head: () => ({ meta: [{ title: pageTitle('Approve access') }] }),
 })
 
 /**
@@ -100,7 +101,7 @@ function ConsentPage() {
           <p>
             Approve only if you started this from your own agent. Removing spicy.trade from that agent
             ends its use of this connection; to revoke it on spicy.trade&apos;s side, email{' '}
-            <a href="mailto:support@spicy.trade">support@spicy.trade</a>.
+            <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>.
           </p>
           {failure && <p className="authorize-error">{failure}</p>}
           <div className="authorize-actions">

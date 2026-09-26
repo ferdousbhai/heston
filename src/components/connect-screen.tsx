@@ -13,15 +13,15 @@ import {
 } from '../domain/mcp-tokens'
 import { toError } from '../domain/failure'
 import { CopyBlock } from './copy-block'
+import { MCP_ENDPOINT } from '../domain/site'
 
-const MCP_URL = 'https://spicy.trade/mcp'
 const PROXY_URL = 'http://127.0.0.1:8787/mcp'
 /** No Authorization header: the proxy attaches the keyring token so the agent holds none. */
 const PROXY_CLAUDE_COMMAND = `claude mcp add --transport http spice ${PROXY_URL}`
 const PROXY_GROK_COMMAND = `grok mcp add --transport http spice ${PROXY_URL}`
 const PROXY_CODEX_COMMAND = `codex mcp add spice --url ${PROXY_URL}`
-const CODEX_COMMAND = `codex mcp add spice --url ${MCP_URL}`
-const GROK_COMMAND = `grok mcp add --transport http spice ${MCP_URL}`
+const CODEX_COMMAND = `codex mcp add spice --url ${MCP_ENDPOINT}`
+const GROK_COMMAND = `grok mcp add --transport http spice ${MCP_ENDPOINT}`
 /** Reads the spicy.trade token from the keyring, so it needs the token stored first. */
 const CONNECT_TASTYTRADE_COMMAND = './ops/spice-agent/connect-tastytrade.mjs'
 
@@ -143,12 +143,12 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
   // reveal the placeholder is all that can honestly be shown: the digest is all the server kept.
   const bearer = issued?.token ?? 'YOUR_TOKEN'
   const mcpConfig = JSON.stringify({
-    mcpServers: { spice: { headers: { Authorization: `Bearer ${bearer}` }, type: 'http', url: MCP_URL } },
+    mcpServers: { spice: { headers: { Authorization: `Bearer ${bearer}` }, type: 'http', url: MCP_ENDPOINT } },
   }, null, 2)
   // No header. Claude Code skips the OAuth flow entirely when a static `Authorization` is
   // configured, so handing one out as the default would ship the browser sign-in and guarantee
   // nobody ever reaches it.
-  const claudeCommand = `claude mcp add --transport http spice ${MCP_URL}`
+  const claudeCommand = `claude mcp add --transport http spice ${MCP_ENDPOINT}`
   const headlessCommand = `${claudeCommand} --header "Authorization: Bearer ${bearer}"`
 
   return (
@@ -179,7 +179,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
           Muse: add a streamable-HTTP <code>spice</code> entry under <code>mcpServers</code> in its
           <code> settings.json</code>. Pi has no built-in MCP client; add one with an extension
           (<code>pi install</code>). Any other MCP client: a streamable-HTTP server at{' '}
-          <code>{MCP_URL}</code>.
+          <code>{MCP_ENDPOINT}</code>.
         </p>
         <p>
           To add live quotes, option chains, and Greeks, sign in from your client&apos;s own
@@ -210,7 +210,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         <CopyBlock label="Codex" value={PROXY_CODEX_COMMAND} />
         <CopyBlock label="Grok" value={PROXY_GROK_COMMAND} />
         <p className="connect-note">
-          No <code>Authorization</code> header. Pointing at <code>{MCP_URL}</code> without signing
+          No <code>Authorization</code> header. Pointing at <code>{MCP_ENDPOINT}</code> without signing
           in is the public snapshot: cached quotes, no chains, no account. Grok lists tools, not prompts;
           every tool&apos;s own description carries its contract.
         </p>

@@ -4,6 +4,7 @@ import { jwt } from 'better-auth/plugins/jwt'
 
 import { type AppEnv } from './env'
 import { ConfigurationError, readBoundSecret, readStoredSecret } from './secrets'
+import { MCP_PATH, SITE_NAME } from '../domain/site'
 
 export const OWNER_EMAIL = 'ferdousbd@gmail.com'
 
@@ -53,7 +54,7 @@ export function configureAuth(
   googleClientSecret: string,
 ) {
   return betterAuth({
-    appName: 'spicy.trade',
+    appName: SITE_NAME,
     baseURL,
     database,
     secret,
@@ -104,7 +105,7 @@ export function configureAuth(
  * something else that trusts the same issuer -- or, more likely, nothing would authenticate.
  */
 export function mcpResourceIdentifier(baseURL: string): string {
-  return `${baseURL}/mcp`
+  return `${baseURL}${MCP_PATH}`
 }
 
 /**

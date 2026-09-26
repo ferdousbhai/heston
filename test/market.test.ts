@@ -28,9 +28,16 @@ describe('volatility classification', () => {
     expect(volatilityVerdict({ ivRank: 22, ivPercentile: 27 })).toBe('cheap')
   })
 
-  it('treats high rank or percentile as rich', () => {
-    expect(volatilityVerdict({ ivRank: 75, ivPercentile: 60 })).toBe('rich')
-    expect(volatilityVerdict({ ivRank: 50, ivPercentile: 82 })).toBe('rich')
+  it('treats high rank and percentile as rich', () => {
+    expect(volatilityVerdict({ ivRank: 75, ivPercentile: 82 })).toBe('rich')
+    expect(volatilityVerdict({ ivRank: 70, ivPercentile: 80 })).toBe('rich')
+  })
+
+  it('calls a split reading fair on either side', () => {
+    expect(volatilityVerdict({ ivRank: 75, ivPercentile: 60 })).toBe('fair')
+    expect(volatilityVerdict({ ivRank: 50, ivPercentile: 82 })).toBe('fair')
+    expect(volatilityVerdict({ ivRank: 20, ivPercentile: 50 })).toBe('fair')
+    expect(volatilityVerdict({ ivRank: 50, ivPercentile: 20 })).toBe('fair')
   })
 
   it('keeps missing premium observations explicit', () => {

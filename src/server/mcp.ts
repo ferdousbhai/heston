@@ -41,6 +41,7 @@ import {
   createWatchlistReadTool,
 } from './watchlist-tool'
 import { brokerCredentialFromHeaders, type BrokerCredential } from './broker-credential'
+import { MCP_PATH } from '../domain/site'
 
 /**
  * A thesis is the user's own words for one idea, pasted into a prompt the agent then works from.
@@ -333,7 +334,7 @@ function serveMcp(
   // module calls only `waitUntil`, both of which McpExecutionContext carries; the platform type's
   // other members are never touched.
   return createMcpHandler(() => createSpiceMcpServer(env, caller, credential, (task) => ctx.waitUntil(task)), {
-    route: '/mcp',
+    route: MCP_PATH,
     // Out-of-band failures — a rejected request, an error raised after the response is under
     // way — are otherwise dropped without a trace. Named, never bodied: the argument may carry
     // provider or caller content, so only the error's own name is recorded.
@@ -345,7 +346,7 @@ function serveMcp(
  * RFC 9728 §3.1: the metadata for resource `<origin>/mcp` is published at the well-known name with
  * the resource path appended. `handleWellKnownDiscovery` serves it at exactly this path.
  */
-const PROTECTED_RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource/mcp'
+const PROTECTED_RESOURCE_METADATA_PATH = `/.well-known/oauth-protected-resource${MCP_PATH}`
 
 /** A 401 `invalid_token` challenge that names the discovery document, for every refusal below. */
 function authChallenge(request: Request, description: string): Response {

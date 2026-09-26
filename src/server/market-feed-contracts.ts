@@ -9,7 +9,7 @@ import {
   type CandleFrame,
   type CandlePoint,
 } from '../domain/candle'
-import { EquitySymbolSchema } from '../domain/instrument'
+import { EquitySymbolSchema, MAX_PROVIDER_LABEL_LENGTH } from '../domain/instrument'
 import { jsonNumber, type JsonObject } from '../domain/json-payload'
 import { MAX_LIVE_STREAM_SYMBOLS } from '../domain/watchlist'
 
@@ -57,9 +57,15 @@ export const LiveMarketEventSchema = z.object({
 
 export type LiveMarketEvent = z.infer<typeof LiveMarketEventSchema>
 
+/**
+ * The feed status's optional detail is one line of this Worker's own wording shown beside the
+ * status dot; a named budget of about one line at phone width, refusing a runaway message.
+ */
+const MAX_FEED_STATUS_DETAIL_LENGTH = 160
+
 export const MarketFeedStatusSchema = z.object({
   asOf: z.string().datetime(),
-  detail: z.string().max(160).optional(),
+  detail: z.string().max(MAX_FEED_STATUS_DETAIL_LENGTH).optional(),
   state: z.enum(['connecting', 'live', 'reconnecting', 'degraded']),
   type: z.literal('feed-status'),
 })
@@ -75,8 +81,8 @@ const MAX_DATE_MS = 8_640_000_000_000_000
 
 export const OptionStreamerSymbolSchema = z.string()
   .trim()
-  .max(128)
-  .regex(/^\.[A-Z0-9.]{1,127}$/)
+  .max(MAX_PROVIDER_LABEL_LENGTH)
+  .regex(new RegExp(`^\\.[A-Z0-9.]{1,${MAX_PROVIDER_LABEL_LENGTH - 1}}$`))
 
 const OptionGreeksEventSchema = z.object({
   delta: z.number().finite(),

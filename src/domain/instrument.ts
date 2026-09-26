@@ -81,6 +81,20 @@ export function equitySymbolsFromModelText(values: readonly string[]):
 
 const OptionalBoolean = z.boolean().nullable()
 
+/**
+ * The longest provider identifier or one-line label accepted: a country, a listed market, an
+ * instrument sub-type, a streamer symbol. Real values are a few dozen characters at most; this only
+ * refuses a runaway value. It is also the `length(...) <= 128` CHECK on the instrument catalog's
+ * columns (migrations 0008 and 0014), so the two change together or not at all.
+ */
+export const MAX_PROVIDER_LABEL_LENGTH = 128
+/**
+ * The longest provider description accepted: a company's or fund's name line, far shorter in
+ * practice. It is the `length(description) BETWEEN 1 AND 512` CHECK on the instrument catalog, so the two
+ * change together.
+ */
+export const MAX_PROVIDER_DESCRIPTION_LENGTH = 512
+
 // Provider description fields are untrusted storage input. These generous text widths bound
 // D1 rows and UI strings without classifying or shortening any valid symbol or trading field.
 export const InstrumentCatalogItemSchema = z.object({
@@ -91,12 +105,12 @@ export const InstrumentCatalogItemSchema = z.object({
    */
   active: OptionalBoolean,
   borrowRate: z.number().finite().nullable(),
-  countryOfIncorporation: z.string().trim().min(1).max(128).nullable(),
-  description: z.string().trim().min(1).max(512).nullable(),
+  countryOfIncorporation: z.string().trim().min(1).max(MAX_PROVIDER_LABEL_LENGTH).nullable(),
+  description: z.string().trim().min(1).max(MAX_PROVIDER_DESCRIPTION_LENGTH).nullable(),
   isEtf: OptionalBoolean,
   isIndex: OptionalBoolean,
-  lendability: z.string().trim().min(1).max(128).nullable(),
-  listedMarket: z.string().trim().min(1).max(128).nullable(),
+  lendability: z.string().trim().min(1).max(MAX_PROVIDER_LABEL_LENGTH).nullable(),
+  listedMarket: z.string().trim().min(1).max(MAX_PROVIDER_LABEL_LENGTH).nullable(),
   resolutionStatus: z.enum(['resolved', 'unresolved']),
   shortDescription: z.string().trim().min(1).max(256).nullable(),
   symbol: EquitySymbolSchema,

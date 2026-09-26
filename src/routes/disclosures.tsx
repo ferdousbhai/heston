@@ -1,12 +1,13 @@
 import { createFileRoute } from '@tanstack/react-router'
 
 import { SitePage } from '../components/site-page'
+import { pageTitle } from '../domain/site'
 
 export const Route = createFileRoute('/disclosures')({
   component: DisclosuresPage,
   head: () => ({
     meta: [
-      { title: 'Risk disclosures | spicy.trade' },
+      { title: pageTitle('Risk disclosures') },
       { name: 'description', content: 'Options risk, market data, AI-generated content, and order placement disclosures for spicy.trade.' },
     ],
   }),

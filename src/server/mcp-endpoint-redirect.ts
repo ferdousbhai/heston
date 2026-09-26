@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { MCP_PATH } from '../domain/site'
+
 /**
  * The JSON-RPC answer for an MCP client that connected to the wrong path.
  *
@@ -23,7 +25,7 @@ export async function mcpEndpointRedirect(request: Request): Promise<Response | 
   const body: unknown = await request.clone().json().catch(() => undefined)
   const probe = z.object({ jsonrpc: z.literal('2.0'), method: z.string() }).safeParse(body)
   if (!probe.success) return undefined
-  const endpoint = new URL('/mcp', request.url).toString()
+  const endpoint = new URL(MCP_PATH, request.url).toString()
   return Response.json({
     error: {
       code: -32_600,

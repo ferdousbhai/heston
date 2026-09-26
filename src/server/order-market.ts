@@ -53,15 +53,18 @@ export type OrderMarket = {
 
 /**
  * How far a provider timestamp may sit ahead of this Worker's clock before it is treated as
- * invalid rather than as clock skew. No provider figure or written policy sets it; it is named
- * once so every broker-timestamp check shares it.
+ * invalid rather than as clock skew. A named budget, the owner's choice: real skew between
+ * network-time-synced servers is well under a second, so a minute is a wide safety margin that
+ * still rejects a timestamp that is plainly wrong. Named once so every broker-timestamp check
+ * shares it.
  */
 export const BROKER_CLOCK_SKEW_MS = 60_000
 /**
- * The oldest quote a limit price may be checked against. No provider constraint or written
- * risk policy fixes this figure yet; it is named here so that reason has one place to live.
+ * The oldest quote a limit price may be checked against: the owner's risk policy. An order is
+ * priced against the market as it is now, and during a session a quote older than two minutes
+ * means the feed has stalled, so the order is refused rather than checked against an old price.
  */
-const QUOTE_MAX_AGE_MS = 15 * 60_000
+export const QUOTE_MAX_AGE_MS = 2 * 60_000
 
 /** A two-sided quote that is present, ordered, and fresh at `now`; anything else is refused. */
 function validatedQuote(quote: JsonObject | undefined, now: Date) {

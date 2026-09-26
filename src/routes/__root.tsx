@@ -5,6 +5,7 @@ import { TooltipProvider } from '#/components/ui/tooltip'
 import { bootRecoveryScript } from '../boot-recovery'
 import { PUBLIC_SNAPSHOT_URL } from '../deployment'
 import appCss from '../styles.css?url'
+import { SITE_NAME } from '../domain/site'
 
 export const Route = createRootRoute({
   head: () => ({
@@ -29,7 +30,7 @@ export const Route = createRootRoute({
         content: 'black-translucent',
       },
       {
-        title: 'spicy.trade',
+        title: SITE_NAME,
       },
       {
         name: 'description',

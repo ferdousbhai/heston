@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { BrokerRefusalError } from '../src/server/caller-visible-error'
-import { orderMarketFromPayloads, spreadOrderMarketFromPayloads } from '../src/server/order-market'
+import { orderMarketFromPayloads, QUOTE_MAX_AGE_MS, spreadOrderMarketFromPayloads } from '../src/server/order-market'
 
 const option = {
   kind: 'place_option_order' as const,
@@ -75,6 +75,13 @@ describe('order market boundary', () => {
     expect(orderMarketFromPayloads(
       { ...equity, limitPrice: 0.99 }, equityQuote('0.98', '1.00'), equityWithBase, undefined, now,
     ).tickSize).toBe(0.0001)
+  })
+
+  it('checks a limit against a quote at most QUOTE_MAX_AGE_MS old', () => {
+    // The quote was observed at 13:30:00.
+    expect(() => orderMarketFromPayloads(option, quote, instrument, contract, new Date('2026-08-13T13:32:00.000Z'))).not.toThrow()
+    expect(() => orderMarketFromPayloads(option, quote, instrument, contract, new Date('2026-08-13T13:32:00.001Z'))).toThrow('invalid-or-stale')
+    expect(QUOTE_MAX_AGE_MS).toBe(2 * 60_000)
   })
 
   it('rejects stale, mismatched, off-tick, and outside-market limits', () => {
