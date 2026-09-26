@@ -14,7 +14,8 @@ const REFRESH_SKEW_FRACTION = 0.1
 // on the Worker bounds a request's wall time (Workers limit CPU, not wall-clock, and each broker
 // call there carries its own timeout), so this is not a mirror of a Worker bound: it is meant to
 // cover a single call's worst case, a placement's sequential broker round trips being the longest,
-// and it is a judgment of that case rather than a figure derived from one. It is also how long a
+// and it is a named budget, the owner's judgment of that case rather than a figure derived from
+// one: an agent left waiting longer than a minute on one tool call is better told it failed. It is also how long a
 // broker token must outlive the moment it is attached; see tokenRetiresAt below.
 export const UPSTREAM_TIMEOUT_MS = 60_000
 

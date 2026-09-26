@@ -55,7 +55,9 @@ import { CallerVisibleError } from '../caller-visible-error'
 
 // The reconciliation history request asks for one page this wide; `readOrderHistory`
 // treats a page that did not fill as the whole history, so this is the completeness
-// boundary for deciding that an ambiguous submission never reached the broker.
+// boundary for deciding that an ambiguous submission never reached the broker. A named product
+// bound, the owner's choice: a hundred recent orders spans the reconciliation window
+// (`FINAL_ABSENCE_DELAY_MS`) many times over for any account Spice expects to reconcile.
 const RECONCILIATION_HISTORY_PAGE_SIZE = 100
 
 function segment(value: string): string {

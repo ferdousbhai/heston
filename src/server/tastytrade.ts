@@ -80,12 +80,15 @@ export const USER_AGENT = 'Spice/0.1'
  */
 export const BROKER_SYMBOL_CHUNK_SIZE = 100
 /**
- * How long one tastytrade request may take before it is abandoned. A named budget rather than a
- * provider figure: it keeps one hung request inside the public refresh claim, which assumes a
- * slow provider answers well within its lease.
+ * How long one tastytrade request may take before it is abandoned. A named budget, the owner's
+ * judgment rather than a provider figure: long enough for tastytrade's slowest ordinary read, and
+ * short enough that one hung request ends well inside the public refresh claim
+ * (`REFRESH_LEASE_MS`, 30 s), which assumes a slow provider answers within its lease.
  */
 export const TASTYTRADE_REQUEST_TIMEOUT_MS = 20_000
-// An OAuth token response is a handful of fields; this bounds the buffered parse of one.
+// A named budget for the buffered parse of one OAuth token response. The real response is a handful
+// of short fields, a few KB with a JWT access token; about a hundredfold headroom means a longer
+// token never trips it, while a runaway or hostile body is still refused before it is buffered.
 export const MAX_TASTYTRADE_AUTH_RESPONSE_BYTES = 256_000
 // A cached token must outlive any request it is handed to, so it is retired one request timeout
 // before the provider's expiry — or a tenth of its life, for a token too short-lived to spare a

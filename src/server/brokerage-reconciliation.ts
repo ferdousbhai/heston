@@ -152,8 +152,10 @@ const FINAL_ABSENCE_DELAY_MS = 15 * 60_000
  * How far before `submitted_at` a matching order may have been received, for a row the earlier
  * quarantine path wrote. Those rows recorded `submitted_at` after the request had returned -- up
  * to its transport timeout plus the post-lease write -- and must still match, or an absent-looking
- * order would later be settled as never placed. This is a margin over that lag, not a figure
- * derived from one. A claimed row (one carrying `resolved_payload_json`) is written before its
+ * order would later be settled as never placed. This is a named safety margin over that lag, the
+ * owner's choice rather than a derived figure: about six times the request timeout
+ * (`TASTYTRADE_REQUEST_TIMEOUT_MS`), so a legacy row written late still matches its order, yet far
+ * shorter than the gap between two deliberate identical placements. A claimed row (one carrying `resolved_payload_json`) is written before its
  * request leaves, so for it only clock skew applies: a wider margin would reach back to an
  * identical ticket placed just before it.
  */

@@ -1,13 +1,17 @@
 import { z } from 'zod'
 
-// One account is deliberately serialized to at most two broker requests per second. The
-// mutation lease is a crash-recovery backstop; normal callers renew/release it explicitly.
+// One account is deliberately serialized to at most two broker requests per second. A named
+// budget, the owner's choice: tastytrade publishes no per-account rate, so this stays conservatively
+// clear of whatever it enforces, while a placement's few sequential round trips still finish in
+// seconds. The mutation lease is a crash-recovery backstop; normal callers renew/release it explicitly.
 const PERMIT_INTERVAL_MS = 500
 const NEXT_PERMIT_KEY = 'next-permit-at'
 const MUTATION_LEASE_KEY = 'active-mutation-lease'
 // This outlives normal broker request timeouts but eventually releases an evicted caller's lock.
 const MUTATION_LEASE_MS = 2 * 60_000
-const MUTATION_LEASE_POLL_MS = 500
+// A waiting mutation re-checks the lease at the permit interval: it could not start a request
+// any sooner than the next permit anyway, so polling faster would only spend Durable Object reads.
+const MUTATION_LEASE_POLL_MS = PERMIT_INTERVAL_MS
 
 const StoredMutationLeaseSchema = z.object({
   expiresAt: z.number().finite().positive(),

@@ -45,14 +45,24 @@ const EXA_SEARCH_URL = 'https://api.exa.ai/search'
 const MAX_EXA_RESPONSE_BYTES = 2 * 1024 * 1024
 /**
  * How many pages one search returns, and so -- since only a returned page that an event cites is
- * re-read -- the most browser reads one run makes. A response listing more than it was asked for
+ * re-read -- the most browser reads one run makes. A named cost budget, the owner's choice: enough
+ * distinct pages that a search usually surfaces a dated catalyst, while capping the paid, slow part
+ * of a run -- the concurrent browser re-reads -- at this many. A re-read that the browser service
+ * cannot open refuses only the events that cite it. A response listing more than it was asked for
  * is refused rather than trimmed, so the bound holds structurally.
  */
-export const MAX_EXA_RESULTS = 8
-/** An allocation bound on the untrusted events array; the response is already byte-bounded above. */
+export const MAX_EXA_RESULTS = 10
+/**
+ * A named budget on the untrusted events array (the response is already byte-bounded above). A
+ * real answer lists a handful of dated events for one symbol; this leaves ample headroom so a busy
+ * name never trips it, while a runaway array is refused before any of it is processed.
+ */
 const MAX_EXA_EVENTS = 50
 /**
- * Bounds the whole search, body included, since the signal aborts the stream too. Exported because
+ * Bounds the whole search, body included, since the signal aborts the stream too. A named budget,
+ * the owner's judgment: long enough for Exa's structured-output search to finish on an ordinary
+ * day, short enough that a hung search frees its symbol within minutes through the run budget
+ * built on it (`CATALYST_RUN_BUDGET_MS`). Exported because
  * a `running` receipt older than the run this bounds is a run that died, not one still answering.
  */
 export const EXA_REQUEST_TIMEOUT_MS = 30_000
