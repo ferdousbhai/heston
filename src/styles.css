@@ -162,7 +162,8 @@ button { -webkit-tap-highlight-color: transparent; }
 .instrument-focus.rich .premium-verdict { color: var(--rich); }
 
 /* One column reads recommendation → runway → evidence → tape; the wide layout instead dissolves this grid into the
-   panel's own columns. */
+   panel's own columns. The reading wrapper holds recommendation and evidence together for the wide main column, so
+   here it is transparent and evidence is ordered after the runway it argues with. */
 .focus-narrative { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--hairline); display: grid; gap: 22px; }
 .focus-eyebrow { min-height: 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .focus-eyebrow h3 { margin: 0; color: var(--text); font: 400 var(--type-secondary)/1.3 var(--sans); }
@@ -173,10 +174,8 @@ button { -webkit-tap-highlight-color: transparent; }
 .runway-body > a:hover, .runway-body > a:focus-visible { color: var(--text); }
 .runway-body > a svg { display: inline-block; width: 10px; height: 10px; margin-left: 3px; vertical-align: -1px; }
 
-/* The runway and its evidence share a wrapper that is transparent to the one-column grid, so
-   the phone reads them as two of the narrative's own rows; the wide layout makes it a column. */
-.focus-research { display: contents; }
-.focus-runway { container-type: inline-size; }
+.focus-reading { display: contents; }
+.focus-reading > .focus-evidence { order: 1; }
 .runway { margin: 14px 0 0; padding: 0; list-style: none; }
 .runway-event { position: relative; display: grid; grid-template-columns: 52px 10px minmax(0, 1fr); column-gap: 13px; padding-bottom: 14px; }
 .runway-event:last-child { padding-bottom: 0; }
@@ -193,7 +192,9 @@ button { -webkit-tap-highlight-color: transparent; }
 .runway-event:not(.next) .runway-mark::before { border-color: color-mix(in srgb, var(--brand) 50%, var(--bg)); background: color-mix(in srgb, var(--brand) 50%, var(--bg)); }
 .runway-event:not(.next).estimated .runway-mark::before { background: var(--bg); }
 .runway-body { min-width: 0; }
-.runway-kind { margin: 0; color: var(--ink-faint); font: 12px/1 var(--sans); }
+/* What the event is on one line, how sure and how recent on the next, so a narrow column never
+   breaks the line mid-phrase. */
+.runway-kind { margin: 0; display: grid; gap: 4px; color: var(--ink-faint); font: 12px/1.1 var(--sans); }
 .runway-body > strong { display: block; margin-top: 7px; font-size: 15px; line-height: 1.32; }
 .runway-detail { margin: 6px 0 0; max-width: 72ch; color: var(--ink-muted); font-size: 13px; line-height: 1.55; }
 .runway-empty { margin: 14px 0 0; max-width: 72ch; color: var(--ink-muted); font-size: 13px; line-height: 1.62; }
@@ -206,7 +207,7 @@ button { -webkit-tap-highlight-color: transparent; }
 
 /* What members' agents have quoted under this name, under the calendar it argues with. The
    section is absent when nothing has been recorded, so it carries no empty state of its own. */
-.focus-runway + .focus-evidence { padding-top: 20px; border-top: 1px solid var(--hairline); }
+.focus-evidence { padding-top: 20px; border-top: 1px solid var(--hairline); }
 .evidence-cards { display: grid; gap: 15px; margin: 14px 0 0; padding: 0; list-style: none; }
 .evidence-card { padding-left: 11px; border-left: 1px solid var(--hairline); }
 .evidence-card blockquote { margin: 0; max-width: 72ch; color: var(--ink-soft); font-size: 15px; line-height: 1.55; }
@@ -225,7 +226,6 @@ button { -webkit-tap-highlight-color: transparent; }
 /* The age of each fact on the card, under the readings it describes. */
 .focus-freshness { margin: 0; padding: 0 0 16px; display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-faint); font: 13px/1.4 var(--sans); font-variant-numeric: tabular-nums; }
 .focus-freshness time { color: var(--ink-muted); }
-.runway-as-of { white-space: nowrap; }
 
 .watch-table { padding: 24px var(--page-gutter) 16px; }
 .section-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
@@ -377,10 +377,11 @@ button { -webkit-tap-highlight-color: transparent; }
   .bottom-nav .primary-link svg { width: 15px; height: 15px; }
 
   /* Wide screens read as one dense block rather than a header band above two sparse columns:
-     a left rail stacks the instrument, its premium axis, and the metric tape while the runway
-     takes the rest of the row beside them, so the narrative grid dissolves into this one. The
-     rail's rows size to their content and a trailing row absorbs whatever height the runway
-     adds, so a long runway never opens gaps between the rail's sections. */
+     a left rail stacks the instrument, its premium axis, the runway and the metric tape, while
+     the recommendation and its evidence take the rest of the row beside them, so the narrative
+     grid dissolves into this one. The runway is a compact timeline and the thesis is long prose,
+     so the prose gets the width. The rail's rows size to their content and a trailing row
+     absorbs whatever height the reading column adds, so it never opens gaps in the rail. */
   .instrument-focus { padding: 28px var(--page-gutter); display: grid; grid-template-columns: clamp(300px, 24vw, 420px) minmax(0, 1fr); grid-template-rows: auto auto auto 1fr; column-gap: clamp(22px, 2.4vw, 40px); align-items: start; }
   .instrument-focus [data-slot="card-header"] { grid-column: 1; grid-row: 1; display: block; }
   .selected-instrument p { font-size: 13px; }
@@ -390,16 +391,20 @@ button { -webkit-tap-highlight-color: transparent; }
   .premium-axis[data-slot="progress"] { width: 100%; grid-column: 1 / -1; height: 9px; margin-top: 8px; }
   .focus-narrative { display: contents; }
   /* Dissolving the narrative grid drops its gap, so the rail's own sections carry the spacing:
-     the recommendation clears the premium axis, and freshness keeps the tape's row gap. */
-  .focus-recommendation { margin-top: 20px; }
+     the runway clears the premium axis, and freshness keeps the tape's row gap. */
+  .focus-runway { grid-column: 1; grid-row: 2; margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--hairline); }
   .focus-tape { margin-top: 24px; padding: 20px 0 0; }
   .focus-freshness { margin-top: 12px; }
   .instrument-focus [data-slot="card-footer"] { grid-column: 1; grid-row: 3; }
-  /* The research column is the second column, beside the rail, and it stretches so its rule runs
-     the full height. Evidence stacks inside it directly under the runway, however short the
-     runway is against the rail. */
-  .focus-research { display: block; grid-column: 2; grid-row: 1 / -1; align-self: stretch; padding: 0 0 0 clamp(22px, 2.4vw, 40px); border-left: 1px solid var(--hairline); }
-  .focus-runway + .focus-evidence { padding-top: 18px; border-top: 0; }
+  /* The reading column is the second column, beside the rail, and it stretches so its rule runs
+     the full height. Evidence stacks directly under the recommendation, however short the thesis
+     is against the rail, and takes the column's top when there is no recommendation. */
+  .focus-reading { display: block; grid-column: 2; grid-row: 1 / -1; align-self: stretch; padding: 0 0 0 clamp(22px, 2.4vw, 40px); border-left: 1px solid var(--hairline); }
+  .focus-reading > .focus-evidence:first-child { padding-top: 0; border-top: 0; }
+  .focus-recommendation + .focus-evidence { margin-top: 22px; }
+  /* A name with neither a recommendation nor evidence would leave the main column blank beside
+     the rail, so the runway takes that column back instead. */
+  .instrument-focus:has(.focus-reading:empty) .focus-runway { grid-column: 2; grid-row: 1 / -1; align-self: stretch; margin-top: 0; padding: 0 0 0 clamp(22px, 2.4vw, 40px); border-top: 0; border-left: 1px solid var(--hairline); }
   .runway { margin-top: 0; }
   .runway-event { grid-template-columns: 68px 10px minmax(0, 1fr); padding-bottom: 13px; }
   .runway-event::before { left: 86.5px; }
@@ -410,18 +415,12 @@ button { -webkit-tap-highlight-color: transparent; }
   .ticker-table-button[data-slot="button"] { max-width: 330px; }
 }
 
-/* A wide enough runway reads across instead of down: countdown, then what the event is,
-   then its detail beside the title rather than stacked under it. */
-@container (min-width: 700px) {
-  /* The title column keeps a floor wide enough for a source citation to sit on one line. */
-  .runway-body { display: grid; grid-template-columns: minmax(280px, .72fr) minmax(0, 1fr); column-gap: clamp(20px, 2vw, 36px); }
-  .runway-kind, .runway-body > strong { grid-column: 1; }
-  .runway-body > a { grid-column: 1; justify-self: start; }
-  .runway-detail { grid-column: 2; grid-row: 2 / span 2; max-width: 62ch; margin: 0; }
-}
-
-/* The widest layout gives the year column its own cell instead of lengthening the rail. */
+/* The widest layout gives the year column its own cell instead of lengthening the rail. The thesis
+   keeps its reading measure there, so evidence takes the width beside it rather than below. */
 @media (min-width: 1120px) {
+  .focus-reading:has(> .focus-recommendation + .focus-evidence) { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); column-gap: clamp(22px, 2.4vw, 40px); align-content: start; }
+  .focus-recommendation + .focus-evidence { margin-top: 0; padding: 0 0 0 clamp(22px, 2.4vw, 40px); border-top: 0; border-left: 1px solid var(--hairline); }
+
   .premium-data-table .year-cell { display: table-cell; width: 11%; min-width: 96px; text-align: right; }
   .premium-data-table .year-cell strong { display: block; margin-top: 3px; color: var(--ink-faint); font-size: 13px; font-variant-numeric: tabular-nums; }
   .year-sparkline { max-width: 96px; height: 20px; }
@@ -643,10 +642,9 @@ button { -webkit-tap-highlight-color: transparent; }
 .thesis a { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
 .brief-empty { padding: 26px 22px; }
 .brief-empty p { margin: 8px 0 0; color: var(--ink-faint); font-size: 15px; }
-/* One column only: at 960px and up the runway is its own column beside the rail, so a
-   recommendation above it in source order must not give it a top rule. */
+/* One column only: at 960px and up the runway sits in the rail and carries its own rule. */
 @media (max-width: 959px) {
-  .focus-recommendation + .focus-research > .focus-runway { padding-top: 20px; border-top: 1px solid var(--hairline); }
+  .focus-narrative:has(.focus-recommendation) .focus-runway { padding-top: 20px; border-top: 1px solid var(--hairline); }
 }
 .focus-recommendation .brief-card { padding: 10px 0 0; border-top: 0; }
 /* Small controls on a phone still take a full touch target. */

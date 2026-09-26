@@ -417,12 +417,14 @@ function CatalystRunway({
                       {/* The date the source last stated this, so an estimate that has not been
                           revisited in months reads as exactly that. */}
                       <p className="runway-kind">
-                        {[catalystKindName(catalyst.kind), catalystTimingLabel(catalyst.timing), catalyst.confidence]
-                          .filter(Boolean)
-                          .join(' · ')}
-                        {' · '}
-                        <span className="runway-as-of">
-                          as of <time dateTime={catalyst.updatedAt}>{nyDate.format(new Date(catalyst.updatedAt))}</time>
+                        <span>
+                          {[catalystKindName(catalyst.kind), catalystTimingLabel(catalyst.timing)]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </span>
+                        <span>
+                          {catalyst.confidence} · as of{' '}
+                          <time dateTime={catalyst.updatedAt}>{nyDate.format(new Date(catalyst.updatedAt))}</time>
                         </span>
                       </p>
                       <strong>{catalyst.title}</strong>
@@ -932,27 +934,28 @@ export function MarketScreen({
           </div>
         </CardHeader>
         <CardContent className="focus-narrative">
-          {selectedRecommendation && (
-            <section aria-labelledby="focus-recommendation-title" className="focus-recommendation">
-              <header className="focus-eyebrow"><h3 id="focus-recommendation-title">Recommendation</h3></header>
-              <RecommendationCard recommendation={selectedRecommendation} />
-            </section>
-          )}
-          {/* One column dissolves this wrapper into the narrative grid; the wide layout makes it
-              the column beside the rail, so evidence follows the runway rather than the rail. */}
-          <div className="focus-research">
-            <CatalystRunway
-              catalysts={visibleCatalysts}
-              confirmedEmpty={catalystSearch.confirmedEmpty}
-              failed={catalystSearch.failed}
-              now={now}
-              onRefresh={owner ? catalystSearch.refresh : undefined}
-              readFailed={focusedRead.failed}
-              searching={catalystSearch.searching}
-              symbol={selected.symbol}
-            />
+          {/* The prose a reader reads: one column dissolves this wrapper into the narrative grid,
+              and the wide layout makes it the main column, since the thesis is the longest thing
+              on the card and the runway is a compact timeline that fits the rail. */}
+          <div className="focus-reading">
+            {selectedRecommendation && (
+              <section aria-labelledby="focus-recommendation-title" className="focus-recommendation">
+                <header className="focus-eyebrow"><h3 id="focus-recommendation-title">Recommendation</h3></header>
+                <RecommendationCard recommendation={selectedRecommendation} />
+              </section>
+            )}
             <EvidenceCards symbol={selected.symbol} />
           </div>
+          <CatalystRunway
+            catalysts={visibleCatalysts}
+            confirmedEmpty={catalystSearch.confirmedEmpty}
+            failed={catalystSearch.failed}
+            now={now}
+            onRefresh={owner ? catalystSearch.refresh : undefined}
+            readFailed={focusedRead.failed}
+            searching={catalystSearch.searching}
+            symbol={selected.symbol}
+          />
         </CardContent>
         <CardFooter>
           <dl className="focus-tape" aria-label={`${selected.symbol} metrics`}>
