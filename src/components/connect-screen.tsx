@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { z } from 'zod'
 
 import { Alert, AlertDescription, AlertTitle } from '#/components/ui/alert'
@@ -24,6 +24,78 @@ const CODEX_COMMAND = `codex mcp add spice --url ${MCP_ENDPOINT}`
 const GROK_COMMAND = `grok mcp add --transport http spice ${MCP_ENDPOINT}`
 /** Reads the spicy.trade token from the keyring, so it needs the token stored first. */
 const CONNECT_TASTYTRADE_COMMAND = './ops/spice-agent/connect-tastytrade.mjs'
+
+/**
+ * The clients the page has exact commands for, and "Other" for everything that speaks
+ * streamable HTTP. Picking one shows only its commands: listing every client twice made the page
+ * the site's longest by far, and a member runs one agent at a time.
+ */
+const AGENT_CLIENTS = ['claude', 'codex', 'grok', 'other'] as const
+type AgentClient = (typeof AGENT_CLIENTS)[number]
+const AGENT_CLIENT_NAMES = {
+  claude: 'Claude Code',
+  codex: 'Codex',
+  grok: 'Grok',
+  other: 'Other',
+} satisfies Record<AgentClient, string>
+/**
+ * A per-browser convenience only. Storage that is missing or refuses (a private window, blocked
+ * site data) keeps the choice in memory for the visit instead, and a first visit shows the first
+ * client.
+ */
+const AGENT_CLIENT_STORAGE_KEY = 'spice.connect-client.v1'
+let unstoredClient: AgentClient | undefined
+const clientListeners = new Set<() => void>()
+
+function subscribeToClient(listener: () => void): () => void {
+  clientListeners.add(listener)
+  return () => { clientListeners.delete(listener) }
+}
+
+function readClient(): AgentClient {
+  try {
+    const stored = localStorage.getItem(AGENT_CLIENT_STORAGE_KEY)
+    return AGENT_CLIENTS.find((client) => client === stored) ?? unstoredClient ?? 'claude'
+  } catch {
+    return unstoredClient ?? 'claude'
+  }
+}
+
+function chooseClient(next: AgentClient) {
+  try {
+    localStorage.setItem(AGENT_CLIENT_STORAGE_KEY, next)
+  } catch {
+    unstoredClient = next
+  }
+  for (const listener of clientListeners) listener()
+}
+
+/** The server renders the first client; the browser's stored choice takes over on hydration. */
+function useAgentClient(): [AgentClient, (client: AgentClient) => void] {
+  return [useSyncExternalStore(subscribeToClient, readClient, () => 'claude'), chooseClient]
+}
+
+function ClientPicker({ client, onChange }: { client: AgentClient; onChange: (client: AgentClient) => void }) {
+  return (
+    <fieldset className="connect-picker">
+      <legend>Your agent</legend>
+      <div>
+        {AGENT_CLIENTS.map((option) => (
+          <label key={option}>
+            <input
+              checked={client === option}
+              name="agent-client"
+              onChange={() => onChange(option)}
+              type="radio"
+              value={option}
+            />
+            <span>{AGENT_CLIENT_NAMES[option]}</span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  )
+}
 
 /** The shape every failing handler in api.mcp-tokens returns. */
 const ErrorResponseSchema = z.object({ error: z.string() })
@@ -136,6 +208,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
   // Every token control waits for whichever action is in flight.
   const busy = pending !== undefined
   const [label, setLabel] = useState('')
+  const [client, setClient] = useAgentClient()
 
   // While a freshly issued token is on screen, both blocks carry it. A placeholder here made the
   // shortest path copy the token, copy the config, then splice one into the other by hand -- and
@@ -150,6 +223,8 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
   // nobody ever reaches it.
   const claudeCommand = `claude mcp add --transport http spice ${MCP_ENDPOINT}`
   const headlessCommand = `${claudeCommand} --header "Authorization: Bearer ${bearer}"`
+  const publicCommand = { claude: claudeCommand, codex: CODEX_COMMAND, grok: GROK_COMMAND, other: undefined }[client]
+  const proxyCommand = { claude: PROXY_CLAUDE_COMMAND, codex: PROXY_CODEX_COMMAND, grok: PROXY_GROK_COMMAND, other: undefined }[client]
 
   return (
     <section className="connect-screen">
@@ -163,6 +238,30 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         </p>
       </header>
 
+      {/* One aside for the picker and the guards: a wide screen holds it beside the steps so the
+          choice stays in reach while the commands under it change; one column dissolves it and
+          the guards take their place after the steps. */}
+      <aside className="connect-aside">
+        <ClientPicker client={client} onChange={setClient} />
+        <section className="connect-step connect-guards">
+          <h2>What the agent cannot do</h2>
+          <p>
+            Orders run the same server-side guards regardless of what any agent recommends: the exact
+            contract is resolved from the live chain, the portfolio and market checks
+            run against fresh broker state, and the broker&apos;s own dry-run must come back clean. A
+            refusal is final. spicy.trade has no confirmation step of its own: any prompt before an order
+            comes from your agent, and the server-side guards are what bound the risk.
+          </p>
+          {owner && (
+            <p className="connect-owner-note">
+              Your account also carries the owner&apos;s watchlist reach: <code>read_watchlist</code>{' '}
+              takes a symbol and names where it came from, and <code>manage_watchlist</code> adds to or
+              removes from the shared watchlist.
+            </p>
+          )}
+        </section>
+      </aside>
+
       <section className="connect-step">
         <h2>1 · Point your agent at spicy.trade</h2>
         {/* A request with no credential is served, not challenged (src/server/mcp.ts), so adding
@@ -172,21 +271,26 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
           Run the command for your agent and it connects straight away at the public tier: the cached market
           snapshot, price history, and the shared research, with nothing to copy and no sign-in.
         </p>
-        <CopyBlock label="Claude Code" value={claudeCommand} />
-        <CopyBlock label="Codex" value={CODEX_COMMAND} />
-        <CopyBlock label="Grok" value={GROK_COMMAND} />
-        <p className="connect-note">
-          Muse: add a streamable-HTTP <code>spice</code> entry under <code>mcpServers</code> in its
-          <code> settings.json</code>. Pi has no built-in MCP client; add one with an extension
-          (<code>pi install</code>). Any other MCP client: a streamable-HTTP server at{' '}
-          <code>{MCP_ENDPOINT}</code>.
-        </p>
+        {publicCommand
+          ? <CopyBlock label={AGENT_CLIENT_NAMES[client]} value={publicCommand} />
+          : (
+              <>
+                <CopyBlock label="Streamable HTTP server" value={MCP_ENDPOINT} />
+                <p className="connect-note">
+                  Muse: add a streamable-HTTP <code>spice</code> entry under <code>mcpServers</code> in its
+                  <code> settings.json</code>. Pi has no built-in MCP client; add one with an extension
+                  (<code>pi install</code>).
+                </p>
+              </>
+            )}
         <p>
           To add live quotes, option chains, and Greeks, sign in from your client&apos;s own
           authenticate action for this server. spicy.trade publishes standard OAuth discovery, so a
           client that supports it opens a browser to sign you in with Google and renews its own
-          access — you should not need to come back here. In Claude Code that is <code>/mcp</code>;
-          in Codex, <code>codex mcp login spice</code>; in Muse, <code>muse mcp login spice</code>.
+          access — you should not need to come back here.
+          {client === 'claude' && <> In Claude Code that is <code>/mcp</code>.</>}
+          {client === 'codex' && <> In Codex that is <code>codex mcp login spice</code>.</>}
+          {client === 'other' && <> In Muse that is <code>muse mcp login spice</code>.</>}
         </p>
         <p className="connect-note">
           If your client cannot sign in this way, use the local proxy below. If you already run the
@@ -206,13 +310,13 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
           value={'./ops/spice-agent/store-credentials.sh mcp-token'}
         />
         <p>Issue the token in step 3, paste it at the prompt. The script restarts the proxy.</p>
-        <CopyBlock label="Claude Code" value={PROXY_CLAUDE_COMMAND} />
-        <CopyBlock label="Codex" value={PROXY_CODEX_COMMAND} />
-        <CopyBlock label="Grok" value={PROXY_GROK_COMMAND} />
+        {proxyCommand
+          ? <CopyBlock label={AGENT_CLIENT_NAMES[client]} value={proxyCommand} />
+          : <CopyBlock label="Streamable HTTP server" value={PROXY_URL} />}
         <p className="connect-note">
           No <code>Authorization</code> header. Pointing at <code>{MCP_ENDPOINT}</code> without signing
-          in is the public snapshot: cached quotes, no chains, no account. Grok lists tools, not prompts;
-          every tool&apos;s own description carries its contract.
+          in is the public snapshot: cached quotes, no chains, no account.
+          {client === 'grok' && <> Grok lists tools, not prompts; every tool&apos;s own description carries its contract.</>}
         </p>
         <p>
           A brokerage is a second store: balances, positions, order history, and orders against
@@ -318,30 +422,13 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
             ? 'Both blocks below already carry the token you just created — copy either one.'
             : 'Substitute a token above; it is shown only at the moment it is issued.'}
         </p>
-        <CopyBlock label="Command" value={headlessCommand} />
+        {/* The header flag is Claude Code's; every other client takes the same entry as JSON. */}
+        <CopyBlock label="Claude Code" value={headlessCommand} />
         <CopyBlock label=".mcp.json" value={mcpConfig} />
         <p className="connect-note">
           A configured <code>Authorization</code> header takes precedence over the browser flow, so
           use this only where there is no browser.
         </p>
-      </section>
-
-      <section className="connect-step">
-        <h2>What the agent cannot do</h2>
-        <p>
-          Orders run the same server-side guards regardless of what any agent recommends: the exact
-          contract is resolved from the live chain, the portfolio and market checks
-          run against fresh broker state, and the broker&apos;s own dry-run must come back clean. A
-          refusal is final. spicy.trade has no confirmation step of its own: any prompt before an order
-          comes from your agent, and the server-side guards are what bound the risk.
-        </p>
-        {owner && (
-          <p className="connect-owner-note">
-            Your account also carries the owner&apos;s watchlist reach: <code>read_watchlist</code>{' '}
-            takes a symbol and names where it came from, and <code>manage_watchlist</code> adds to or
-            removes from the shared watchlist.
-          </p>
-        )}
       </section>
     </section>
   )

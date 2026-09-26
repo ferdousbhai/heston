@@ -596,9 +596,34 @@ button { -webkit-tap-highlight-color: transparent; }
 /* The token and the config are both long single lines; scrolling the block keeps the page
    itself from scrolling sideways on a phone. */
 .connect-code pre { margin: 0; padding: 11px 12px; background: var(--surface); overflow-x: auto; }
-.connect-code code { padding: 0; background: none; font-size: 13px; line-height: 1.55; white-space: pre; font-family: var(--mono); }
+/* Wrapped rather than scrolled, so a long command shows whole; Copy takes the value, not the
+   wrapped text, and pre-wrap keeps the JSON's indentation. */
+.connect-code code { padding: 0; background: none; font-size: 13px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); }
 .connect-screen .connect-owner-note { color: var(--ink-faint); }
 .connect-screen .connect-note { color: var(--ink-faint); }
+/* One column dissolves the aside: the picker stays under the intro and the guards follow the
+   steps, as they did before the aside existed. */
+.connect-aside { display: contents; }
+.connect-guards { order: 1; }
+.connect-picker { margin: 0; padding: 0; border: 0; min-width: 0; }
+.connect-picker legend { margin-bottom: 8px; padding: 0; color: var(--ink-muted); font-size: 13px; }
+.connect-picker > div { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: 10px; background: var(--surface); }
+.connect-picker label { position: relative; cursor: pointer; }
+.connect-picker input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.connect-picker span { display: block; min-height: 34px; padding: 8px 14px; border-radius: 7px; color: var(--ink-muted); font-size: 14px; line-height: 18px; }
+.connect-picker input:checked + span { background: var(--surface-2); color: var(--text); }
+.connect-picker input:focus-visible + span { outline: 2px solid var(--ring); outline-offset: 2px; }
+/* A wide screen keeps the picker and the guards in a column beside the steps, held in view as
+   the steps scroll, and centres the page as the brief is centred. */
+@media (min-width: 1120px) {
+  .connect-screen { max-width: 1120px; margin-inline: auto; grid-template-columns: minmax(0, 720px) minmax(260px, 1fr); column-gap: clamp(32px, 4vw, 64px); align-items: start; }
+  .connect-screen > * { grid-column: 1; }
+  .connect-screen > .connect-aside { display: grid; gap: 28px; grid-column: 2; grid-row: 1 / span 4; position: sticky; top: 24px; }
+  .connect-guards { order: 0; }
+  /* The aside is too narrow for four segments in a row, so they sit as an even two by two. */
+  .connect-aside .connect-picker > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .connect-aside .connect-picker span { text-align: center; }
+}
 
 /* A 44px hit area around the change pill keeps the compact visual readable and tappable. */
 .watch-pill::after { content: ""; position: absolute; inset: -9px 0; }
