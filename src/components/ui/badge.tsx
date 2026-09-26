@@ -12,9 +12,6 @@ const badgeVariants = cva(
         default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
         outline:
           "border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground",
-        bullish: "bg-success/10 text-success ring-1 ring-success/20",
-        bearish: "bg-destructive/10 text-destructive ring-1 ring-destructive/20",
-        neutral: "bg-info/10 text-info ring-1 ring-info/20",
       },
     },
     defaultVariants: {

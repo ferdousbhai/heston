@@ -184,7 +184,7 @@ test('each view is an address: a direct load renders it, and moving between them
 
   await page.goto('/recommendations')
   await expect(page).toHaveTitle('Recommendations | Spice')
-  await expect(page.getByRole('heading', { name: 'Trades' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Trades' })).toBeVisible()
   await expect(primaryLink(page, 'Recommendations')).toHaveAttribute('aria-current', 'page')
   await expect(page.locator('.last-updated')).toHaveCount(0)
 
@@ -212,7 +212,7 @@ test('each view is an address: a direct load renders it, and moving between them
   // The views share one layout, so moving between them neither remounts nor refetches the market.
   const settledRequests = snapshotRequests
   await navigateTo(page, 'Recommendations')
-  await expect(page.getByRole('heading', { name: 'Trades' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Trades' })).toBeVisible()
   await navigateTo(page, 'Connect')
   await expect(page.getByRole('heading', { name: 'Your agent. Your account.' })).toBeVisible()
   await navigateTo(page, 'Watch')
@@ -335,7 +335,7 @@ test('unauthenticated visitors can read market data but connecting an agent need
   await expect(page.getByText('Long vol')).toHaveCount(0)
 
   await navigateTo(page, 'Recommendations')
-  await expect(page.getByRole('heading', { name: 'Trades' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Trades' })).toBeVisible()
 
   await navigateTo(page, 'Connect')
   await expect(page.getByRole('heading', { name: 'Your agent. Your account.' })).toBeVisible()
@@ -517,7 +517,7 @@ test('mobile market, recommendations, search, sorting, and connect flows remain 
 
   await navigateTo(page, 'Recommendations')
   await expect(primaryLink(page, 'Watch')).not.toHaveAttribute('aria-current', 'page')
-  await expect(page.getByRole('heading', { name: 'Trades' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Trades' })).toBeVisible()
   // The age describes the market, so it is shown only where the market is.
   await expect(page.locator('.last-updated')).toHaveCount(0)
   // A trade line in the brief is a way into the market: it selects the name and moves to Watch.
@@ -526,7 +526,7 @@ test('mobile market, recommendations, search, sorting, and connect flows remain 
   await expect(page.locator('.focus-strip-symbol')).toHaveText('NVDA')
   await page.goBack()
   await expect(page).toHaveURL(/\/recommendations$/)
-  await expect(page.getByRole('heading', { name: 'Trades' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Trades' })).toBeVisible()
   await page.goForward()
   await expect(page).toHaveURL(/\/watch$/)
   await page.getByRole('button', { name: /INTC, Intel, Cheap/ }).click()

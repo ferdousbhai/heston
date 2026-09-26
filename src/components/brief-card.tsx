@@ -1,8 +1,7 @@
-import { Badge } from '#/components/ui/badge'
 import { type BriefRecommendation } from '../domain/brief'
 import { ThesisMarkdown } from './thesis-markdown'
 
-/** One trade as the published brief carries it: the bold trade line, the direction, and the thesis. */
+/** One trade as the published brief carries it: the bold trade line and the thesis. */
 export function RecommendationCard({ onSymbol, recommendation }: { onSymbol?: (symbol: string) => void; recommendation: BriefRecommendation }) {
   return (
     <article className="brief-card">
@@ -16,7 +15,6 @@ export function RecommendationCard({ onSymbol, recommendation }: { onSymbol?: (s
             </button>
           )
           : <strong className="trade-line">{recommendation.trade}</strong>}
-        <Badge variant={recommendation.direction}>{recommendation.direction}</Badge>
       </header>
       <ThesisMarkdown text={recommendation.thesis} />
     </article>
