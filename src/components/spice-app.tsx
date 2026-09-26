@@ -58,7 +58,7 @@ function useWorkspace(): Workspace {
   const workspace = useContext(WorkspaceContext)
   // A view rendered outside the layout has no market to read; saying so beats rendering an
   // empty market as if it were real.
-  if (!workspace) throw new Error('A Spice view rendered outside the application layout.')
+  if (!workspace) throw new Error('A spicy.trade view rendered outside the application layout.')
   return workspace
 }
 

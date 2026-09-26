@@ -9,7 +9,7 @@ import { z } from 'zod'
  */
 
 /**
- * Every broker Spice can read an account from. Adding one means adding it here and
+ * Every broker spicy.trade can read an account from. Adding one means adding it here and
  * registering its adapter — the header parser parses against this list and the production
  * registry is type-checked against it (`satisfies Record<BrokerId, BrokerAdapter>`), so a new
  * id cannot be half-added and silently accepted by one and refused by the other.
@@ -19,11 +19,11 @@ export const BrokerIdSchema = z.enum(['tastytrade'])
 export type BrokerId = z.infer<typeof BrokerIdSchema>
 
 /**
- * The longest broker order or record id Spice accepts. tastytrade issues these as integers, and
+ * The longest broker order or record id spicy.trade accepts. tastytrade issues these as integers, and
  * 40 characters holds the decimal form of any 128-bit value (39 digits) with room to spare; the
  * bound exists so an id read from a broker or a model cannot carry a payload into a URL path,
  * a stored row, or model context. Reads that report what the broker wrote apply the length;
- * ids Spice sends or trusts as an order's identity must also be all digits.
+ * ids spicy.trade sends or trusts as an order's identity must also be all digits.
  */
 export const BROKER_ORDER_ID_MAX_LENGTH = 40
 export const BROKER_ORDER_ID = new RegExp(`^\\d{1,${BROKER_ORDER_ID_MAX_LENGTH}}$`)

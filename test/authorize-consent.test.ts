@@ -17,7 +17,7 @@ const ConsentPage = Route.options.component as ComponentType
 it('says the session check failed instead of stopping at the heading', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => new Response('unavailable', { status: 503 })))
   render(createElement(ConsentPage))
-  await screen.findByText('Spice could not check whether you are signed in. Reload to try again.')
+  await screen.findByText('spicy.trade could not check whether you are signed in. Reload to try again.')
   expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull()
   expect(screen.queryByRole('status')).toBeNull()
 })
@@ -48,6 +48,6 @@ it('reports a success body it cannot read in its own words, not as parser output
     : Response.json({ user: { id: 'm', name: 'Dana', role: 'member' } })))
   const { container } = render(createElement(ConsentPage))
   fireEvent.click(await screen.findByRole('button', { name: 'Approve' }))
-  await screen.findByText('Spice could not record that answer.')
+  await screen.findByText('spicy.trade could not record that answer.')
   expect(container.textContent).not.toContain('invalid_type')
 })

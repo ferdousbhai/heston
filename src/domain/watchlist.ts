@@ -21,7 +21,7 @@ export const MAX_LIVE_STREAM_SYMBOLS = 100
 
 const WatchlistSymbolsSchema = z.array(EquitySymbolSchema).min(1).max(MAX_WATCHLIST_SYMBOLS)
 
-/** Spice maintains one internal watchlist; broker list names are seed provenance, not mutation targets. */
+/** spicy.trade maintains one internal watchlist; broker list names are seed provenance, not mutation targets. */
 export const AddWatchlistSymbolsSchema = z.strictObject({
   kind: z.literal('add_watchlist_symbols'),
   symbols: WatchlistSymbolsSchema,
@@ -36,7 +36,7 @@ export type WatchlistMutation =
   | z.infer<typeof RemoveWatchlistSymbolsSchema>
 
 /**
- * Spice's own report of a mutation it just made, never parsed: it crosses no trust boundary,
+ * spicy.trade's own report of a mutation it just made, never parsed: it crosses no trust boundary,
  * and a schema here would only have looked like an enforced bound. Refusing it after the write
  * had landed would also have told the caller a completed change had failed.
  */

@@ -8,10 +8,10 @@ import { TOKEN_REQUEST_TIMEOUT_MS, tokenRetiresAt, UPSTREAM_TIMEOUT_MS } from '.
 /**
  * The brokerage credential broker for a local agent.
  *
- * Spice holds no member's brokerage credential, so one has to reach the Worker on each request.
+ * spicy.trade holds no member's brokerage credential, so one has to reach the Worker on each request.
  * It must not reach it through the agent: an MCP config's `${VAR}` interpolation reads the agent
  * process's own environment, which its Bash tool inherits, and a tastytrade refresh token never
- * expires and bypasses every Spice guard. One prompt-injected `printenv | curl` out of the
+ * expires and bypasses every spicy.trade guard. One prompt-injected `printenv | curl` out of the
  * untrusted-content pipeline would be permanent, unguarded trading authority.
  *
  * So this runs as its own process. It reads the long-lived credential from the OS keyring,
@@ -24,7 +24,7 @@ import { TOKEN_REQUEST_TIMEOUT_MS, tokenRetiresAt, UPSTREAM_TIMEOUT_MS } from '.
  * A tastytrade credential comes in one of two kinds, told apart by the keyring entries present:
  *   personal grant  `client-secret` + `refresh-token`, from the member's own OAuth app; minted
  *                   directly against tastytrade.
- *   app grant       `app-refresh-token`, from `connect-tastytrade.mjs` under Spice's OAuth app,
+ *   app grant       `app-refresh-token`, from `connect-tastytrade.mjs` under spicy.trade's OAuth app,
  *                   whose client secret only the Worker holds; minted through the Worker.
  * Either way only the 15-minute access token is attached to forwarded requests. A keyring holding
  * both is refused rather than resolved by a precedence rule: which account the agent trades
@@ -136,7 +136,7 @@ async function mintPersonalGrant(clientSecret, refreshToken) {
 
 /**
  * An app grant: the member's refresh token, minted by the Worker, which adds the app's client
- * secret. The refresh token leaves this machine only in this request's body, to Spice, over the
+ * secret. The refresh token leaves this machine only in this request's body, to spicy.trade, over the
  * same authenticated channel every forwarded call uses.
  *
  * A refusal is reported by tastytrade's status when the Worker relays one, so a revoked grant
@@ -185,7 +185,7 @@ async function main() {
   const spiceToken = await keyringSecret(PROGRAM, 'spice', 'mcp-token')
   if (!spiceToken) {
     process.stderr.write(
-      'SpiceAgentProxy: no Spice token in the keyring. Create one in the Connect tab, then:\n'
+      'SpiceAgentProxy: no spicy.trade token in the keyring. Create one in the Connect tab, then:\n'
       + '  ./ops/spice-agent/store-credentials.sh mcp-token\n',
     )
     process.exit(1)
@@ -216,7 +216,7 @@ async function main() {
 
   const port = Number(process.env.SPICE_AGENT_PORT ?? DEFAULT_PORT)
   // DNS rebinding: a web page can resolve its own name to 127.0.0.1 and reach this port from the
-  // browser, and every request here leaves carrying the Spice token and a broker token. A
+  // browser, and every request here leaves carrying the spicy.trade token and a broker token. A
   // browser always sends that page's name as Host, and sends Origin on a cross-origin request;
   // an MCP client does neither, so a request naming any other host, or carrying an Origin at
   // all, is refused before anything is attached.
@@ -226,7 +226,7 @@ async function main() {
     if (!allowedHosts.has(request.headers.host ?? '') || request.headers.origin !== undefined) {
       request.resume()
       response.writeHead(403, { 'content-type': 'application/json' })
-      response.end(JSON.stringify({ error: 'The Spice proxy only answers local MCP clients' }))
+      response.end(JSON.stringify({ error: 'The spicy.trade proxy only answers local MCP clients' }))
       return
     }
     void (async () => {
@@ -286,7 +286,7 @@ async function main() {
           return
         }
         response.writeHead(502, { 'content-type': 'application/json' })
-        response.end(JSON.stringify({ error: 'The Spice proxy could not complete this request' }))
+        response.end(JSON.stringify({ error: 'The spicy.trade proxy could not complete this request' }))
       }
     })()
   })

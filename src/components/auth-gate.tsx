@@ -120,7 +120,7 @@ export function SignInScreen({ authError, callbackURL }: { authError?: string; c
     <section className="owner-access" aria-labelledby="owner-access-title">
       <p className="owner-access-kicker">Connect your agent</p>
       <h1 id="owner-access-title">Your agent.<br />Your <em>account.</em></h1>
-      <p>Any agent can reach Spice&apos;s public tier without an account. Sign in with Google to add live broker-backed quotes, option chains, and Greeks, sync your favorites across devices, and let your agent record research — and, with your own brokerage credentials, read your account and place guarded orders.</p>
+      <p>Any agent can reach spicy.trade&apos;s public tier without an account. Sign in with Google to add live broker-backed quotes, option chains, and Greeks, sync your favorites across devices, and let your agent record research — and, with your own brokerage credentials, read your account and place guarded orders.</p>
       {authError && (
         <Alert className="owner-access-error" variant="destructive">
           <AlertTitle>Sign-in unavailable</AlertTitle>

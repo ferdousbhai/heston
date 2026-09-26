@@ -71,7 +71,7 @@ export function applySnapshotQueryResult(
     // one thing that actually clears it — closing the tab, not the app, which iOS restores.
     const reloading = reloadForDeployment()
     if (failure.hydrated) setWarning(undefined)
-    else if (!reloading) setWarning('Spice needs a newer version. Close this tab and open the site again.')
+    else if (!reloading) setWarning('spicy.trade needs a newer version. Close this tab and open the site again.')
     return
   }
   // A failed sync is not something to interrupt a reader over: the saved data is still on

@@ -11,15 +11,15 @@ import {
 import { TOKEN_REQUEST_TIMEOUT_MS } from './token-refresh.mjs'
 
 /**
- * Connect tastytrade through Spice's OAuth app, once, and keep the result in the OS keyring.
+ * Connect tastytrade through spicy.trade's OAuth app, once, and keep the result in the OS keyring.
  *
- * The member approves Spice on tastytrade's own page; the browser comes back through the Worker
+ * The member approves spicy.trade on tastytrade's own page; the browser comes back through the Worker
  * to a listener here on the loopback address; this process redeems the code through the Worker
  * and stores the refresh token under `tastytrade/app-refresh-token`, where the local proxy finds
  * it. The Worker holds the app's client secret and never keeps the refresh token; this machine
  * keeps the refresh token and never needs a client secret.
  *
- * Every Worker call carries the member's Spice agent token from the keyring, which is what binds
+ * Every Worker call carries the member's spicy.trade agent token from the keyring, which is what binds
  * the whole connection to that member: a started connection can be redeemed only with the same
  * token, so the consent URL, the code, and the state are each useless to anyone else.
  *
@@ -72,14 +72,14 @@ async function callWorker(path, spiceToken, body) {
       signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
     })
   } catch (error) {
-    fail(`Spice could not be reached (${error instanceof Error ? error.name : 'UnknownError'})`)
+    fail(`spicy.trade could not be reached (${error instanceof Error ? error.name : 'UnknownError'})`)
   }
   const payload = await response.json().catch(() => undefined)
   if (!response.ok) {
     const tastytradeStatus = z.object({ tastytradeStatus: z.number().int() }).safeParse(payload)
-    if (response.status === 401) fail('Spice did not accept the agent token in the keyring')
+    if (response.status === 401) fail('spicy.trade did not accept the agent token in the keyring')
     if (tastytradeStatus.success) fail(`tastytrade refused the grant (HTTP ${tastytradeStatus.data.tastytradeStatus})`)
-    fail(`Spice refused ${path} (HTTP ${response.status})`)
+    fail(`spicy.trade refused ${path} (HTTP ${response.status})`)
   }
   return payload
 }
@@ -139,7 +139,7 @@ async function loopbackListener() {
       settle({ error: error && OAUTH_ERRORS.has(error) ? error : 'unrecognized' })
       return
     }
-    page(response, 200, 'Spice received the authorization. You can close this tab and return to the terminal.')
+    page(response, 200, 'spicy.trade received the authorization. You can close this tab and return to the terminal.')
     settle({ code })
   })
   await new Promise((resolve, reject) => {
@@ -173,7 +173,7 @@ function openBrowser(url) {
 async function main() {
   const spiceToken = await keyringSecret(PROGRAM, 'spice', 'mcp-token')
   if (!spiceToken) {
-    fail('no Spice token in the keyring. Create one in the Connect tab, then:\n'
+    fail('no spicy.trade token in the keyring. Create one in the Connect tab, then:\n'
       + '  ./ops/spice-agent/store-credentials.sh mcp-token')
   }
   // The proxy refuses a keyring holding both kinds, so connecting over a personal grant would
@@ -190,11 +190,11 @@ async function main() {
   const authorization = AuthorizeResponseSchema.safeParse(
     await callWorker('/api/brokers/tastytrade/authorize', spiceToken, { port: listener.port }),
   )
-  if (!authorization.success) fail('Spice answered the authorization request with an unreadable response')
+  if (!authorization.success) fail('spicy.trade answered the authorization request with an unreadable response')
   const { authorizationUrl, expiresAt, state } = authorization.data
   listener.expect(state)
 
-  process.stdout.write(`Approve Spice on tastytrade to connect your account:\n\n  ${authorizationUrl}\n\n`)
+  process.stdout.write(`Approve spicy.trade on tastytrade to connect your account:\n\n  ${authorizationUrl}\n\n`)
   openBrowser(authorizationUrl)
 
   // Waits no longer than the Worker keeps the connection redeemable.
@@ -209,10 +209,10 @@ async function main() {
   const exchanged = ExchangeResponseSchema.safeParse(
     await callWorker('/api/brokers/tastytrade/exchange', spiceToken, { code: outcome.code, state }),
   )
-  if (!exchanged.success) fail('Spice answered the exchange with an unreadable response')
+  if (!exchanged.success) fail('spicy.trade answered the exchange with an unreadable response')
   const { refreshToken } = exchanged.data
 
-  if (!await keyringStore(BROKER, KEY, 'tastytrade refresh token (Spice app)', refreshToken)) {
+  if (!await keyringStore(BROKER, KEY, 'tastytrade refresh token (spicy.trade app)', refreshToken)) {
     fail(`failed to store ${BROKER}/${KEY}`)
   }
   if (await keyringSecret(PROGRAM, BROKER, KEY) !== refreshToken) fail(`failed to store ${BROKER}/${KEY}`)

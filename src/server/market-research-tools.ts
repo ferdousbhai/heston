@@ -61,7 +61,7 @@ function normalizeSymbol(value: string): string {
 /**
  * Yahoo renders a share class with a dash (`BRK-B`) where tastytrade uses a slash
  * (`BRK/B`). The translation lives here, at the one provider boundary that needs it;
- * every symbol Spice stores or returns stays in tastytrade symbology.
+ * every symbol spicy.trade stores or returns stays in tastytrade symbology.
  */
 function yahooSymbol(symbol: string): string {
   return symbol.replaceAll('/', '-')

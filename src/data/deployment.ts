@@ -9,7 +9,7 @@ export class DeploymentMismatchError extends Error {
    * unreadable payload leaves the screen empty, and only that is worth telling them about.
    */
   constructor(readonly receivedDeploymentId: string, readonly hydrated = false) {
-    super(`A newer Spice deployment is available (${receivedDeploymentId})`)
+    super(`A newer spicy.trade deployment is available (${receivedDeploymentId})`)
     this.name = 'DeploymentMismatchError'
   }
 }

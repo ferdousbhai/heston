@@ -22,7 +22,7 @@ const PROXY_GROK_COMMAND = `grok mcp add --transport http spice ${PROXY_URL}`
 const PROXY_CODEX_COMMAND = `codex mcp add spice --url ${PROXY_URL}`
 const CODEX_COMMAND = `codex mcp add spice --url ${MCP_URL}`
 const GROK_COMMAND = `grok mcp add --transport http spice ${MCP_URL}`
-/** Reads the Spice token from the keyring, so it needs the token stored first. */
+/** Reads the spicy.trade token from the keyring, so it needs the token stored first. */
 const CONNECT_TASTYTRADE_COMMAND = './ops/spice-agent/connect-tastytrade.mjs'
 
 /** The shape every failing handler in api.mcp-tokens returns. */
@@ -156,7 +156,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
       <header>
         <h1>Connect your agent</h1>
         <p>
-          Spice is a tool surface for an agent running on your own machine — Claude Code, Grok, Codex, or
+          spicy.trade is a tool surface for an agent running on your own machine — Claude Code, Grok, Codex, or
           anything that speaks MCP. Any agent can read the public market surface without signing in
           at all. Signing yours in adds live quotes, option chains and Greeks, lets it add symbols
           to the watchlist, and lets it record catalysts and evidence everyone reads.
@@ -164,10 +164,10 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
       </header>
 
       <section className="connect-step">
-        <h2>1 · Point your agent at Spice</h2>
+        <h2>1 · Point your agent at spicy.trade</h2>
         {/* A request with no credential is served, not challenged (src/server/mcp.ts), so adding
             the server never starts a sign-in by itself. Sign-in is whatever the client does with
-            the OAuth discovery documents Spice publishes, which varies by client. */}
+            the OAuth discovery documents spicy.trade publishes, which varies by client. */}
         <p>
           Run the command for your agent and it connects straight away at the public tier: the cached market
           snapshot, price history, and the shared research, with nothing to copy and no sign-in.
@@ -183,7 +183,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         </p>
         <p>
           To add live quotes, option chains, and Greeks, sign in from your client&apos;s own
-          authenticate action for this server. Spice publishes standard OAuth discovery, so a
+          authenticate action for this server. spicy.trade publishes standard OAuth discovery, so a
           client that supports it opens a browser to sign you in with Google and renews its own
           access — you should not need to come back here. In Claude Code that is <code>/mcp</code>;
           in Codex, <code>codex mcp login spice</code>; in Muse, <code>muse mcp login spice</code>.
@@ -197,12 +197,12 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
       <section className="connect-step">
         <h2>2 · Local proxy <span className="connect-optional">optional</span></h2>
         <p>
-          A process on this machine attaches the Spice token from the keyring so the agent holds
+          A process on this machine attaches the spicy.trade token from the keyring so the agent holds
           none. That is how live quotes, chains, and Greeks reach a client that cannot complete a
           browser sign-in.
         </p>
         <CopyBlock
-          label="Store your Spice token"
+          label="Store your spicy.trade token"
           value={'./ops/spice-agent/store-credentials.sh mcp-token'}
         />
         <p>Issue the token in step 3, paste it at the prompt. The script restarts the proxy.</p>
@@ -216,8 +216,8 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         </p>
         <p>
           A brokerage is a second store: balances, positions, order history, and orders against
-          your account only. Run this, approve Spice on tastytrade&apos;s own page, and the grant
-          lands in your keyring — Spice never keeps it. The script restarts the proxy.
+          your account only. Run this, approve spicy.trade on tastytrade&apos;s own page, and the grant
+          lands in your keyring — spicy.trade never keeps it. The script restarts the proxy.
         </p>
         <CopyBlock label="Connect tastytrade" value={CONNECT_TASTYTRADE_COMMAND} />
         <p className="connect-note">
@@ -332,7 +332,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
           Orders run the same server-side guards regardless of what any agent recommends: the exact
           contract is resolved from the live chain, the portfolio and market checks
           run against fresh broker state, and the broker&apos;s own dry-run must come back clean. A
-          refusal is final. Spice has no confirmation step of its own: any prompt before an order
+          refusal is final. spicy.trade has no confirmation step of its own: any prompt before an order
           comes from your agent, and the server-side guards are what bound the risk.
         </p>
         {owner && (

@@ -16,7 +16,7 @@ import { base64Url, sha256Base64Url } from './digest'
  */
 const TOKEN_PREFIX = 'spice_'
 /**
- * `heston_` is the retired prefix, on tokens issued before the rebrand to Spice. They keep
+ * `heston_` is the retired prefix, on tokens issued before the rebrand to Spice (now spicy.trade). They keep
  * authenticating so no member's agent is cut off by a rename, and accepting them is not a bypass:
  * the stored digest covers the whole string, prefix included, so a token only ever matches under
  * the exact prefix it was minted with. Nothing mints this prefix any more.

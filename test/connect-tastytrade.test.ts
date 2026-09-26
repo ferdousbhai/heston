@@ -108,7 +108,7 @@ function visit(port: number, path: string, headers: Record<string, string> = {})
 
 async function loopbackPort(calls: WorkerCall[], output: () => { stdout: string }): Promise<number> {
   // The listener takes the state from the authorize answer, which the CLI prints the URL after.
-  await expect.poll(() => output().stdout, { timeout: 10_000 }).toContain('Approve Spice on tastytrade')
+  await expect.poll(() => output().stdout, { timeout: 10_000 }).toContain('Approve spicy.trade on tastytrade')
   const port = calls.find((call) => call.path === '/api/brokers/tastytrade/authorize')?.body.port
   if (port === undefined) throw new Error('the CLI started without naming its loopback port')
   return port

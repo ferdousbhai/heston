@@ -26,7 +26,7 @@ export const MAX_OPTION_CONTRACTS = 60
 export const MAX_QUOTE_INSTRUMENTS = 10
 /**
  * One history order carries its legs inline, so the row cap alone does not bound a page: this is
- * the per-row share of the same context budget. It is far wider than any order Spice builds (at
+ * the per-row share of the same context budget. It is far wider than any order spicy.trade builds (at
  * most two legs) and refuses the page rather than truncating a leg list, so an order is never shown
  * with fewer legs than it has.
  */

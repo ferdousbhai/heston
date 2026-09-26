@@ -54,7 +54,7 @@ describe('watchlist context boundary', () => {
     expect(JSON.stringify(account)).not.toContain('watchlist')
   })
 
-  it('reads the consolidated Spice list without touching tastytrade watchlist endpoints', async () => {
+  it('reads the consolidated spicy.trade list without touching tastytrade watchlist endpoints', async () => {
     const result = await createWatchlistReadTool({ DB: store.database }).execute({})
 
     // Symbols only. The index answers "what is loaded" across up to 500 names; provenance and

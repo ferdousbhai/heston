@@ -6,13 +6,13 @@ import { z } from 'zod'
  * `reuseExistingServer` adopts whatever already answers on the e2e port, and the readiness probe
  * is a bare status check -- so any unrelated project serving a 200 on `/api/health` is adopted
  * silently. That is not hypothetical: this suite spent a run asserting against a music app that
- * happened to hold port 3000, and every failure read as a bug in Spice.
+ * happened to hold port 3000, and every failure read as a bug in spicy.trade.
  *
  * `/api/health` already says which service it is; nothing read it. This does, before any test.
  *
  * The two failure modes must not be conflated, which is the mistake the first version of this
  * made: a refused connection means nothing is listening and Playwright is about to start the real
- * server, while an answer that is not Spice's -- including HTML from an app whose SPA fallback
+ * server, while an answer that is not spicy.trade's -- including HTML from an app whose SPA fallback
  * returns 200 for every path -- is the case worth stopping for.
  */
 const IDENTITY_TIMEOUT_MS = 2_000
@@ -30,14 +30,14 @@ export default async function assertServerIsSpice(): Promise<void> {
     // Nothing listening: Playwright starts its own server and there is nothing to guard against.
     return
   }
-  // A server that answers but cannot say what it is will not be reused as Spice either, so this
+  // A server that answers but cannot say what it is will not be reused as spicy.trade either, so this
   // is still the stop-worthy case rather than an unknown to wave through.
   const identity = HealthSchema.safeParse(await response.json().catch(() => undefined))
   if (identity.success && identity.data.service === 'spice') return
 
   const seen = identity.success ? identity.data.service : `${response.status} ${response.headers.get('content-type') ?? 'unknown'}`
   throw new Error(
-    `${baseUrl} is already serving something that is not Spice (${seen}). Playwright would reuse `
+    `${baseUrl} is already serving something that is not spicy.trade (${seen}). Playwright would reuse `
     + 'it and every assertion would describe that app instead. Stop it, or set SPICE_E2E_PORT to '
     + 'a free port.',
   )

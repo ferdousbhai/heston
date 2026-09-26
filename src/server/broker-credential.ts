@@ -11,7 +11,7 @@ export type BrokerCredential = {
 export class BrokerCredentialMissingError extends CallerVisibleError {
   constructor() {
     super(
-      'No brokerage is connected for this request. Connect a brokerage from the Connect tab in the Spice web app, then try again.',
+      'No brokerage is connected for this request. Connect a brokerage from the Connect tab in the spicy.trade web app, then try again.',
     )
     this.name = 'BrokerCredentialMissingError'
   }

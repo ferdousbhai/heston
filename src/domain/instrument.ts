@@ -2,7 +2,7 @@ import { Type } from 'typebox'
 import { z } from 'zod'
 
 /**
- * tastytrade equity symbology, the one rule every symbol in Spice is bound by.
+ * tastytrade equity symbology, the one rule every symbol in spicy.trade is bound by.
  *
  * "Equity symbols contain only alphanumeric characters (A-Z, 0-9) with an occasional `/`.
  * A few examples: `AAPL` `BRK/A`" — https://developer.tastytrade.com/api-overview/

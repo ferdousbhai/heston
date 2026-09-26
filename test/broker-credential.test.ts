@@ -175,7 +175,7 @@ describe('request-scoped broker credential', () => {
     ))
     expect(called.error).toBeUndefined()
     expect(called.result.content).toEqual([{
-      text: 'No brokerage is connected for this request. Connect a brokerage from the Connect tab in the Spice web app, then try again.',
+      text: 'No brokerage is connected for this request. Connect a brokerage from the Connect tab in the spicy.trade web app, then try again.',
       type: 'text',
     }])
     expect(fetchMock).not.toHaveBeenCalled()

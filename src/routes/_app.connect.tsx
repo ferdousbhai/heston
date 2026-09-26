@@ -4,5 +4,5 @@ import { ConnectView } from '../components/spice-app'
 
 export const Route = createFileRoute('/_app/connect')({
   component: ConnectView,
-  head: () => ({ meta: [{ title: 'Connect | Spice' }] }),
+  head: () => ({ meta: [{ title: 'Connect | spicy.trade' }] }),
 })

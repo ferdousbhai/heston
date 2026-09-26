@@ -14,9 +14,9 @@ export function SitePage({
     <div className="site-page">
       <a className="skip-link" href="#page-content">Skip to content</a>
       <header className="site-header">
-        <Link aria-label="Spice home" className="site-brand" to="/watch">
+        <Link aria-label="spicy.trade home" className="site-brand" to="/watch">
           <img alt="" src="/spice-mark.svg" />
-          <span>SPICE</span>
+          <span>spicy<em>.trade</em></span>
         </Link>
         <nav aria-label="Information">
           <a href="mailto:support@spicy.trade">Support</a>
@@ -33,7 +33,7 @@ export function SitePage({
         <div className="site-prose">{children}</div>
       </main>
       <footer className="site-footer">
-        <span>© 2026 Spice</span>
+        <span>© 2026 spicy.trade</span>
         <a href="mailto:support@spicy.trade">support@spicy.trade</a>
       </footer>
     </div>

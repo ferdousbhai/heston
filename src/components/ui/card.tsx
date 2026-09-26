@@ -2,7 +2,7 @@ import * as React from "react"
 
 import { cn } from "#/lib/utils.ts"
 
-// Spice's one card is the flat focus panel, so the flat treatment is the card's only style.
+// spicy.trade's one card is the flat focus panel, so the flat treatment is the card's only style.
 const CARD_CLASSES =
   "flex flex-col gap-(--card-spacing) overflow-hidden py-(--card-spacing) text-sm text-foreground [--card-spacing:--spacing(4)]"
 

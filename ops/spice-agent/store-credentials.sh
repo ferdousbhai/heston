@@ -12,17 +12,17 @@ usage() {
   cat <<'EOF'
 Usage: store-credentials.sh [mcp-token|tastytrade]
 
-  mcp-token   The Spice agent token, created in the web app's Connect tab
+  mcp-token   The spicy.trade agent token, created in the web app's Connect tab
               (default).
-  tastytrade  A personal grant instead of Spice's tastytrade app: the client
+  tastytrade  A personal grant instead of spicy.trade's tastytrade app: the client
               secret and refresh token from my.tastytrade.com > OAuth
               Applications > Manage > Create Grant. The read and trade scopes
               need two-factor auth on your account.
 
 Each value is prompted for; nothing is passed on the command line.
 
-To connect tastytrade the usual way -- approve Spice on tastytrade's own page,
-with no client secret to copy -- store the Spice token, then run:
+To connect tastytrade the usual way -- approve spicy.trade on tastytrade's own page,
+with no client secret to copy -- store the spicy.trade token, then run:
 
   ./ops/spice-agent/connect-tastytrade.mjs
 
@@ -31,7 +31,7 @@ EOF
 }
 
 # Filed under the service that issued the credential, not the app that spends it, so a second
-# broker becomes its own service rather than more keys under Spice's. The label is only what
+# broker becomes its own service rather than more keys under spicy.trade's. The label is only what
 # Seahorse displays; the service and key attributes are what the proxy looks up.
 store() {
   local service=$1 key=$2 label=$3 prompt=$4
@@ -46,8 +46,8 @@ store() {
 
 command -v secret-tool >/dev/null || { echo 'secret-tool is not installed (package: libsecret).' >&2; exit 1; }
 
-# The default is the Spice token alone. A personal grant is the exception now that tastytrade
-# connects through Spice's app (connect-tastytrade.mjs), and storing one beside an app grant
+# The default is the spicy.trade token alone. A personal grant is the exception now that tastytrade
+# connects through spicy.trade's app (connect-tastytrade.mjs), and storing one beside an app grant
 # stops the proxy, so it is only ever asked for by name.
 case "${1:-mcp-token}" in
   mcp-token) want_mcp=1; want_tasty=0 ;;
@@ -57,11 +57,11 @@ case "${1:-mcp-token}" in
 esac
 
 if [[ ${want_mcp} -eq 1 ]]; then
-  store spice mcp-token 'Spice agent token' 'Spice agent token (Connect tab in the web app):'
+  store spice mcp-token 'spicy.trade agent token' 'spicy.trade agent token (Connect tab in the web app):'
   if ! secret-tool lookup service tastytrade key app-refresh-token >/dev/null 2>&1 \
     && ! secret-tool lookup service tastytrade key refresh-token >/dev/null 2>&1; then
     echo
-    echo 'No tastytrade connection yet. To add one, approve Spice on tastytrade with:'
+    echo 'No tastytrade connection yet. To add one, approve spicy.trade on tastytrade with:'
     echo '  ./ops/spice-agent/connect-tastytrade.mjs'
   fi
 fi

@@ -96,7 +96,7 @@ describe('MCP OAuth callers', () => {
 
     const response = await handleMcpRequest(toolsList(`Bearer ${token}`), env, executionContext)
     expect(response.status).toBe(401)
-    expect(response.headers.get('WWW-Authenticate')).toContain('Spice could not verify this request.')
+    expect(response.headers.get('WWW-Authenticate')).toContain('spicy.trade could not verify this request.')
     expect(logged.mock.calls).toEqual([['McpCallerLookupFailed', 'D1Error']])
   })
 

@@ -12,7 +12,7 @@ import { join } from 'node:path'
  * stdin, exactly as `keyringStore` sends it, and lands it in the same `store/` directory a
  * caller can read back to assert what was persisted.
  *
- * Keyed by `service/key` rather than key alone, because the service is what separates Spice's
+ * Keyed by `service/key` rather than key alone, because the service is what separates spicy.trade's
  * own token from a broker's credentials, and a stand-in that collapsed them could not notice
  * them being confused.
  */

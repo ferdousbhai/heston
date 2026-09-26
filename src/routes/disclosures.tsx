@@ -6,18 +6,18 @@ export const Route = createFileRoute('/disclosures')({
   component: DisclosuresPage,
   head: () => ({
     meta: [
-      { title: 'Risk disclosures | Spice' },
-      { name: 'description', content: 'Options risk, market data, AI-generated content, and order placement disclosures for Spice.' },
+      { title: 'Risk disclosures | spicy.trade' },
+      { name: 'description', content: 'Options risk, market data, AI-generated content, and order placement disclosures for spicy.trade.' },
     ],
   }),
 })
 
 function DisclosuresPage() {
   return (
-    <SitePage intro="What to know before acting on anything Spice shows you." title="Risk disclosures">
+    <SitePage intro="What to know before acting on anything spicy.trade shows you." title="Risk disclosures">
       <section>
         <h2>Not investment advice</h2>
-        <p>Spice is software run by an individual. It is not a broker-dealer or registered investment adviser, and nothing on it, including the daily brief and its trade ideas, is a recommendation suited to your circumstances. Past performance does not predict future results.</p>
+        <p>spicy.trade is software run by an individual. It is not a broker-dealer or registered investment adviser, and nothing on it, including the daily brief and its trade ideas, is a recommendation suited to your circumstances. Past performance does not predict future results.</p>
       </section>
       <section>
         <h2>Options are risky</h2>
@@ -29,11 +29,11 @@ function DisclosuresPage() {
       </section>
       <section>
         <h2>Order placement</h2>
-        <p>Spice places an order only through your own tastytrade connection, when your agent asks it to. Spice has no confirmation step of its own; any confirmation prompt comes from the agent you run. Before submitting, it resolves the exact contract, admits only defined-risk orders (a debit opening trade or a close of a verified position), checks the limit price against the current bid and ask, and requires a clean dry-run from your broker. These checks limit mistakes; they do not make a trade sound. A submitted order, or an order status or balance Spice reports, is not proof the order was accepted, filled, cancelled, or priced as shown; verify with your broker. If a submission's outcome is uncertain, Spice does not retry it and blocks further orders on that account until it is reconciled; check your broker before placing it again.</p>
+        <p>spicy.trade places an order only through your own tastytrade connection, when your agent asks it to. spicy.trade has no confirmation step of its own; any confirmation prompt comes from the agent you run. Before submitting, it resolves the exact contract, admits only defined-risk orders (a debit opening trade or a close of a verified position), checks the limit price against the current bid and ask, and requires a clean dry-run from your broker. These checks limit mistakes; they do not make a trade sound. A submitted order, or an order status or balance spicy.trade reports, is not proof the order was accepted, filled, cancelled, or priced as shown; verify with your broker. If a submission's outcome is uncertain, spicy.trade does not retry it and blocks further orders on that account until it is reconciled; check your broker before placing it again.</p>
       </section>
       <section>
         <h2>No affiliation</h2>
-        <p>Spice connects to tastytrade through tastytrade’s OAuth app program. It is not affiliated with or endorsed by tastytrade or any data provider, and your broker alone executes, clears, and reports your trades.</p>
+        <p>spicy.trade connects to tastytrade through tastytrade’s OAuth app program. It is not affiliated with or endorsed by tastytrade or any data provider, and your broker alone executes, clears, and reports your trades.</p>
       </section>
     </SitePage>
   )

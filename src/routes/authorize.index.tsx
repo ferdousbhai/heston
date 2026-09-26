@@ -19,7 +19,7 @@ import { GoogleSignInButton, useViewer } from '../components/auth-gate'
  */
 export const Route = createFileRoute('/authorize/')({
   component: AuthorizePage,
-  head: () => ({ meta: [{ title: 'Connect your agent | Spice' }] }),
+  head: () => ({ meta: [{ title: 'Connect your agent | spicy.trade' }] }),
 })
 
 /**
@@ -52,13 +52,13 @@ function AuthorizePage() {
       {viewer.phase === 'checking' && <Spinner />}
       {viewer.phase === 'error' && (
         <p className="authorize-error">
-          Spice could not check whether you are signed in. Reload to try again.
+          spicy.trade could not check whether you are signed in. Reload to try again.
         </p>
       )}
       {viewer.phase === 'ready' && viewer.user === null && (
         <>
           <p>
-            An agent is asking to connect to Spice as you. Sign in to continue, and you will be
+            An agent is asking to connect to spicy.trade as you. Sign in to continue, and you will be
             returned here automatically.
           </p>
           <GoogleSignInButton callbackURL={`/authorize${rawSearch}`} />

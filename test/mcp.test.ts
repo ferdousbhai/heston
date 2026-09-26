@@ -94,7 +94,7 @@ describe('MCP bearer authentication', () => {
       expect(response.status).toBe(401)
       const challenge = response.headers.get('WWW-Authenticate') ?? ''
       expect(challenge).toContain('invalid_token')
-      expect(challenge).toContain('Spice could not verify this request.')
+      expect(challenge).toContain('spicy.trade could not verify this request.')
       expect(challenge).not.toContain('Issue a new one')
       expect(logged.mock.calls).toEqual([['McpCallerLookupFailed', 'McpCallerLookupError']])
     } finally {
@@ -126,7 +126,7 @@ describe('MCP bearer authentication', () => {
           executionContext,
         )
         expect(response.status).toBe(401)
-        expect(response.headers.get('WWW-Authenticate')).toContain('Spice could not verify this request.')
+        expect(response.headers.get('WWW-Authenticate')).toContain('spicy.trade could not verify this request.')
       }
       expect(logged.mock.calls).toEqual([['McpCallerLookupFailed', 'D1Error'], ['McpCallerLookupFailed', 'D1Error']])
     } finally {
@@ -691,7 +691,7 @@ describe('tool error redaction boundary', () => {
       }), { DB: store.database }, executionContext))
       expect(called.error).toBeUndefined()
       expect(called.result).toEqual({
-        content: [{ text: 'Spice could not complete read_daily_brief: TypeError', type: 'text' }],
+        content: [{ text: 'spicy.trade could not complete read_daily_brief: TypeError', type: 'text' }],
         isError: true,
       })
       expect(logged.mock.calls).toEqual([['McpToolFailed', 'read_daily_brief', 'TypeError']])
@@ -736,8 +736,8 @@ describe('tool error redaction boundary', () => {
     odd.name = 'Name with <payload>'
     const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     try {
-      expect(toolErrorResult('read_catalysts', odd).content[0]!.text).toBe('Spice could not complete read_catalysts: UnknownError')
-      expect(toolErrorResult('read_catalysts', undefined).content[0]!.text).toBe('Spice could not complete read_catalysts: UnknownError')
+      expect(toolErrorResult('read_catalysts', odd).content[0]!.text).toBe('spicy.trade could not complete read_catalysts: UnknownError')
+      expect(toolErrorResult('read_catalysts', undefined).content[0]!.text).toBe('spicy.trade could not complete read_catalysts: UnknownError')
     } finally {
       logged.mockRestore()
     }

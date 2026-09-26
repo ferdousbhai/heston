@@ -176,7 +176,7 @@ function ViewerMenu({ viewerImage, viewerName }: { viewerImage?: string; viewerN
         <Avatar className="viewer-avatar">
           {/* alt="" because the trigger already carries the account name as its aria-label; a
               second label here would read it twice to a screen reader. no-referrer keeps
-              Google from seeing which Spice page requested the image. */}
+              Google from seeing which spicy.trade page requested the image. */}
           {viewerImage && <AvatarImage alt="" referrerPolicy="no-referrer" src={viewerImage} />}
           <AvatarFallback>{viewerName.trim().charAt(0).toUpperCase()}</AvatarFallback>
         </Avatar>
@@ -224,8 +224,8 @@ export function TopBar({
   const statusPinned = useRef(false)
   return (
     <header className="top-bar">
-      <Link aria-label="Spice home" className="brand" to="/watch">
-        <span>SPICE</span>
+      <Link aria-label="spicy.trade home" className="brand" to="/watch">
+        <span>spicy<em>.trade</em></span>
       </Link>
       <div className="top-actions">
         {status && (

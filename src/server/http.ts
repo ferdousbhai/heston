@@ -46,7 +46,7 @@ export function canonicalHostRedirect(request: Request): Response | undefined {
     return Response.json({
       error: {
         code: -32_600,
-        message: `Spice's MCP endpoint is ${endpoint} — this host no longer serves it. Reconnect to ${endpoint}.`,
+        message: `spicy.trade's MCP endpoint is ${endpoint} — this host no longer serves it. Reconnect to ${endpoint}.`,
       },
       id: null,
       jsonrpc: '2.0',

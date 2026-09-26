@@ -4,5 +4,5 @@ import { RecommendationsView } from '../components/spice-app'
 
 export const Route = createFileRoute('/_app/recommendations')({
   component: RecommendationsView,
-  head: () => ({ meta: [{ title: 'Recommendations | Spice' }] }),
+  head: () => ({ meta: [{ title: 'Recommendations | spicy.trade' }] }),
 })

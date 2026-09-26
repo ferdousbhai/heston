@@ -71,7 +71,7 @@
       "secret_name": "tastytrade-refresh-token"
     },
     {
-      // Spice's tastytrade OAuth app, which members connect through. Not the market-data grant
+      // spicy.trade's tastytrade OAuth app, which members connect through. Not the market-data grant
       // above: that one is the Worker's own account, and this one only ever mints tokens from a
       // refresh token a member presents (`src/server/tastytrade-member-grant.ts`). Its client id
       // is the `TASTYTRADE_OAUTH_CLIENT_ID` var below.

@@ -37,7 +37,7 @@ const ANNOTATIONS = {
   read_market_metrics: read('Read market metrics', true),
   read_option_greeks: read('Read option Greeks', true),
   read_price_history: read('Read price history', true),
-  // Reads answered entirely from Spice's own stores.
+  // Reads answered entirely from spicy.trade's own stores.
   read_catalysts: read('Read catalysts', false),
   read_daily_brief: read('Read the daily brief', false),
   read_watchlist: read('Read the watchlist', false),

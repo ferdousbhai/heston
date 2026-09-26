@@ -114,7 +114,7 @@ async function agentRequest<T>(
   invalid: string,
 ): Promise<{ data: T; userId: string } | Response> {
   const userId = await agentUserId(request, database)
-  if (!userId) return jsonNoStore({ error: 'A Spice agent token is required' }, { status: 401 })
+  if (!userId) return jsonNoStore({ error: 'A spicy.trade agent token is required' }, { status: 401 })
   const parsed = schema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return jsonNoStore({ error: invalid }, { status: 400 })
   return { data: parsed.data, userId }

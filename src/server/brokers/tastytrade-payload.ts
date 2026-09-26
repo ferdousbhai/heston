@@ -13,7 +13,7 @@ import { BROKER_ORDER_ID_MAX_LENGTH, type BrokerBalances, type BrokerWorkingOrde
 
 // Account reads request one large broker page. completeAccountRows rejects a reported
 // larger total or a full page without a total, so this is a completeness boundary. A named product
-// bound, the owner's choice: a defined-risk Spice account is expected to hold far fewer open rows,
+// bound, the owner's choice: a defined-risk spicy.trade account is expected to hold far fewer open rows,
 // and one that holds more fails the read visibly rather than showing a partial account.
 export const BROKER_ACCOUNT_PAGE_SIZE = 200
 

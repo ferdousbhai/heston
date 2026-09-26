@@ -29,7 +29,7 @@ export const Route = createRootRoute({
         content: 'black-translucent',
       },
       {
-        title: 'Spice',
+        title: 'spicy.trade',
       },
       {
         name: 'description',
@@ -132,7 +132,7 @@ function LegacyServiceWorkerRetirement() {
   }, [])
   return failed ? (
     <aside className="service-worker-error" role="alert">
-      Spice could not clear an obsolete offline copy. Clear this site's browser data, then reload.
+      spicy.trade could not clear an obsolete offline copy. Clear this site's browser data, then reload.
     </aside>
   ) : null
 }
