@@ -535,9 +535,14 @@ test('mobile market, recommendations, search, sorting, and connect flows remain 
   await navigateTo(page, 'Connect')
   // A signed-in member is first class here: the setup surface is theirs, not the owner's.
   await expect(page.getByRole('heading', { name: 'Connect your agent' })).toBeVisible()
+  // The optional steps are folded; token issuance is one tap away, under its own heading.
+  await expect(page.getByRole('button', { name: 'Create token' })).toBeHidden()
+  await page.getByRole('heading', { name: /Local proxy/ }).click()
+  await page.getByRole('heading', { name: /Headless access/ }).click()
   await expect(page.getByRole('button', { name: 'Create token' })).toBeVisible()
-  // Tokens and shell commands are long unbreakable strings; they must scroll inside their own
-  // block rather than pushing the page sideways. A screenshot caught this when tests did not.
+  // Tokens and shell commands are long unbreakable strings; with every step open they must wrap
+  // inside their own block rather than push the page sideways. A screenshot caught this when
+  // tests did not.
   expect(await page.evaluate(() => document.documentElement.scrollWidth))
     .toBeLessThanOrEqual(await page.evaluate(() => document.documentElement.clientWidth))
 

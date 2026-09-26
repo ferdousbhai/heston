@@ -298,8 +298,12 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
         </p>
       </section>
 
-      <section className="connect-step">
-        <h2>2 · Local proxy <span className="connect-optional">optional</span></h2>
+      {/* The two optional steps are folded: most members need only step one, and these two made
+          the page several screens long on a phone. Native details keep the contents in the page
+          for find-in-page and assistive technology, and open on their own when a search lands
+          inside. */}
+      <details className="connect-step connect-fold">
+        <summary><h2>2 · Local proxy <span className="connect-optional">optional</span></h2></summary>
         <p>
           A process on this machine attaches the spicy.trade token from the keyring so the agent holds
           none. That is how live quotes, chains, and Greeks reach a client that cannot complete a
@@ -332,10 +336,10 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
           label="Store a personal grant"
           value={'./ops/spice-agent/store-credentials.sh tastytrade'}
         />
-      </section>
+      </details>
 
-      <section className="connect-step">
-        <h2>3 · Headless access <span className="connect-optional">optional</span></h2>
+      <details className="connect-step connect-fold">
+        <summary><h2>3 · Headless access <span className="connect-optional">optional</span></h2></summary>
         <p>
           A machine that runs unattended cannot complete a browser sign-in, so it uses a token
           instead. If you are sitting at a terminal, step one is the one you want.
@@ -429,7 +433,7 @@ export function ConnectScreen({ owner }: { owner: boolean }) {
           A configured <code>Authorization</code> header takes precedence over the browser flow, so
           use this only where there is no browser.
         </p>
-      </section>
+      </details>
     </section>
   )
 }

@@ -582,6 +582,15 @@ button { -webkit-tap-highlight-color: transparent; }
 .connect-step { padding-top: 20px; border-top: 1px solid var(--hairline); min-width: 0; }
 .connect-step h2 { margin: 0 0 8px; font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
 .connect-optional { margin-left: 6px; color: var(--ink-faint); font-size: 12px; letter-spacing: 0; }
+.connect-fold summary { display: flex; align-items: center; gap: 10px; min-height: var(--touch-target); list-style: none; cursor: pointer; }
+.connect-fold summary::-webkit-details-marker { display: none; }
+.connect-fold summary h2 { margin: 0; }
+/* A chevron that turns as the step opens, so a folded step reads as one that opens. */
+.connect-fold summary::after { content: ""; width: 8px; height: 8px; margin-left: auto; border-right: 1.5px solid var(--ink-muted); border-bottom: 1.5px solid var(--ink-muted); transform: rotate(45deg); transition: transform .15s var(--ease); }
+.connect-fold[open] summary::after { transform: rotate(-135deg); }
+.connect-fold summary:hover h2 { color: var(--brand); }
+.connect-fold summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 4px; border-radius: 4px; }
+.connect-fold[open] summary { margin-bottom: 8px; }
 .connect-step [data-slot="alert"] { margin: 12px 0; }
 .connect-issue { margin: 12px 0; display: flex; gap: 8px; }
 .connect-issue input { flex: 1; min-width: 0; }
