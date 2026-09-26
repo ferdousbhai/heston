@@ -59,6 +59,13 @@ describe('volatility classification', () => {
     expect(issuerName('ASML Holding N.V. - New York Registry Shares')).toBe('ASML Holding N.V.')
   })
 
+  it('reads an issuer the provider states twice once, and leaves a different name beside it whole', () => {
+    expect(issuerName('Sunstone Hotel Investors, Inc. Sunstone Hotel Investors, Inc. Common Shares'))
+      .toBe('Sunstone Hotel Investors, Inc.')
+    expect(issuerName('Petroleo Brasileiro S.A. Petrobras ADS')).toBe('Petroleo Brasileiro S.A. Petrobras')
+    expect(issuerName('Duos Technologies Group, Inc.')).toBe('Duos Technologies Group, Inc.')
+  })
+
   it('cuts a depositary-share tail whether it is named or described', () => {
     expect(issuerName('Nokia Corporation Sponsored American Depositary Shares')).toBe('Nokia Corporation')
     expect(issuerName('NIO Inc. American depositary shares, each representing one Class A ordinary share'))

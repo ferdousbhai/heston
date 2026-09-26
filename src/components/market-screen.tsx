@@ -3,7 +3,7 @@ import { ArrowDown, ArrowUp, ArrowUpRight, ChevronRight, Search, Star, X } from 
 import { matchSorter } from 'match-sorter'
 
 import { Button } from '#/components/ui/button'
-import { Card, CardContent, CardFooter, CardHeader } from '#/components/ui/card'
+import { Card, CardContent, CardHeader } from '#/components/ui/card'
 import { Drawer, DrawerClose, DrawerContent, DrawerTitle } from '#/components/ui/drawer'
 import { Empty, EmptyDescription, EmptyHeader } from '#/components/ui/empty'
 import { Progress } from '#/components/ui/progress'
@@ -941,9 +941,11 @@ export function MarketScreen({
           </div>
         </CardHeader>
         <CardContent className="focus-narrative">
-          {/* The prose a reader reads: one column dissolves this wrapper into the narrative grid,
-              and the wide layout makes it the main column, since the thesis is the longest thing
-              on the card and the runway is a compact timeline that fits the rail. */}
+          {/* What a reader reads, then the numbers under it: one column dissolves this wrapper into
+              the narrative grid, and the wide layout makes it the main column, since the thesis is
+              the longest thing on the card and the runway is a compact timeline that fits the
+              rail. The metrics live here rather than in a footer row, so they follow the thesis
+              directly instead of waiting below whichever column runs longer. */}
           <div className="focus-reading">
             {selectedRecommendation && (
               <section aria-labelledby="focus-recommendation-title" className="focus-recommendation">
@@ -952,6 +954,22 @@ export function MarketScreen({
               </section>
             )}
             <EvidenceCards symbol={selected.symbol} />
+            <section aria-label={`${selected.symbol} metrics`} className="focus-metrics">
+              <dl className="focus-tape">
+                {selectedTape.map(([label, value]) => (
+                  <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
+                ))}
+              </dl>
+              <p className="focus-freshness">
+                <span>Quote <time dateTime={selected.updatedAt}>{quoteAge}</time></span>
+                <span>
+                  {'IV & liquidity '}
+                  {selected.metricsUpdatedAt
+                    ? <time dateTime={selected.metricsUpdatedAt}>{metricsAge}</time>
+                    : 'age not reported'}
+                </span>
+              </p>
+            </section>
           </div>
           <CatalystRunway
             catalysts={visibleCatalysts}
@@ -964,22 +982,6 @@ export function MarketScreen({
             symbol={selected.symbol}
           />
         </CardContent>
-        <CardFooter>
-          <dl className="focus-tape" aria-label={`${selected.symbol} metrics`}>
-            {selectedTape.map(([label, value]) => (
-              <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
-            ))}
-          </dl>
-          <p className="focus-freshness">
-            <span>Quote <time dateTime={selected.updatedAt}>{quoteAge}</time></span>
-            <span>
-              {'IV & liquidity '}
-              {selected.metricsUpdatedAt
-                ? <time dateTime={selected.metricsUpdatedAt}>{metricsAge}</time>
-                : 'age not reported'}
-            </span>
-          </p>
-        </CardFooter>
       </Card>
   )
 

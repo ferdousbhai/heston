@@ -184,6 +184,9 @@ button { -webkit-tap-highlight-color: transparent; }
 
 .focus-reading { display: contents; }
 .focus-reading > .focus-evidence { order: 1; }
+.focus-reading > .focus-metrics { order: 2; }
+/* The narrative grid's gap already clears the section above, so the tape's own margin would double it. */
+.focus-metrics > .focus-tape { margin-top: 0; }
 .runway { margin: 14px 0 0; padding: 0; list-style: none; }
 .runway-event { position: relative; display: grid; grid-template-columns: 52px 10px minmax(0, 1fr); column-gap: 13px; padding-bottom: 14px; }
 .runway-event:last-child { padding-bottom: 0; }
@@ -368,6 +371,33 @@ button { -webkit-tap-highlight-color: transparent; }
 .market-state-loading { width: min(100%, 260px); display: flex; flex-direction: column; gap: 10px; }
 .market-state-loading [data-slot="skeleton"]:first-child { width: 54%; height: 13px; margin-inline: auto; }
 .market-state-loading [data-slot="skeleton"]:nth-child(2) { width: 100%; height: 42px; }
+.market-state-title { margin: 0 0 6px; color: var(--text); font-size: 17px; font-weight: 600; }
+.market-state [data-slot="empty"] button { margin-top: 14px; }
+
+/* The first load's outline, sized to the view it stands in for so the page does not jump when
+   the snapshot lands: the focus card's rail and reading column, then the list's rows. */
+.page-skeleton { padding: 20px var(--page-gutter) 24px; }
+.page-skeleton [data-slot="skeleton"] { background: var(--surface); }
+.skeleton-focus { display: grid; gap: 22px; padding-bottom: 24px; border-bottom: 1px solid var(--hairline); }
+.skeleton-rail, .skeleton-main, .skeleton-trade { display: grid; gap: 10px; }
+.skeleton-symbol { width: 92px; height: 28px; }
+.skeleton-name { width: 160px; height: 14px; }
+.skeleton-price { width: 180px; height: 30px; margin-top: 6px; }
+.skeleton-gauge { width: 100%; height: 6px; margin-top: 12px; }
+.skeleton-line { width: 100%; height: 13px; }
+.skeleton-line:last-child { width: 62%; }
+.skeleton-rows { display: grid; gap: 10px; margin-top: 24px; }
+.skeleton-row { height: 54px; border-radius: 6px; }
+.skeleton-brief { width: min(100%, 760px); margin-inline: auto; display: grid; gap: 28px; }
+.skeleton-trade { padding-top: 22px; border-top: 1px solid var(--hairline); }
+/* A phone shows the focus as a two-line strip, so its outline is the rail alone. */
+@media (max-width: 959px) { .skeleton-main { display: none; } }
+@media (min-width: 960px) {
+  .page-skeleton { padding: 28px var(--page-gutter); }
+  .skeleton-focus { grid-template-columns: clamp(300px, 24vw, 420px) minmax(0, 1fr); column-gap: clamp(22px, 2.4vw, 40px); }
+  .skeleton-main { align-content: start; padding-left: clamp(22px, 2.4vw, 40px); border-left: 1px solid var(--hairline); }
+  .skeleton-main .skeleton-line { max-width: 60ch; }
+}
 .viewer-avatar [data-slot="avatar-fallback"] { background: var(--brand); color: #180d04; font-weight: 700; }
 .owner-access-error [data-slot="alert-description"], .auth-inline-error [data-slot="alert-description"] { color: inherit; }
 .site-callout [data-slot="alert-title"] { color: var(--brand); font-size: 15px; }
@@ -376,7 +406,6 @@ button { -webkit-tap-highlight-color: transparent; }
 .instrument-focus { --card-spacing: 0px; gap: 0; }
 .instrument-focus [data-slot="card-header"] { display: flex; flex-direction: row; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 0; }
 .instrument-focus [data-slot="card-content"] { padding: 0; }
-.instrument-focus [data-slot="card-footer"] { display: block; padding: 0; }
 .premium-axis[data-slot="progress"] { width: 128px; height: 14px; margin-top: 11px; display: flex; gap: 0; border: 0; }
 .premium-axis [data-slot="progress-track"] { height: 3px; overflow: visible; background: var(--axis-gradient); }
 .premium-axis [data-slot="progress-indicator"] { position: relative; height: 3px; background: rgba(245, 245, 247, .62); mix-blend-mode: overlay; }
@@ -402,9 +431,9 @@ button { -webkit-tap-highlight-color: transparent; }
      its evidence and the metric grid take the rest of the row beside them, so the narrative grid
      dissolves into this one. The runway is a compact timeline and the thesis is long prose, so
      the prose gets the width, and the metrics fill it under the thesis rather than lengthening
-     the rail. The runway's row is the flexible one, so a thesis longer than the rail's top
-     opens space below the runway rather than between the rail's sections. */
-  .instrument-focus { padding: 28px var(--page-gutter); display: grid; grid-template-columns: clamp(300px, 24vw, 420px) minmax(0, 1fr); grid-template-rows: auto 1fr auto; column-gap: clamp(22px, 2.4vw, 40px); align-items: start; }
+     the rail. The trailing row absorbs whichever column runs longer, so neither opens a gap
+     between its own sections. */
+  .instrument-focus { padding: 28px var(--page-gutter); display: grid; grid-template-columns: clamp(300px, 24vw, 420px) minmax(0, 1fr); grid-template-rows: auto auto 1fr; column-gap: clamp(22px, 2.4vw, 40px); align-items: start; }
   .instrument-focus [data-slot="card-header"] { grid-column: 1; grid-row: 1; display: block; }
   .selected-instrument p { font-size: 13px; }
   .selected-price { margin-top: 7px; }
@@ -415,22 +444,18 @@ button { -webkit-tap-highlight-color: transparent; }
   /* Dissolving the narrative grid drops its gap, so the rail's own sections carry the spacing:
      the runway clears the premium axis, and freshness keeps the tape's row gap. */
   .focus-runway { grid-column: 1; grid-row: 2; margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--hairline); }
-  .focus-tape { margin-top: 24px; padding: 20px 0 0; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); row-gap: 16px; }
-  .focus-freshness { margin-top: 12px; }
-  /* The reading column spans the rail's first two rows and the metrics take the third, so the
-     metrics start below whichever of the rail or the thesis runs longer. */
-  .instrument-focus [data-slot="card-footer"] { grid-column: 2; grid-row: 3; align-self: stretch; padding-left: clamp(22px, 2.4vw, 40px); border-left: 1px solid var(--hairline); }
+  .focus-tape { padding: 20px 0 0; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); row-gap: 16px; }
+  .focus-freshness { margin-top: 12px; padding-bottom: 0; }
+  .focus-reading > .focus-metrics { margin-top: 24px; }
+  /* A name with nothing to read opens the column on its metrics, with no rule above them. */
+  .focus-reading > .focus-metrics:first-child { margin-top: 0; }
+  .focus-reading > .focus-metrics:first-child > .focus-tape { padding-top: 0; border-top: 0; }
   /* The reading column is the second column, beside the rail, and it stretches so its rule runs
      the full height. Evidence stacks directly under the recommendation, however short the thesis
      is against the rail, and takes the column's top when there is no recommendation. */
-  .focus-reading { display: block; grid-column: 2; grid-row: 1 / 3; align-self: stretch; padding: 0 0 0 clamp(22px, 2.4vw, 40px); border-left: 1px solid var(--hairline); }
+  .focus-reading { display: block; grid-column: 2; grid-row: 1 / -1; align-self: stretch; padding: 0 0 0 clamp(22px, 2.4vw, 40px); border-left: 1px solid var(--hairline); }
   .focus-reading > .focus-evidence:first-child { padding-top: 0; border-top: 0; }
   .focus-recommendation + .focus-evidence { margin-top: 22px; }
-  /* A name with neither a recommendation nor evidence has nothing to read, so the metrics
-     take the main column from its top instead of sitting under a blank one. */
-  .focus-reading:empty { display: none; }
-  .instrument-focus:has(.focus-reading:empty) [data-slot="card-footer"] { grid-row: 1 / -1; }
-  .instrument-focus:has(.focus-reading:empty) .focus-tape { margin-top: 0; padding-top: 0; border-top: 0; }
   .runway { margin-top: 0; }
   .runway-event { grid-template-columns: 68px 10px minmax(0, 1fr); padding-bottom: 13px; }
   .runway-event::before { left: 86.5px; }
@@ -444,8 +469,11 @@ button { -webkit-tap-highlight-color: transparent; }
 /* The widest layout gives the year column its own cell instead of lengthening the rail. The thesis
    keeps its reading measure there, so evidence takes the width beside it rather than below. */
 @media (min-width: 1120px) {
-  .focus-reading:has(> .focus-recommendation + .focus-evidence) { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); column-gap: clamp(22px, 2.4vw, 40px); align-content: start; }
-  .focus-recommendation + .focus-evidence { margin-top: 0; padding: 0 0 0 clamp(22px, 2.4vw, 40px); border-top: 0; border-left: 1px solid var(--hairline); }
+  /* Only cards earn the column beside the thesis; a failed read is one muted line, and stays
+     under the thesis rather than claiming a third of the width for it. */
+  .focus-reading:has(> .focus-recommendation + .focus-evidence .evidence-cards) { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); column-gap: clamp(22px, 2.4vw, 40px); align-content: start; }
+  .focus-recommendation + .focus-evidence:has(.evidence-cards) { margin-top: 0; padding: 0 0 0 clamp(22px, 2.4vw, 40px); border-top: 0; border-left: 1px solid var(--hairline); }
+  .focus-reading > .focus-metrics { grid-column: 1 / -1; }
 
   .premium-data-table .year-cell { display: table-cell; width: 11%; min-width: 96px; text-align: right; }
   .premium-data-table .year-cell strong { display: block; margin-top: 3px; color: var(--ink-faint); font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -463,6 +491,9 @@ button { -webkit-tap-highlight-color: transparent; }
 .connect-footer { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 18px var(--page-gutter) 24px; color: var(--ink-faint); font-size: 13px; }
 .connect-footer a { color: inherit; text-decoration: none; }
 .connect-footer a:hover { color: var(--ink-muted); }
+/* Connect centres its content on a wide screen, signed in or not, so its links centre under it
+   rather than hanging at the page's left edge. The brief's footer sits inside its own column. */
+@media (min-width: 1120px) { .connect-footer:not(.brief-footer) { justify-content: center; } }
 .brief-footer { margin-top: 20px; padding-inline: 22px; }
 
 @media (max-width: 760px) {

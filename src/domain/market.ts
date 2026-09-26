@@ -312,6 +312,13 @@ const TAPE_ABBREVIATION = /^[A-Z0-9][A-Z0-9 .,&/()-]* by (?=\S)/
 /* A description shouted end to end is a tape string, and abbreviates the class it appends
    ("CATALENT INC COM", "GORES HLD XI CL A OS"). Only these rows are read this way, so an
    issuer that merely ends in one of these letters keeps its name. */
+/**
+ * A description that states the issuer twice before its class ("Sunstone Hotel Investors, Inc.
+ * Sunstone Hotel Investors, Inc. Common Shares") names one issuer, so it reads once. Only an
+ * exact repeat of the whole name collapses; two different names side by side stay as sent.
+ */
+const REPEATED_NAME = /^(.+?)\s+\1$/
+
 const TAPE_CLASS = /(?: (?:COM|CM|CS|SHS|ORD|ORDA|CLA|OS|NEW|CL [A-Z]|SH [A-Z]|ORD [A-Z]))+$/
 
 /**
@@ -328,5 +335,5 @@ export function issuerName(name: string): string {
     .replace(/\s*\([^)]*\)\s*$/, '')
     .replace(/[\s,\u2013-]+$/, '')
   const named = issuer === issuer.toUpperCase() ? issuer.replace(TAPE_CLASS, '') : issuer
-  return named || described
+  return named.replace(REPEATED_NAME, '$1') || described
 }

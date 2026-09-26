@@ -210,7 +210,7 @@ function PrimaryLink({ icon, label, to }: { icon: ReactNode; label: string; to: 
  * reader off a spinner that cannot end. The audience is still not guessed: restoring for the
  * wrong one would discard the stored snapshot.
  */
-function SnapshotPending() {
+function SnapshotPending({ view }: { view: 'brief' | 'watch' }) {
   const { authError, bootstrapComplete, snapshotReady } = useWorkspace()
   return (
     <>
@@ -221,9 +221,9 @@ function SnapshotPending() {
           <Button onClick={() => window.location.reload()} size="sm" type="button" variant="outline">Try again</Button>
         </Alert>
       )}
-      {!snapshotReady && !authError && (
-        <MarketState loading={!bootstrapComplete} message={bootstrapComplete ? 'Market data is unavailable.' : 'Loading market data…'} />
-      )}
+      {!snapshotReady && !authError && (bootstrapComplete
+        ? <SnapshotUnavailable />
+        : <PageSkeleton view={view} />)}
     </>
   )
 }
@@ -255,7 +255,7 @@ export function WatchView() {
           <AlertDescription>{favorites.error}</AlertDescription>
         </Alert>
       )}
-      <SnapshotPending />
+      <SnapshotPending view="watch" />
       {snapshotReady && selected && activeWatchlist && (
         <MarketScreen
           activeWatchlist={activeWatchlist}
@@ -280,7 +280,7 @@ export function RecommendationsView() {
   const { brief, chooseSymbol, snapshotReady } = useWorkspace()
   return (
     <>
-      <SnapshotPending />
+      <SnapshotPending view="brief" />
       {snapshotReady && (
         <Suspense fallback={<MarketState loading message="Loading…" />}>
           <BriefScreen
@@ -316,6 +316,67 @@ export function ConnectView() {
         <Link to="/disclosures">Disclosures</Link>
       </nav>
     </>
+  )
+}
+
+/**
+ * The first load draws the outline of the view it is loading -- the focus card and the list's
+ * rows, or a brief's cover and trades -- so the page settles into place instead of jumping from a
+ * lone spinner to a full screen. The words stay for assistive technology, which cannot see shapes.
+ */
+function PageSkeleton({ view }: { view: 'brief' | 'watch' }) {
+  return (
+    <section aria-busy="true" aria-live="polite" className={`page-skeleton page-skeleton-${view}`}>
+      <p className="sr-only" role="status">Loading market data…</p>
+      {view === 'watch'
+        ? (
+            <>
+              <div className="skeleton-focus" aria-hidden="true">
+                <div className="skeleton-rail">
+                  <Skeleton className="skeleton-symbol" />
+                  <Skeleton className="skeleton-name" />
+                  <Skeleton className="skeleton-price" />
+                  <Skeleton className="skeleton-gauge" />
+                </div>
+                <div className="skeleton-main">
+                  {[0, 1, 2, 3].map((line) => <Skeleton className="skeleton-line" key={line} />)}
+                </div>
+              </div>
+              <div className="skeleton-rows" aria-hidden="true">
+                {[0, 1, 2, 3, 4, 5].map((row) => <Skeleton className="skeleton-row" key={row} />)}
+              </div>
+            </>
+          )
+        : (
+            <div className="skeleton-brief" aria-hidden="true">
+              <Skeleton className="skeleton-name" />
+              {[0, 1].map((trade) => (
+                <div className="skeleton-trade" key={trade}>
+                  <Skeleton className="skeleton-price" />
+                  {[0, 1, 2, 3].map((line) => <Skeleton className="skeleton-line" key={line} />)}
+                </div>
+              ))}
+            </div>
+          )}
+    </section>
+  )
+}
+
+/**
+ * The snapshot never arrived. Said plainly, with the one thing a reader can do about it: a
+ * reload asks again from the start, the same answer a failed session check gives.
+ */
+function SnapshotUnavailable() {
+  return (
+    <section aria-live="polite" className="market-state">
+      <Empty>
+        <EmptyHeader>
+          <h2 className="market-state-title">Market data is unavailable</h2>
+          <EmptyDescription>spicy.trade couldn&apos;t load the market snapshot.</EmptyDescription>
+        </EmptyHeader>
+        <Button onClick={() => window.location.reload()} size="sm" type="button" variant="outline">Try again</Button>
+      </Empty>
+    </section>
   )
 }
 
